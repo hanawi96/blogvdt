@@ -21,7 +21,7 @@ const db = createDb(getDbBinding());
 const product = await getProduct(db, id);
 if (!product) return Astro.redirect(routes.adminProducts);
 
-const covers = (await listMedia(db)).map((item) => ({ id: item.id, filename: item.filename }));
+const media = await listMedia(db);
 let values = {
   name: product.name,
   slug: product.slug,
@@ -95,6 +95,6 @@ function valuesFrom(form: FormData) {
     {values}
     {errors}
     {formError}
-    {covers}
+    {media}
   />
 </AdminLayout>

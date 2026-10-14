@@ -1,6 +1,7 @@
 ---
-import CoverUpload from './CoverUpload.svelte';
+import MediaPicker from './MediaPicker.svelte';
 import PostEditor from './PostEditor.svelte';
+import type { MediaItem } from '../../features/media/types';
 import SearchPreview from './SearchPreview.astro';
 import SeoChecklist from './SeoChecklist.svelte';
 import SlugField from './SlugField.svelte';
@@ -21,12 +22,6 @@ interface Values {
   status: string;
 }
 
-interface Cover {
-  id: number;
-  filename: string;
-  url: string;
-  alt: string;
-}
 
 interface Meta {
   createdAt: number;
@@ -47,7 +42,7 @@ interface Props {
   errors: FieldErrors;
   formError: string;
   categories: { id: number; name: string }[];
-  covers: Cover[];
+  media: MediaItem[];
   site: SeoSite;
   postId?: number;
   saved?: boolean;
@@ -55,8 +50,7 @@ interface Props {
   deleteAction?: string;
 }
 
-const { csrf, action, values, errors, formError, categories, covers, site, postId, saved = false, meta, deleteAction } = Astro.props;
-const selectedCover = covers.find((cover) => String(cover.id) === values.coverMediaId);
+const { csrf, action, values, errors, formError, categories, media, site, postId, saved = false, meta, deleteAction } = Astro.props;
 const publishLabel = values.status === 'published' ? 'Cập nhật' : 'Xuất bản';
 const saveStatus = formError ? 'Lưu thất bại' : saved ? 'Đã lưu' : '';
 const previewTitle = values.seoTitle || values.title || 'Tiêu đề bài viết';
@@ -87,7 +81,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
         <input id="post-title" class="field field-title" name="title" required maxlength="180" value={values.title} />
         {errors.title && <span class="error-text">{errors.title}</span>}
       </label>
-      <PostEditor client:load csrf={csrf} contentJson={values.contentJson} contentError={errors.contentJson ?? ''} />
+      <PostEditor client:load {csrf} {media} contentJson={values.contentJson} contentError={errors.contentJson ?? ''} />
       <label class="mt-6 block">
         <span class="mb-1 block font-semibold">Tóm tắt</span>
         <textarea class="field min-h-24" name="excerpt" maxlength="300" placeholder="Để trống sẽ lấy đoạn đầu của bài.">{values.excerpt}</textarea>
@@ -155,7 +149,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
       </section>
       <section class="post-card">
         <h2 class="post-card-title">Ảnh đại diện</h2>
-        <CoverUpload client:load {csrf} coverId={values.coverMediaId} coverUrl={selectedCover?.url ?? ''} coverAlt={selectedCover?.alt ?? ''} />
+        <MediaPicker client:load {csrf} items={media} name="coverMediaId" selected={values.coverMediaId ? [values.coverMediaId] : []} editAlt />
         {errors.coverMediaId && <span class="error-text">{errors.coverMediaId}</span>}
       </section>
       <section class="post-card">

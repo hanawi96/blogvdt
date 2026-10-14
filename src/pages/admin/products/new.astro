@@ -14,7 +14,7 @@ const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
 
 const db = createDb(getDbBinding());
-const covers = (await listMedia(db)).map((item) => ({ id: item.id, filename: item.filename }));
+const media = await listMedia(db);
 const empty = {
   name: '',
   slug: '',
@@ -80,5 +80,5 @@ function valuesFrom(form: FormData) {
 ---
 
 <AdminLayout title="Thêm sản phẩm">
-  <ProductForm csrf={session.csrfToken} action={routes.adminProductNew} {values} {errors} {formError} {covers} />
+  <ProductForm csrf={session.csrfToken} action={routes.adminProductNew} {values} {errors} {formError} {media} />
 </AdminLayout>

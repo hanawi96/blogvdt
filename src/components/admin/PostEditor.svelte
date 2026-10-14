@@ -5,13 +5,15 @@
   import { routes } from '../../lib/routes';
   import { isMediaSrc } from '../../features/posts/content';
   import { postExtensions } from '../../features/posts/extensions';
-  import MediaUpload from './MediaUpload.svelte';
+  import MediaPicker from './MediaPicker.svelte';
+  import type { MediaItem } from '../../features/media/types';
 
   let {
     csrf,
+    media = [],
     contentJson = '{"type":"doc","content":[]}',
     contentError = '',
-  }: { csrf: string; contentJson?: string; contentError?: string } = $props();
+  }: { csrf: string; media?: MediaItem[]; contentJson?: string; contentError?: string } = $props();
 
   let host: HTMLDivElement | undefined = $state();
   let toolbarEl: HTMLDivElement | undefined = $state();
@@ -26,7 +28,6 @@
   let linkTimer = 0;
   let menu = $state<'heading' | 'link' | null>(null);
   let libraryOpen = $state(false);
-  let library = $state<Array<{ id: number; url: string; alt: string; width?: number | null; height?: number | null }>>([]);
   let imageAlt = $state('');
   let imageCaption = $state('');
 
@@ -201,16 +202,9 @@
     applyLink();
   }
 
-  async function toggleLibrary() {
+  function toggleLibrary() {
     menu = null;
-    if (libraryOpen) {
-      libraryOpen = false;
-      return;
-    }
-    libraryOpen = true;
-    const response = await fetch(`${routes.adminMedia}?format=json`, { headers: { accept: 'application/json' } });
-    if (!response.ok) return;
-    library = (await response.json()) as Array<{ id: number; url: string; alt: string; width?: number | null; height?: number | null }>;
+    libraryOpen = !libraryOpen;
   }
 
   function imageSelected() {
@@ -228,7 +222,7 @@
     editor?.chain().focus().deleteSelection().run();
   }
 
-  function insertImage(item: { url: string; alt: string }) {
+  function insertImage(item: MediaItem) {
     if (!editor) return;
     editor
       .chain()
@@ -368,22 +362,5 @@
   </div>
   <input type="hidden" name="contentJson" value={json} />
   {#if contentError}<p class="error-text mt-2">{contentError}</p>{/if}
-  {#if libraryOpen}
-    <div class="mt-3 rounded-md border border-line bg-surface p-3">
-      <div class="mb-3 flex items-center justify-between">
-        <p class="font-semibold">Chọn ảnh</p>
-        <button class="btn" type="button" onclick={() => (libraryOpen = false)}>Đóng</button>
-      </div>
-      <MediaUpload {csrf} onUploaded={(item) => (library = [item, ...library])} />
-      <ul class="mt-3 grid gap-3 sm:grid-cols-3">
-        {#each library as item (item.id)}
-          <li>
-            <button class="block w-full text-left" type="button" onclick={() => insertImage(item)}>
-              <img class="h-28 w-full rounded-md object-cover" src={item.url} alt={item.alt || 'Ảnh thư viện'} width={item.width ?? undefined} height={item.height ?? undefined} loading="lazy" />
-            </button>
-          </li>
-        {/each}
-      </ul>
-    </div>
-  {/if}
+  <MediaPicker {csrf} items={media} hideTrigger bind:open={libraryOpen} onPick={insertImage} />
 </div>

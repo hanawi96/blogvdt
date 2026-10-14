@@ -1,4 +1,5 @@
 ---
+import MediaPicker from '../../components/admin/MediaPicker.svelte';
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { mutationError } from '../../features/auth/session';
 import { listMedia } from '../../features/media/media';
@@ -12,7 +13,7 @@ const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
 
 const db = createDb(getDbBinding());
-const covers = (await listMedia(db)).map((item) => ({ id: item.id, filename: item.filename }));
+const media = await listMedia(db);
 let values = await getSettings(db);
 let errors: FieldErrors = {};
 let formError = '';
@@ -76,22 +77,16 @@ function valuesFrom(form: FormData, current: SiteSettingValues): SiteSettingValu
         </label>
       ))
     }
-    <label class="mt-4 block">
-      <span class="mb-1 block font-semibold">Logo</span>
-      <select class="field" name="logo_media_id">
-        <option value="">Không chọn</option>
-        {covers.map((cover) => <option value={cover.id} selected={values.logo_media_id === String(cover.id)}>{cover.filename}</option>)}
-      </select>
+    <fieldset class="mt-4">
+      <legend class="mb-1 font-semibold">Logo</legend>
+      <MediaPicker client:load csrf={session.csrfToken} items={media} name="logo_media_id" selected={values.logo_media_id ? [values.logo_media_id] : []} editAlt />
       {errors.logo_media_id && <span class="error-text">{errors.logo_media_id}</span>}
-    </label>
-    <label class="mt-4 block">
-      <span class="mb-1 block font-semibold">Favicon</span>
-      <select class="field" name="favicon_media_id">
-        <option value="">Không chọn</option>
-        {covers.map((cover) => <option value={cover.id} selected={values.favicon_media_id === String(cover.id)}>{cover.filename}</option>)}
-      </select>
+    </fieldset>
+    <fieldset class="mt-4">
+      <legend class="mb-1 font-semibold">Favicon</legend>
+      <MediaPicker client:load csrf={session.csrfToken} items={media} name="favicon_media_id" selected={values.favicon_media_id ? [values.favicon_media_id] : []} editAlt />
       {errors.favicon_media_id && <span class="error-text">{errors.favicon_media_id}</span>}
-    </label>
+    </fieldset>
     <button class="btn btn-primary mt-6" type="submit">Lưu cài đặt</button>
   </form>
 </AdminLayout>

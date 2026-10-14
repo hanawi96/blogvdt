@@ -23,12 +23,7 @@ const seoSite = {
   host: Astro.url.hostname,
   markUrl: site?.faviconUrl || site?.logoUrl || '',
 };
-const covers = (await listMedia(db)).map((item) => ({
-  id: item.id,
-  filename: item.filename,
-  url: item.url,
-  alt: item.altText,
-}));
+const media = await listMedia(db);
 const empty = {
   title: '',
   slug: '',
@@ -96,5 +91,5 @@ function valuesFrom(form: FormData) {
 ---
 
 <AdminLayout title="Viết bài">
-  <PostForm csrf={session.csrfToken} action={routes.adminPostNew} {values} {errors} {formError} {categories} {covers} site={seoSite} />
+  <PostForm csrf={session.csrfToken} action={routes.adminPostNew} {values} {errors} {formError} {categories} {media} site={seoSite} />
 </AdminLayout>

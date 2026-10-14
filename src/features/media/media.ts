@@ -4,22 +4,58 @@ import { media, posts, productMedia, products, siteSettings } from '../../lib/db
 import { routes } from '../../lib/routes';
 import { isMediaSrc } from '../posts/content';
 import { detectImageType, displayFilename, imageSizeError, mediaObjectKey } from './files';
+import type { MediaItem } from './types';
+import { collectMediaUses } from './uses';
 
-export async function listMedia(db: AppDb) {
+export async function listMedia(db: AppDb): Promise<MediaItem[]> {
   const rows = await db
     .select({
       id: media.id,
       r2Key: media.r2Key,
       filename: media.filename,
       altText: media.altText,
-      mimeType: media.mimeType,
       width: media.width,
       height: media.height,
+      sizeBytes: media.sizeBytes,
       createdAt: media.createdAt,
     })
     .from(media)
     .orderBy(desc(media.createdAt), desc(media.id));
-  return rows.map((row) => ({ ...row, url: routes.media(row.r2Key) }));
+  return rows.map((row) => ({
+    id: row.id,
+    url: routes.media(row.r2Key),
+    alt: row.altText,
+    filename: row.filename,
+    width: row.width,
+    height: row.height,
+    sizeBytes: row.sizeBytes,
+    createdAt: row.createdAt,
+  }));
+}
+
+export async function listMediaUses(db: AppDb) {
+  const [library, postRows, productRows, albumRows, settings] = await Promise.all([
+    db.select({ id: media.id, key: media.r2Key }).from(media),
+    db.select({ id: posts.id, title: posts.title, coverMediaId: posts.coverMediaId, contentJson: posts.contentJson }).from(posts),
+    db.select({ id: products.id, name: products.name, coverMediaId: products.coverMediaId }).from(products),
+    db
+      .select({ mediaId: productMedia.mediaId, productId: productMedia.productId, productName: products.name })
+      .from(productMedia)
+      .innerJoin(products, eq(products.id, productMedia.productId)),
+    db
+      .select({ key: siteSettings.key, value: siteSettings.value })
+      .from(siteSettings)
+      .where(or(eq(siteSettings.key, 'logo_media_id'), eq(siteSettings.key, 'favicon_media_id'))),
+  ]);
+  const setting = (key: string) => settings.find((row) => row.key === key)?.value ?? '';
+  return collectMediaUses({
+    media: library,
+    posts: postRows,
+    products: productRows,
+    album: albumRows,
+    logoId: setting('logo_media_id'),
+    faviconId: setting('favicon_media_id'),
+  });
 }
 
 export async function mediaDimensionsByUrl(db: AppDb, urls: string[]) {
@@ -77,7 +113,7 @@ export async function saveMedia(
     height: number | null;
   },
   now = Date.now(),
-): Promise<{ ok: true; id: number; url: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; id: number; url: string; createdAt: number } | { ok: false; error: string }> {
   await bucket.put(input.key, input.bytes, { httpMetadata: { contentType: input.mimeType } });
   try {
     const inserted = await db
@@ -95,7 +131,7 @@ export async function saveMedia(
       .returning({ id: media.id });
     const id = inserted[0]?.id;
     if (!id) throw new Error('missing media id');
-    return { ok: true, id, url: routes.media(input.key) };
+    return { ok: true, id, url: routes.media(input.key), createdAt: now };
   } catch (error) {
     await bucket.delete(input.key);
     console.error(JSON.stringify({ event: 'media_insert_failed', name: error instanceof Error ? error.name : 'unknown' }));

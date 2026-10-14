@@ -1,5 +1,7 @@
 ---
+import MediaPicker from './MediaPicker.svelte';
 import SlugField from './SlugField.svelte';
+import type { MediaItem } from '../../features/media/types';
 import { PRODUCT_STATUS_LABELS } from '../../features/products/status';
 import type { FieldErrors } from '../../lib/validation/errors';
 
@@ -24,11 +26,11 @@ interface Props {
   values: Values;
   errors: FieldErrors;
   formError: string;
-  covers: { id: number; filename: string }[];
+  media: MediaItem[];
   deleteAction?: string;
 }
 
-const { csrf, action, values, errors, formError, covers, deleteAction } = Astro.props;
+const { csrf, action, values, errors, formError, media, deleteAction } = Astro.props;
 ---
 
 <form class="max-w-3xl" method="post" action={action} data-busy>
@@ -53,30 +55,14 @@ const { csrf, action, values, errors, formError, covers, deleteAction } = Astro.
     <textarea class="field min-h-32" name="description" required maxlength="2000">{values.description}</textarea>
     {errors.description && <span class="error-text">{errors.description}</span>}
   </label>
-  <label class="mt-4 block">
-    <span class="mb-1 block font-semibold">Ảnh đại diện</span>
-    <select class="field" name="coverMediaId">
-      <option value="">Không chọn</option>
-      {covers.map((cover) => <option value={cover.id} selected={values.coverMediaId === String(cover.id)}>{cover.filename}</option>)}
-    </select>
+  <fieldset class="mt-4">
+    <legend class="mb-1 font-semibold">Ảnh đại diện</legend>
+    <MediaPicker client:load {csrf} items={media} name="coverMediaId" selected={values.coverMediaId ? [values.coverMediaId] : []} />
     {errors.coverMediaId && <span class="error-text">{errors.coverMediaId}</span>}
-  </label>
+  </fieldset>
   <fieldset class="mt-4">
     <legend class="mb-1 font-semibold">Album</legend>
-    {covers.length === 0 ? (
-      <p class="text-muted">Chưa có ảnh trong thư viện.</p>
-    ) : (
-      <ul class="space-y-2">
-        {covers.map((cover) => (
-          <li>
-            <label class="flex items-center gap-2">
-              <input type="checkbox" name="album" value={cover.id} checked={values.album.includes(String(cover.id))} />
-              <span>{cover.filename}</span>
-            </label>
-          </li>
-        ))}
-      </ul>
-    )}
+    <MediaPicker client:load {csrf} items={media} name="album" multiple selected={values.album} max={8} />
     {errors.album && <span class="error-text">{errors.album}</span>}
   </fieldset>
   <label class="mt-4 block">

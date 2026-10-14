@@ -29,12 +29,7 @@ const seoSite = {
   host: Astro.url.hostname,
   markUrl: site?.faviconUrl || site?.logoUrl || '',
 };
-const covers = (await listMedia(db)).map((item) => ({
-  id: item.id,
-  filename: item.filename,
-  url: item.url,
-  alt: item.altText,
-}));
+const media = await listMedia(db);
 let values = {
   title: post.title,
   slug: post.slug,
@@ -112,7 +107,7 @@ function valuesFrom(form: FormData, fallbackContent: string) {
     {saved}
     meta={{ createdAt: post.createdAt, updatedAt: post.updatedAt, publishedAt: post.publishedAt }}
     {categories}
-    {covers}
+    {media}
     site={seoSite}
     postId={id}
   />
