@@ -172,6 +172,14 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
     }
   }, true);
 
+  document.addEventListener('pointerdown', (event) => {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    for (const menu of document.querySelectorAll('details.row-menu[open]')) {
+      if (!menu.contains(target)) menu.open = false;
+    }
+  });
+
   const form = document.querySelector('[data-post-search]');
   const input = document.querySelector('#post-query');
   const list = document.querySelector('[data-post-list]');
