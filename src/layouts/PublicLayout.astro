@@ -2,6 +2,7 @@
 import SiteFooter from '../components/public/SiteFooter.astro';
 import SiteHeader from '../components/public/SiteHeader.astro';
 import type { PublicSite } from '../features/settings/settings';
+import { toAbsoluteUrl } from '../lib/seo/meta';
 import '../styles/global.css';
 
 interface Props {
@@ -33,6 +34,7 @@ const {
   faviconUrl = '/favicon.svg',
   chrome = null,
 } = Astro.props;
+const shareImage = image || toAbsoluteUrl(Astro.url.origin, chrome?.ogImageUrl) || null;
 ---
 
 <!doctype html>
@@ -50,13 +52,13 @@ const {
     <meta property="og:site_name" content={siteName} />
     <meta property="og:locale" content="vi_VN" />
     {canonical && <meta property="og:url" content={canonical} />}
-    {image && <meta property="og:image" content={image} />}
+    {shareImage && <meta property="og:image" content={shareImage} />}
     {publishedTime && <meta property="article:published_time" content={publishedTime} />}
     {modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}
-    <meta name="twitter:card" content={image ? 'summary_large_image' : 'summary'} />
+    <meta name="twitter:card" content={shareImage ? 'summary_large_image' : 'summary'} />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
-    {image && <meta name="twitter:image" content={image} />}
+    {shareImage && <meta name="twitter:image" content={shareImage} />}
     {jsonLd.map((entry) => <script type="application/ld+json" set:html={entry} />)}
     <link rel="icon" href={faviconUrl} />
   </head>

@@ -17,6 +17,7 @@ describe('nơi dùng ảnh', () => {
       album: [{ mediaId: 4, productId: 8, productName: 'Vòng tròn' }],
       logoId: '4',
       faviconId: '',
+      ogImageId: '',
     });
 
     expect(uses['4']).toEqual([

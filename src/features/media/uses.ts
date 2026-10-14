@@ -13,6 +13,7 @@ export function collectMediaUses(input: {
   album: AlbumUse[];
   logoId: string;
   faviconId: string;
+  ogImageId: string;
 }): Record<string, MediaUse[]> {
   const uses = new Map<number, MediaUse[]>();
   const add = (id: number | null, use: MediaUse) => {
@@ -38,6 +39,7 @@ export function collectMediaUses(input: {
   }
   add(Number(input.logoId), { href: routes.adminSettings, label: 'Logo' });
   add(Number(input.faviconId), { href: routes.adminSettings, label: 'Favicon' });
+  add(Number(input.ogImageId), { href: routes.adminSettings, label: 'Ảnh chia sẻ' });
 
   return Object.fromEntries([...uses].map(([id, list]) => [String(id), list]));
 }

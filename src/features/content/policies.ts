@@ -10,6 +10,7 @@ export const staticChrome: PublicSite = {
   logoUrl: '',
   logoAlt: 'Vòng Dâu Tằm',
   faviconUrl: '',
+  ogImageUrl: '',
   defaultSeoTitle: 'Vòng Dâu Tằm',
   defaultSeoDescription: 'Vòng tơ tằm làm thủ công, theo tập quán tặng bé và gia đình.',
 };

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { runBatch } from '../../lib/db/batch';
 import type { AppDb } from '../../lib/db/client';
@@ -16,6 +16,7 @@ export const SETTING_KEYS = [
   'zalo_url',
   'logo_media_id',
   'favicon_media_id',
+  'og_media_id',
   'default_seo_title',
   'default_seo_description',
 ] as const;
@@ -37,6 +38,7 @@ export type PublicSite = {
   logoUrl: string;
   logoAlt: string;
   faviconUrl: string;
+  ogImageUrl: string;
   defaultSeoTitle: string;
   defaultSeoDescription: string;
 };
@@ -44,10 +46,10 @@ export type PublicSite = {
 export async function getPublicSite(db: AppDb): Promise<PublicSite | null> {
   const values = await getSettings(db);
   if (!values.site_name) return null;
-  const [logo, favicon] = await Promise.all([
-    mediaById(db, values.logo_media_id),
-    mediaById(db, values.favicon_media_id),
-  ]);
+  const images = await mediaByIds(db, [values.logo_media_id, values.favicon_media_id, values.og_media_id]);
+  const logo = images.get(Number(values.logo_media_id));
+  const favicon = images.get(Number(values.favicon_media_id));
+  const ogImage = images.get(Number(values.og_media_id));
   return {
     siteName: values.site_name,
     siteDescription: values.site_description,
@@ -58,22 +60,22 @@ export async function getPublicSite(db: AppDb): Promise<PublicSite | null> {
     logoUrl: logo?.url ?? '',
     logoAlt: logo?.alt || values.site_name,
     faviconUrl: favicon?.url ?? '',
+    ogImageUrl: ogImage?.url ?? '',
     defaultSeoTitle: values.default_seo_title || values.site_name,
     defaultSeoDescription: values.default_seo_description || values.site_description,
   };
 }
 
-async function mediaById(db: AppDb, idText: string): Promise<{ url: string; alt: string } | null> {
-  const id = Number(idText);
-  if (!Number.isInteger(id) || id < 1) return null;
+async function mediaByIds(db: AppDb, idTexts: string[]): Promise<Map<number, { url: string; alt: string }>> {
+  const ids = [...new Set(idTexts.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+  const found = new Map<number, { url: string; alt: string }>();
+  if (ids.length === 0) return found;
   const rows = await db
-    .select({ r2Key: media.r2Key, altText: media.altText })
+    .select({ id: media.id, r2Key: media.r2Key, altText: media.altText })
     .from(media)
-    .where(eq(media.id, id))
-    .limit(1);
-  const row = rows[0];
-  if (!row) return null;
-  return { url: routes.media(row.r2Key), alt: row.altText };
+    .where(inArray(media.id, ids));
+  for (const row of rows) found.set(row.id, { url: routes.media(row.r2Key), alt: row.altText });
+  return found;
 }
 
 export async function getSettings(db: AppDb): Promise<SiteSettingValues> {
@@ -91,15 +93,26 @@ const optionalUrl = z
   .max(300, 'Liên kết quá dài.')
   .refine((value) => value === '' || isHttpUrl(value), 'Liên kết cần bắt đầu bằng http hoặc https.');
 
+const phoneField = z
+  .string()
+  .trim()
+  .max(30, 'Số điện thoại quá dài.')
+  .refine((value) => {
+    if (!value) return true;
+    const digits = value.replace(/\D/g, '');
+    return /^[+()\d][\d\s().+-]*$/.test(value) && digits.length >= 8 && digits.length <= 15;
+  }, 'Số điện thoại không hợp lệ.');
+
 const settingsFields = z.object({
   site_name: z.string().trim().min(1, 'Nhập tên website.').max(120, 'Tên website quá dài.'),
   site_description: z.string().trim().max(300, 'Mô tả quá dài.'),
-  phone: z.string().trim().max(30, 'Số điện thoại quá dài.'),
-  contact_info: z.string().trim().max(300, 'Thông tin liên hệ quá dài.'),
+  phone: phoneField,
+  contact_info: z.string().trim().max(300, 'Địa chỉ quá dài.'),
   facebook_url: optionalUrl,
   zalo_url: optionalUrl,
   logo_media_id: z.string().trim().max(20),
   favicon_media_id: z.string().trim().max(20),
+  og_media_id: z.string().trim().max(20),
   default_seo_title: z.string().trim().max(180, 'SEO title quá dài.'),
   default_seo_description: z.string().trim().max(300, 'Mô tả SEO quá dài.'),
 });
@@ -108,7 +121,7 @@ export function parseSettingsForm(form: FormData): { ok: true; values: SiteSetti
   const raw = Object.fromEntries(SETTING_KEYS.map((key) => [key, stringField(form, key)]));
   const parsed = settingsFields.safeParse(raw);
   if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
-  for (const key of ['logo_media_id', 'favicon_media_id'] as const) {
+  for (const key of ['logo_media_id', 'favicon_media_id', 'og_media_id'] as const) {
     if (parsed.data[key] && !/^[1-9]\d*$/.test(parsed.data[key])) {
       return { ok: false, errors: { [key]: 'Ảnh không hợp lệ.' } };
     }
@@ -121,14 +134,21 @@ function stringField(form: FormData, name: string): string {
   return typeof value === 'string' ? value : '';
 }
 
-export async function saveSettings(db: AppDb, values: SiteSettingValues, now = Date.now()): Promise<void> {
+export function changedSettingKeys(current: SiteSettingValues, next: SiteSettingValues): SettingKey[] {
+  return SETTING_KEYS.filter((key) => current[key] !== next[key]);
+}
+
+export async function saveSettings(db: AppDb, values: SiteSettingValues, now = Date.now()): Promise<number> {
+  const keys = changedSettingKeys(await getSettings(db), values);
+  if (keys.length === 0) return 0;
   await runBatch(
     db,
-    SETTING_KEYS.map((key) =>
+    keys.map((key) =>
       db
         .insert(siteSettings)
         .values({ key, value: values[key], updatedAt: now })
         .onConflictDoUpdate({ target: siteSettings.key, set: { value: values[key], updatedAt: now } }),
     ),
   );
+  return keys.length;
 }

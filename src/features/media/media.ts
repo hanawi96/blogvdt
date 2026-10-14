@@ -45,7 +45,7 @@ export async function listMediaUses(db: AppDb) {
     db
       .select({ key: siteSettings.key, value: siteSettings.value })
       .from(siteSettings)
-      .where(or(eq(siteSettings.key, 'logo_media_id'), eq(siteSettings.key, 'favicon_media_id'))),
+      .where(or(eq(siteSettings.key, 'logo_media_id'), eq(siteSettings.key, 'favicon_media_id'), eq(siteSettings.key, 'og_media_id'))),
   ]);
   const setting = (key: string) => settings.find((row) => row.key === key)?.value ?? '';
   return collectMediaUses({
@@ -55,6 +55,7 @@ export async function listMediaUses(db: AppDb) {
     album: albumRows,
     logoId: setting('logo_media_id'),
     faviconId: setting('favicon_media_id'),
+    ogImageId: setting('og_media_id'),
   });
 }
 
@@ -164,7 +165,7 @@ async function mediaInUse(db: AppDb, id: number, key: string): Promise<string | 
     db
       .select({ value: siteSettings.value })
       .from(siteSettings)
-      .where(or(eq(siteSettings.key, 'logo_media_id'), eq(siteSettings.key, 'favicon_media_id'))),
+      .where(or(eq(siteSettings.key, 'logo_media_id'), eq(siteSettings.key, 'favicon_media_id'), eq(siteSettings.key, 'og_media_id'))),
   ]);
   const usedInSettings = settings.some((row) => row.value === idText);
   if (coverPost[0] || coverProduct[0] || album[0] || content[0] || usedInSettings) {

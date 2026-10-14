@@ -5,12 +5,37 @@ interface Props {
   description: string;
   slug: string;
   emptyDescription: boolean;
+  titleName?: string;
+  descriptionName?: string;
+  fallbackTitleName?: string;
+  fallbackDescriptionName?: string;
+  homeUrl?: boolean;
 }
 
-const { site, title, description, slug, emptyDescription } = Astro.props;
+const {
+  site,
+  title,
+  description,
+  slug,
+  emptyDescription,
+  titleName = 'seoTitle',
+  descriptionName = 'metaDescription',
+  fallbackTitleName = 'title',
+  fallbackDescriptionName = 'excerpt',
+  homeUrl = false,
+} = Astro.props;
 ---
 
-<div class="search-preview" data-search-preview data-host={site.host}>
+<div
+  class="search-preview"
+  data-search-preview
+  data-host={site.host}
+  data-title-name={titleName}
+  data-description-name={descriptionName}
+  data-fallback-title={fallbackTitleName}
+  data-fallback-description={fallbackDescriptionName}
+  data-home-url={homeUrl ? '' : undefined}
+>
   <div class="serp-devices" role="group" aria-label="Kích thước xem trước">
     <button type="button" data-serp-device="desktop" aria-pressed="true">Máy tính</button>
     <button type="button" data-serp-device="mobile" aria-pressed="false">Điện thoại</button>
@@ -41,10 +66,10 @@ const { site, title, description, slug, emptyDescription } = Astro.props;
   function paint(root: HTMLElement) {
     const form = root.closest('form');
     if (!(form instanceof HTMLFormElement)) return;
-    const seoTitle = fieldValue(form, 'seoTitle');
-    const title = fieldValue(form, 'title').trim();
-    const meta = fieldValue(form, 'metaDescription');
-    const excerpt = fieldValue(form, 'excerpt').trim();
+    const seoTitle = fieldValue(form, root.dataset.titleName || 'seoTitle');
+    const title = fieldValue(form, root.dataset.fallbackTitle || 'title').trim();
+    const meta = fieldValue(form, root.dataset.descriptionName || 'metaDescription');
+    const excerpt = fieldValue(form, root.dataset.fallbackDescription || 'excerpt').trim();
     const slug = fieldValue(form, 'slug').trim() || 'duong-dan';
     const headline = seoTitle.trim() || title || 'Tiêu đề bài viết';
     const description = meta.trim() || excerpt || 'Thêm mô tả SEO hoặc tóm tắt để xem trước đoạn này.';
@@ -57,7 +82,10 @@ const { site, title, description, slug, emptyDescription } = Astro.props;
       if (meta.trim() || excerpt) descNode.removeAttribute('data-empty');
       else descNode.setAttribute('data-empty', '');
     }
-    if (urlNode) urlNode.textContent = `${root.dataset.host || ''} › kien-thuc › ${slug}`;
+    if (urlNode) {
+      const host = root.dataset.host || '';
+      urlNode.textContent = root.hasAttribute('data-home-url') ? host : `${host} › kien-thuc › ${slug}`;
+    }
     const titleCount = form.querySelector('[data-seo-title-count]');
     const descCount = form.querySelector('[data-seo-desc-count]');
     const titleNote = form.querySelector('[data-seo-title-note]');

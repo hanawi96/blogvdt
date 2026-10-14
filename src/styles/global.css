@@ -861,6 +861,43 @@
       top: 1rem;
     }
   }
+  .settings-lead {
+    margin-bottom: 1rem;
+    color: var(--color-muted);
+  }
+  .settings-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  .settings-tabs button {
+    border: 1px solid var(--color-line);
+    border-radius: 999px;
+    background: var(--color-surface);
+    padding: 0.4rem 0.85rem;
+    color: var(--color-ink);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .settings-tabs button[aria-selected='true'] {
+    border-color: var(--color-ink);
+    background: var(--color-ink);
+    color: var(--color-canvas);
+  }
+  .settings-panel {
+    max-width: 40rem;
+  }
+  .settings-save {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+  }
+  .settings-status:empty {
+    display: none;
+  }
   @media (min-width: 960px) {
     .post-columns {
       grid-template-columns: minmax(0, 7fr) minmax(16rem, 3fr);
