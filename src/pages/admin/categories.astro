@@ -1,7 +1,8 @@
 ---
+import SlugField from '../../components/admin/SlugField.svelte';
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { mutationError } from '../../features/auth/session';
-import { deleteCategory, listCategories, saveCategory } from '../../features/posts/categories';
+import { categoryDeleteWarning, deleteCategory, listCategories, saveCategory } from '../../features/posts/categories';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
 import { routes } from '../../lib/routes';
@@ -15,6 +16,8 @@ let editingId = '';
 let name = '';
 let slug = '';
 let description = '';
+let seoTitle = '';
+let metaDescription = '';
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -33,8 +36,10 @@ if (Astro.request.method === 'POST') {
     name = String(form.get('name') ?? '');
     slug = String(form.get('slug') ?? '');
     description = String(form.get('description') ?? '');
+    seoTitle = String(form.get('seoTitle') ?? '');
+    metaDescription = String(form.get('metaDescription') ?? '');
     editingId = id ? String(id) : '';
-    const saved = await saveCategory(db, { id, name, slug, description });
+    const saved = await saveCategory(db, { id, name, slug, description, seoTitle, metaDescription });
     if (!saved.ok) {
       Astro.response.status = 422;
       formError = saved.error;
@@ -53,53 +58,72 @@ if (Astro.request.method !== 'POST' && editing) {
   name = editing.name;
   slug = editing.slug;
   description = editing.description ?? '';
+  seoTitle = editing.seoTitle ?? '';
+  metaDescription = editing.metaDescription ?? '';
 }
+const slugError = formError.startsWith('Slug') ? formError : '';
+const nameError = formError.startsWith('Nhập tên') || formError.startsWith('Tên') ? formError : '';
+const bannerError = slugError || nameError ? '' : formError;
 ---
 
 <AdminLayout title="Danh mục">
   {saved && !formError && <p class="mb-4 text-primary-strong" role="status">Đã lưu danh mục.</p>}
-  {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
-  <form class="max-w-xl" method="post" data-busy>
-    <input type="hidden" name="csrf" value={session.csrfToken} />
-    <input type="hidden" name="intent" value="save" />
-    {editingId && <input type="hidden" name="id" value={editingId} />}
-    <label class="block">
-      <span class="mb-1 block font-semibold">Tên</span>
-      <input class="field" name="name" required maxlength="120" value={name} />
-    </label>
-    <label class="mt-4 block">
-      <span class="mb-1 block font-semibold">Slug</span>
-      <input class="field" name="slug" maxlength="120" value={slug} />
-    </label>
-    <label class="mt-4 block">
-      <span class="mb-1 block font-semibold">Mô tả</span>
-      <textarea class="field min-h-24" name="description" maxlength="300">{description}</textarea>
-    </label>
-    <button class="btn btn-primary mt-4" type="submit">{editingId ? 'Cập nhật' : 'Thêm danh mục'}</button>
-  </form>
-  {
-    categories.length === 0 ? (
-      <p class="mt-8 text-muted">Chưa có danh mục.</p>
-    ) : (
-      <ul class="mt-8 divide-y divide-line border-y border-line">
-        {categories.map((category) => (
-          <li class="flex flex-wrap items-center justify-between gap-3 py-3">
-            <div>
-              <p class="font-semibold">{category.name}</p>
-              <p class="text-sm text-muted">{category.slug}</p>
-            </div>
-            <div class="flex gap-2">
-              <a class="btn" href={`${routes.adminCategories}?edit=${category.id}`}>Sửa</a>
-              <form method="post" onsubmit="return confirm('Xóa danh mục này?')">
-                <input type="hidden" name="csrf" value={session.csrfToken} />
-                <input type="hidden" name="intent" value="delete" />
-                <input type="hidden" name="id" value={category.id} />
-                <button class="btn btn-accent" type="submit">Xóa</button>
-              </form>
-            </div>
-          </li>
-        ))}
-      </ul>
-    )
-  }
+  {bannerError && <p class="error-text mb-4" role="alert">{bannerError}</p>}
+  <div class="category-layout">
+    <form class="category-panel" method="post" data-busy>
+      <h2 class="category-panel-title">{editingId ? 'Sửa danh mục' : 'Thêm danh mục'}</h2>
+      <input type="hidden" name="csrf" value={session.csrfToken} />
+      <input type="hidden" name="intent" value="save" />
+      {editingId && <input type="hidden" name="id" value={editingId} />}
+      <SlugField client:load label="Tên" field="name" title={name} {slug} titleError={nameError} {slugError} />
+      <p class="seo-hint">Slug tự tạo từ tên tiếng Việt cho đến khi bạn sửa ô này.</p>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Mô tả</span>
+        <textarea class="field min-h-24" name="description" maxlength="300">{description}</textarea>
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">SEO Title</span>
+        <input class="field" name="seoTitle" maxlength="180" value={seoTitle} />
+        <span class="seo-hint">Để trống thì dùng tên danh mục.</span>
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Meta Description</span>
+        <textarea class="field min-h-24" name="metaDescription" maxlength="300">{metaDescription}</textarea>
+        <span class="seo-hint">Để trống thì dùng mô tả danh mục.</span>
+      </label>
+      <div class="category-actions">
+        <button class="btn btn-primary" type="submit">{editingId ? 'Cập nhật' : 'Thêm danh mục'}</button>
+        {editingId && <a class="btn" href={routes.adminCategories}>Hủy</a>}
+      </div>
+    </form>
+    <section class="category-panel">
+      <h2 class="category-panel-title">Danh sách</h2>
+      {
+        categories.length === 0 ? (
+          <p class="text-muted">Chưa có danh mục.</p>
+        ) : (
+          <ul>
+            {categories.map((category) => (
+              <li class:list={['category-row', editingId === String(category.id) && 'category-row-current']}>
+                <div>
+                  <p class="font-semibold">{category.name}</p>
+                  <p class="text-sm text-muted">{category.slug}</p>
+                  <p class="text-sm text-muted">{category.postCount === 0 ? 'Chưa có bài' : category.postCount === 1 ? '1 bài' : `${category.postCount} bài`}</p>
+                </div>
+                <div class="flex gap-2">
+                  <a class="btn" href={`${routes.adminCategories}?edit=${category.id}`}>Sửa</a>
+                  <form method="post" onsubmit={`return confirm(${JSON.stringify(categoryDeleteWarning(category.postCount))})`}>
+                    <input type="hidden" name="csrf" value={session.csrfToken} />
+                    <input type="hidden" name="intent" value="delete" />
+                    <input type="hidden" name="id" value={category.id} />
+                    <button class="btn btn-accent" type="submit">Xóa</button>
+                  </form>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    </section>
+  </div>
 </AdminLayout>

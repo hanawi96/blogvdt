@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { knowledgeSlug, publicRedirectTarget, shouldStorePostRedirect } from './redirects';
+import { categorySlug, knowledgeSlug, publicRedirectTarget, shouldStorePostRedirect } from './redirects';
 
 describe('redirect bài viết', () => {
   it('chỉ lưu redirect khi slug đổi và URL cũ từng hoặc đang public', () => {
@@ -16,5 +16,8 @@ describe('redirect bài viết', () => {
     expect(publicRedirectTarget('https://example.com', '/kien-thuc/bai-cu', true)).toBeNull();
     expect(knowledgeSlug('/kien-thuc/bai-moi')).toBe('bai-moi');
     expect(knowledgeSlug('/kien-thuc/../admin')).toBeNull();
+    expect(knowledgeSlug('/kien-thuc/danh-muc/chon-vong')).toBeNull();
+    expect(categorySlug('/kien-thuc/danh-muc/chon-vong')).toBe('chon-vong');
+    expect(categorySlug('/kien-thuc/bai-moi')).toBeNull();
   });
 });

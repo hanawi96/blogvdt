@@ -2,6 +2,7 @@ import { isSafeRedirect } from '../../lib/http';
 import { SLUG_PATTERN } from './slug';
 
 const KNOWLEDGE_PREFIX = '/kien-thuc/';
+const CATEGORY_PREFIX = '/kien-thuc/danh-muc/';
 
 export function shouldStorePostRedirect(
   current: { status: string; publishedAt: number | null; slug: string },
@@ -12,8 +13,14 @@ export function shouldStorePostRedirect(
 }
 
 export function knowledgeSlug(path: string): string | null {
-  if (!path.startsWith(KNOWLEDGE_PREFIX)) return null;
+  if (!path.startsWith(KNOWLEDGE_PREFIX) || path.startsWith(CATEGORY_PREFIX)) return null;
   const slug = path.slice(KNOWLEDGE_PREFIX.length);
+  return SLUG_PATTERN.test(slug) ? slug : null;
+}
+
+export function categorySlug(path: string): string | null {
+  if (!path.startsWith(CATEGORY_PREFIX)) return null;
+  const slug = path.slice(CATEGORY_PREFIX.length);
   return SLUG_PATTERN.test(slug) ? slug : null;
 }
 

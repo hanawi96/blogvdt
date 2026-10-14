@@ -811,6 +811,56 @@
   .post-meta dt {
     color: var(--color-muted);
   }
+  .category-layout {
+    display: grid;
+    gap: 1rem;
+    align-items: start;
+  }
+  .category-panel {
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    padding: 1rem;
+  }
+  .category-panel-title {
+    margin-bottom: 0.9rem;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  .category-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1rem;
+  }
+  .category-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-top: 1px solid var(--color-line);
+    padding: 0.75rem 0;
+  }
+  .category-row:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+  .category-row-current {
+    margin-inline: -0.35rem;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+    padding-inline: 0.35rem;
+  }
+  @media (min-width: 800px) {
+    .category-layout {
+      grid-template-columns: minmax(16rem, 3fr) minmax(0, 7fr);
+    }
+    .category-panel:first-child {
+      position: sticky;
+      top: 1rem;
+    }
+  }
   @media (min-width: 960px) {
     .post-columns {
       grid-template-columns: minmax(0, 7fr) minmax(16rem, 3fr);

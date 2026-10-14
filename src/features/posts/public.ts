@@ -64,7 +64,14 @@ export async function listPublicCategories(db: AppDb) {
 
 export async function getCategoryBySlug(db: AppDb, slug: string) {
   const rows = await db
-    .select({ id: categories.id, name: categories.name, slug: categories.slug, description: categories.description })
+    .select({
+      id: categories.id,
+      name: categories.name,
+      slug: categories.slug,
+      description: categories.description,
+      seoTitle: categories.seoTitle,
+      metaDescription: categories.metaDescription,
+    })
     .from(categories)
     .where(eq(categories.slug, slug))
     .limit(1);
