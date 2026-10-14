@@ -21,6 +21,27 @@ export async function listMedia(db: AppDb) {
   return rows.map((row) => ({ ...row, url: routes.media(row.r2Key) }));
 }
 
+export async function getMediaFile(db: AppDb, id: number) {
+  const rows = await db
+    .select({
+      r2Key: media.r2Key,
+      altText: media.altText,
+      width: media.width,
+      height: media.height,
+    })
+    .from(media)
+    .where(eq(media.id, id))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    url: routes.media(row.r2Key),
+    alt: row.altText,
+    width: row.width,
+    height: row.height,
+  };
+}
+
 export async function saveMedia(
   db: AppDb,
   bucket: R2Bucket,

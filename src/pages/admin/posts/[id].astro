@@ -3,9 +3,10 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import PostForm from '../../../components/admin/PostForm.astro';
 import { mutationError } from '../../../features/auth/session';
 import { listCategories } from '../../../features/posts/categories';
-import { parsePostForm } from '../../../features/posts/form';
-import { getPost, updatePost } from '../../../features/posts/posts';
+import { autosaveResponse, excerptFieldValue, firstFieldError, isAutosave, parsePostForm } from '../../../features/posts/form';
+import { getPost, saveDraftPost, updatePost } from '../../../features/posts/posts';
 import { listMedia } from '../../../features/media/media';
+import { getPublicSite } from '../../../features/settings/settings';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
 import { routes } from '../../../lib/routes';
@@ -22,6 +23,12 @@ const post = await getPost(db, id);
 if (!post) return Astro.redirect(routes.adminPosts);
 
 const categories = await listCategories(db);
+const site = await getPublicSite(db);
+const seoSite = {
+  name: site?.siteName || 'Website',
+  host: Astro.url.hostname,
+  markUrl: site?.faviconUrl || site?.logoUrl || '',
+};
 const covers = (await listMedia(db)).map((item) => ({
   id: item.id,
   filename: item.filename,
@@ -36,6 +43,7 @@ let values = {
   contentJson: post.contentJson,
   seoTitle: post.seoTitle ?? '',
   metaDescription: post.metaDescription ?? '',
+  excerpt: excerptFieldValue(post.excerpt, post.contentJson),
   status: post.status,
 };
 let errors: FieldErrors = {};
@@ -44,12 +52,20 @@ const saved = Astro.url.searchParams.get('saved') === '1';
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
+  const autosave = isAutosave(form);
   const blocked = mutationError(Astro.request, session, form);
   if (blocked) {
+    if (autosave) return autosaveResponse({ ok: false, error: blocked }, 403);
     Astro.response.status = 403;
     formError = blocked;
   } else {
     const parsed = parsePostForm(form);
+    if (autosave) {
+      if (!parsed.ok) return autosaveResponse({ ok: false, error: firstFieldError(parsed.errors) }, 422);
+      const saved = await saveDraftPost(db, id, { ...parsed.input, status: 'draft' });
+      if (!saved.ok) return autosaveResponse({ ok: false, error: saved.error }, 422);
+      return autosaveResponse({ ok: true, id, skipped: saved.skipped });
+    }
     values = valuesFrom(form, values.contentJson);
     if (!parsed.ok) {
       Astro.response.status = 422;
@@ -79,6 +95,7 @@ function valuesFrom(form: FormData, fallbackContent: string) {
     contentJson: read('contentJson') || fallbackContent,
     seoTitle: read('seoTitle'),
     metaDescription: read('metaDescription'),
+    excerpt: read('excerpt'),
     status: read('status') || 'draft',
   };
 }
@@ -96,5 +113,6 @@ function valuesFrom(form: FormData, fallbackContent: string) {
     meta={{ createdAt: post.createdAt, updatedAt: post.updatedAt, publishedAt: post.publishedAt }}
     {categories}
     {covers}
+    site={seoSite}
   />
 </AdminLayout>

@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { Editor, type JSONContent } from '@tiptap/core';
   import { isHttpUrl } from '../../lib/http';
   import { routes } from '../../lib/routes';
+  import { isMediaSrc } from '../../features/posts/content';
   import { postExtensions } from '../../features/posts/extensions';
   import MediaUpload from './MediaUpload.svelte';
 
@@ -22,6 +23,23 @@
   let menu = $state<'heading' | 'link' | null>(null);
   let libraryOpen = $state(false);
   let library = $state<Array<{ id: number; url: string; alt: string; width?: number | null; height?: number | null }>>([]);
+  let imageAlt = $state('');
+  let imageCaption = $state('');
+
+  function syncImage(current: Editor) {
+    if (!current.isActive('image')) return;
+    const attrs = current.getAttributes('image') as { alt?: unknown; caption?: unknown };
+    const alt = typeof attrs.alt === 'string' ? attrs.alt : '';
+    const caption = typeof attrs.caption === 'string' ? attrs.caption : '';
+    if (alt !== imageAlt) imageAlt = alt;
+    if (caption !== imageCaption) imageCaption = caption;
+  }
+
+  function notifyForm() {
+    void tick().then(() => {
+      host?.dispatchEvent(new CustomEvent('post-input', { bubbles: true }));
+    });
+  }
 
   onMount(() => {
     const content = parseContent(untrack(() => contentJson));
@@ -32,12 +50,30 @@
       onUpdate: ({ editor: current }) => {
         json = JSON.stringify(current.getJSON());
         revision += 1;
+        syncImage(current);
+        notifyForm();
       },
-      onSelectionUpdate: () => {
+      onSelectionUpdate: ({ editor: current }) => {
         revision += 1;
+        syncImage(current);
       },
       editorProps: {
         attributes: { 'aria-label': 'Nội dung bài viết' },
+        transformPastedHTML(html) {
+          const pasted = new DOMParser().parseFromString(html, 'text/html');
+          for (const image of pasted.querySelectorAll('img')) {
+            if (!isMediaSrc(image.getAttribute('src') ?? '')) image.remove();
+          }
+          return pasted.body.innerHTML;
+        },
+        handlePaste(_view, event) {
+          const files = event.clipboardData?.files;
+          const html = event.clipboardData?.getData('text/html') ?? '';
+          const text = event.clipboardData?.getData('text/plain') ?? '';
+          if (!files?.length || html || text) return false;
+          event.preventDefault();
+          return true;
+        },
       },
     });
     editor = instance;
@@ -126,6 +162,21 @@
     const response = await fetch(`${routes.adminMedia}?format=json`, { headers: { accept: 'application/json' } });
     if (!response.ok) return;
     library = (await response.json()) as Array<{ id: number; url: string; alt: string; width?: number | null; height?: number | null }>;
+  }
+
+  function imageSelected() {
+    revision;
+    return editor?.isActive('image') ?? false;
+  }
+
+  function setImageAttr(name: 'alt' | 'caption', value: string) {
+    const next = value.slice(0, 200);
+    editor?.commands.updateAttributes('image', { [name]: name === 'caption' && next.trim() === '' ? null : next });
+  }
+
+  // Chỉ bỏ ảnh khỏi bài. File trong thư viện vẫn giữ.
+  function removeImage() {
+    editor?.chain().focus().deleteSelection().run();
   }
 
   function insertImage(item: { url: string; alt: string }) {
@@ -233,6 +284,19 @@
       <button class="tool" type="button" title="Ảnh" aria-pressed={libraryOpen} onclick={toggleLibrary}>{@render toolIcon('image')}</button>
       <button class="tool" type="button" title="Bảng" onclick={() => run((current) => current.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run())}>{@render toolIcon('table')}</button>
     </div>
+    {#if imageSelected()}
+      <div class="editor-image">
+        <label>
+          Mô tả ảnh
+          <input class="field" maxlength="200" value={imageAlt} oninput={(event) => { imageAlt = event.currentTarget.value; setImageAttr('alt', imageAlt); }} />
+        </label>
+        <label>
+          Chú thích
+          <input class="field" maxlength="200" value={imageCaption} oninput={(event) => { imageCaption = event.currentTarget.value; setImageAttr('caption', imageCaption); }} />
+        </label>
+        <button class="btn" type="button" onclick={removeImage}>Xóa khỏi bài</button>
+      </div>
+    {/if}
     <div bind:this={host}></div>
   </div>
   <input type="hidden" name="contentJson" value={json} />

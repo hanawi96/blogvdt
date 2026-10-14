@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { slugify } from '../../features/posts/slug';
 
   let {
@@ -23,6 +23,7 @@
   let titleValue = $state(untrack(() => title));
   let slugValue = $state(untrack(() => slug));
   let slugTouched = $state(untrack(() => slug.length > 0));
+  let slugInput = $state<HTMLInputElement | null>(null);
 
   function onTitle(event: Event) {
     titleValue = (event.currentTarget as HTMLInputElement).value;
@@ -39,7 +40,9 @@
     const input = document.getElementById(titleInput);
     if (!(input instanceof HTMLInputElement)) return;
     const sync = () => {
-      if (!slugTouched) slugValue = slugify(input.value);
+      if (slugTouched) return;
+      slugValue = slugify(input.value);
+      void tick().then(() => slugInput?.dispatchEvent(new Event('input', { bubbles: true })));
     };
     input.addEventListener('input', sync);
     return () => input.removeEventListener('input', sync);
@@ -55,6 +58,6 @@
 {/if}
 <label class={titleInput ? 'block' : 'mt-4 block'}>
   <span class="mb-1 block font-semibold">Slug</span>
-  <input class="field" name="slug" required maxlength="180" value={slugValue} oninput={onSlug} />
+    <input class="field" name="slug" required maxlength="180" value={slugValue} oninput={onSlug} bind:this={slugInput} />
   {#if slugError}<span class="error-text">{slugError}</span>{/if}
 </label>

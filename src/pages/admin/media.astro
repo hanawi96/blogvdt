@@ -32,9 +32,11 @@ if (Astro.request.method === 'POST') {
     const alt = String(form.get('alt') ?? '');
     if (!Number.isInteger(id) || id < 1) {
       Astro.response.status = 422;
+      if (wantsJson) return json({ error: 'Ảnh không hợp lệ.' }, 422);
       formError = 'Ảnh không hợp lệ.';
     } else {
       await updateMediaAlt(db, id, alt);
+      if (wantsJson) return json({ ok: true });
       return Astro.redirect(`${routes.adminMedia}?saved=1`, 303);
     }
   } else {

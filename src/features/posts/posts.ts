@@ -89,6 +89,31 @@ export async function updatePost(
   return { ok: true };
 }
 
+// Chỉ ghi khi dòng vẫn là nháp. Lệnh tự lưu đến muộn không được kéo bài đã xuất bản về nháp.
+export async function saveDraftPost(
+  db: AppDb,
+  id: number,
+  input: PostInput,
+  now = Date.now(),
+): Promise<{ ok: true; skipped: boolean } | { ok: false; error: string }> {
+  const current = await getPost(db, id);
+  if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
+  if (current.status !== 'draft') return { ok: true, skipped: true };
+  const slugError = await slugAvailable(db, input.slug, id);
+  if (slugError) return { ok: false, error: slugError };
+  const values = postValues({ ...input, status: 'draft' }, now, current.publishedAt);
+  const updated = await db
+    .update(posts)
+    .set(values)
+    .where(and(eq(posts.id, id), eq(posts.status, 'draft')))
+    .returning({ id: posts.id });
+  if (updated.length === 0) return { ok: true, skipped: true };
+  if (current.slug !== input.slug) {
+    await runBatch(db, slugRedirectQueries(db, routes.knowledge(current.slug), routes.knowledge(input.slug), now));
+  }
+  return { ok: true, skipped: false };
+}
+
 export async function deletePost(db: AppDb, id: number): Promise<void> {
   await db.delete(posts).where(eq(posts.id, id));
 }

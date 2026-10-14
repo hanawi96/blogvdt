@@ -23,7 +23,7 @@ describe('nội dung bài viết', () => {
               },
             ],
           },
-          { type: 'image', attrs: { src: '/media/2026/10/a.webp', alt: 'Vòng' } },
+          { type: 'image', attrs: { src: '/media/2026/10/a.webp', alt: 'Vòng', caption: '  Chú thích <x>  ' } },
           { type: 'image', attrs: { src: 'https://evil.example/a.webp' } },
         ],
       }),
@@ -33,6 +33,7 @@ describe('nội dung bài viết', () => {
     expect(result.json).toContain('https://example.com/bai');
     expect(result.json).not.toContain('javascript:');
     expect(result.json).toContain('/media/2026/10/a.webp');
+    expect(result.json).toContain('Chú thích <x>');
     expect(result.json).not.toContain('evil.example');
   });
 

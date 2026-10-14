@@ -26,7 +26,14 @@ export function postExtensions(): Extensions {
         isAllowedUri: (url) => isHttpUrl(url),
       },
     }),
-    Image.configure({ allowBase64: false }),
+    Image.extend({
+      addAttributes() {
+        return {
+          ...this.parent?.(),
+          caption: { default: null },
+        };
+      },
+    }).configure({ allowBase64: false }),
     Table.configure({ resizable: false }),
     TableRow,
     TableCell,

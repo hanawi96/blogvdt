@@ -23,7 +23,10 @@ export function renderPostHtml(content: JSONContent): string {
           const src = typeof node.attrs.src === 'string' ? node.attrs.src : '';
           if (!isMediaSrc(src)) return '';
           const alt = typeof node.attrs.alt === 'string' ? node.attrs.alt : '';
-          return `<img src="${escapeHTMLAttribute(src)}" alt="${escapeHTMLAttribute(alt)}" loading="lazy" />`;
+          const caption = typeof node.attrs.caption === 'string' ? node.attrs.caption : '';
+          const img = `<img src="${escapeHTMLAttribute(src)}" alt="${escapeHTMLAttribute(alt)}" loading="lazy" />`;
+          if (!caption) return img;
+          return `<figure>${img}<figcaption>${escapeHTMLAttribute(caption)}</figcaption></figure>`;
         },
       },
       markMapping: {

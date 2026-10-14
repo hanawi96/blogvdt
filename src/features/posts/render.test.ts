@@ -26,7 +26,7 @@ describe('render HTML bài viết', () => {
             },
           ],
         },
-        { type: 'image', attrs: { src: '/media/2026/10/a.png', alt: 'Tơ tằm' } },
+        { type: 'image', attrs: { src: '/media/2026/10/a.png', alt: 'Tơ tằm', caption: 'Chú thích <x>' } },
         { type: 'image', attrs: { src: 'https://example.com/a.png', alt: 'Ngoài' } },
       ],
     });
@@ -34,6 +34,7 @@ describe('render HTML bài viết', () => {
     expect(html).not.toContain('javascript:');
     expect(html).toContain('href="https://example.com/bai"');
     expect(html).toContain('src="/media/2026/10/a.png"');
+    expect(html).toContain('<figcaption>Chú thích &lt;x&gt;</figcaption>');
     expect(html).not.toContain('example.com/a.png');
   });
 });

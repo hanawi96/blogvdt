@@ -55,10 +55,12 @@ function cleanNode(value: unknown): Node | null {
   }
 
   if (record.type === 'image') {
-    const attrs = record.attrs as { src?: unknown; alt?: unknown } | undefined;
+    const attrs = record.attrs as { src?: unknown; alt?: unknown; caption?: unknown } | undefined;
     const src = typeof attrs?.src === 'string' ? attrs.src : '';
     if (!isMediaSrc(src)) return null;
+    const caption = typeof attrs?.caption === 'string' ? attrs.caption.trim().slice(0, 200) : '';
     node.attrs = { src, alt: typeof attrs?.alt === 'string' ? attrs.alt.slice(0, 200) : '' };
+    if (caption) node.attrs.caption = caption;
   }
 
   if (Array.isArray(record.content)) {

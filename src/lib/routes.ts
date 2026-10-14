@@ -5,6 +5,7 @@ export const routes = {
   adminLogout: '/admin/logout',
   adminPosts: '/admin/posts',
   adminPostNew: '/admin/posts/new',
+  adminPostPreview: '/admin/posts/preview',
   adminCategories: '/admin/categories',
   adminProducts: '/admin/products',
   adminProductNew: '/admin/products/new',

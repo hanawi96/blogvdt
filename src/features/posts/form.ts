@@ -17,6 +17,7 @@ const postFields = z.object({
   contentJson: z.string(),
   seoTitle: z.string().trim().max(180, 'SEO title quá dài.'),
   metaDescription: z.string().trim().max(300, 'Mô tả SEO quá dài.'),
+  excerpt: z.string().trim().max(300, 'Tóm tắt quá dài.'),
   status: z.string(),
 });
 
@@ -29,6 +30,7 @@ export function parsePostForm(form: FormData): { ok: true; input: PostInput } | 
     contentJson: formValue(form, 'contentJson'),
     seoTitle: formValue(form, 'seoTitle'),
     metaDescription: formValue(form, 'metaDescription'),
+    excerpt: formValue(form, 'excerpt'),
     status: formValue(form, 'status'),
   });
   if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
@@ -50,12 +52,39 @@ export function parsePostForm(form: FormData): { ok: true; input: PostInput } | 
       categoryId,
       coverMediaId,
       contentJson: content.json,
-      excerpt: content.excerpt,
+      excerpt: parsed.data.excerpt || content.excerpt,
       seoTitle: emptyToNull(parsed.data.seoTitle),
       metaDescription: emptyToNull(parsed.data.metaDescription),
       status: parsed.data.status,
     },
   };
+}
+
+export function excerptFieldValue(stored: string, contentJson: string): string {
+  const cleaned = sanitizePostContent(contentJson);
+  if (!cleaned.ok) return stored;
+  return stored === cleaned.excerpt ? '' : stored;
+}
+
+export function isAutosave(form: FormData): boolean {
+  return form.get('autosave') === '1';
+}
+
+export function autosaveResponse(
+  body: { ok: true; id: number; skipped: boolean } | { ok: false; error: string },
+  status = 200,
+): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    },
+  });
+}
+
+export function firstFieldError(errors: FieldErrors): string {
+  return Object.values(errors)[0] ?? 'Không lưu được.';
 }
 
 function formValue(form: FormData, name: string): string {
