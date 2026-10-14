@@ -1,6 +1,6 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { listPosts, searchPublishedPosts, slugIsTaken } from '../../../features/posts/posts';
+import { listPosts, searchPublishedPosts, slugIsTaken, type PostListSort } from '../../../features/posts/posts';
 import { SLUG_PATTERN } from '../../../features/posts/slug';
 import { isPostStatus, POST_STATUS_LABELS } from '../../../features/posts/status';
 import { createDb } from '../../../lib/db/client';
@@ -31,82 +31,172 @@ if (wantsJson) {
 const query = Astro.url.searchParams.get('q') ?? '';
 const statusParam = Astro.url.searchParams.get('status') ?? '';
 const status = isPostStatus(statusParam) ? statusParam : '';
+const sort: PostListSort = Astro.url.searchParams.get('sort') === 'oldest' ? 'oldest' : 'newest';
 const page = Number(Astro.url.searchParams.get('page') ?? '1');
+const deleted = Astro.url.searchParams.get('deleted') === '1';
+const copyError = Astro.url.searchParams.get('error') === 'copy';
 let loadError = '';
 let result: Awaited<ReturnType<typeof listPosts>> | null = null;
 try {
-  result = await listPosts(createDb(getDbBinding()), { query, status, page: Number.isInteger(page) ? page : 1 });
+  result = await listPosts(createDb(getDbBinding()), { query, status, sort, page: Number.isInteger(page) ? page : 1 });
 } catch (error) {
   console.error(JSON.stringify({ event: 'post_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
   loadError = 'Không tải được danh sách bài viết.';
 }
 
-function pageHref(nextPage: number): string {
+const filters = [
+  { id: '', label: 'Tất cả', count: result?.counts.all ?? 0 },
+  { id: 'published', label: 'Đã xuất bản', count: result?.counts.published ?? 0 },
+  { id: 'draft', label: 'Bản nháp', count: result?.counts.draft ?? 0 },
+] as const;
+
+function pageHref(next: { page?: number; status?: string; sort?: PostListSort; query?: string }): string {
   const params = new URLSearchParams();
-  if (query) params.set('q', query);
-  if (status) params.set('status', status);
+  const nextQuery = next.query ?? query;
+  const nextStatus = next.status ?? status;
+  const nextSort = next.sort ?? sort;
+  const nextPage = next.page ?? 1;
+  if (nextQuery) params.set('q', nextQuery);
+  if (nextStatus) params.set('status', nextStatus);
+  if (nextSort === 'oldest') params.set('sort', 'oldest');
   if (nextPage > 1) params.set('page', String(nextPage));
   const text = params.toString();
   return text ? `${routes.adminPosts}?${text}` : routes.adminPosts;
 }
 ---
 
-<AdminLayout title="Bài viết">
-  <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-    <form class="flex flex-wrap gap-2" method="get">
-      <label class="sr-only" for="post-query">Tìm bài viết</label>
-      <input id="post-query" class="field max-w-xs" name="q" value={query} placeholder="Tìm tiêu đề" maxlength="180" />
-      <label class="sr-only" for="post-status">Trạng thái</label>
-      <select id="post-status" class="field w-auto" name="status">
-        <option value="" selected={status === ''}>Mọi trạng thái</option>
-        <option value="draft" selected={status === 'draft'}>Bản nháp</option>
-        <option value="published" selected={status === 'published'}>Đã xuất bản</option>
-      </select>
-      <button class="btn" type="submit">Lọc</button>
-    </form>
-    <a class="btn btn-primary" href={routes.adminPostNew}>Viết bài</a>
-  </div>
+<AdminLayout title="Quản lý bài viết">
+  <p slot="lead">{result ? `${result.libraryTotal} bài trong thư viện` : 'Danh sách bài viết'}</p>
+  <a slot="action" class="btn btn-primary" href={routes.adminPostNew}>Viết bài</a>
+  {deleted && <p class="mb-4 text-primary-strong" role="status">Đã xóa bài viết.</p>}
+  {copyError && <p class="error-text mb-4" role="alert">Không sao chép được bài viết.</p>}
   {loadError && <p class="error-text" role="alert">{loadError}</p>}
   {
-    result && result.rows.length === 0 && <p class="text-muted">Chưa có bài viết khớp bộ lọc.</p>
-  }
-  {
-    result && result.rows.length > 0 && (
-      <table class="w-full border-collapse text-left">
-        <thead>
-          <tr class="border-b border-line">
-            <th class="py-2">Tiêu đề</th>
-            <th class="py-2">Danh mục</th>
-            <th class="py-2">Trạng thái</th>
-            <th class="py-2">Cập nhật</th>
-          </tr>
-        </thead>
-        <tbody>
-          {result.rows.map((post) => (
-            <tr class="border-b border-line">
-              <td class="py-2">
-                <a class="font-semibold underline" href={routes.adminPost(post.id)}>
-                  {post.title}
-                </a>
-              </td>
-              <td class="py-2">{post.categoryName ?? '—'}</td>
-              <td class="py-2">{isPostStatus(post.status) ? POST_STATUS_LABELS[post.status] : post.status}</td>
-              <td class="py-2">{formatDateTime(post.updatedAt)}</td>
-            </tr>
+    result && (
+      <>
+        <form class="post-toolbar" method="get" data-post-search>
+          {status && <input type="hidden" name="status" value={status} />}
+          {sort === 'oldest' && <input type="hidden" name="sort" value="oldest" />}
+          <label class="sr-only" for="post-query">Tìm bài viết</label>
+          <input id="post-query" class="field" name="q" value={query} placeholder="Tìm bài viết..." maxlength="180" />
+        </form>
+        <div class="post-filters" role="group" aria-label="Lọc trạng thái">
+          {filters.map((filter) => (
+            <a href={pageHref({ status: filter.id, page: 1 })} aria-current={status === filter.id ? 'page' : undefined}>
+              {filter.label} ({filter.count})
+            </a>
           ))}
-        </tbody>
-      </table>
-    )
-  }
-  {
-    result && result.pageCount > 1 && (
-      <nav class="mt-4 flex gap-3" aria-label="Phân trang">
-        {result.page > 1 && <a href={pageHref(result.page - 1)}>Trang trước</a>}
-        <span>
-          Trang {result.page}/{result.pageCount}
-        </span>
-        {result.page < result.pageCount && <a href={pageHref(result.page + 1)}>Trang sau</a>}
-      </nav>
+        </div>
+        <div data-post-list>
+          {result.rows.length === 0 ? (
+            <p class="post-empty">
+              {result.counts.all === 0 && !query ? 'Chưa có bài viết.' : 'Không có bài khớp bộ lọc.'}
+              {result.counts.all === 0 && !query && <a href={routes.adminPostNew}>Viết bài đầu tiên</a>}
+            </p>
+          ) : (
+            <table class="post-table">
+              <thead>
+                <tr>
+                  <th>Tiêu đề</th>
+                  <th>Danh mục</th>
+                  <th>Trạng thái</th>
+                  <th aria-sort={sort === 'oldest' ? 'ascending' : 'descending'}>
+                    <a href={pageHref({ sort: sort === 'oldest' ? 'newest' : 'oldest', page: 1 })}>Cập nhật</a>
+                  </th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.rows.map((post) => {
+                  const published = post.status === 'published';
+                  return (
+                    <tr>
+                      <td>
+                        <a class="post-title" href={routes.adminPost(post.id)}>{post.title}</a>
+                      </td>
+                      <td>{post.categoryName ?? 'Chưa có danh mục'}</td>
+                      <td>
+                        <span class="post-status" data-status={published ? 'published' : 'draft'}>
+                          {isPostStatus(post.status) ? POST_STATUS_LABELS[post.status] : post.status}
+                        </span>
+                      </td>
+                      <td>{formatDateTime(post.updatedAt)}</td>
+                      <td>
+                        <div class="post-actions">
+                          <a href={routes.adminPost(post.id)}>Sửa</a>
+                          {published ? (
+                            <a href={routes.knowledge(post.slug)} target="_blank" rel="noopener">Xem bài</a>
+                          ) : (
+                            <a href={`${routes.adminPostPreview}?id=${post.id}`} target="_blank" rel="noopener">Xem trước</a>
+                          )}
+                          <details class="row-menu">
+                            <summary aria-label={`Thao tác khác: ${post.title}`}>⋯</summary>
+                            <div>
+                              <form method="post" action={routes.adminPostCopy(post.id)}>
+                                <input type="hidden" name="csrf" value={Astro.locals.adminSession?.csrfToken} />
+                                <button type="submit">Sao chép</button>
+                              </form>
+                              <form method="post" action={routes.adminPostDelete(post.id)} onsubmit={`return confirm(${JSON.stringify(`Xóa bài “${post.title}”? Thao tác này không hoàn tác.`)})`}>
+                                <input type="hidden" name="csrf" value={Astro.locals.adminSession?.csrfToken} />
+                                <button type="submit">Xóa</button>
+                              </form>
+                            </div>
+                          </details>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {result.pageCount > 1 && (
+          <nav class="post-pager" aria-label="Phân trang">
+            {result.page > 1 && <a class="btn" href={pageHref({ page: result.page - 1 })}>Trang trước</a>}
+            <span>Trang {result.page}/{result.pageCount}</span>
+            {result.page < result.pageCount && <a class="btn" href={pageHref({ page: result.page + 1 })}>Trang sau</a>}
+          </nav>
+        )}
+      </>
     )
   }
 </AdminLayout>
+
+<script>
+  document.addEventListener('toggle', (event) => {
+    const menu = event.target;
+    if (!(menu instanceof HTMLDetailsElement) || !menu.open || !menu.classList.contains('row-menu')) return;
+    for (const other of document.querySelectorAll('details.row-menu[open]')) {
+      if (other !== menu) other.open = false;
+    }
+  }, true);
+
+  const form = document.querySelector('[data-post-search]');
+  const input = document.querySelector('#post-query');
+  const list = document.querySelector('[data-post-list]');
+  if (form instanceof HTMLFormElement && input instanceof HTMLInputElement) {
+    let timer = 0;
+    const go = () => {
+      const url = new URL(location.href);
+      const value = input.value.trim();
+      if (value) url.searchParams.set('q', value);
+      else url.searchParams.delete('q');
+      url.searchParams.delete('page');
+      url.searchParams.delete('deleted');
+      url.searchParams.delete('error');
+      if (url.toString() === location.href) return;
+      list?.setAttribute('aria-busy', 'true');
+      location.assign(url);
+    };
+    input.addEventListener('input', () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(go, 300);
+    });
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      window.clearTimeout(timer);
+      go();
+    });
+  }
+</script>

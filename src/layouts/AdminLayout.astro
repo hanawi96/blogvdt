@@ -63,8 +63,12 @@ function current(href: string): boolean {
             </form>
           </aside>
           <div>
-            <header class="border-b border-line bg-surface px-4 py-4">
-              <h1 class="text-xl font-semibold">{title}</h1>
+            <header class="admin-page-head">
+              <div>
+                <h1 class="text-xl font-semibold">{title}</h1>
+                <slot name="lead" />
+              </div>
+              <slot name="action" />
             </header>
             <main id="noi-dung" class="px-4 py-6">
               <slot />

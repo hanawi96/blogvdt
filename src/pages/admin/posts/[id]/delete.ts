@@ -16,5 +16,5 @@ export const POST: APIRoute = async ({ params, request, locals, redirect }) => {
   const error = mutationError(request, session, form);
   if (error) return new Response(error, { status: 403 });
   await deletePost(createDb(getDbBinding()), id);
-  return redirect(routes.adminPosts, 303);
+  return redirect(`${routes.adminPosts}?deleted=1`, 303);
 };

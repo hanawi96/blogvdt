@@ -1,13 +1,31 @@
-import { and, count, desc, eq, like } from 'drizzle-orm';
+import { and, asc, count, desc, eq, like } from 'drizzle-orm';
 import { runBatch } from '../../lib/db/batch';
 import type { AppDb } from '../../lib/db/client';
 import { slugRedirectQueries } from '../../lib/db/redirects';
 import { categories, posts } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { shouldStorePostRedirect } from './redirects';
+import { slugify } from './slug';
 import type { PostStatus } from './status';
 
 const PAGE_SIZE = 20;
+
+export type PostListSort = 'newest' | 'oldest';
+
+export function statusTotals(rows: { status: string; value: number }[]) {
+  let draft = 0;
+  let published = 0;
+  for (const row of rows) {
+    if (row.status === 'draft') draft = row.value;
+    if (row.status === 'published') published = row.value;
+  }
+  return { all: draft + published, draft, published };
+}
+
+export function copyTitle(title: string): string {
+  const suffix = ' (bản sao)';
+  return `${title.trim().slice(0, 180 - suffix.length)}${suffix}`;
+}
 
 export type PostInput = {
   title: string;
@@ -21,31 +39,53 @@ export type PostInput = {
   status: PostStatus;
 };
 
-export async function listPosts(db: AppDb, filters: { query: string; status: PostStatus | ''; page: number }) {
-  const term = filters.query.replace(/[%_]/g, '').trim();
+export async function listPosts(
+  db: AppDb,
+  filters: { query: string; status: PostStatus | ''; page: number; sort?: PostListSort },
+) {
+  const term = filters.query.replace(/[%_]/g, '').trim().slice(0, 180);
   const conditions = [];
   if (filters.status) conditions.push(eq(posts.status, filters.status));
   if (term) conditions.push(like(posts.title, `%${term}%`));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = Math.max(1, filters.page);
-  const totalRows = await db.select({ value: count() }).from(posts).where(where);
+  const sort: PostListSort = filters.sort === 'oldest' ? 'oldest' : 'newest';
+  const [totalRows, countRows, libraryRows, rows] = await Promise.all([
+    db.select({ value: count() }).from(posts).where(where),
+    db
+      .select({ status: posts.status, value: count() })
+      .from(posts)
+      .where(term ? like(posts.title, `%${term}%`) : undefined)
+      .groupBy(posts.status),
+    term ? db.select({ value: count() }).from(posts) : Promise.resolve([]),
+    db
+      .select({
+        id: posts.id,
+        title: posts.title,
+        slug: posts.slug,
+        status: posts.status,
+        updatedAt: posts.updatedAt,
+        categoryName: categories.name,
+      })
+      .from(posts)
+      .leftJoin(categories, eq(posts.categoryId, categories.id))
+      .where(where)
+      .orderBy(sort === 'oldest' ? asc(posts.updatedAt) : desc(posts.updatedAt), desc(posts.id))
+      .limit(PAGE_SIZE)
+      .offset((page - 1) * PAGE_SIZE),
+  ]);
   const total = totalRows[0]?.value ?? 0;
-  const rows = await db
-    .select({
-      id: posts.id,
-      title: posts.title,
-      slug: posts.slug,
-      status: posts.status,
-      updatedAt: posts.updatedAt,
-      categoryName: categories.name,
-    })
-    .from(posts)
-    .leftJoin(categories, eq(posts.categoryId, categories.id))
-    .where(where)
-    .orderBy(desc(posts.updatedAt), desc(posts.id))
-    .limit(PAGE_SIZE)
-    .offset((page - 1) * PAGE_SIZE);
-  return { rows, total, page, pageSize: PAGE_SIZE, pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)) };
+  const counts = statusTotals(countRows);
+  return {
+    rows,
+    total,
+    page,
+    pageSize: PAGE_SIZE,
+    pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+    sort,
+    counts,
+    libraryTotal: term ? (libraryRows[0]?.value ?? 0) : counts.all,
+  };
 }
 
 export async function searchPublishedPosts(db: AppDb, query: string) {
@@ -129,6 +169,41 @@ export async function saveDraftPost(
     await runBatch(db, slugRedirectQueries(db, routes.knowledge(current.slug), routes.knowledge(input.slug), now));
   }
   return { ok: true, skipped: false };
+}
+
+export async function duplicatePost(
+  db: AppDb,
+  id: number,
+  now = Date.now(),
+): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  const current = await getPost(db, id);
+  if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
+  const slug = await unusedCopySlug(db, current.slug);
+  if (!slug) return { ok: false, error: 'Không tạo được đường dẫn cho bản sao.' };
+  return createPost(
+    db,
+    {
+      title: copyTitle(current.title),
+      slug,
+      categoryId: current.categoryId,
+      coverMediaId: current.coverMediaId,
+      contentJson: current.contentJson,
+      excerpt: current.excerpt,
+      seoTitle: current.seoTitle,
+      metaDescription: current.metaDescription,
+      status: 'draft',
+    },
+    now,
+  );
+}
+
+async function unusedCopySlug(db: AppDb, base: string): Promise<string | null> {
+  const stem = slugify(`${base}-ban-sao`) || 'ban-sao';
+  for (let n = 1; n <= 20; n += 1) {
+    const slug = n === 1 ? stem : slugify(`${stem}-${n}`);
+    if (slug && !(await slugIsTaken(db, slug, null))) return slug;
+  }
+  return null;
 }
 
 export async function deletePost(db: AppDb, id: number): Promise<void> {
