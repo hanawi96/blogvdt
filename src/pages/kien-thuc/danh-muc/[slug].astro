@@ -1,0 +1,103 @@
+---
+import DataError from '../../../components/public/DataError.astro';
+import NotFound from '../../../components/public/NotFound.astro';
+import Pagination from '../../../components/public/Pagination.astro';
+import PostCard from '../../../components/public/PostCard.astro';
+import { getCategoryBySlug, listPublicCategories, listPublishedPosts } from '../../../features/posts/public';
+import { getPublicSite } from '../../../features/settings/settings';
+import PublicLayout from '../../../layouts/PublicLayout.astro';
+import { createDb } from '../../../lib/db/client';
+import { getDbBinding } from '../../../lib/cloudflare/env';
+import { buildMeta } from '../../../lib/seo/meta';
+import { routes } from '../../../lib/routes';
+
+const slug = Astro.params.slug ?? '';
+const page = pageNumber(Astro.url.searchParams.get('page'));
+const loaded = await loadCategory();
+const missing = loaded.site && !loaded.category;
+const outOfRange = loaded.category && loaded.total > 0 && page > loaded.pageCount;
+if (missing || outOfRange) Astro.response.status = 404;
+if (loaded.category && !outOfRange) Astro.response.headers.set('Cache-Control', 'public, max-age=60');
+else Astro.response.headers.set('Cache-Control', 'no-store');
+
+const path = page > 1 ? `${routes.knowledgeCategory(slug)}?page=${page}` : routes.knowledgeCategory(slug);
+const meta = buildMeta(Astro.url.origin, {
+  title: loaded.category ? `${loaded.category.name} | ${loaded.site?.siteName ?? ''}` : 'Không tìm thấy trang',
+  description: loaded.category?.description || loaded.site?.defaultSeoDescription || 'Bài viết theo danh mục.',
+  path,
+  siteName: loaded.site?.siteName,
+  robots: loaded.category && !outOfRange ? 'index,follow' : 'noindex,nofollow',
+});
+
+function pageNumber(value: string | null): number {
+  const page = Number(value ?? '1');
+  return Number.isInteger(page) && page > 0 ? page : 1;
+}
+
+async function loadCategory() {
+  try {
+    const db = createDb(getDbBinding());
+    const site = await getPublicSite(db);
+    if (!site) return { site: null, failed: false, category: null, posts: [], categories: [], total: 0, pageCount: 1 };
+    const category = await getCategoryBySlug(db, slug);
+    if (!category) return { site, failed: false, category: null, posts: [], categories: [], total: 0, pageCount: 1 };
+    const [list, categories] = await Promise.all([
+      listPublishedPosts(db, { page, categoryId: category.id }),
+      listPublicCategories(db),
+    ]);
+    return { site, failed: false, category, posts: list.posts, categories, total: list.total, pageCount: list.pageCount };
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'category_public_failed', name: error instanceof Error ? error.name : 'unknown' }));
+    return { site: null, failed: true, category: null, posts: [], categories: [], total: 0, pageCount: 1 };
+  }
+}
+---
+
+<PublicLayout
+  title={meta.title}
+  description={meta.description}
+  canonical={loaded.category && !outOfRange ? meta.canonical : undefined}
+  robots={meta.robots}
+  siteName={meta.siteName}
+  faviconUrl={loaded.site?.faviconUrl || '/favicon.svg'}
+  chrome={loaded.site}
+>
+  {
+    !loaded.site ? (
+      <DataError failed={loaded.failed} />
+    ) : missing || outOfRange || !loaded.category ? (
+      <NotFound />
+    ) : (
+      <main class="mx-auto max-w-5xl px-4 py-10">
+        <h1 class="text-3xl font-semibold">{loaded.category.name}</h1>
+        {loaded.category.description && <p class="mt-3 max-w-2xl text-muted">{loaded.category.description}</p>}
+        <nav class="mt-6 flex flex-wrap gap-2" aria-label="Danh mục">
+          <a class="btn" href={routes.knowledgeList}>Tất cả</a>
+          {loaded.categories.map((category) => (
+            <a
+              class:list={['btn', category.slug === loaded.category?.slug && 'btn-primary']}
+              href={routes.knowledgeCategory(category.slug)}
+              aria-current={category.slug === loaded.category?.slug ? 'page' : undefined}
+            >
+              {category.name}
+            </a>
+          ))}
+        </nav>
+        {loaded.posts.length === 0 ? (
+          <p class="mt-8 text-muted">Danh mục này chưa có bài viết.</p>
+        ) : (
+          <ul class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {loaded.posts.map((post) => (
+              <li><PostCard post={post} /></li>
+            ))}
+          </ul>
+        )}
+        <Pagination
+          page={page}
+          pageCount={loaded.pageCount}
+          hrefFor={(next) => (next > 1 ? `${routes.knowledgeCategory(slug)}?page=${next}` : routes.knowledgeCategory(slug))}
+        />
+      </main>
+    )
+  }
+</PublicLayout>

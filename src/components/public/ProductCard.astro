@@ -1,0 +1,54 @@
+---
+import { formatVnd } from '../../lib/money';
+import { routes } from '../../lib/routes';
+
+interface Props {
+  product: {
+    name: string;
+    slug?: string;
+    price: number;
+    description: string;
+    coverUrl: string | null;
+    coverAlt: string;
+    coverWidth: number | null;
+    coverHeight: number | null;
+  };
+}
+
+const { product } = Astro.props;
+---
+
+<article class="overflow-hidden rounded-lg border border-line bg-surface">
+  {
+    product.coverUrl && (
+      product.slug ? (
+        <a href={routes.product(product.slug)}>
+          <img
+            src={product.coverUrl}
+            alt={product.coverAlt}
+            width={product.coverWidth ?? undefined}
+            height={product.coverHeight ?? undefined}
+            loading="lazy"
+            class="h-44 w-full object-cover"
+          />
+        </a>
+      ) : (
+        <img
+          src={product.coverUrl}
+          alt={product.coverAlt}
+          width={product.coverWidth ?? undefined}
+          height={product.coverHeight ?? undefined}
+          loading="lazy"
+          class="h-44 w-full object-cover"
+        />
+      )
+    )
+  }
+  <div class="p-4">
+    <h3 class="text-lg font-semibold">
+      {product.slug ? <a href={routes.product(product.slug)}>{product.name}</a> : product.name}
+    </h3>
+    <p class="mt-1 font-semibold text-primary-strong">{formatVnd(product.price)}</p>
+    {product.description && <p class="mt-2 text-muted">{product.description}</p>}
+  </div>
+</article>

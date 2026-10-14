@@ -1,0 +1,18 @@
+---
+interface Props {
+  failed: boolean;
+}
+
+const { failed } = Astro.props;
+---
+
+<main class="mx-auto max-w-3xl px-4 py-16">
+  <h1 class="text-3xl font-semibold">Chưa đọc được dữ liệu</h1>
+  <p class="mt-4 text-muted">
+    {
+      failed
+        ? 'Database local chưa sẵn sàng. Chạy migration và seed, rồi tải lại trang.'
+        : 'Chưa có tên website trong database. Chạy seed local, rồi tải lại trang.'
+    }
+  </p>
+</main>

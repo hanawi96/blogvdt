@@ -1,0 +1,3 @@
+# Sao chép thành .dev.vars khi cần biến local.
+# Không ghi mật khẩu thật vào file này.
+ENVIRONMENT=development

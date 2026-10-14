@@ -1,0 +1,82 @@
+import { eq } from 'drizzle-orm';
+import { sessions } from '../../lib/db/schema';
+import type { AppDb } from '../../lib/db/client';
+import { isSameOrigin } from '../../lib/http';
+
+export const SESSION_COOKIE = 'admin_session';
+export const SESSION_MS = 8 * 60 * 60 * 1000;
+
+export function sessionCookieOptions(secure: boolean) {
+  return {
+    httpOnly: true,
+    secure,
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: SESSION_MS / 1000,
+  };
+}
+
+export type AdminSession = {
+  sessionId: string;
+  userId: number;
+  csrfToken: string;
+};
+
+export async function createSession(db: AppDb, userId: number, now = Date.now()): Promise<AdminSession> {
+  const sessionId = randomToken();
+  const csrfToken = randomToken();
+  await db.insert(sessions).values({
+    id: sessionId,
+    adminUserId: userId,
+    csrfToken,
+    expiresAt: now + SESSION_MS,
+    createdAt: now,
+  });
+  return { sessionId, userId, csrfToken };
+}
+
+export async function readSession(db: AppDb, sessionId: string | undefined, now = Date.now()): Promise<AdminSession | null> {
+  if (!sessionId) return null;
+  const rows = await db
+    .select({
+      sessionId: sessions.id,
+      userId: sessions.adminUserId,
+      csrfToken: sessions.csrfToken,
+      expiresAt: sessions.expiresAt,
+    })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  if (row.expiresAt <= now) {
+    await db.delete(sessions).where(eq(sessions.id, sessionId));
+    return null;
+  }
+  return { sessionId: row.sessionId, userId: row.userId, csrfToken: row.csrfToken };
+}
+
+export async function destroySession(db: AppDb, sessionId: string): Promise<void> {
+  await db.delete(sessions).where(eq(sessions.id, sessionId));
+}
+
+export function mutationError(request: Request, session: AdminSession, form: FormData): string | null {
+  if (!isSameOrigin(request)) return 'Nguồn gửi không hợp lệ.';
+  const csrf = form.get('csrf');
+  if (typeof csrf !== 'string' || !csrfMatches(session.csrfToken, csrf)) return 'Phiên không hợp lệ. Tải lại trang.';
+  return null;
+}
+
+export function csrfMatches(expected: string, received: string): boolean {
+  const left = new TextEncoder().encode(expected);
+  const right = new TextEncoder().encode(received);
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) difference |= left[index] ^ right[index];
+  return difference === 0;
+}
+
+function randomToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}

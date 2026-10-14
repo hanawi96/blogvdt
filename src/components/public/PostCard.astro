@@ -1,0 +1,40 @@
+---
+import type { PublicPostCard } from '../../features/posts/public';
+import { formatDateTime } from '../../lib/datetime';
+import { routes } from '../../lib/routes';
+
+interface Props {
+  post: PublicPostCard;
+  level?: 'h2' | 'h3';
+}
+
+const { post, level = 'h2' } = Astro.props;
+const Heading = level;
+---
+
+<article class="overflow-hidden rounded-lg border border-line bg-surface">
+  {
+    post.coverUrl && (
+      <a href={routes.knowledge(post.slug)}>
+        <img
+          src={post.coverUrl}
+          alt={post.coverAlt}
+          width={post.coverWidth ?? undefined}
+          height={post.coverHeight ?? undefined}
+          loading="lazy"
+          class="h-44 w-full object-cover"
+        />
+      </a>
+    )
+  }
+  <div class="p-4">
+    {post.categoryName && post.categorySlug && (
+      <a class="text-sm text-primary-strong" href={routes.knowledgeCategory(post.categorySlug)}>{post.categoryName}</a>
+    )}
+    <Heading class="mt-1 text-xl font-semibold">
+      <a href={routes.knowledge(post.slug)}>{post.title}</a>
+    </Heading>
+    {post.excerpt && <p class="mt-2 text-muted">{post.excerpt}</p>}
+    {post.publishedAt && <p class="mt-3 text-sm text-muted">{formatDateTime(post.publishedAt)}</p>}
+  </div>
+</article>

@@ -1,0 +1,87 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { listOrders } from '../../../features/orders/orders';
+import { isOrderStatus, ORDER_STATUS_LABELS, ORDER_STATUSES } from '../../../features/orders/status';
+import { createDb } from '../../../lib/db/client';
+import { getDbBinding } from '../../../lib/cloudflare/env';
+import { formatDateTime } from '../../../lib/datetime';
+import { routes } from '../../../lib/routes';
+
+if (!Astro.locals.adminSession) return Astro.redirect(routes.adminLogin);
+
+const query = Astro.url.searchParams.get('q') ?? '';
+const statusParam = Astro.url.searchParams.get('status') ?? '';
+const status = isOrderStatus(statusParam) ? statusParam : '';
+const page = Number(Astro.url.searchParams.get('page') ?? '1');
+let loadError = '';
+let result: Awaited<ReturnType<typeof listOrders>> | null = null;
+try {
+  result = await listOrders(createDb(getDbBinding()), { query, status, page: Number.isInteger(page) ? page : 1 });
+} catch (error) {
+  console.error(JSON.stringify({ event: 'order_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
+  loadError = 'Không tải được danh sách đơn.';
+}
+
+function pageHref(nextPage: number): string {
+  const params = new URLSearchParams();
+  if (query) params.set('q', query);
+  if (status) params.set('status', status);
+  if (nextPage > 1) params.set('page', String(nextPage));
+  const text = params.toString();
+  return text ? `${routes.adminOrders}?${text}` : routes.adminOrders;
+}
+---
+
+<AdminLayout title="Đơn hàng">
+  <form class="mb-4 flex flex-wrap gap-2" method="get">
+    <label class="sr-only" for="order-query">Tìm đơn</label>
+    <input id="order-query" class="field max-w-xs" name="q" value={query} placeholder="Mã, tên hoặc số điện thoại" maxlength="80" />
+    <label class="sr-only" for="order-status">Trạng thái</label>
+    <select id="order-status" class="field w-auto" name="status">
+      <option value="" selected={status === ''}>Mọi trạng thái</option>
+      {ORDER_STATUSES.map((item) => <option value={item} selected={status === item}>{ORDER_STATUS_LABELS[item]}</option>)}
+    </select>
+    <button class="btn" type="submit">Lọc</button>
+  </form>
+  {loadError && <p class="error-text" role="alert">{loadError}</p>}
+  {result && result.rows.length === 0 && <p class="text-muted">Chưa có đơn khớp bộ lọc.</p>}
+  {
+    result && result.rows.length > 0 && (
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse text-left">
+          <thead>
+            <tr class="border-b border-line">
+              <th class="py-2">Mã</th>
+              <th class="py-2">Khách</th>
+              <th class="py-2">Sản phẩm</th>
+              <th class="py-2">Trạng thái</th>
+              <th class="py-2">Thời gian</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.rows.map((order) => (
+              <tr class="border-b border-line">
+                <td class="py-2">
+                  <a class="font-semibold underline" href={routes.adminOrder(order.id)}>{order.code}</a>
+                </td>
+                <td class="py-2">{order.customerName}</td>
+                <td class="py-2">{order.productName}</td>
+                <td class="py-2">{isOrderStatus(order.status) ? ORDER_STATUS_LABELS[order.status] : order.status}</td>
+                <td class="py-2">{formatDateTime(order.createdAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+  {
+    result && result.pageCount > 1 && (
+      <nav class="mt-4 flex gap-3" aria-label="Phân trang">
+        {result.page > 1 && <a href={pageHref(result.page - 1)}>Trang trước</a>}
+        <span>Trang {result.page}/{result.pageCount}</span>
+        {result.page < result.pageCount && <a href={pageHref(result.page + 1)}>Trang sau</a>}
+      </nav>
+    )
+  }
+</AdminLayout>

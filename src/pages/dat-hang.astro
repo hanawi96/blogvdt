@@ -1,0 +1,151 @@
+---
+import DataError from '../components/public/DataError.astro';
+import OrderForm from '../components/public/OrderForm.astro';
+import { parseOrderSubmission } from '../features/orders/order';
+import { placeOrder } from '../features/orders/orders';
+import { listOrderCatalog } from '../features/products/public';
+import { getPublicSite } from '../features/settings/settings';
+import PublicLayout from '../layouts/PublicLayout.astro';
+import { createDb } from '../lib/db/client';
+import { getDbBinding } from '../lib/cloudflare/env';
+import { clientIp, hashIp, isSameOrigin } from '../lib/http';
+import { formatVnd } from '../lib/money';
+import { buildMeta } from '../lib/seo/meta';
+import { routes } from '../lib/routes';
+import type { FieldErrors } from '../lib/validation/errors';
+
+let site: Awaited<ReturnType<typeof getPublicSite>> = null;
+let catalog: Awaited<ReturnType<typeof listOrderCatalog>> = [];
+let failed = false;
+let db: ReturnType<typeof createDb> | null = null;
+try {
+  db = createDb(getDbBinding());
+  site = await getPublicSite(db);
+  if (site) catalog = await listOrderCatalog(db);
+} catch (error) {
+  failed = true;
+  console.error(JSON.stringify({ event: 'checkout_load_failed', name: error instanceof Error ? error.name : 'unknown' }));
+}
+
+const posted = Astro.request.method === 'POST';
+const form = posted ? await Astro.request.formData() : null;
+const read = (name: string) => {
+  const value = form?.get(name);
+  return typeof value === 'string' ? value : '';
+};
+const selectedSlug = posted ? read('productSlug') : (Astro.url.searchParams.get('san-pham') ?? '');
+const selected = catalog.find((product) => product.slug === selectedSlug) ?? null;
+const values = {
+  customerName: read('customerName'),
+  phone: read('phone'),
+  address: read('address'),
+  note: read('note'),
+  quantity: read('quantity') || '1',
+  option: read('option'),
+};
+let errors: FieldErrors = {};
+let formError = '';
+
+if (posted) {
+  Astro.response.headers.set('Cache-Control', 'no-store');
+  if (!site) {
+    Astro.response.status = 503;
+  } else if (!isSameOrigin(Astro.request)) {
+    Astro.response.status = 403;
+    formError = 'Nguồn gửi không hợp lệ.';
+  } else {
+    const parsed = parseOrderSubmission(
+      { ...values, productSlug: selectedSlug, company: read('company') },
+      catalog,
+    );
+    if (!parsed.ok) {
+      Astro.response.status = 422;
+      formError = parsed.blocked ? 'Không gửi được đơn.' : '';
+      errors = parsed.errors;
+    } else if (!db) {
+      Astro.response.status = 503;
+      formError = 'Chưa lưu được đơn. Thử lại sau.';
+    } else {
+      try {
+        let address: string | null = null;
+        try {
+          address = Astro.clientAddress;
+        } catch {
+          address = null;
+        }
+        const ipHash = await hashIp(clientIp(Astro.request, address));
+        const saved = await placeOrder(db, parsed.draft, ipHash);
+        if (!saved.ok) {
+          Astro.response.status = saved.status;
+          formError = saved.error;
+        } else {
+          const response = Astro.redirect(`${routes.checkoutSuccess}?ma=${saved.code}`, 303);
+          response.headers.set('Cache-Control', 'no-store');
+          return response;
+        }
+      } catch (error) {
+        Astro.response.status = 503;
+        formError = 'Chưa lưu được đơn. Thử lại sau.';
+        console.error(JSON.stringify({ event: 'order_create_failed', name: error instanceof Error ? error.name : 'unknown' }));
+      }
+    }
+  }
+} else if (site) {
+  Astro.response.headers.set('Cache-Control', 'public, max-age=60');
+} else {
+  Astro.response.headers.set('Cache-Control', 'no-store');
+}
+
+const meta = buildMeta(Astro.url.origin, {
+  title: site ? `Đặt hàng | ${site.siteName}` : 'Chưa sẵn sàng',
+  description: 'Gửi thông tin để xưởng làm vòng. Chưa thanh toán trên website.',
+  path: routes.checkout,
+  siteName: site?.siteName,
+  robots: site ? 'index,follow' : 'noindex,nofollow',
+});
+---
+
+<PublicLayout
+  title={meta.title}
+  description={meta.description}
+  canonical={site && !posted ? meta.canonical : undefined}
+  robots={posted ? 'noindex,nofollow' : meta.robots}
+  siteName={meta.siteName}
+  faviconUrl={site?.faviconUrl || '/favicon.svg'}
+  chrome={site}
+>
+  {
+    !site ? (
+      <DataError failed={failed} />
+    ) : (
+      <main class="mx-auto max-w-xl px-4 py-10">
+        <h1 class="text-3xl font-semibold">Đặt hàng</h1>
+        <p class="mt-3 text-muted">Một đơn cho một sản phẩm. Xưởng gọi lại để chốt, website không thu tiền trực tuyến.</p>
+        <form class="mt-6 flex flex-wrap items-end gap-3" method="get" action={routes.checkout}>
+          <label class="min-w-52 flex-1">
+            <span class="mb-1 block font-semibold">Sản phẩm</span>
+            <select class="field" name="san-pham">
+              <option value="">Chọn sản phẩm</option>
+              {catalog.map((product) => (
+                <option value={product.slug} selected={product.slug === selectedSlug}>
+                  {product.name} — {formatVnd(product.price)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button class="btn" type="submit">Xem lựa chọn</button>
+        </form>
+        {catalog.length === 0 && <p class="mt-4 text-muted">Chưa có sản phẩm đang bán.</p>}
+        {formError && <p class="error-text mt-4" role="alert">{formError}</p>}
+        {errors.productSlug && <p class="error-text mt-4" role="alert">{errors.productSlug}</p>}
+        {selected && (
+          <section class="mt-8" aria-labelledby="selected-product">
+            <h2 id="selected-product" class="text-xl font-semibold">{selected.name}</h2>
+            <p class="mt-1 text-primary-strong">{formatVnd(selected.price)}</p>
+            <OrderForm product={selected} values={values} errors={errors} />
+          </section>
+        )}
+      </main>
+    )
+  }
+</PublicLayout>

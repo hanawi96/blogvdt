@@ -1,0 +1,45 @@
+---
+import DataError from '../../components/public/DataError.astro';
+import { getPublicSite } from '../../features/settings/settings';
+import PublicLayout from '../../layouts/PublicLayout.astro';
+import { createDb } from '../../lib/db/client';
+import { getDbBinding } from '../../lib/cloudflare/env';
+import { routes } from '../../lib/routes';
+
+let site: Awaited<ReturnType<typeof getPublicSite>> = null;
+let failed = false;
+try {
+  site = await getPublicSite(createDb(getDbBinding()));
+} catch (error) {
+  failed = true;
+  console.error(JSON.stringify({ event: 'order_success_failed', name: error instanceof Error ? error.name : 'unknown' }));
+}
+
+const code = Astro.url.searchParams.get('ma') ?? '';
+const shown = /^VD\d{8}-\d{4}$/.test(code) ? code : '';
+Astro.response.status = site ? 200 : 503;
+Astro.response.headers.set('Cache-Control', 'no-store');
+Astro.response.headers.set('X-Robots-Tag', 'noindex');
+---
+
+<PublicLayout
+  title={site ? `Đã nhận đơn | ${site.siteName}` : 'Chưa sẵn sàng'}
+  description="Đơn đã được ghi nhận. Trang này không dành cho công cụ tìm kiếm."
+  robots="noindex,nofollow"
+  siteName={site?.siteName}
+  faviconUrl={site?.faviconUrl || '/favicon.svg'}
+  chrome={site}
+>
+  {
+    !site ? (
+      <DataError failed={failed} />
+    ) : (
+      <main class="mx-auto max-w-xl px-4 py-16">
+        <h1 class="text-3xl font-semibold">Đã nhận đơn</h1>
+        {shown && <p class="mt-4">Mã đơn: <strong>{shown}</strong></p>}
+        <p class="mt-4 text-muted">Xưởng sẽ liên hệ qua số điện thoại đã gửi. Không cần thanh toán trên website.</p>
+        <p class="mt-6"><a href={routes.home}>Về trang chủ</a></p>
+      </main>
+    )
+  }
+</PublicLayout>

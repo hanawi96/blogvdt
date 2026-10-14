@@ -1,0 +1,71 @@
+---
+import SiteFooter from '../components/public/SiteFooter.astro';
+import SiteHeader from '../components/public/SiteHeader.astro';
+import type { PublicSite } from '../features/settings/settings';
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  description: string;
+  canonical?: string;
+  image?: string | null;
+  robots?: string;
+  type?: 'website' | 'article';
+  siteName?: string;
+  publishedTime?: string;
+  modifiedTime?: string;
+  jsonLd?: string[];
+  faviconUrl?: string;
+  chrome?: PublicSite | null;
+}
+
+const {
+  title,
+  description,
+  canonical,
+  image = null,
+  robots = 'index,follow',
+  type = 'website',
+  siteName = title,
+  publishedTime,
+  modifiedTime,
+  jsonLd = [],
+  faviconUrl = '/favicon.svg',
+  chrome = null,
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="robots" content={robots} />
+    {canonical && <link rel="canonical" href={canonical} />}
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content={type} />
+    <meta property="og:site_name" content={siteName} />
+    <meta property="og:locale" content="vi_VN" />
+    {canonical && <meta property="og:url" content={canonical} />}
+    {image && <meta property="og:image" content={image} />}
+    {publishedTime && <meta property="article:published_time" content={publishedTime} />}
+    {modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}
+    <meta name="twitter:card" content={image ? 'summary_large_image' : 'summary'} />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    {image && <meta name="twitter:image" content={image} />}
+    {jsonLd.map((entry) => <script type="application/ld+json" set:html={entry} />)}
+    <link rel="icon" href={faviconUrl} />
+  </head>
+  <body class="bg-canvas font-sans text-ink antialiased">
+    <a class="skip-link" href="#noi-dung">Tới nội dung</a>
+    {chrome && <SiteHeader site={chrome} />}
+    <div id="noi-dung">
+      <slot />
+    </div>
+    {chrome && <SiteFooter site={chrome} />}
+  </body>
+</html>

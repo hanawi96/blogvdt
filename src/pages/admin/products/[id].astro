@@ -1,0 +1,100 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import ProductForm from '../../../components/admin/ProductForm.astro';
+import { mutationError } from '../../../features/auth/session';
+import { listMedia } from '../../../features/media/media';
+import { optionsText, readOptions } from '../../../features/products/options';
+import { parseProductForm } from '../../../features/products/form';
+import { getProduct, updateProduct } from '../../../features/products/products';
+import { createDb } from '../../../lib/db/client';
+import { getDbBinding } from '../../../lib/cloudflare/env';
+import { routes } from '../../../lib/routes';
+import type { FieldErrors } from '../../../lib/validation/errors';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+
+const id = Number(Astro.params.id);
+if (!Number.isInteger(id) || id < 1) return Astro.redirect(routes.adminProducts);
+
+const db = createDb(getDbBinding());
+const product = await getProduct(db, id);
+if (!product) return Astro.redirect(routes.adminProducts);
+
+const covers = (await listMedia(db)).map((item) => ({ id: item.id, filename: item.filename }));
+let values = {
+  name: product.name,
+  slug: product.slug,
+  price: String(product.price),
+  description: product.description,
+  coverMediaId: product.coverMediaId ? String(product.coverMediaId) : '',
+  album: product.albumIds.map(String),
+  options: optionsText(readOptions(product.optionsJson)),
+  status: product.status,
+  featured: product.isFeatured,
+  sortOrder: String(product.sortOrder),
+  seoTitle: product.seoTitle ?? '',
+  metaDescription: product.metaDescription ?? '',
+};
+let errors: FieldErrors = {};
+let formError = '';
+const saved = Astro.url.searchParams.get('saved') === '1';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const blocked = mutationError(Astro.request, session, form);
+  values = valuesFrom(form);
+  if (blocked) {
+    Astro.response.status = 403;
+    formError = blocked;
+  } else {
+    const parsed = parseProductForm(form);
+    if (!parsed.ok) {
+      Astro.response.status = 422;
+      errors = parsed.errors;
+    } else {
+      const result = await updateProduct(db, id, parsed.input);
+      if (!result.ok) {
+        Astro.response.status = 422;
+        formError = result.error;
+      } else {
+        return Astro.redirect(`${routes.adminProduct(id)}?saved=1`, 303);
+      }
+    }
+  }
+}
+
+function valuesFrom(form: FormData) {
+  const read = (name: string) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value : '';
+  };
+  return {
+    name: read('name'),
+    slug: read('slug'),
+    price: read('price'),
+    description: read('description'),
+    coverMediaId: read('coverMediaId'),
+    album: form.getAll('album').filter((value): value is string => typeof value === 'string'),
+    options: read('options'),
+    status: read('status') || 'active',
+    featured: form.get('featured') === '1',
+    sortOrder: read('sortOrder') || '0',
+    seoTitle: read('seoTitle'),
+    metaDescription: read('metaDescription'),
+  };
+}
+---
+
+<AdminLayout title="Sửa sản phẩm">
+  {saved && <p class="mb-4 text-primary-strong" role="status">Đã lưu sản phẩm.</p>}
+  <ProductForm
+    csrf={session.csrfToken}
+    action={routes.adminProduct(id)}
+    deleteAction={routes.adminProductDelete(id)}
+    {values}
+    {errors}
+    {formError}
+    {covers}
+  />
+</AdminLayout>

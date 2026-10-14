@@ -1,0 +1,49 @@
+{
+  "name": "vong-dau-tam",
+  "type": "module",
+  "version": "0.0.1",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "hash:admin": "node --experimental-strip-types scripts/hash-admin-password.mjs",
+    "astro": "astro",
+    "generate-types": "wrangler types",
+    "db:migrate:local": "wrangler d1 migrations apply vong-dau-tam --local",
+    "db:seed:local": "node scripts/seed-local.mjs"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^14.3.4",
+    "@astrojs/svelte": "^9.0.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tiptap/core": "^3.32.0",
+    "@tiptap/extension-image": "^3.32.0",
+    "@tiptap/extension-link": "^3.32.0",
+    "@tiptap/extension-table": "^3.32.0",
+    "@tiptap/extension-table-cell": "^3.32.0",
+    "@tiptap/extension-table-header": "^3.32.0",
+    "@tiptap/extension-table-row": "^3.32.0",
+    "@tiptap/pm": "^3.32.0",
+    "@tiptap/starter-kit": "^3.32.0",
+    "@tiptap/static-renderer": "^3.32.0",
+    "astro": "^7.3.8",
+    "drizzle-orm": "^0.45.4",
+    "svelte": "^5.57.2",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.151.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@playwright/test": "^1.64.0",
+    "drizzle-kit": "^0.31.11",
+    "vitest": "^4.1.11"
+  }
+}

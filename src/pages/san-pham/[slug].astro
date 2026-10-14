@@ -1,0 +1,138 @@
+---
+import DataError from '../../components/public/DataError.astro';
+import NotFound from '../../components/public/NotFound.astro';
+import OrderForm from '../../components/public/OrderForm.astro';
+import { getPublicProduct } from '../../features/products/public';
+import { getPublicSite } from '../../features/settings/settings';
+import PublicLayout from '../../layouts/PublicLayout.astro';
+import { createDb } from '../../lib/db/client';
+import { findRedirect } from '../../lib/db/redirects';
+import { getDbBinding } from '../../lib/cloudflare/env';
+import { isSafeRedirect } from '../../lib/http';
+import { formatVnd } from '../../lib/money';
+import { breadcrumbSchema, buildMeta, jsonLd, productSchema } from '../../lib/seo/meta';
+import { routes } from '../../lib/routes';
+
+const slug = Astro.params.slug ?? '';
+const loaded = await loadProduct();
+if (loaded.redirectTo) return Astro.redirect(loaded.redirectTo, 301);
+const visible = loaded.product?.status === 'active' ? loaded.product : null;
+if (!visible) {
+  Astro.response.status = loaded.site ? 404 : 503;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+  Astro.response.headers.set('X-Robots-Tag', 'noindex');
+} else {
+  Astro.response.headers.set('Cache-Control', 'public, max-age=60');
+}
+
+const meta = buildMeta(Astro.url.origin, {
+  title: visible ? `${visible.seoTitle || visible.name} | ${loaded.site?.siteName ?? ''}` : 'Không tìm thấy trang',
+  description: visible?.metaDescription || visible?.description || loaded.site?.defaultSeoDescription || 'Không tìm thấy sản phẩm.',
+  path: routes.product(slug),
+  image: visible?.images[0]?.url,
+  siteName: loaded.site?.siteName,
+  robots: visible ? 'index,follow' : 'noindex,nofollow',
+});
+const crumbs = visible && loaded.site
+  ? [
+      { name: 'Trang chủ', path: routes.home },
+      { name: 'Sản phẩm', path: routes.products },
+      { name: visible.name, path: routes.product(visible.slug) },
+    ]
+  : [];
+const jsonLdBlocks = visible && loaded.site
+  ? [
+      jsonLd(breadcrumbSchema(Astro.url.origin, crumbs)),
+      jsonLd(productSchema({
+        name: visible.name,
+        description: visible.description,
+        canonical: meta.canonical,
+        image: meta.image,
+        price: visible.price,
+        siteName: loaded.site.siteName,
+      })),
+    ]
+  : [];
+
+async function loadProduct() {
+  try {
+    const db = createDb(getDbBinding());
+    const site = await getPublicSite(db);
+    if (!site) return { site: null, failed: false, product: null, redirectTo: null };
+    const product = await getPublicProduct(db, slug);
+    if (!product) {
+      const target = await findRedirect(db, routes.product(slug));
+      if (target && isSafeRedirect(target)) return { site, failed: false, product: null, redirectTo: target };
+    }
+    return { site, failed: false, product, redirectTo: null };
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'product_public_failed', name: error instanceof Error ? error.name : 'unknown' }));
+    return { site: null, failed: true, product: null, redirectTo: null };
+  }
+}
+---
+
+<PublicLayout
+  title={meta.title}
+  description={meta.description}
+  canonical={visible ? meta.canonical : undefined}
+  image={meta.image}
+  robots={meta.robots}
+  siteName={meta.siteName}
+  jsonLd={jsonLdBlocks}
+  faviconUrl={loaded.site?.faviconUrl || '/favicon.svg'}
+  chrome={loaded.site}
+>
+  {
+    !loaded.site ? (
+      <DataError failed={loaded.failed} />
+    ) : !visible ? (
+      <NotFound />
+    ) : (
+      <main class="mx-auto max-w-3xl px-4 py-10">
+        <nav aria-label="Đường dẫn">
+          <ol class="flex flex-wrap gap-2 text-sm text-muted">
+            {crumbs.map((crumb, index) => (
+              <li class="flex gap-2">
+                {index > 0 && <span aria-hidden="true">/</span>}
+                {index === crumbs.length - 1 ? <span>{crumb.name}</span> : <a href={crumb.path}>{crumb.name}</a>}
+              </li>
+            ))}
+          </ol>
+        </nav>
+        <h1 class="mt-4 text-4xl font-semibold tracking-tight text-balance">{visible.name}</h1>
+        <p class="mt-3 text-xl font-semibold text-primary-strong">{formatVnd(visible.price)}</p>
+        {visible.images.length > 0 && (
+          <ul class="mt-6 grid gap-3">
+            {visible.images.map((image, index) => (
+              <li>
+                <img
+                  class="h-auto w-full rounded-lg"
+                  src={image.url}
+                  alt={image.alt}
+                  width={image.width ?? undefined}
+                  height={image.height ?? undefined}
+                  loading={index === 0 ? undefined : 'lazy'}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+        <p class="mt-6 whitespace-pre-line leading-relaxed">{visible.description}</p>
+        {visible.options.length > 0 && (
+          <div class="mt-6">
+            <h2 class="text-lg font-semibold">Lựa chọn</h2>
+            <ul class="mt-2 list-disc pl-5">
+              {visible.options.map((option) => <li>{option}</li>)}
+            </ul>
+          </div>
+        )}
+        <section id="dat-hang" class="mt-10 rounded-lg border border-line bg-surface p-4 sm:p-6" aria-labelledby="order-heading">
+          <h2 id="order-heading" class="text-xl font-semibold">Đặt hàng</h2>
+          <p class="mt-2 text-muted">Xưởng gọi lại để chốt đơn. Website không thu tiền trực tuyến.</p>
+          <OrderForm product={visible} />
+        </section>
+      </main>
+    )
+  }
+</PublicLayout>

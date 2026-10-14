@@ -1,0 +1,359 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-latin-400.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-vietnamese-400.woff2") format("woff2");
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-latin-600.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-vietnamese-600.woff2") format("woff2");
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+
+@theme {
+  --font-sans: "Be Vietnam Pro", "Segoe UI", sans-serif;
+  --color-canvas: #faf7f2;
+  --color-surface: #ffffff;
+  --color-ink: #2c2825;
+  --color-muted: #6b645e;
+  --color-line: #e7e0d6;
+  --color-primary: #6e8b74;
+  --color-primary-strong: #4f6b56;
+  --color-accent: #c4785a;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1.25rem;
+}
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.5rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    padding: 0.4rem 0.9rem;
+    font-weight: 600;
+    color: var(--color-ink);
+    cursor: pointer;
+  }
+  .btn:hover {
+    border-color: var(--color-primary);
+  }
+  .btn:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  .btn:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+  .btn-primary {
+    border-color: var(--color-primary-strong);
+    background: var(--color-primary);
+    color: var(--color-surface);
+  }
+  .btn-accent {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-surface);
+  }
+  .field {
+    width: 100%;
+    min-height: 2.75rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    padding: 0.5rem 0.75rem;
+  }
+  .field:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  .error-text {
+    color: var(--color-accent);
+    font-size: 0.875rem;
+  }
+  .editor-shell {
+    border: 1px solid color-mix(in srgb, var(--color-canvas) 16%, var(--color-ink));
+    border-radius: var(--radius-lg);
+    background: var(--color-ink);
+    color: var(--color-canvas);
+  }
+  .editor-shell:focus-within {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  .editor-toolbar {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.125rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-canvas) 14%, transparent);
+    padding: 0.35rem 0.5rem;
+  }
+  .editor-toolbar .tool {
+    display: inline-flex;
+    width: 2rem;
+    height: 2rem;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    gap: 0.1rem;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    padding: 0;
+    color: color-mix(in srgb, var(--color-canvas) 82%, var(--color-ink));
+    cursor: pointer;
+  }
+  .editor-toolbar .tool-wide {
+    width: auto;
+    padding: 0 0.4rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .editor-toolbar .tool:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-canvas) 10%, transparent);
+  }
+  .editor-toolbar .tool[aria-pressed='true'],
+  .editor-toolbar .tool[aria-expanded='true'] {
+    background: color-mix(in srgb, var(--color-canvas) 16%, transparent);
+    color: var(--color-surface);
+  }
+  .editor-toolbar .tool:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  .editor-toolbar .tool:disabled {
+    cursor: default;
+    opacity: 0.35;
+  }
+  .editor-sep {
+    width: 1px;
+    align-self: stretch;
+    margin: 0.35rem 0.25rem;
+    background: color-mix(in srgb, var(--color-canvas) 16%, transparent);
+  }
+  .editor-menu {
+    position: absolute;
+    z-index: 3;
+    top: calc(100% + 0.25rem);
+    left: 0;
+    min-width: 11rem;
+    border: 1px solid color-mix(in srgb, var(--color-canvas) 16%, var(--color-ink));
+    border-radius: var(--radius-md);
+    background: var(--color-ink);
+    padding: 0.25rem;
+  }
+  .editor-menu > button {
+    display: block;
+    width: 100%;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    padding: 0.45rem 0.65rem;
+    text-align: left;
+    color: var(--color-canvas);
+    cursor: pointer;
+  }
+  .editor-menu > button:hover,
+  .editor-menu > button[aria-checked='true'] {
+    background: color-mix(in srgb, var(--color-canvas) 12%, transparent);
+  }
+  .editor-link {
+    display: grid;
+    gap: 0.5rem;
+    min-width: 18rem;
+    padding: 0.65rem;
+  }
+  .editor-link .field {
+    background: color-mix(in srgb, var(--color-canvas) 8%, var(--color-ink));
+    color: var(--color-canvas);
+    border-color: color-mix(in srgb, var(--color-canvas) 18%, var(--color-ink));
+  }
+  .editor-link .btn:not(.btn-primary) {
+    background: transparent;
+    color: var(--color-canvas);
+    border-color: color-mix(in srgb, var(--color-canvas) 24%, transparent);
+  }
+  .editor .ProseMirror {
+    position: relative;
+    z-index: 1;
+    min-height: 22rem;
+    padding: 1.25rem 1.5rem 2rem;
+    outline: none;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+  .editor .ProseMirror > *:first-child {
+    margin-top: 0;
+  }
+  .editor .ProseMirror h2 {
+    margin-top: 1.5rem;
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .editor .ProseMirror h3 {
+    margin-top: 1.25rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  .editor .ProseMirror p,
+  .editor .ProseMirror li {
+    margin-top: 0.75rem;
+    line-height: 1.7;
+  }
+  .editor .ProseMirror a {
+    color: color-mix(in srgb, var(--color-primary) 45%, var(--color-canvas));
+    text-decoration: underline;
+  }
+  .editor .ProseMirror ul,
+  .editor .ProseMirror ol {
+    margin-top: 0.75rem;
+    padding-left: 1.5rem;
+  }
+  .editor .ProseMirror ul {
+    list-style: disc;
+  }
+  .editor .ProseMirror ol {
+    list-style: decimal;
+  }
+  .editor .ProseMirror blockquote {
+    margin-top: 1rem;
+    border-left: 3px solid color-mix(in srgb, var(--color-canvas) 35%, transparent);
+    padding-left: 1rem;
+    color: color-mix(in srgb, var(--color-canvas) 72%, var(--color-ink));
+    font-style: italic;
+  }
+  .editor .ProseMirror img {
+    display: block;
+    height: auto;
+    max-width: 100%;
+    margin-top: 1rem;
+    border-radius: var(--radius-md);
+  }
+  .editor .ProseMirror .ProseMirror-selectednode {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  .editor table {
+    width: 100%;
+    margin-top: 1rem;
+    border-collapse: collapse;
+  }
+  .editor td,
+  .editor th {
+    border: 1px solid color-mix(in srgb, var(--color-canvas) 22%, transparent);
+    padding: 0.4rem;
+  }
+  .post-body {
+    max-width: 65ch;
+  }
+  .post-body h2 {
+    margin-top: 2rem;
+    font-size: 1.5rem;
+    font-weight: 600;
+  }
+  .post-body h3 {
+    margin-top: 1.5rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+  .post-body p,
+  .post-body li {
+    margin-top: 0.75rem;
+    line-height: 1.7;
+  }
+  .post-body a {
+    color: var(--color-primary-strong);
+    text-decoration: underline;
+  }
+  .post-body img {
+    margin-top: 1rem;
+    height: auto;
+    max-width: 100%;
+    border-radius: var(--radius-md);
+  }
+  .post-body blockquote {
+    margin-top: 1rem;
+    border-left: 3px solid var(--color-line);
+    padding-left: 1rem;
+    color: var(--color-muted);
+    font-style: italic;
+  }
+  .post-body ul,
+  .post-body ol {
+    margin-top: 0.75rem;
+    padding-left: 1.25rem;
+  }
+  .post-body ul {
+    list-style: disc;
+  }
+  .post-body ol {
+    list-style: decimal;
+  }
+  .post-body table {
+    width: 100%;
+    margin-top: 1rem;
+    border-collapse: collapse;
+  }
+  .post-body td,
+  .post-body th {
+    border: 1px solid var(--color-line);
+    padding: 0.4rem;
+  }
+}
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: 0.75rem;
+  z-index: 20;
+  transform: translateY(-150%);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+}
+.skip-link:focus {
+  transform: none;
+}

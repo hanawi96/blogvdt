@@ -1,0 +1,84 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import ProductForm from '../../../components/admin/ProductForm.astro';
+import { mutationError } from '../../../features/auth/session';
+import { listMedia } from '../../../features/media/media';
+import { parseProductForm } from '../../../features/products/form';
+import { createProduct } from '../../../features/products/products';
+import { createDb } from '../../../lib/db/client';
+import { getDbBinding } from '../../../lib/cloudflare/env';
+import { routes } from '../../../lib/routes';
+import type { FieldErrors } from '../../../lib/validation/errors';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+
+const db = createDb(getDbBinding());
+const covers = (await listMedia(db)).map((item) => ({ id: item.id, filename: item.filename }));
+const empty = {
+  name: '',
+  slug: '',
+  price: '',
+  description: '',
+  coverMediaId: '',
+  album: [] as string[],
+  options: '',
+  status: 'active',
+  featured: false,
+  sortOrder: '0',
+  seoTitle: '',
+  metaDescription: '',
+};
+let values = empty;
+let errors: FieldErrors = {};
+let formError = '';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const blocked = mutationError(Astro.request, session, form);
+  values = valuesFrom(form);
+  if (blocked) {
+    Astro.response.status = 403;
+    formError = blocked;
+  } else {
+    const parsed = parseProductForm(form);
+    if (!parsed.ok) {
+      Astro.response.status = 422;
+      errors = parsed.errors;
+    } else {
+      const saved = await createProduct(db, parsed.input);
+      if (!saved.ok) {
+        Astro.response.status = 422;
+        formError = saved.error;
+      } else {
+        return Astro.redirect(`${routes.adminProduct(saved.id)}?saved=1`, 303);
+      }
+    }
+  }
+}
+
+function valuesFrom(form: FormData) {
+  const read = (name: string) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value : '';
+  };
+  return {
+    name: read('name'),
+    slug: read('slug'),
+    price: read('price'),
+    description: read('description'),
+    coverMediaId: read('coverMediaId'),
+    album: form.getAll('album').filter((value): value is string => typeof value === 'string'),
+    options: read('options'),
+    status: read('status') || 'active',
+    featured: form.get('featured') === '1',
+    sortOrder: read('sortOrder') || '0',
+    seoTitle: read('seoTitle'),
+    metaDescription: read('metaDescription'),
+  };
+}
+---
+
+<AdminLayout title="Thêm sản phẩm">
+  <ProductForm csrf={session.csrfToken} action={routes.adminProductNew} {values} {errors} {formError} {covers} />
+</AdminLayout>

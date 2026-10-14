@@ -1,0 +1,51 @@
+---
+import type { PublicSite } from '../../features/settings/settings';
+import { routes } from '../../lib/routes';
+
+interface Props {
+  site: PublicSite;
+}
+
+const { site } = Astro.props;
+const path = Astro.url.pathname;
+const items = [
+  [routes.home, 'Trang chủ'],
+  [routes.knowledgeList, 'Kiến thức'],
+  [routes.products, 'Sản phẩm'],
+] as const;
+
+function current(href: string): boolean {
+  if (href === routes.home) return path === routes.home;
+  if (href.startsWith('/#')) return false;
+  return path === href || path.startsWith(`${href}/`);
+}
+---
+
+<header class="border-b border-line bg-surface">
+  <div class="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+    <a href={routes.home} class="flex items-center gap-2 font-semibold">
+      {
+        site.logoUrl ? (
+          <img src={site.logoUrl} alt={site.logoAlt} class="h-10 w-10 rounded-md object-cover" width="40" height="40" />
+        ) : null
+      }
+      <span>{site.siteName}</span>
+    </a>
+    <nav class="flex flex-wrap gap-1" aria-label="Chính">
+      {
+        items.map(([href, label]) => (
+          <a
+            href={href}
+            aria-current={current(href) ? 'page' : undefined}
+            class:list={[
+              'rounded-md px-3 py-2',
+              current(href) ? 'bg-primary text-surface' : 'text-ink',
+            ]}
+          >
+            {label}
+          </a>
+        ))
+      }
+    </nav>
+  </div>
+</header>

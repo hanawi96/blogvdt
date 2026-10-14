@@ -1,0 +1,25 @@
+---
+export const prerender = true;
+
+import { getPolicy, POLICIES, staticChrome } from '../../features/content/policies';
+import PublicLayout from '../../layouts/PublicLayout.astro';
+
+export function getStaticPaths() {
+  return POLICIES.map((policy) => ({ params: { slug: policy.slug } }));
+}
+
+const policy = getPolicy(Astro.params.slug ?? '');
+if (!policy) return new Response(null, { status: 404 });
+---
+
+<PublicLayout
+  title={`${policy.title} | ${staticChrome.siteName}`}
+  description={policy.description}
+  siteName={staticChrome.siteName}
+  chrome={staticChrome}
+>
+  <main class="mx-auto max-w-3xl px-4 py-12">
+    <h1 class="text-3xl font-semibold">{policy.title}</h1>
+    {policy.paragraphs.map((paragraph) => <p class="mt-4 leading-relaxed">{paragraph}</p>)}
+  </main>
+</PublicLayout>

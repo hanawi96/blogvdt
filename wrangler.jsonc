@@ -1,0 +1,39 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "vong-dau-tam",
+  "main": "@astrojs/cloudflare/entrypoints/server",
+  // Ngày tương thích của Worker mới. Xem lại trước khi đẩy ngày này lên sau này.
+  "compatibility_date": "2026-10-14",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "vong-dau-tam",
+      "migrations_dir": "migrations",
+      // Local không được trỏ sang database production.
+      "remote": false
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "vong-dau-tam-media",
+      "remote": false
+    }
+  ]
+}

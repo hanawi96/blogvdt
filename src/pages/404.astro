@@ -1,0 +1,17 @@
+---
+export const prerender = true;
+
+import NotFound from '../components/public/NotFound.astro';
+import { staticChrome } from '../features/content/policies';
+import PublicLayout from '../layouts/PublicLayout.astro';
+---
+
+<PublicLayout
+  title="Không tìm thấy trang"
+  description="Đường dẫn này không có nội dung công khai."
+  robots="noindex,nofollow"
+  siteName={staticChrome.siteName}
+  chrome={staticChrome}
+>
+  <NotFound />
+</PublicLayout>

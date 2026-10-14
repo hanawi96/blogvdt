@@ -1,0 +1,92 @@
+---
+import '../styles/global.css';
+import { routes } from '../lib/routes';
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+const session = Astro.locals.adminSession;
+const path = Astro.url.pathname;
+const items = [
+  [routes.admin, 'Tổng quan'],
+  [routes.adminPosts, 'Bài viết'],
+  [routes.adminCategories, 'Danh mục'],
+  [routes.adminProducts, 'Sản phẩm'],
+  [routes.adminOrders, 'Đơn hàng'],
+  [routes.adminMedia, 'Thư viện ảnh'],
+  [routes.adminSettings, 'Cài đặt'],
+] as const;
+
+function current(href: string): boolean {
+  if (href === routes.admin) return path === href;
+  return path === href || path.startsWith(`${href}/`);
+}
+---
+
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="robots" content="noindex" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>{title}</title>
+  </head>
+  <body class="min-h-screen bg-canvas font-sans text-ink antialiased">
+    <a class="skip-link" href="#noi-dung">Tới nội dung</a>
+    {
+      session ? (
+        <div class="min-h-screen md:grid md:grid-cols-[15rem_1fr]">
+          <aside class="border-b border-line bg-surface md:border-r md:border-b-0">
+            <p class="px-4 py-5 text-lg font-semibold">Quản trị</p>
+            <nav class="flex gap-1 overflow-x-auto px-3 pb-3 md:block" aria-label="Quản trị">
+              {items.map(([href, label]) => (
+                <a
+                  href={href}
+                  aria-current={current(href) ? 'page' : undefined}
+                  class:list={[
+                    'block rounded-md px-3 py-2 whitespace-nowrap',
+                    current(href) ? 'bg-primary text-surface' : 'text-ink',
+                  ]}
+                >
+                  {label}
+                </a>
+              ))}
+            </nav>
+            <form method="post" action={routes.adminLogout} class="px-3 py-4">
+              <input type="hidden" name="csrf" value={session.csrfToken} />
+              <button class="btn" type="submit">
+                Đăng xuất
+              </button>
+            </form>
+          </aside>
+          <div>
+            <header class="border-b border-line bg-surface px-4 py-4">
+              <h1 class="text-xl font-semibold">{title}</h1>
+            </header>
+            <main id="noi-dung" class="px-4 py-6">
+              <slot />
+            </main>
+          </div>
+        </div>
+      ) : (
+        <main id="noi-dung" class="mx-auto max-w-lg px-4 py-16">
+          <h1 class="text-xl font-semibold">Không mở được trang quản trị</h1>
+        </main>
+    )
+  }
+    <script>
+      document.querySelectorAll('form[data-busy]').forEach((form) => {
+        form.addEventListener('submit', () => {
+          const button = form.querySelector('button[type="submit"]');
+          if (button instanceof HTMLButtonElement) {
+            button.disabled = true;
+            button.textContent = 'Đang lưu...';
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

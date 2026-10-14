@@ -1,0 +1,21 @@
+---
+interface Props {
+  page: number;
+  pageCount: number;
+  hrefFor: (page: number) => string;
+}
+
+const { page, pageCount, hrefFor } = Astro.props;
+---
+
+{
+  pageCount > 1 && (
+    <nav class="mt-8 flex flex-wrap items-center gap-3" aria-label="Phân trang">
+      {page > 1 && <a class="btn" href={hrefFor(page - 1)}>Trang trước</a>}
+      <span>
+        Trang {page}/{pageCount}
+      </span>
+      {page < pageCount && <a class="btn" href={hrefFor(page + 1)}>Trang sau</a>}
+    </nav>
+  )
+}

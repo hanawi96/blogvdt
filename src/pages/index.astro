@@ -1,0 +1,131 @@
+---
+import DataError from '../components/public/DataError.astro';
+import PostCard from '../components/public/PostCard.astro';
+import ProductCard from '../components/public/ProductCard.astro';
+import { listFeaturedProducts } from '../features/products/featured';
+import { listPublishedPosts } from '../features/posts/public';
+import { getPublicSite } from '../features/settings/settings';
+import { createDb } from '../lib/db/client';
+import { getDbBinding } from '../lib/cloudflare/env';
+import PublicLayout from '../layouts/PublicLayout.astro';
+import { buildMeta } from '../lib/seo/meta';
+import { routes } from '../lib/routes';
+
+const loaded = await loadHome();
+if (loaded.site) Astro.response.headers.set('Cache-Control', 'public, max-age=60');
+else Astro.response.headers.set('Cache-Control', 'no-store');
+
+const meta = buildMeta(Astro.url.origin, {
+  title: loaded.site?.defaultSeoTitle ?? 'Chưa sẵn sàng',
+  description: loaded.site?.defaultSeoDescription ?? 'Chưa đọc được nội dung website từ database local.',
+  path: routes.home,
+  siteName: loaded.site?.siteName,
+  robots: loaded.site ? 'index,follow' : 'noindex,nofollow',
+});
+
+async function loadHome() {
+  try {
+    const db = createDb(getDbBinding());
+    const site = await getPublicSite(db);
+    if (!site) return { site: null, failed: false, posts: [], products: [] };
+    const [posts, products] = await Promise.all([
+      listPublishedPosts(db, { page: 1 }),
+      listFeaturedProducts(db, 4),
+    ]);
+    return { site, failed: false, posts: posts.posts.slice(0, 3), products };
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'home_read_failed', name: error instanceof Error ? error.name : 'unknown' }));
+    return { site: null, failed: true, posts: [], products: [] };
+  }
+}
+---
+
+<PublicLayout
+  title={meta.title}
+  description={meta.description}
+  canonical={loaded.site ? meta.canonical : undefined}
+  robots={meta.robots}
+  siteName={meta.siteName}
+  faviconUrl={loaded.site?.faviconUrl || '/favicon.svg'}
+  chrome={loaded.site}
+>
+  {
+    loaded.site ? (
+      <>
+        <section class="mx-auto max-w-5xl px-4 py-14 sm:py-20">
+          <p class="text-sm font-semibold text-primary">Thủ công cho mẹ và bé</p>
+          <h1 class="mt-3 max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">{loaded.site.siteName}</h1>
+          <p class="mt-5 max-w-2xl text-lg leading-relaxed text-muted">{loaded.site.siteDescription}</p>
+          <div class="mt-8 flex flex-wrap gap-3">
+            <a class="btn btn-primary" href={routes.products}>Xem sản phẩm</a>
+            <a class="btn btn-accent" href={routes.checkout}>Đặt hàng</a>
+          </div>
+        </section>
+        <section class="mx-auto grid max-w-5xl gap-4 px-4 sm:grid-cols-3">
+          <article class="rounded-lg border border-line bg-surface p-4">
+            <h2 class="text-lg font-semibold">Làm tay</h2>
+            <p class="mt-2 text-muted">Từng vòng được xe sợi, lên khuôn và buộc chỉ tại xưởng nhỏ.</p>
+          </article>
+          <article class="rounded-lg border border-line bg-surface p-4">
+            <h2 class="text-lg font-semibold">Chọn cỡ và màu chỉ</h2>
+            <p class="mt-2 text-muted">Khi đặt, cần cỡ vòng và màu chỉ để làm đúng mẫu đã chốt.</p>
+          </article>
+          <article class="rounded-lg border border-line bg-surface p-4">
+            <h2 class="text-lg font-semibold">Tập quán tặng quà</h2>
+            <p class="mt-2 text-muted">Vòng là món quà theo tập quán. Website không nói về công dụng sức khỏe.</p>
+          </article>
+        </section>
+        <section id="san-pham" class="mx-auto max-w-5xl px-4 py-14">
+          <h2 class="text-2xl font-semibold">Sản phẩm nổi bật</h2>
+          {loaded.products.length === 0 ? (
+            <p class="mt-4 text-muted">Chưa có sản phẩm đang bán.</p>
+          ) : (
+            <ul class="mt-6 grid gap-4 sm:grid-cols-2">
+              {loaded.products.map((product) => (
+                <li>
+                  <ProductCard product={product} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <section class="mx-auto max-w-5xl px-4">
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <h2 class="text-2xl font-semibold">Bài viết mới</h2>
+            <a href={routes.knowledgeList}>Xem tất cả</a>
+          </div>
+          {loaded.posts.length === 0 ? (
+            <p class="mt-4 text-muted">Chưa có bài viết.</p>
+          ) : (
+            <ul class="mt-6 grid gap-4 sm:grid-cols-3">
+              {loaded.posts.map((post) => (
+                <li>
+                  <PostCard post={post} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <section class="mx-auto max-w-5xl px-4 py-14">
+          <h2 class="text-2xl font-semibold">Quy trình làm thủ công</h2>
+          <ol class="mt-6 grid gap-4 sm:grid-cols-3">
+            <li class="rounded-lg border border-line bg-surface p-4">
+              <p class="font-semibold">1. Xe sợi</p>
+              <p class="mt-2 text-muted">Tơ tằm được xe thành sợi trước khi lên khuôn.</p>
+            </li>
+            <li class="rounded-lg border border-line bg-surface p-4">
+              <p class="font-semibold">2. Lên khuôn</p>
+              <p class="mt-2 text-muted">Sợi được quấn theo cỡ đã chọn.</p>
+            </li>
+            <li class="rounded-lg border border-line bg-surface p-4">
+              <p class="font-semibold">3. Buộc chỉ</p>
+              <p class="mt-2 text-muted">Chỉ màu được buộc sau cùng, rồi kiểm tra lại trước khi giao.</p>
+            </li>
+          </ol>
+        </section>
+      </>
+    ) : (
+      <DataError failed={loaded.failed} />
+    )
+  }
+</PublicLayout>

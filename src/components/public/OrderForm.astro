@@ -1,0 +1,85 @@
+---
+import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
+import { routes } from '../../lib/routes';
+import type { FieldErrors } from '../../lib/validation/errors';
+
+interface Props {
+  product: { slug: string; options: string[] };
+  values?: {
+    customerName: string;
+    phone: string;
+    address: string;
+    note: string;
+    quantity: string;
+    option: string;
+  };
+  errors?: FieldErrors;
+}
+
+const {
+  product,
+  values = { customerName: '', phone: '', address: '', note: '', quantity: '1', option: '' },
+  errors = {},
+} = Astro.props;
+---
+
+<form class="mt-6" method="post" action={routes.checkout} data-order-form>
+  <input type="hidden" name="productSlug" value={product.slug} />
+  <div class="absolute -left-[9999px]" aria-hidden="true">
+    <label for="company">Công ty</label>
+    <input id="company" name="company" tabindex="-1" autocomplete="off" />
+  </div>
+  {
+    product.options.length > 0 && (
+      <label class="block" for="option">
+        <span class="mb-1 block font-semibold">Lựa chọn</span>
+        <select id="option" class="field" name="option" required>
+          <option value="">Chọn</option>
+          {product.options.map((option) => (
+            <option value={option} selected={values.option === option}>
+              {option}
+            </option>
+          ))}
+        </select>
+        {errors.option && <span class="error-text">{errors.option}</span>}
+      </label>
+    )
+  }
+  <label class="mt-4 block" for="quantity">
+    <span class="mb-1 block font-semibold">Số lượng</span>
+    <input id="quantity" class="field" name="quantity" type="number" min="1" max={ORDER_MAX_QUANTITY} required value={values.quantity} />
+    {errors.quantity && <span class="error-text">{errors.quantity}</span>}
+  </label>
+  <label class="mt-4 block" for="customer-name">
+    <span class="mb-1 block font-semibold">Họ tên</span>
+    <input id="customer-name" class="field" name="customerName" required maxlength="80" autocomplete="name" value={values.customerName} />
+    {errors.customerName && <span class="error-text">{errors.customerName}</span>}
+  </label>
+  <label class="mt-4 block" for="phone">
+    <span class="mb-1 block font-semibold">Số điện thoại</span>
+    <input id="phone" class="field" name="phone" type="tel" required maxlength="20" autocomplete="tel" value={values.phone} />
+    {errors.phone && <span class="error-text">{errors.phone}</span>}
+  </label>
+  <label class="mt-4 block" for="address">
+    <span class="mb-1 block font-semibold">Địa chỉ nhận hàng</span>
+    <textarea id="address" class="field min-h-24" name="address" required maxlength="240" autocomplete="street-address">{values.address}</textarea>
+    {errors.address && <span class="error-text">{errors.address}</span>}
+  </label>
+  <label class="mt-4 block" for="note">
+    <span class="mb-1 block font-semibold">Ghi chú</span>
+    <textarea id="note" class="field min-h-20" name="note" maxlength="500">{values.note}</textarea>
+    {errors.note && <span class="error-text">{errors.note}</span>}
+  </label>
+  <button class="btn btn-accent mt-6" type="submit">Gửi đơn</button>
+</form>
+<script>
+  document.querySelectorAll('form[data-order-form]').forEach((form) => {
+    form.addEventListener('submit', () => {
+      const button = form.querySelector('button[type="submit"]');
+      if (button instanceof HTMLButtonElement) {
+        button.disabled = true;
+        button.textContent = 'Đang gửi...';
+      }
+    });
+  });
+</script>

@@ -1,0 +1,198 @@
+---
+import type { JSONContent } from '@tiptap/core';
+import DataError from '../../components/public/DataError.astro';
+import NotFound from '../../components/public/NotFound.astro';
+import PostCard from '../../components/public/PostCard.astro';
+import ProductCard from '../../components/public/ProductCard.astro';
+import { listFeaturedProducts } from '../../features/products/featured';
+import { sanitizePostContent } from '../../features/posts/content';
+import { collectHeadings } from '../../features/posts/headings';
+import { getPostBySlug, listRelatedPosts } from '../../features/posts/public';
+import { renderPostHtml } from '../../features/posts/render';
+import { getPublicSite } from '../../features/settings/settings';
+import PublicLayout from '../../layouts/PublicLayout.astro';
+import { createDb } from '../../lib/db/client';
+import { findRedirect } from '../../lib/db/redirects';
+import { getDbBinding } from '../../lib/cloudflare/env';
+import { formatDateTime } from '../../lib/datetime';
+import { isSafeRedirect } from '../../lib/http';
+import { articleSchema, breadcrumbSchema, buildMeta, jsonLd } from '../../lib/seo/meta';
+import { routes } from '../../lib/routes';
+
+const slug = Astro.params.slug ?? '';
+const loaded = await loadPost();
+if (loaded.redirectTo) return Astro.redirect(loaded.redirectTo, 301);
+if (!loaded.post) {
+  Astro.response.status = loaded.site ? 404 : 503;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+  Astro.response.headers.set('X-Robots-Tag', 'noindex');
+} else {
+  Astro.response.headers.set('Cache-Control', 'public, max-age=60');
+}
+
+const published = loaded.post?.publishedAt ? new Date(loaded.post.publishedAt).toISOString() : undefined;
+const modified = loaded.post ? new Date(loaded.post.updatedAt).toISOString() : undefined;
+const meta = buildMeta(Astro.url.origin, {
+  title: loaded.post ? `${loaded.post.seoTitle || loaded.post.title} | ${loaded.site?.siteName ?? ''}` : 'Không tìm thấy trang',
+  description: loaded.post?.metaDescription || loaded.post?.excerpt || loaded.site?.defaultSeoDescription || 'Không tìm thấy bài viết.',
+  path: routes.knowledge(slug),
+  image: loaded.post?.coverUrl,
+  type: loaded.post ? 'article' : 'website',
+  siteName: loaded.site?.siteName,
+  robots: loaded.post ? 'index,follow' : 'noindex,nofollow',
+  publishedTime: published,
+  modifiedTime: modified,
+});
+const crumbs = loaded.post && loaded.site
+  ? [
+      { name: 'Trang chủ', path: routes.home },
+      { name: 'Kiến thức', path: routes.knowledgeList },
+      ...(loaded.post.categoryName && loaded.post.categorySlug
+        ? [{ name: loaded.post.categoryName, path: routes.knowledgeCategory(loaded.post.categorySlug) }]
+        : []),
+      { name: loaded.post.title, path: routes.knowledge(loaded.post.slug) },
+    ]
+  : [];
+const jsonLdBlocks = loaded.post && loaded.site
+  ? [
+      jsonLd(breadcrumbSchema(Astro.url.origin, crumbs)),
+      jsonLd(
+        articleSchema({
+          headline: loaded.post.title,
+          description: meta.description,
+          canonical: meta.canonical,
+          image: meta.image,
+          publishedTime: published,
+          modifiedTime: modified,
+          siteName: loaded.site.siteName,
+        }),
+      ),
+    ]
+  : [];
+
+async function loadPost() {
+  try {
+    const db = createDb(getDbBinding());
+    const site = await getPublicSite(db);
+    if (!site) return { site: null, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo: null };
+    const found = await getPostBySlug(db, slug);
+    if (!found || found.status !== 'published') {
+      if (!found) {
+        const target = await findRedirect(db, routes.knowledge(slug));
+        if (target && isSafeRedirect(target)) return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo: target };
+      }
+      return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo: null };
+    }
+    const sanitized = sanitizePostContent(found.contentJson);
+    const content = sanitized.ok ? (JSON.parse(sanitized.json) as JSONContent) : null;
+    const [related, products] = await Promise.all([
+      listRelatedPosts(db, { id: found.id, categoryId: found.categoryId }),
+      listFeaturedProducts(db, 3),
+    ]);
+    return {
+      site,
+      failed: false,
+      post: found,
+      html: content ? renderPostHtml(content) : '',
+      headings: content ? collectHeadings(content) : [],
+      related,
+      products,
+      redirectTo: null,
+    };
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'post_public_failed', name: error instanceof Error ? error.name : 'unknown' }));
+    return { site: null, failed: true, post: null, html: '', headings: [], related: [], products: [], redirectTo: null };
+  }
+}
+---
+
+<PublicLayout
+  title={meta.title}
+  description={meta.description}
+  canonical={loaded.post ? meta.canonical : undefined}
+  image={meta.image}
+  robots={meta.robots}
+  type={meta.type}
+  siteName={meta.siteName}
+  publishedTime={meta.publishedTime}
+  modifiedTime={meta.modifiedTime}
+  jsonLd={jsonLdBlocks}
+  faviconUrl={loaded.site?.faviconUrl || '/favicon.svg'}
+  chrome={loaded.site}
+>
+  {
+    !loaded.site ? (
+      <DataError failed={loaded.failed} />
+    ) : !loaded.post ? (
+      <NotFound />
+    ) : (
+      <main class="mx-auto max-w-3xl px-4 py-10">
+        <nav aria-label="Đường dẫn">
+          <ol class="flex flex-wrap gap-2 text-sm text-muted">
+            {crumbs.map((crumb, index) => (
+              <li class="flex gap-2">
+                {index > 0 && <span aria-hidden="true">/</span>}
+                {index === crumbs.length - 1 ? <span>{crumb.name}</span> : <a href={crumb.path}>{crumb.name}</a>}
+              </li>
+            ))}
+          </ol>
+        </nav>
+        <h1 class="mt-4 text-4xl font-semibold tracking-tight text-balance">{loaded.post.title}</h1>
+        <p class="mt-4 text-sm text-muted">
+          {loaded.post.publishedAt && <span>Đăng {formatDateTime(loaded.post.publishedAt)}</span>}
+          <span> · Sửa {formatDateTime(loaded.post.updatedAt)}</span>
+        </p>
+        {loaded.post.coverUrl && (
+          <img
+            class="mt-6 h-auto w-full rounded-lg"
+            src={loaded.post.coverUrl}
+            alt={loaded.post.coverAlt}
+            width={loaded.post.coverWidth ?? undefined}
+            height={loaded.post.coverHeight ?? undefined}
+          />
+        )}
+        {loaded.headings.length > 0 && (
+          <nav class="mt-8 rounded-lg border border-line bg-surface p-4" aria-label="Mục lục">
+            <p class="font-semibold">Mục lục</p>
+            <ol class="mt-2 space-y-1">
+              {loaded.headings.map((heading) => (
+                <li class:list={[heading.level === 3 && 'pl-4']}>
+                  <a href={`#${heading.id}`}>{heading.text}</a>
+                </li>
+              ))}
+            </ol>
+          </nav>
+        )}
+        <article class="post-body mt-8" set:html={loaded.html} />
+        <div class="mt-10 flex flex-wrap gap-3">
+          <a class="btn btn-primary" href={routes.products}>Xem sản phẩm</a>
+          <a class="btn btn-accent" href={routes.checkout}>Đặt hàng</a>
+        </div>
+        <section id="san-pham" class="mt-12">
+          <h2 class="text-2xl font-semibold">Sản phẩm nổi bật</h2>
+          {loaded.products.length === 0 ? (
+            <p class="mt-4 text-muted">Chưa có sản phẩm đang bán.</p>
+          ) : (
+            <ul class="mt-4 grid gap-4 sm:grid-cols-2">
+              {loaded.products.map((product) => (
+                <li><ProductCard product={product} /></li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <section class="mt-12">
+          <h2 class="text-2xl font-semibold">Bài viết liên quan</h2>
+          {loaded.related.length === 0 ? (
+            <p class="mt-4 text-muted">Chưa có bài liên quan.</p>
+          ) : (
+            <ul class="mt-4 grid gap-4">
+              {loaded.related.map((post) => (
+                <li><PostCard post={post} level="h3" /></li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </main>
+    )
+  }
+</PublicLayout>
