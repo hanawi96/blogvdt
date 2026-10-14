@@ -168,7 +168,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
     const menu = event.target;
     if (!(menu instanceof HTMLDetailsElement) || !menu.open || !menu.classList.contains('row-menu')) return;
     for (const other of document.querySelectorAll('details.row-menu[open]')) {
-      if (other !== menu) other.open = false;
+      if (other !== menu && other instanceof HTMLDetailsElement) other.open = false;
     }
   }, true);
 
@@ -176,7 +176,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
     const target = event.target;
     if (!(target instanceof Node)) return;
     for (const menu of document.querySelectorAll('details.row-menu[open]')) {
-      if (!menu.contains(target)) menu.open = false;
+      if (menu instanceof HTMLDetailsElement && !menu.contains(target)) menu.open = false;
     }
   });
 

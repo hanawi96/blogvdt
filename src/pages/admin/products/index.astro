@@ -1,9 +1,10 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { listProducts } from '../../../features/products/products';
+import { listProducts, productAdminQuery, productListSort, type ProductListSort } from '../../../features/products/products';
 import { isProductStatus, PRODUCT_STATUS_LABELS } from '../../../features/products/status';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
+import { formatDateTime } from '../../../lib/datetime';
 import { formatVnd } from '../../../lib/money';
 import { routes } from '../../../lib/routes';
 
@@ -12,78 +13,214 @@ if (!Astro.locals.adminSession) return Astro.redirect(routes.adminLogin);
 const query = Astro.url.searchParams.get('q') ?? '';
 const statusParam = Astro.url.searchParams.get('status') ?? '';
 const status = isProductStatus(statusParam) ? statusParam : '';
+const sort = productListSort(Astro.url.searchParams.get('sort'));
 const page = Number(Astro.url.searchParams.get('page') ?? '1');
+const deleted = Astro.url.searchParams.get('deleted') === '1';
+const featured = Astro.url.searchParams.get('featured');
+const featureError = Astro.url.searchParams.get('error') === 'feature';
 let loadError = '';
 let result: Awaited<ReturnType<typeof listProducts>> | null = null;
 try {
-  result = await listProducts(createDb(getDbBinding()), { query, status, page: Number.isInteger(page) ? page : 1 });
+  result = await listProducts(createDb(getDbBinding()), {
+    query,
+    status,
+    sort,
+    page: Number.isInteger(page) ? page : 1,
+  });
 } catch (error) {
   console.error(JSON.stringify({ event: 'product_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
   loadError = 'Không tải được danh sách sản phẩm.';
 }
 
-function pageHref(nextPage: number): string {
-  const params = new URLSearchParams();
-  if (query) params.set('q', query);
-  if (status) params.set('status', status);
-  if (nextPage > 1) params.set('page', String(nextPage));
-  const text = params.toString();
-  return text ? `${routes.adminProducts}?${text}` : routes.adminProducts;
+const sorts: { id: ProductListSort; label: string }[] = [
+  { id: 'newest', label: 'Mới cập nhật' },
+  { id: 'oldest', label: 'Cũ nhất' },
+  { id: 'name', label: 'Tên A–Z' },
+  { id: 'price-asc', label: 'Giá tăng dần' },
+  { id: 'price-desc', label: 'Giá giảm dần' },
+];
+
+function pageHref(next: { page?: number }): string {
+  return productAdminQuery({ query, status, sort, page: next.page ?? 1 });
 }
 ---
 
-<AdminLayout title="Sản phẩm">
-  <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-    <form class="flex flex-wrap gap-2" method="get">
-      <label class="sr-only" for="product-query">Tìm sản phẩm</label>
-      <input id="product-query" class="field max-w-xs" name="q" value={query} placeholder="Tìm tên" maxlength="160" />
-      <label class="sr-only" for="product-status">Trạng thái</label>
-      <select id="product-status" class="field w-auto" name="status">
-        <option value="" selected={status === ''}>Mọi trạng thái</option>
-        <option value="active" selected={status === 'active'}>Đang bán</option>
-        <option value="inactive" selected={status === 'inactive'}>Ngừng bán</option>
-      </select>
-      <button class="btn" type="submit">Lọc</button>
-    </form>
-    <a class="btn btn-primary" href={routes.adminProductNew}>Thêm sản phẩm</a>
-  </div>
+<AdminLayout title="Quản lý sản phẩm">
+  <p slot="lead">{result ? `${result.libraryTotal} sản phẩm trong cửa hàng` : 'Danh sách sản phẩm'}</p>
+  <a slot="action" class="btn btn-primary" href={routes.adminProductNew}>Thêm sản phẩm</a>
+  {deleted && <p class="mb-4 text-primary-strong" role="status">Đã xóa sản phẩm. Đơn cũ vẫn giữ tên và giá lúc đặt.</p>}
+  {featured === '1' && <p class="mb-4 text-primary-strong" role="status">Đã đánh dấu nổi bật trên trang chủ.</p>}
+  {featured === '0' && <p class="mb-4 text-primary-strong" role="status">Đã bỏ nổi bật.</p>}
+  {featureError && <p class="error-text mb-4" role="alert">Không đánh dấu nổi bật được. Chỉ sản phẩm đang bán mới hiện ở trang chủ.</p>}
   {loadError && <p class="error-text" role="alert">{loadError}</p>}
-  {result && result.rows.length === 0 && <p class="text-muted">Chưa có sản phẩm khớp bộ lọc.</p>}
   {
-    result && result.rows.length > 0 && (
-      <div class="overflow-x-auto">
-        <table class="w-full border-collapse text-left">
-          <thead>
-            <tr class="border-b border-line">
-              <th class="py-2">Tên</th>
-              <th class="py-2">Giá</th>
-              <th class="py-2">Trạng thái</th>
-              <th class="py-2">Trang chủ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.rows.map((product) => (
-              <tr class="border-b border-line">
-                <td class="py-2">
-                  <a class="font-semibold underline" href={routes.adminProduct(product.id)}>{product.name}</a>
-                </td>
-                <td class="py-2">{formatVnd(product.price)}</td>
-                <td class="py-2">{isProductStatus(product.status) ? PRODUCT_STATUS_LABELS[product.status] : product.status}</td>
-                <td class="py-2">{product.isFeatured ? 'Có' : '—'}</td>
-              </tr>
+    result && (
+      <>
+        <form class="post-toolbar product-toolbar" method="get" data-product-search>
+          <label class="sr-only" for="product-query">Tìm sản phẩm</label>
+          <input id="product-query" class="field" name="q" value={query} placeholder="Tìm sản phẩm..." maxlength="160" />
+          <label class="sr-only" for="product-status">Trạng thái</label>
+          <select id="product-status" class="field" name="status">
+            <option value="" selected={status === ''}>Tất cả trạng thái</option>
+            <option value="active" selected={status === 'active'}>Đang bán</option>
+            <option value="inactive" selected={status === 'inactive'}>Ngừng bán</option>
+          </select>
+          <label class="sr-only" for="product-sort">Sắp xếp</label>
+          <select id="product-sort" class="field" name="sort">
+            {sorts.map((item) => (
+              <option value={item.id} selected={sort === item.id}>{item.label}</option>
             ))}
-          </tbody>
-        </table>
-      </div>
-    )
-  }
-  {
-    result && result.pageCount > 1 && (
-      <nav class="mt-4 flex gap-3" aria-label="Phân trang">
-        {result.page > 1 && <a href={pageHref(result.page - 1)}>Trang trước</a>}
-        <span>Trang {result.page}/{result.pageCount}</span>
-        {result.page < result.pageCount && <a href={pageHref(result.page + 1)}>Trang sau</a>}
-      </nav>
+          </select>
+        </form>
+        <div data-product-list>
+          {result.rows.length === 0 ? (
+            <p class="post-empty">
+              {result.libraryTotal === 0 ? 'Chưa có sản phẩm.' : 'Không có sản phẩm khớp bộ lọc.'}
+              {result.libraryTotal === 0 && <a href={routes.adminProductNew}>Thêm sản phẩm đầu tiên</a>}
+            </p>
+          ) : (
+            <table class="post-table product-table">
+              <thead>
+                <tr>
+                  <th>Sản phẩm</th>
+                  <th>Giá</th>
+                  <th>Trạng thái</th>
+                  <th>Nổi bật</th>
+                  <th>Cập nhật</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.rows.map((product) => {
+                  const active = product.status === 'active';
+                  return (
+                    <tr>
+                      <td>
+                        <div class="product-main">
+                          {product.coverUrl ? (
+                            <img class="product-thumb" src={product.coverUrl} alt={product.coverAlt} width="44" height="44" loading="lazy" />
+                          ) : (
+                            <span class="product-thumb is-empty" aria-hidden="true" />
+                          )}
+                          <a class="post-title" href={routes.adminProduct(product.id)}>{product.name}</a>
+                        </div>
+                      </td>
+                      <td data-label="Giá">{formatVnd(product.price)}</td>
+                      <td data-label="Trạng thái">
+                        <span class="post-status" data-status={active ? 'active' : 'inactive'}>
+                          {isProductStatus(product.status) ? PRODUCT_STATUS_LABELS[product.status] : product.status}
+                        </span>
+                      </td>
+                      <td data-label="Nổi bật">
+                        <span class="product-flag" data-on={product.isFeatured ? 'true' : 'false'}>{product.isFeatured ? 'Nổi bật' : '—'}</span>
+                      </td>
+                      <td data-label="Cập nhật">{formatDateTime(product.updatedAt)}</td>
+                      <td>
+                        <div class="post-actions">
+                          <a href={routes.adminProduct(product.id)}>Sửa</a>
+                          {active && <a href={routes.product(product.slug)} target="_blank" rel="noopener">Xem sản phẩm</a>}
+                          <details class="row-menu">
+                            <summary aria-label={`Thao tác khác: ${product.name}`}>⋯</summary>
+                            <div>
+                              {active && (
+                                <form method="post" action={routes.adminProductFeature(product.id)}>
+                                  <input type="hidden" name="csrf" value={Astro.locals.adminSession?.csrfToken} />
+                                  <input type="hidden" name="featured" value={product.isFeatured ? '0' : '1'} />
+                                  <input type="hidden" name="q" value={query} />
+                                  <input type="hidden" name="status" value={status} />
+                                  <input type="hidden" name="sort" value={sort} />
+                                  <input type="hidden" name="page" value={String(result.page)} />
+                                  <button type="submit">{product.isFeatured ? 'Bỏ nổi bật' : 'Bật nổi bật'}</button>
+                                </form>
+                              )}
+                              <form method="post" action={routes.adminProductDelete(product.id)} onsubmit={`return confirm(${JSON.stringify(`Xóa sản phẩm “${product.name}”? Đơn cũ vẫn giữ tên và giá lúc đặt.`)})`}>
+                                <input type="hidden" name="csrf" value={Astro.locals.adminSession?.csrfToken} />
+                                <input type="hidden" name="q" value={query} />
+                                <input type="hidden" name="status" value={status} />
+                                <input type="hidden" name="sort" value={sort} />
+                                <button type="submit">Xóa</button>
+                              </form>
+                            </div>
+                          </details>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {result.pageCount > 1 && (
+          <nav class="post-pager" aria-label="Phân trang">
+            {result.page > 1 && <a class="btn" href={pageHref({ page: result.page - 1 })}>Trang trước</a>}
+            <span>Trang {result.page}/{result.pageCount}</span>
+            {result.page < result.pageCount && <a class="btn" href={pageHref({ page: result.page + 1 })}>Trang sau</a>}
+          </nav>
+        )}
+      </>
     )
   }
 </AdminLayout>
+
+<script>
+  document.addEventListener('toggle', (event) => {
+    const menu = event.target;
+    if (!(menu instanceof HTMLDetailsElement) || !menu.open || !menu.classList.contains('row-menu')) return;
+    for (const other of document.querySelectorAll('details.row-menu[open]')) {
+      if (other !== menu && other instanceof HTMLDetailsElement) other.open = false;
+    }
+  }, true);
+
+  document.addEventListener('pointerdown', (event) => {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    for (const menu of document.querySelectorAll('details.row-menu[open]')) {
+      if (menu instanceof HTMLDetailsElement && !menu.contains(target)) menu.open = false;
+    }
+  });
+
+  const form = document.querySelector('[data-product-search]');
+  const list = document.querySelector('[data-product-list]');
+  if (form instanceof HTMLFormElement) {
+    const input = form.querySelector('input[name="q"]');
+    let timer = 0;
+    const go = () => {
+      const data = new FormData(form);
+      const read = (name: string) => {
+        const value = data.get(name);
+        return typeof value === 'string' ? value : '';
+      };
+      const url = new URL(productListUrl(read('q'), read('status'), read('sort')), location.origin);
+      if (url.pathname + url.search === location.pathname + location.search) return;
+      list?.setAttribute('aria-busy', 'true');
+      location.assign(url);
+    };
+    if (input instanceof HTMLInputElement) {
+      input.addEventListener('input', () => {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(go, 300);
+      });
+    }
+    form.addEventListener('change', (event) => {
+      if (event.target === input) return;
+      window.clearTimeout(timer);
+      go();
+    });
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      window.clearTimeout(timer);
+      go();
+    });
+  }
+
+  function productListUrl(query: string, status: string, sort: string): string {
+    const params = new URLSearchParams();
+    const term = query.trim();
+    if (term) params.set('q', term);
+    if (status === 'active' || status === 'inactive') params.set('status', status);
+    if (sort && sort !== 'newest') params.set('sort', sort);
+    const text = params.toString();
+    return text ? `/admin/products?${text}` : '/admin/products';
+  }
+</script>

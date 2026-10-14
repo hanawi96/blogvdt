@@ -9,3 +9,7 @@ export const PRODUCT_STATUS_LABELS: Record<ProductStatus, string> = {
 export function isProductStatus(value: string): value is ProductStatus {
   return PRODUCT_STATUSES.some((status) => status === value);
 }
+
+export function canFeatureProduct(status: string, requested: boolean): boolean {
+  return status === 'active' && requested;
+}

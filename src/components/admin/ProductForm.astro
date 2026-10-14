@@ -76,9 +76,10 @@ const { csrf, action, values, errors, formError, media, deleteAction } = Astro.p
     {errors.sortOrder && <span class="error-text">{errors.sortOrder}</span>}
   </label>
   <label class="mt-4 flex items-center gap-2">
-    <input type="checkbox" name="featured" value="1" checked={values.featured} />
+    <input type="checkbox" name="featured" value="1" checked={values.featured} data-product-featured />
     <span class="font-semibold">Hiện ở trang chủ</span>
   </label>
+  <p class="mt-1 text-sm text-muted">Chỉ sản phẩm đang bán mới được đánh dấu nổi bật.</p>
   <label class="mt-4 block">
     <span class="mb-1 block font-semibold">SEO title</span>
     <input class="field" name="seoTitle" maxlength="180" value={values.seoTitle} />
@@ -91,7 +92,7 @@ const { csrf, action, values, errors, formError, media, deleteAction } = Astro.p
   </label>
   <label class="mt-4 block">
     <span class="mb-1 block font-semibold">Trạng thái</span>
-    <select class="field" name="status">
+    <select class="field" name="status" data-product-status>
       <option value="active" selected={values.status === 'active'}>{PRODUCT_STATUS_LABELS.active}</option>
       <option value="inactive" selected={values.status === 'inactive'}>{PRODUCT_STATUS_LABELS.inactive}</option>
     </select>
@@ -99,6 +100,19 @@ const { csrf, action, values, errors, formError, media, deleteAction } = Astro.p
   </label>
   <button class="btn btn-primary mt-6" type="submit">Lưu sản phẩm</button>
 </form>
+<script>
+  const status = document.querySelector('[data-product-status]');
+  const featured = document.querySelector('[data-product-featured]');
+  if (status instanceof HTMLSelectElement && featured instanceof HTMLInputElement) {
+    const syncFeatured = () => {
+      const inactive = status.value === 'inactive';
+      featured.disabled = inactive;
+      if (inactive) featured.checked = false;
+    };
+    status.addEventListener('change', syncFeatured);
+    syncFeatured();
+  }
+</script>
 {
   deleteAction && (
     <form class="mt-4" method="post" action={deleteAction} onsubmit="return confirm('Xóa sản phẩm này? Đơn cũ vẫn giữ tên và giá lúc đặt.')">

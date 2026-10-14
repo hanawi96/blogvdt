@@ -5,9 +5,54 @@ import type { AppDb } from '../../lib/db/client';
 import { slugRedirectQueries } from '../../lib/db/redirects';
 import { media, productMedia, products, redirects } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
-import type { ProductStatus } from './status';
+import { canFeatureProduct, isProductStatus, type ProductStatus } from './status';
 
 const PAGE_SIZE = 20;
+const PRODUCT_SORTS = ['newest', 'oldest', 'name', 'price-asc', 'price-desc'] as const;
+
+export type ProductListSort = (typeof PRODUCT_SORTS)[number];
+
+export function productListSort(value: string | null | undefined): ProductListSort {
+  return PRODUCT_SORTS.find((sort) => sort === value) ?? 'newest';
+}
+
+export function productAdminQuery(input: {
+  query?: string;
+  status?: string;
+  sort?: string;
+  page?: number;
+  notice?: 'deleted' | 'featured-on' | 'featured-off' | 'feature-error';
+}): string {
+  const params = new URLSearchParams();
+  const query = (input.query ?? '').replace(/[%_]/g, '').trim().slice(0, 160);
+  const status = isProductStatus(input.status ?? '') ? input.status : '';
+  const sort = productListSort(input.sort);
+  const page = input.page && Number.isInteger(input.page) && input.page > 1 ? input.page : 0;
+  if (query) params.set('q', query);
+  if (status) params.set('status', status);
+  if (sort !== 'newest') params.set('sort', sort);
+  if (page) params.set('page', String(page));
+  if (input.notice === 'deleted') params.set('deleted', '1');
+  if (input.notice === 'featured-on') params.set('featured', '1');
+  if (input.notice === 'featured-off') params.set('featured', '0');
+  if (input.notice === 'feature-error') params.set('error', 'feature');
+  const text = params.toString();
+  return text ? `${routes.adminProducts}?${text}` : routes.adminProducts;
+}
+
+export function readProductListContext(form: FormData) {
+  const read = (name: string) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value : '';
+  };
+  const page = Number(read('page'));
+  return {
+    query: read('q'),
+    status: read('status'),
+    sort: read('sort'),
+    page: Number.isInteger(page) && page > 0 ? page : 1,
+  };
+}
 
 export type ProductInput = {
   name: string;
@@ -24,30 +69,68 @@ export type ProductInput = {
   metaDescription: string | null;
 };
 
-export async function listProducts(db: AppDb, filters: { query: string; status: ProductStatus | ''; page: number }) {
-  const term = filters.query.replace(/[%_]/g, '').trim();
+export async function listProducts(
+  db: AppDb,
+  filters: { query: string; status: ProductStatus | ''; page: number; sort?: ProductListSort },
+) {
+  const term = filters.query.replace(/[%_]/g, '').trim().slice(0, 160);
   const conditions = [];
   if (filters.status) conditions.push(eq(products.status, filters.status));
   if (term) conditions.push(like(products.name, `%${term}%`));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = Math.max(1, filters.page);
-  const totalRows = await db.select({ value: count() }).from(products).where(where);
+  const sort = productListSort(filters.sort);
+  const filtered = Boolean(term || filters.status);
+  const [totalRows, libraryRows, rows] = await Promise.all([
+    db.select({ value: count() }).from(products).where(where),
+    filtered ? db.select({ value: count() }).from(products) : Promise.resolve([]),
+    db
+      .select({
+        id: products.id,
+        name: products.name,
+        slug: products.slug,
+        price: products.price,
+        status: products.status,
+        isFeatured: products.isFeatured,
+        updatedAt: products.updatedAt,
+        coverKey: media.r2Key,
+        coverAlt: media.altText,
+      })
+      .from(products)
+      .leftJoin(media, eq(products.coverMediaId, media.id))
+      .where(where)
+      .orderBy(...productOrder(sort))
+      .limit(PAGE_SIZE)
+      .offset((page - 1) * PAGE_SIZE),
+  ]);
   const total = totalRows[0]?.value ?? 0;
-  const rows = await db
-    .select({
-      id: products.id,
-      name: products.name,
-      price: products.price,
-      status: products.status,
-      isFeatured: products.isFeatured,
-      updatedAt: products.updatedAt,
-    })
-    .from(products)
-    .where(where)
-    .orderBy(asc(products.sortOrder), desc(products.updatedAt), desc(products.id))
-    .limit(PAGE_SIZE)
-    .offset((page - 1) * PAGE_SIZE);
-  return { rows, total, page, pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)) };
+  return {
+    rows: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      price: row.price,
+      status: row.status,
+      isFeatured: canFeatureProduct(row.status, row.isFeatured),
+      updatedAt: row.updatedAt,
+      coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
+      coverAlt: row.coverAlt || row.name,
+    })),
+    total,
+    page,
+    pageSize: PAGE_SIZE,
+    pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+    sort,
+    libraryTotal: filtered ? (libraryRows[0]?.value ?? 0) : total,
+  };
+}
+
+function productOrder(sort: ProductListSort) {
+  if (sort === 'oldest') return [asc(products.updatedAt), asc(products.id)] as const;
+  if (sort === 'name') return [asc(products.name), desc(products.id)] as const;
+  if (sort === 'price-asc') return [asc(products.price), desc(products.id)] as const;
+  if (sort === 'price-desc') return [desc(products.price), desc(products.id)] as const;
+  return [desc(products.updatedAt), desc(products.id)] as const;
 }
 
 export async function getProduct(db: AppDb, id: number) {
@@ -113,6 +196,27 @@ export async function updateProduct(
   return { ok: true };
 }
 
+export async function setProductFeatured(
+  db: AppDb,
+  id: number,
+  featured: boolean,
+  now = Date.now(),
+): Promise<{ ok: true; featured: boolean } | { ok: false; error: string }> {
+  const rows = await db
+    .select({ status: products.status, isFeatured: products.isFeatured })
+    .from(products)
+    .where(eq(products.id, id))
+    .limit(1);
+  const product = rows[0];
+  if (!product) return { ok: false, error: 'Không tìm thấy sản phẩm.' };
+  const next = canFeatureProduct(product.status, featured);
+  if (featured && !next) return { ok: false, error: 'Sản phẩm ngừng bán không được đánh dấu nổi bật.' };
+  if (product.isFeatured !== next) {
+    await db.update(products).set({ isFeatured: next, updatedAt: now }).where(eq(products.id, id));
+  }
+  return { ok: true, featured: next };
+}
+
 export async function deleteProduct(db: AppDb, id: number): Promise<void> {
   const current = await getProduct(db, id);
   if (!current) return;
@@ -133,7 +237,7 @@ function productValues(input: ProductInput, now: number) {
     coverMediaId: input.coverMediaId,
     optionsJson: JSON.stringify(input.options),
     status: input.status,
-    isFeatured: input.isFeatured,
+    isFeatured: canFeatureProduct(input.status, input.isFeatured),
     sortOrder: input.sortOrder,
     seoTitle: input.seoTitle,
     metaDescription: input.metaDescription,

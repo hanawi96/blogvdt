@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { fieldErrors, type FieldErrors } from '../../lib/validation/errors';
 import { parseOptionsText } from './options';
 import type { ProductInput } from './products';
-import { isProductStatus } from './status';
+import { canFeatureProduct, isProductStatus } from './status';
 
 const productFields = z.object({
   name: z.string().trim().min(1, 'Nhập tên sản phẩm.').max(160, 'Tên quá dài.'),
@@ -54,7 +54,7 @@ export function parseProductForm(form: FormData): { ok: true; input: ProductInpu
       albumIds,
       options: options.options,
       status: parsed.data.status,
-      isFeatured: form.get('featured') === '1',
+      isFeatured: canFeatureProduct(parsed.data.status, form.get('featured') === '1'),
       sortOrder: Number(parsed.data.sortOrder),
       seoTitle: parsed.data.seoTitle || null,
       metaDescription: parsed.data.metaDescription || null,
