@@ -22,7 +22,12 @@ const post = await getPost(db, id);
 if (!post) return Astro.redirect(routes.adminPosts);
 
 const categories = await listCategories(db);
-const covers = (await listMedia(db)).map((item) => ({ id: item.id, filename: item.filename }));
+const covers = (await listMedia(db)).map((item) => ({
+  id: item.id,
+  filename: item.filename,
+  url: item.url,
+  alt: item.altText,
+}));
 let values = {
   title: post.title,
   slug: post.slug,
@@ -80,7 +85,6 @@ function valuesFrom(form: FormData, fallbackContent: string) {
 ---
 
 <AdminLayout title="Sửa bài viết">
-  {saved && <p class="mb-4 text-primary-strong" role="status">Đã lưu bài viết.</p>}
   <PostForm
     csrf={session.csrfToken}
     action={routes.adminPost(id)}
@@ -88,6 +92,8 @@ function valuesFrom(form: FormData, fallbackContent: string) {
     {values}
     {errors}
     {formError}
+    {saved}
+    meta={{ createdAt: post.createdAt, updatedAt: post.updatedAt, publishedAt: post.publishedAt }}
     {categories}
     {covers}
   />

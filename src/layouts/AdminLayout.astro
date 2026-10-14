@@ -79,12 +79,14 @@ function current(href: string): boolean {
   }
     <script>
       document.querySelectorAll('form[data-busy]').forEach((form) => {
-        form.addEventListener('submit', () => {
-          const button = form.querySelector('button[type="submit"]');
-          if (button instanceof HTMLButtonElement) {
-            button.disabled = true;
-            button.textContent = 'Đang lưu...';
-          }
+        if (!(form instanceof HTMLFormElement)) return;
+        form.addEventListener('submit', (event) => {
+          const submitter = event.submitter;
+          form.querySelectorAll('button[type="submit"]').forEach((button) => {
+            if (button instanceof HTMLButtonElement) button.disabled = true;
+          });
+          const target = submitter instanceof HTMLButtonElement ? submitter : form.querySelector('button[type="submit"]');
+          if (target instanceof HTMLButtonElement && target.dataset.keepLabel !== 'true') target.textContent = 'Đang lưu...';
         });
       });
     </script>

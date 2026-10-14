@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { slugify } from '../../features/posts/slug';
 
   let {
@@ -9,6 +9,7 @@
     slugError = '',
     label = 'Tiêu đề',
     field = 'title',
+    titleInput = '',
   }: {
     title?: string;
     slug?: string;
@@ -16,6 +17,7 @@
     slugError?: string;
     label?: string;
     field?: string;
+    titleInput?: string;
   } = $props();
 
   let titleValue = $state(untrack(() => title));
@@ -31,14 +33,27 @@
     slugTouched = true;
     slugValue = (event.currentTarget as HTMLInputElement).value;
   }
+
+  onMount(() => {
+    if (!titleInput) return;
+    const input = document.getElementById(titleInput);
+    if (!(input instanceof HTMLInputElement)) return;
+    const sync = () => {
+      if (!slugTouched) slugValue = slugify(input.value);
+    };
+    input.addEventListener('input', sync);
+    return () => input.removeEventListener('input', sync);
+  });
 </script>
 
-<label class="block">
-  <span class="mb-1 block font-semibold">{label}</span>
-  <input class="field" name={field} required maxlength="180" value={titleValue} oninput={onTitle} />
-  {#if titleError}<span class="error-text">{titleError}</span>{/if}
-</label>
-<label class="mt-4 block">
+{#if !titleInput}
+  <label class="block">
+    <span class="mb-1 block font-semibold">{label}</span>
+    <input class="field" name={field} required maxlength="180" value={titleValue} oninput={onTitle} />
+    {#if titleError}<span class="error-text">{titleError}</span>{/if}
+  </label>
+{/if}
+<label class={titleInput ? 'block' : 'mt-4 block'}>
   <span class="mb-1 block font-semibold">Slug</span>
   <input class="field" name="slug" required maxlength="180" value={slugValue} oninput={onSlug} />
   {#if slugError}<span class="error-text">{slugError}</span>{/if}

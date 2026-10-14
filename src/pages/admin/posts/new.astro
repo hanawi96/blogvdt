@@ -16,7 +16,12 @@ if (!session) return Astro.redirect(routes.adminLogin);
 
 const db = createDb(getDbBinding());
 const categories = await listCategories(db);
-const covers = (await listMedia(db)).map((item) => ({ id: item.id, filename: item.filename }));
+const covers = (await listMedia(db)).map((item) => ({
+  id: item.id,
+  filename: item.filename,
+  url: item.url,
+  alt: item.altText,
+}));
 const empty = {
   title: '',
   slug: '',
