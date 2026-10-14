@@ -4,6 +4,7 @@ import type { AppDb } from '../../lib/db/client';
 import { slugRedirectQueries } from '../../lib/db/redirects';
 import { categories, posts } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { shouldStorePostRedirect } from './redirects';
 import type { PostStatus } from './status';
 
 const PAGE_SIZE = 20;
@@ -47,6 +48,22 @@ export async function listPosts(db: AppDb, filters: { query: string; status: Pos
   return { rows, total, page, pageSize: PAGE_SIZE, pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)) };
 }
 
+export async function searchPublishedPosts(db: AppDb, query: string) {
+  const term = query.replace(/[%_]/g, '').trim().slice(0, 80);
+  if (term.length < 2) return [];
+  const rows = await db
+    .select({ title: posts.title, slug: posts.slug })
+    .from(posts)
+    .where(and(eq(posts.status, 'published'), like(posts.title, `%${term}%`)))
+    .orderBy(desc(posts.publishedAt), desc(posts.id))
+    .limit(8);
+  return rows.map((row) => ({ title: row.title, path: routes.knowledge(row.slug) }));
+}
+
+export async function slugIsTaken(db: AppDb, slug: string, currentId: number | null): Promise<boolean> {
+  return (await slugAvailable(db, slug, currentId)) !== null;
+}
+
 export async function getPost(db: AppDb, id: number) {
   const rows = await db.select().from(posts).where(eq(posts.id, id)).limit(1);
   return rows[0] ?? null;
@@ -78,7 +95,7 @@ export async function updatePost(
   const slugError = await slugAvailable(db, input.slug, id);
   if (slugError) return { ok: false, error: slugError };
   const values = postValues(input, now, current.publishedAt);
-  if (current.slug === input.slug) {
+  if (!shouldStorePostRedirect(current, input.slug)) {
     await db.update(posts).set(values).where(eq(posts.id, id));
     return { ok: true };
   }
@@ -108,7 +125,7 @@ export async function saveDraftPost(
     .where(and(eq(posts.id, id), eq(posts.status, 'draft')))
     .returning({ id: posts.id });
   if (updated.length === 0) return { ok: true, skipped: true };
-  if (current.slug !== input.slug) {
+  if (shouldStorePostRedirect(current, input.slug)) {
     await runBatch(db, slugRedirectQueries(db, routes.knowledge(current.slug), routes.knowledge(input.slug), now));
   }
   return { ok: true, skipped: false };

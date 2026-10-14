@@ -39,27 +39,32 @@ export function buildMeta(
   };
 }
 
-export function articleSchema(input: {
+export function blogPostingSchema(input: {
   headline: string;
   description: string;
   canonical: string;
-  image: string | null;
+  image?: string | null;
   publishedTime?: string;
   modifiedTime?: string;
   siteName: string;
+  logo?: string | null;
 }): Record<string, unknown> {
-  return {
+  const publisher: Record<string, unknown> = { '@type': 'Organization', name: input.siteName };
+  if (input.logo) publisher.logo = { '@type': 'ImageObject', url: input.logo };
+  const schema: Record<string, unknown> = {
     '@context': 'https://schema.org',
-    '@type': 'Article',
+    '@type': 'BlogPosting',
     headline: input.headline,
     description: input.description,
-    mainEntityOfPage: input.canonical,
-    datePublished: input.publishedTime,
-    dateModified: input.modifiedTime ?? input.publishedTime,
-    image: input.image ?? undefined,
+    inLanguage: 'vi',
+    mainEntityOfPage: { '@type': 'WebPage', '@id': input.canonical },
     author: { '@type': 'Organization', name: input.siteName },
-    publisher: { '@type': 'Organization', name: input.siteName },
+    publisher,
   };
+  if (input.publishedTime) schema.datePublished = input.publishedTime;
+  if (input.modifiedTime) schema.dateModified = input.modifiedTime;
+  if (input.image) schema.image = input.image;
+  return schema;
 }
 
 export function breadcrumbSchema(origin: string, items: Array<{ name: string; path: string }>): Record<string, unknown> {
@@ -103,6 +108,11 @@ export function productSchema(input: {
 
 export function jsonLd(data: Record<string, unknown>): string {
   return JSON.stringify(data).replace(/</g, '\\u003c');
+}
+
+export function toAbsoluteUrl(origin: string, value: string | null | undefined): string | null {
+  const base = origin.endsWith('/') ? origin.slice(0, -1) : origin;
+  return absoluteUrl(base, value);
 }
 
 function absoluteUrl(origin: string, value: string | null | undefined): string | null {

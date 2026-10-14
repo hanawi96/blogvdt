@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import { Editor, type JSONContent } from '@tiptap/core';
-  import { isHttpUrl } from '../../lib/http';
+  import { isPostHref } from '../../features/posts/links';
   import { routes } from '../../lib/routes';
   import { isMediaSrc } from '../../features/posts/content';
   import { postExtensions } from '../../features/posts/extensions';
@@ -19,7 +19,11 @@
   let json = $state(untrack(() => contentJson));
   let revision = $state(0);
   let linkUrl = $state('');
+  let linkQuery = $state('');
+  let linkHits = $state<Array<{ title: string; path: string }>>([]);
+  let linkNote = $state('');
   let linkError = $state('');
+  let linkTimer = 0;
   let menu = $state<'heading' | 'link' | null>(null);
   let libraryOpen = $state(false);
   let library = $state<Array<{ id: number; url: string; alt: string; width?: number | null; height?: number | null }>>([]);
@@ -132,18 +136,63 @@
     }
     const href = editor?.getAttributes('link').href;
     linkUrl = typeof href === 'string' ? href : '';
+    linkQuery = '';
+    linkHits = [];
+    linkNote = '';
     linkError = '';
     menu = 'link';
   }
 
-  function applyLink() {
-    if (!editor) return;
-    if (!isHttpUrl(linkUrl)) {
-      linkError = 'Chỉ dùng liên kết http hoặc https.';
+  function queueLinkSearch(value: string) {
+    linkQuery = value;
+    window.clearTimeout(linkTimer);
+    linkTimer = window.setTimeout(() => void searchLinks(), 300);
+  }
+
+  async function searchLinks() {
+    const term = linkQuery.trim();
+    if (term.length < 2) {
+      linkHits = [];
+      linkNote = '';
       return;
     }
-    editor.chain().focus().extendMarkRange('link').setLink({ href: linkUrl }).run();
+    const url = new URL(routes.adminPosts, location.origin);
+    url.searchParams.set('q', term);
+    try {
+      const response = await fetch(url, { headers: { accept: 'application/json' } });
+      if (!response.ok) {
+        linkNote = 'Không tìm được bài viết.';
+        return;
+      }
+      const body = (await response.json()) as { posts?: unknown };
+      const posts = Array.isArray(body.posts) ? body.posts : [];
+      linkHits = posts.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') return [];
+        const record = entry as { title?: unknown; path?: unknown };
+        if (typeof record.title !== 'string' || typeof record.path !== 'string') return [];
+        if (!record.path.startsWith('/kien-thuc/')) return [];
+        return [{ title: record.title, path: record.path }];
+      });
+      linkNote = linkHits.length === 0 ? 'Không có bài đã xuất bản khớp.' : '';
+    } catch {
+      linkNote = 'Không tìm được bài viết.';
+    }
+  }
+
+  function applyLink(next = linkUrl) {
+    if (!editor) return;
+    const href = next.trim();
+    if (!isPostHref(href)) {
+      linkError = 'Dùng liên kết http, https hoặc đường dẫn bài trên website.';
+      return;
+    }
+    linkUrl = href;
+    editor.chain().focus().extendMarkRange('link').setLink({ href }).run();
     menu = null;
+  }
+
+  function choosePost(path: string) {
+    applyLink(path);
   }
 
   function onLinkKey(event: KeyboardEvent) {
@@ -270,8 +319,26 @@
           <div class="editor-menu editor-link" role="dialog" aria-label="Liên kết">
             <label>
               <span class="sr-only">Địa chỉ liên kết</span>
-              <input class="field" type="url" placeholder="https://..." bind:value={linkUrl} onkeydown={onLinkKey} />
+              <input class="field" type="text" placeholder="https:// hoặc /kien-thuc/..." bind:value={linkUrl} onkeydown={onLinkKey} />
             </label>
+            <label>
+              <span class="editor-link-label">Tìm bài đã xuất bản</span>
+              <input class="field" type="search" placeholder="Nhập tiêu đề" value={linkQuery} oninput={(event) => queueLinkSearch(event.currentTarget.value)} />
+            </label>
+            {#if linkHits.length > 0}
+              <ul class="editor-link-list">
+                {#each linkHits as hit (hit.path)}
+                  <li>
+                    <button type="button" onclick={() => choosePost(hit.path)}>
+                      {hit.title}
+                      <span>{hit.path}</span>
+                    </button>
+                  </li>
+                {/each}
+              </ul>
+            {:else if linkNote}
+              <p class="editor-link-label">{linkNote}</p>
+            {/if}
             {#if linkError}<p class="error-text">{linkError}</p>{/if}
             <div class="flex gap-2">
               <button class="btn btn-primary" type="button" onclick={applyLink}>Gắn</button>

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { fieldErrors, type FieldErrors } from '../../lib/validation/errors';
 import { sanitizePostContent } from './content';
 import type { PostInput } from './posts';
+import { SLUG_PATTERN } from './slug';
 import { isPostStatus } from './status';
 
 const postFields = z.object({
@@ -11,7 +12,7 @@ const postFields = z.object({
     .trim()
     .min(1, 'Nhập slug.')
     .max(180, 'Slug quá dài.')
-    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug chỉ gồm chữ thường, số và dấu gạch.'),
+    .regex(SLUG_PATTERN, 'Slug chỉ gồm chữ thường, số và dấu gạch.'),
   categoryId: z.string(),
   coverMediaId: z.string(),
   contentJson: z.string(),

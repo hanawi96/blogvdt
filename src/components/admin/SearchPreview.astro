@@ -1,0 +1,93 @@
+---
+interface Props {
+  site: { name: string; host: string; markUrl: string };
+  title: string;
+  description: string;
+  slug: string;
+  emptyDescription: boolean;
+}
+
+const { site, title, description, slug, emptyDescription } = Astro.props;
+---
+
+<div class="search-preview" data-search-preview data-host={site.host}>
+  <div class="serp-devices" role="group" aria-label="Kích thước xem trước">
+    <button type="button" data-serp-device="desktop" aria-pressed="true">Máy tính</button>
+    <button type="button" data-serp-device="mobile" aria-pressed="false">Điện thoại</button>
+  </div>
+  <div class="serp" data-serp-frame>
+    <div class="serp-site">
+      <span class="serp-mark">
+        {site.markUrl ? <img src={site.markUrl} alt="" /> : site.name.slice(0, 1)}
+      </span>
+      <span>{site.name}</span>
+    </div>
+    <p class="serp-url" data-serp-url>{site.host} › kien-thuc › {slug}</p>
+    <p class="serp-title" data-serp-title>{title}</p>
+    <p class="serp-desc" data-serp-desc data-empty={emptyDescription ? '' : undefined}>{description}</p>
+  </div>
+  <p class="seo-hint">Đây chỉ là bản xem trước. Google có thể dùng tiêu đề hoặc đoạn mô tả khác.</p>
+</div>
+
+<script>
+  import { lengthNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
+
+  function fieldValue(form: HTMLFormElement, name: string): string {
+    const field = form.querySelector(`[name="${name}"]`);
+    if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) return field.value;
+    return '';
+  }
+
+  function paint(root: HTMLElement) {
+    const form = root.closest('form');
+    if (!(form instanceof HTMLFormElement)) return;
+    const seoTitle = fieldValue(form, 'seoTitle');
+    const title = fieldValue(form, 'title').trim();
+    const meta = fieldValue(form, 'metaDescription');
+    const excerpt = fieldValue(form, 'excerpt').trim();
+    const slug = fieldValue(form, 'slug').trim() || 'duong-dan';
+    const headline = seoTitle.trim() || title || 'Tiêu đề bài viết';
+    const description = meta.trim() || excerpt || 'Thêm mô tả SEO hoặc tóm tắt để xem trước đoạn này.';
+    const titleNode = root.querySelector('[data-serp-title]');
+    const descNode = root.querySelector('[data-serp-desc]');
+    const urlNode = root.querySelector('[data-serp-url]');
+    if (titleNode) titleNode.textContent = headline;
+    if (descNode) {
+      descNode.textContent = description;
+      if (meta.trim() || excerpt) descNode.removeAttribute('data-empty');
+      else descNode.setAttribute('data-empty', '');
+    }
+    if (urlNode) urlNode.textContent = `${root.dataset.host || ''} › kien-thuc › ${slug}`;
+    const titleCount = form.querySelector('[data-seo-title-count]');
+    const descCount = form.querySelector('[data-seo-desc-count]');
+    const titleNote = form.querySelector('[data-seo-title-note]');
+    const descNote = form.querySelector('[data-seo-desc-note]');
+    if (titleCount) titleCount.textContent = `${seoTitle.length} ký tự`;
+    if (descCount) descCount.textContent = `${meta.length} ký tự`;
+    if (titleNote) titleNote.textContent = lengthNote(seoTitle.length, SEO_TITLE_RANGE.min, SEO_TITLE_RANGE.max);
+    if (descNote) descNote.textContent = lengthNote(meta.length, SEO_DESC_RANGE.min, SEO_DESC_RANGE.max);
+  }
+
+  function bind(root: HTMLElement) {
+    const form = root.closest('form');
+    if (!(form instanceof HTMLFormElement) || root.dataset.bound === '1') return;
+    root.dataset.bound = '1';
+    const paintNow = () => paint(root);
+    form.addEventListener('input', paintNow);
+    form.addEventListener('post-input', paintNow);
+    for (const button of root.querySelectorAll('[data-serp-device]')) {
+      button.addEventListener('click', () => {
+        const mobile = button.getAttribute('data-serp-device') === 'mobile';
+        root.querySelector('[data-serp-frame]')?.classList.toggle('serp-mobile', mobile);
+        for (const item of root.querySelectorAll('[data-serp-device]')) {
+          item.setAttribute('aria-pressed', item === button ? 'true' : 'false');
+        }
+      });
+    }
+    paintNow();
+  }
+
+  for (const node of document.querySelectorAll('[data-search-preview]')) {
+    if (node instanceof HTMLElement) bind(node);
+  }
+</script>

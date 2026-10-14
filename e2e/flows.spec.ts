@@ -4,8 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
-const POST_SLUG = 'bai-kiem-tra-giai-doan-5';
-const POST_TITLE = 'Bài kiểm tra giai đoạn 5';
+const POST_TITLE = 'Bài kiểm tra giai đoạn 6';
+const POST_SLUG = 'bai-kiem-tra-giai-doan-6';
+const NEXT_SLUG = 'bai-kiem-tra-giai-doan-6-moi';
+const OLD_TITLE = 'Nhìn một vòng dâu tằm thủ công';
+const OLD_SLUG = 'nhin-mot-vong-dau-tam-thu-cong';
 const ORDER_PHONE = '0909555001';
 
 test.beforeAll(resetFixtures);
@@ -27,52 +30,107 @@ test('đăng nhập', async ({ page }) => {
   await expect(page).toHaveURL(/\/admin\/login$/);
 });
 
-test('xuất bản bài', async ({ page }) => {
+test('viết, xuất bản, đổi slug, gỡ và xóa bài', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+
   await login(page);
+  await page.goto('/admin/posts');
+  await page.getByRole('link', { name: OLD_TITLE }).click();
+  await expect(page.locator('#post-title')).toHaveValue(OLD_TITLE);
+  await expect(page.locator('.ProseMirror')).toContainText('Vòng dâu tằm thủ công');
+
   await page.goto('/admin/posts/new');
   await expect(page.locator('.ProseMirror')).toBeVisible();
-  await page.getByLabel('Tiêu đề').fill(POST_TITLE);
+  await page.locator('#post-title').fill(POST_TITLE);
   await page.getByLabel('Slug').fill(POST_SLUG);
-  await expect(page.getByLabel('Tiêu đề')).toHaveValue(POST_TITLE);
+  await expect(page.locator('[data-save-status]')).toHaveText('Đã lưu', { timeout: 12_000 });
+  await expect(page).toHaveURL(/\/admin\/posts\/\d+$/);
+
   await page.locator('.ProseMirror').click();
-  await page.keyboard.insertText('Nội dung kiểm tra giai đoạn 5. Bài chỉ mô tả sản phẩm thủ công.');
-  await page.getByLabel('Trạng thái').selectOption('draft');
-  await page.getByRole('button', { name: 'Lưu bài viết' }).click();
-  await expect(page).toHaveURL(/\/admin\/posts\/\d+\?saved=1$/);
-  await expect(page.getByRole('status')).toContainText('Đã lưu bài viết.');
-  const editUrl = page.url().replace(/\?saved=1$/, '');
+  await page.keyboard.insertText('Nội dung kiểm tra giai đoạn 6. Bài chỉ mô tả sản phẩm thủ công.');
+  const previewPopup = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Xem trước' }).click();
+  const preview = await previewPopup;
+  await expect(preview.locator('h1')).toHaveText(POST_TITLE);
+  await expect(preview.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
+  await expect(preview.locator('link[rel="canonical"]')).toHaveCount(0);
+  await preview.close();
 
-  const draft = await page.request.get(`/kien-thuc/${POST_SLUG}`);
-  expect(draft.status()).toBe(404);
+  await submitPost(page, 'Lưu nháp');
+  await expect(page.locator('[data-save-status]')).toHaveText('Đã lưu');
+  expect((await page.request.get(`/kien-thuc/${POST_SLUG}`)).status()).toBe(404);
 
-  await page.getByLabel('Trạng thái').selectOption('published');
-  await page.getByRole('button', { name: 'Lưu bài viết' }).click();
-  await expect(page).toHaveURL(/\/admin\/posts\/\d+\?saved=1$/);
+  await page.locator('#post-title').fill(`${POST_TITLE} đã sửa`);
+  await submitPost(page, 'Lưu nháp');
+  await expect(page.locator('#post-title')).toHaveValue(`${POST_TITLE} đã sửa`);
+  await expect(page.locator('.ProseMirror')).toContainText('Nội dung kiểm tra giai đoạn 6.');
 
-  await page.goto(`/kien-thuc/${POST_SLUG}`);
-  await expect(page.locator('#noi-dung h1')).toHaveText(POST_TITLE);
-  await expect(page.locator('#noi-dung')).toContainText('Nội dung kiểm tra giai đoạn 5.');
+  await submitPost(page, 'Xuất bản');
+  await expect(page.locator('#post-status')).toHaveValue('published');
+  const published = await page.request.get(`/kien-thuc/${POST_SLUG}`);
+  expect(published.status()).toBe(200);
+  expect(published.headers()['cache-control']).toContain('max-age=60');
+  const html = await published.text();
+  expect(html).toContain(`${POST_TITLE} đã sửa`);
+  expect(html).toContain('rel="canonical" href="http://localhost:4321/kien-thuc/bai-kiem-tra-giai-doan-6"');
+  expect(html).toContain('name="robots" content="index,follow"');
+  expect(html).toContain('"@type":"BlogPosting"');
+  expect(html).toContain('"@type":"BreadcrumbList"');
+  expect(html).not.toContain('aggregateRating');
+  expect(html).not.toContain('@tiptap');
+  const sitemap = await (await page.request.get('/sitemap.xml')).text();
+  expect(sitemap).toContain(`/kien-thuc/${POST_SLUG}`);
 
-  await page.goto(editUrl);
+  await page.getByLabel('Slug').fill(NEXT_SLUG);
+  await submitPost(page, 'Cập nhật');
+  const moved = await page.request.get(`/kien-thuc/${POST_SLUG}`, { maxRedirects: 0 });
+  expect(moved.status()).toBe(301);
+  expect(moved.headers().location).toContain(`/kien-thuc/${NEXT_SLUG}`);
+  expect((await page.request.get(`/kien-thuc/${NEXT_SLUG}`)).status()).toBe(200);
+
+  await submitPost(page, 'Lưu nháp');
+  await expect(page.locator('#post-status')).toHaveValue('draft');
+  expect((await page.request.get(`/kien-thuc/${NEXT_SLUG}`)).status()).toBe(404);
+  const stale = await page.request.get(`/kien-thuc/${POST_SLUG}`, { maxRedirects: 0 });
+  expect(stale.status()).toBe(404);
+
+  await page.getByText('Thao tác khác').click();
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Xóa bài viết' }).click();
   await expect(page).toHaveURL(/\/admin\/posts$/);
-  const removed = await page.request.get(`/kien-thuc/${POST_SLUG}`);
-  expect(removed.status()).toBe(404);
+  expect((await page.request.get(`/kien-thuc/${NEXT_SLUG}`)).status()).toBe(404);
+  expect(errors).toEqual([]);
 });
 
-test('xem bài', async ({ page }) => {
-  await page.goto('/kien-thuc/nhin-mot-vong-dau-tam-thu-cong');
+test('bài cũ và màn hình điện thoại', async ({ page }) => {
+  const started = Date.now();
+  const response = await page.request.get(`/kien-thuc/${OLD_SLUG}`);
+  expect(response.status()).toBe(200);
+  expect(Date.now() - started).toBeLessThan(8_000);
+  await page.goto(`/kien-thuc/${OLD_SLUG}`);
   await expect(page.locator('#noi-dung h1')).toHaveCount(1);
-  await expect(page.locator('#noi-dung h1')).toHaveText('Nhìn một vòng dâu tằm thủ công');
+  await expect(page.locator('#noi-dung h1')).toHaveText(OLD_TITLE);
   await expect(page.locator('#noi-dung')).toContainText('Vòng dâu tằm thủ công là món quà');
-  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
-    'href',
-    'http://localhost:4321/kien-thuc/nhin-mot-vong-dau-tam-thu-cong',
-  );
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', `http://localhost:4321/kien-thuc/${OLD_SLUG}`);
   const schema = await page.locator('script[type="application/ld+json"]').allTextContents();
-  expect(schema.some((entry) => entry.includes('"@type":"Article"'))).toBe(true);
+  expect(schema.some((entry) => entry.includes('"@type":"BlogPosting"'))).toBe(true);
   expect(schema.some((entry) => entry.includes('aggregateRating'))).toBe(false);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/kien-thuc/${OLD_SLUG}`);
+  const heading = page.locator('#noi-dung h1');
+  await expect(heading).toBeVisible();
+  const box = await heading.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+
+  await login(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/admin/posts/new');
+  await expect(page.getByRole('button', { name: 'Xuất bản' })).toBeVisible();
+  await expect(page.locator('#post-title')).toBeVisible();
 });
 
 test('đặt hàng và xử lý đơn', async ({ page }) => {
@@ -98,6 +156,13 @@ test('đặt hàng và xử lý đơn', async ({ page }) => {
   await expect(page.getByLabel('Trạng thái')).toHaveValue('confirmed');
 });
 
+async function submitPost(page: Page, name: string) {
+  const redirect = page.waitForResponse((response) => response.request().method() === 'POST' && response.status() === 303);
+  await page.getByRole('button', { name, exact: true }).click();
+  await redirect;
+  await page.waitForLoadState('load');
+}
+
 async function login(page: Page) {
   await page.goto('/admin/login');
   await page.getByLabel('Tên đăng nhập').fill('admin');
@@ -107,12 +172,12 @@ async function login(page: Page) {
 }
 
 function resetFixtures() {
-  const file = join(tmpdir(), 'phase5-e2e-cleanup.sql');
+  const file = join(tmpdir(), 'phase6-e2e-cleanup.sql');
   writeFileSync(
     file,
     [
-      `DELETE FROM redirects WHERE from_path = '/kien-thuc/${POST_SLUG}' OR to_path = '/kien-thuc/${POST_SLUG}';`,
-      `DELETE FROM posts WHERE slug = '${POST_SLUG}';`,
+      `DELETE FROM redirects WHERE from_path IN ('/kien-thuc/${POST_SLUG}', '/kien-thuc/${NEXT_SLUG}') OR to_path IN ('/kien-thuc/${POST_SLUG}', '/kien-thuc/${NEXT_SLUG}');`,
+      `DELETE FROM posts WHERE slug IN ('${POST_SLUG}', '${NEXT_SLUG}');`,
       `DELETE FROM orders WHERE phone = '${ORDER_PHONE}';`,
     ].join('\n'),
   );

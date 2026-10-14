@@ -1,7 +1,8 @@
-import { desc, eq, like, or } from 'drizzle-orm';
+import { desc, eq, inArray, like, or } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { media, posts, productMedia, products, siteSettings } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { isMediaSrc } from '../posts/content';
 import { detectImageType, displayFilename, imageSizeError, mediaObjectKey } from './files';
 
 export async function listMedia(db: AppDb) {
@@ -19,6 +20,27 @@ export async function listMedia(db: AppDb) {
     .from(media)
     .orderBy(desc(media.createdAt), desc(media.id));
   return rows.map((row) => ({ ...row, url: routes.media(row.r2Key) }));
+}
+
+export async function mediaDimensionsByUrl(db: AppDb, urls: string[]) {
+  const keys = new Map<string, string>();
+  for (const url of urls) {
+    if (!isMediaSrc(url)) continue;
+    keys.set(url.slice('/media/'.length), url);
+  }
+  const keyList = [...keys.keys()].slice(0, 40);
+  if (keyList.length === 0) return new Map<string, { width: number; height: number }>();
+  const rows = await db
+    .select({ r2Key: media.r2Key, width: media.width, height: media.height })
+    .from(media)
+    .where(inArray(media.r2Key, keyList));
+  const sizes = new Map<string, { width: number; height: number }>();
+  for (const row of rows) {
+    if (!row.width || !row.height || row.width < 1 || row.height < 1) continue;
+    const url = keys.get(row.r2Key);
+    if (url) sizes.set(url, { width: row.width, height: row.height });
+  }
+  return sizes;
 }
 
 export async function getMediaFile(db: AppDb, id: number) {

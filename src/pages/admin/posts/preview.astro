@@ -2,7 +2,8 @@
 // Xem trước bản nháp: không ghi database, không index.
 import type { JSONContent } from '@tiptap/core';
 import { mutationError } from '../../../features/auth/session';
-import { getMediaFile } from '../../../features/media/media';
+import { getMediaFile, mediaDimensionsByUrl } from '../../../features/media/media';
+import { collectMediaSrcs } from '../../../features/posts/content';
 import { firstFieldError, parsePostForm } from '../../../features/posts/form';
 import { collectHeadings, type HeadingItem } from '../../../features/posts/headings';
 import { renderPostHtml } from '../../../features/posts/render';
@@ -45,10 +46,11 @@ if (blocked) {
   } else {
     const content = JSON.parse(parsed.input.contentJson) as JSONContent;
     const cover = parsed.input.coverMediaId ? await getMediaFile(db, parsed.input.coverMediaId) : null;
+    const imageSizes = await mediaDimensionsByUrl(db, collectMediaSrcs(content));
     article = {
       title: parsed.input.title,
       description: parsed.input.metaDescription || parsed.input.excerpt || parsed.input.title,
-      html: renderPostHtml(content),
+      html: renderPostHtml(content, imageSizes),
       headings: collectHeadings(content),
       cover,
     };

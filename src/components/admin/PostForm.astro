@@ -1,7 +1,10 @@
 ---
 import CoverUpload from './CoverUpload.svelte';
 import PostEditor from './PostEditor.svelte';
+import SearchPreview from './SearchPreview.astro';
+import SeoChecklist from './SeoChecklist.svelte';
 import SlugField from './SlugField.svelte';
+import { lengthNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
 import { formatDateTime } from '../../lib/datetime';
 import { routes } from '../../lib/routes';
 import type { FieldErrors } from '../../lib/validation/errors';
@@ -46,22 +49,25 @@ interface Props {
   categories: { id: number; name: string }[];
   covers: Cover[];
   site: SeoSite;
+  postId?: number;
   saved?: boolean;
   meta?: Meta;
   deleteAction?: string;
 }
 
-const { csrf, action, values, errors, formError, categories, covers, site, saved = false, meta, deleteAction } = Astro.props;
+const { csrf, action, values, errors, formError, categories, covers, site, postId, saved = false, meta, deleteAction } = Astro.props;
 const selectedCover = covers.find((cover) => String(cover.id) === values.coverMediaId);
 const publishLabel = values.status === 'published' ? 'Cập nhật' : 'Xuất bản';
 const saveStatus = formError ? 'Lưu thất bại' : saved ? 'Đã lưu' : '';
 const previewTitle = values.seoTitle || values.title || 'Tiêu đề bài viết';
 const previewDescription = values.metaDescription || values.excerpt || 'Thêm mô tả SEO hoặc tóm tắt để xem trước đoạn này.';
 const previewSlug = values.slug || 'duong-dan';
+const titleLengthNote = lengthNote(values.seoTitle.length, SEO_TITLE_RANGE.min, SEO_TITLE_RANGE.max);
+const descriptionLengthNote = lengthNote(values.metaDescription.length, SEO_DESC_RANGE.min, SEO_DESC_RANGE.max);
 const autosave = values.status === 'draft' ? 'on' : 'off';
 ---
 
-<form class="post-write" method="post" action={action} data-busy data-post-form data-autosave={autosave} data-site-host={site.host}>
+<form class="post-write" method="post" action={action} data-busy data-post-form data-autosave={autosave} data-site-host={site.host} data-post-id={postId ?? ''}>
   <input type="hidden" name="csrf" value={csrf} />
   <button class="sr-only" type="submit" tabindex="-1" data-keep-label="true">Lưu trạng thái hiện tại</button>
   <div class="post-bar">
@@ -95,17 +101,13 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
           </div>
           <span class="seo-badge">SEO</span>
         </div>
-        <div class="serp">
-          <div class="serp-site">
-            <span class="serp-mark">
-              {site.markUrl ? <img src={site.markUrl} alt="" /> : site.name.slice(0, 1)}
-            </span>
-            <span>{site.name}</span>
-          </div>
-          <p class="serp-url" data-serp-url>{site.host} › kien-thuc › {previewSlug}</p>
-          <p class="serp-title" data-serp-title>{previewTitle}</p>
-          <p class="serp-desc" data-serp-desc data-empty={!values.metaDescription && !values.excerpt ? '' : undefined}>{previewDescription}</p>
-        </div>
+        <SearchPreview
+          site={site}
+          title={previewTitle}
+          description={previewDescription}
+          slug={previewSlug}
+          emptyDescription={!values.metaDescription && !values.excerpt}
+        />
         <label class="mt-4 block">
           <span class="seo-label">
             <span>SEO Title</span>
@@ -113,6 +115,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
           </span>
           <input class="field" name="seoTitle" maxlength="180" value={values.seoTitle} />
           <span class="seo-hint">Nếu để trống, hệ thống sử dụng tiêu đề bài viết.</span>
+          <span class="seo-hint" data-seo-title-note>{titleLengthNote}</span>
           {errors.seoTitle && <span class="error-text">{errors.seoTitle}</span>}
         </label>
         <label class="mt-4 block">
@@ -121,6 +124,8 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
             <span data-seo-desc-count>{values.metaDescription.length} ký tự</span>
           </span>
           <textarea class="field min-h-24" name="metaDescription" maxlength="300">{values.metaDescription}</textarea>
+          <span class="seo-hint">Nếu để trống, hệ thống dùng tóm tắt. Nên khoảng 70–160 ký tự.</span>
+          <span class="seo-hint" data-seo-desc-note>{descriptionLengthNote}</span>
           {errors.metaDescription && <span class="error-text">{errors.metaDescription}</span>}
         </label>
       </section>
@@ -160,6 +165,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
           <p class="mt-2 text-sm text-muted">Slug chỉ tự tạo khi ô này còn trống. Đổi slug bài đã xuất bản sẽ chuyển hướng 301.</p>
         </div>
       </section>
+      <SeoChecklist client:load siteName={site.name} host={site.host} publishedAt={meta?.publishedAt ?? null} />
       {
         meta && (
           <section class="post-card">
@@ -217,39 +223,6 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
     if (status instanceof HTMLSelectElement) status.value = 'published';
   });
   status?.addEventListener('change', publishLabel);
-
-  function fieldText(name: string) {
-    const field = form?.querySelector(`[name="${name}"]`);
-    if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) return field.value.trim();
-    return '';
-  }
-
-  function paintSeo() {
-    if (!(form instanceof HTMLFormElement)) return;
-    const headline = fieldText('seoTitle') || fieldText('title') || 'Tiêu đề bài viết';
-    const excerpt = fieldText('excerpt');
-    const meta = fieldText('metaDescription');
-    const description = meta || excerpt || 'Thêm mô tả SEO hoặc tóm tắt để xem trước đoạn này.';
-    const slug = fieldText('slug') || 'duong-dan';
-    const titleNode = form.querySelector('[data-serp-title]');
-    const descNode = form.querySelector('[data-serp-desc]');
-    const urlNode = form.querySelector('[data-serp-url]');
-    const titleCount = form.querySelector('[data-seo-title-count]');
-    const descCount = form.querySelector('[data-seo-desc-count]');
-    if (titleNode) titleNode.textContent = headline;
-    if (descNode) {
-      descNode.textContent = description;
-      if (meta || excerpt) descNode.removeAttribute('data-empty');
-      else descNode.setAttribute('data-empty', '');
-    }
-    if (urlNode) urlNode.textContent = `${form.dataset.siteHost || ''} › kien-thuc › ${slug}`;
-    const seoTitleField = form.querySelector('[name="seoTitle"]');
-    const metaField = form.querySelector('[name="metaDescription"]');
-    if (titleCount && (seoTitleField instanceof HTMLInputElement || seoTitleField instanceof HTMLTextAreaElement)) {
-      titleCount.textContent = `${seoTitleField.value.length} ký tự`;
-    }
-    if (descCount && metaField instanceof HTMLTextAreaElement) descCount.textContent = `${metaField.value.length} ký tự`;
-  }
 
   const snapshotKeys = ['title', 'slug', 'categoryId', 'coverMediaId', 'contentJson', 'seoTitle', 'metaDescription', 'excerpt'];
   let timer = 0;
@@ -315,9 +288,13 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
         return;
       }
       lastSnapshot = current;
-      if (body.id !== null && /\/new$/.test(form.action)) {
-        form.action = form.action.replace(/\/new$/, `/${body.id}`);
-        history.replaceState(null, '', form.action);
+      if (body.id !== null) {
+        form.dataset.postId = String(body.id);
+        form.dispatchEvent(new Event('post-saved'));
+        if (/\/new$/.test(form.action)) {
+          form.action = form.action.replace(/\/new$/, `/${body.id}`);
+          history.replaceState(null, '', form.action);
+        }
       }
       statusLine(snapshot() === current ? 'Đã lưu' : 'Đang lưu');
       if (snapshot() !== current) void enqueue(saveDraft);
@@ -334,13 +311,9 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
     }, 2500);
   }
 
-  form?.addEventListener('input', () => {
-    paintSeo();
-    schedule();
-  });
+  form?.addEventListener('input', schedule);
   form?.addEventListener('change', schedule);
   form?.addEventListener('post-input', schedule);
-  paintSeo();
   lastSnapshot = snapshot();
 
   form?.addEventListener('submit', (event) => {
@@ -368,6 +341,9 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
         return;
       }
       statusLine('Đang lưu');
+      // A submit cancelled in this same turn makes requestSubmit a no-op when the draft flush sent nothing.
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      if (!(form instanceof HTMLFormElement) || form.dataset.saving !== 'manual') return;
       if (submitter instanceof HTMLButtonElement) form.requestSubmit(submitter);
       else form.requestSubmit();
     });

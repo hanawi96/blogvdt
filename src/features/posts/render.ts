@@ -1,11 +1,14 @@
 import type { JSONContent } from '@tiptap/core';
 import { escapeHTMLAttribute, renderToHTMLString, serializeChildrenToHTMLString } from '@tiptap/static-renderer';
-import { isHttpUrl } from '../../lib/http';
+import { isPostHref } from './links';
 import { isMediaSrc } from './content';
 import { postExtensions } from './extensions';
 import { collectHeadings } from './headings';
 
-export function renderPostHtml(content: JSONContent): string {
+export function renderPostHtml(
+  content: JSONContent,
+  imageSizes: ReadonlyMap<string, { width: number; height: number }> = new Map(),
+): string {
   const ids = collectHeadings(content).map((item) => item.id);
   let headingIndex = 0;
   return renderToHTMLString({
@@ -24,7 +27,7 @@ export function renderPostHtml(content: JSONContent): string {
           if (!isMediaSrc(src)) return '';
           const alt = typeof node.attrs.alt === 'string' ? node.attrs.alt : '';
           const caption = typeof node.attrs.caption === 'string' ? node.attrs.caption : '';
-          const img = `<img src="${escapeHTMLAttribute(src)}" alt="${escapeHTMLAttribute(alt)}" loading="lazy" />`;
+          const img = `<img src="${escapeHTMLAttribute(src)}" alt="${escapeHTMLAttribute(alt)}"${dimensionAttrs(imageSizes.get(src))} loading="lazy" />`;
           if (!caption) return img;
           return `<figure>${img}<figcaption>${escapeHTMLAttribute(caption)}</figcaption></figure>`;
         },
@@ -33,10 +36,15 @@ export function renderPostHtml(content: JSONContent): string {
         link: ({ mark, children }) => {
           const href = typeof mark.attrs.href === 'string' ? mark.attrs.href : '';
           const inner = serializeChildrenToHTMLString(children);
-          if (!isHttpUrl(href)) return inner;
+          if (!isPostHref(href)) return inner;
           return `<a href="${escapeHTMLAttribute(href)}">${inner}</a>`;
         },
       },
     },
   });
+}
+
+function dimensionAttrs(size: { width: number; height: number } | undefined): string {
+  if (!size || !Number.isInteger(size.width) || !Number.isInteger(size.height) || size.width < 1 || size.height < 1) return '';
+  return ` width="${size.width}" height="${size.height}"`;
 }

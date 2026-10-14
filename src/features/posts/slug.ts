@@ -10,6 +10,8 @@ const LETTERS: Record<string, string> = {
   đ: 'd',
 };
 
+export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 export function slugify(value: string): string {
   const lower = value.trim().toLowerCase();
   let result = '';

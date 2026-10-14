@@ -211,6 +211,37 @@
     min-width: 18rem;
     padding: 0.65rem;
   }
+  .editor-link-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--color-muted);
+    font-size: 0.75rem;
+  }
+  .editor-link-list {
+    max-height: 11rem;
+    margin: 0;
+    overflow: auto;
+    padding: 0;
+    list-style: none;
+  }
+  .editor-link-list button {
+    display: block;
+    width: 100%;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    padding: 0.35rem 0.2rem;
+    text-align: left;
+    color: var(--color-ink);
+  }
+  .editor-link-list button:hover {
+    background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface));
+  }
+  .editor-link-list button span {
+    display: block;
+    color: var(--color-muted);
+    font-size: 0.75rem;
+  }
   .editor .ProseMirror {
     position: relative;
     z-index: 1;
@@ -508,6 +539,76 @@
     color: var(--color-muted);
     font-size: 0.8125rem;
     font-weight: 400;
+  }
+  .seo-hint:empty {
+    display: none;
+  }
+  .serp-devices {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.35rem;
+    margin-top: 0.85rem;
+  }
+  .serp-devices button {
+    border: 1px solid var(--color-line);
+    border-radius: 999px;
+    background: transparent;
+    padding: 0.15rem 0.65rem;
+    color: var(--color-muted);
+    font-size: 0.75rem;
+  }
+  .serp-devices button[aria-pressed='true'] {
+    border-color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface));
+    color: var(--color-primary-strong);
+  }
+  .serp.serp-mobile {
+    max-width: 22rem;
+  }
+  .seo-checks ul {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .seo-checks li button,
+  .seo-checks li div {
+    display: grid;
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+    gap: 0.45rem;
+    width: 100%;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    padding: 0.2rem 0;
+    text-align: left;
+    color: inherit;
+  }
+  .seo-checks li button:hover {
+    background: color-mix(in srgb, var(--color-ink) 5%, transparent);
+  }
+  .seo-checks strong,
+  .seo-checks small {
+    display: block;
+  }
+  .seo-checks small {
+    color: var(--color-muted);
+    font-size: 0.75rem;
+  }
+  .seo-check-state {
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+  .seo-check-state[data-state='pass'] {
+    color: var(--color-primary-strong);
+  }
+  .seo-check-state[data-state='improve'],
+  .seo-check-state[data-state='error'] {
+    color: var(--color-accent);
+  }
+  .seo-check-state[data-state='na'] {
+    color: var(--color-muted);
   }
   .post-card > summary {
     cursor: pointer;

@@ -24,6 +24,11 @@ describe('render HTML bài viết', () => {
               text: ' bài',
               marks: [{ type: 'link', attrs: { href: 'https://example.com/bai' } }],
             },
+            {
+              type: 'text',
+              text: ' nội bộ',
+              marks: [{ type: 'link', attrs: { href: '/kien-thuc/bai-noi-bo' } }],
+            },
           ],
         },
         { type: 'image', attrs: { src: '/media/2026/10/a.png', alt: 'Tơ tằm', caption: 'Chú thích <x>' } },
@@ -33,8 +38,19 @@ describe('render HTML bài viết', () => {
     expect(html).toContain('<h2 id="cach-nhin-to">Cách nhìn &lt;tơ&gt;</h2>');
     expect(html).not.toContain('javascript:');
     expect(html).toContain('href="https://example.com/bai"');
+    expect(html).toContain('href="/kien-thuc/bai-noi-bo"');
     expect(html).toContain('src="/media/2026/10/a.png"');
+    expect(html).not.toContain('width=');
     expect(html).toContain('<figcaption>Chú thích &lt;x&gt;</figcaption>');
     expect(html).not.toContain('example.com/a.png');
+  });
+
+  it('gắn kích thước ảnh khi thư viện có số đo', () => {
+    const html = renderPostHtml(
+      { type: 'doc', content: [{ type: 'image', attrs: { src: '/media/2026/10/a.png', alt: 'Tơ' } }] },
+      new Map([['/media/2026/10/a.png', { width: 800, height: 600 }]]),
+    );
+    expect(html).toContain('width="800"');
+    expect(html).toContain('height="600"');
   });
 });

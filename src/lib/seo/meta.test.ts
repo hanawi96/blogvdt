@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { articleSchema, buildMeta, jsonLd, productSchema } from './meta';
+import { blogPostingSchema, buildMeta, jsonLd, productSchema } from './meta';
 
 describe('SEO', () => {
   it('ghép canonical từ origin và đường dẫn', () => {
@@ -13,16 +13,20 @@ describe('SEO', () => {
     expect(meta.image).toBe('http://localhost:4321/media/2026/10/a.png');
   });
 
-  it('schema bài viết không thêm đánh giá', () => {
-    const schema = articleSchema({
+  it('schema bài viết chỉ ghi dữ liệu có thật', () => {
+    const schema = blogPostingSchema({
       headline: 'Bài',
       description: 'Mô tả',
       canonical: 'http://localhost:4321/kien-thuc/bai',
       image: null,
       publishedTime: '2026-10-01T00:00:00.000Z',
       siteName: 'Vòng Dâu Tằm',
+      logo: null,
     });
-    expect(schema['@type']).toBe('Article');
+    expect(schema['@type']).toBe('BlogPosting');
+    expect(schema.datePublished).toBe('2026-10-01T00:00:00.000Z');
+    expect(schema).not.toHaveProperty('dateModified');
+    expect(schema).not.toHaveProperty('image');
     expect(schema).not.toHaveProperty('aggregateRating');
     expect(jsonLd(schema)).not.toContain('<');
   });

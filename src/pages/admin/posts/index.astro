@@ -1,6 +1,7 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { listPosts } from '../../../features/posts/posts';
+import { listPosts, searchPublishedPosts, slugIsTaken } from '../../../features/posts/posts';
+import { SLUG_PATTERN } from '../../../features/posts/slug';
 import { isPostStatus, POST_STATUS_LABELS } from '../../../features/posts/status';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
@@ -8,6 +9,24 @@ import { formatDateTime } from '../../../lib/datetime';
 import { routes } from '../../../lib/routes';
 
 if (!Astro.locals.adminSession) return Astro.redirect(routes.adminLogin);
+
+const wantsJson = Astro.request.headers.get('accept')?.includes('application/json') ?? false;
+if (wantsJson) {
+  const db = createDb(getDbBinding());
+  const slug = Astro.url.searchParams.get('slug');
+  if (slug !== null) {
+    const excludeRaw = Number(Astro.url.searchParams.get('exclude') ?? '');
+    const exclude = Number.isInteger(excludeRaw) && excludeRaw > 0 ? excludeRaw : null;
+    const taken = SLUG_PATTERN.test(slug) ? await slugIsTaken(db, slug, exclude) : false;
+    return new Response(JSON.stringify({ taken }), {
+      headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+    });
+  }
+  const found = await searchPublishedPosts(db, Astro.url.searchParams.get('q') ?? '');
+  return new Response(JSON.stringify({ posts: found }), {
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+  });
+}
 
 const query = Astro.url.searchParams.get('q') ?? '';
 const statusParam = Astro.url.searchParams.get('status') ?? '';

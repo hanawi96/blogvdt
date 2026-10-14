@@ -5,29 +5,35 @@ import NotFound from '../../components/public/NotFound.astro';
 import PostCard from '../../components/public/PostCard.astro';
 import ProductCard from '../../components/public/ProductCard.astro';
 import { listFeaturedProducts } from '../../features/products/featured';
-import { sanitizePostContent } from '../../features/posts/content';
+import { collectMediaSrcs, sanitizePostContent } from '../../features/posts/content';
 import { collectHeadings } from '../../features/posts/headings';
 import { getPostBySlug, listRelatedPosts } from '../../features/posts/public';
+import { knowledgeSlug, publicRedirectTarget } from '../../features/posts/redirects';
 import { renderPostHtml } from '../../features/posts/render';
+import { mediaDimensionsByUrl } from '../../features/media/media';
 import { getPublicSite } from '../../features/settings/settings';
 import PublicLayout from '../../layouts/PublicLayout.astro';
 import { createDb } from '../../lib/db/client';
 import { findRedirect } from '../../lib/db/redirects';
 import { getDbBinding } from '../../lib/cloudflare/env';
 import { formatDateTime } from '../../lib/datetime';
-import { isSafeRedirect } from '../../lib/http';
-import { articleSchema, breadcrumbSchema, buildMeta, jsonLd } from '../../lib/seo/meta';
+import { blogPostingSchema, breadcrumbSchema, buildMeta, jsonLd, toAbsoluteUrl } from '../../lib/seo/meta';
+import { PRIVATE_PAGE_CACHE, PUBLIC_PAGE_CACHE } from '../../lib/seo/cache';
 import { routes } from '../../lib/routes';
 
 const slug = Astro.params.slug ?? '';
 const loaded = await loadPost();
-if (loaded.redirectTo) return Astro.redirect(loaded.redirectTo, 301);
+if (loaded.redirectTo) {
+  const response = Astro.redirect(loaded.redirectTo, 301);
+  response.headers.set('Cache-Control', PUBLIC_PAGE_CACHE);
+  return response;
+}
 if (!loaded.post) {
   Astro.response.status = loaded.site ? 404 : 503;
-  Astro.response.headers.set('Cache-Control', 'no-store');
+  Astro.response.headers.set('Cache-Control', PRIVATE_PAGE_CACHE);
   Astro.response.headers.set('X-Robots-Tag', 'noindex');
 } else {
-  Astro.response.headers.set('Cache-Control', 'public, max-age=60');
+  Astro.response.headers.set('Cache-Control', PUBLIC_PAGE_CACHE);
 }
 
 const published = loaded.post?.publishedAt ? new Date(loaded.post.publishedAt).toISOString() : undefined;
@@ -35,7 +41,7 @@ const modified = loaded.post ? new Date(loaded.post.updatedAt).toISOString() : u
 const meta = buildMeta(Astro.url.origin, {
   title: loaded.post ? `${loaded.post.seoTitle || loaded.post.title} | ${loaded.site?.siteName ?? ''}` : 'Không tìm thấy trang',
   description: loaded.post?.metaDescription || loaded.post?.excerpt || loaded.site?.defaultSeoDescription || 'Không tìm thấy bài viết.',
-  path: routes.knowledge(slug),
+  path: loaded.post ? routes.knowledge(loaded.post.slug) : routes.knowledge(slug),
   image: loaded.post?.coverUrl,
   type: loaded.post ? 'article' : 'website',
   siteName: loaded.site?.siteName,
@@ -57,7 +63,7 @@ const jsonLdBlocks = loaded.post && loaded.site
   ? [
       jsonLd(breadcrumbSchema(Astro.url.origin, crumbs)),
       jsonLd(
-        articleSchema({
+        blogPostingSchema({
           headline: loaded.post.title,
           description: meta.description,
           canonical: meta.canonical,
@@ -65,6 +71,7 @@ const jsonLdBlocks = loaded.post && loaded.site
           publishedTime: published,
           modifiedTime: modified,
           siteName: loaded.site.siteName,
+          logo: toAbsoluteUrl(Astro.url.origin, loaded.site.logoUrl),
         }),
       ),
     ]
@@ -78,13 +85,18 @@ async function loadPost() {
     const found = await getPostBySlug(db, slug);
     if (!found || found.status !== 'published') {
       if (!found) {
-        const target = await findRedirect(db, routes.knowledge(slug));
-        if (target && isSafeRedirect(target)) return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo: target };
+        const currentPath = routes.knowledge(slug);
+        const target = await findRedirect(db, currentPath);
+        const destSlug = target ? knowledgeSlug(target) : null;
+        const destination = destSlug ? await getPostBySlug(db, destSlug) : null;
+        const redirectTo = publicRedirectTarget(target, currentPath, destination?.status === 'published');
+        if (redirectTo) return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo };
       }
       return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo: null };
     }
     const sanitized = sanitizePostContent(found.contentJson);
     const content = sanitized.ok ? (JSON.parse(sanitized.json) as JSONContent) : null;
+    const imageSizes = content ? await mediaDimensionsByUrl(db, collectMediaSrcs(content)) : new Map();
     const [related, products] = await Promise.all([
       listRelatedPosts(db, { id: found.id, categoryId: found.categoryId }),
       listFeaturedProducts(db, 3),
@@ -93,7 +105,7 @@ async function loadPost() {
       site,
       failed: false,
       post: found,
-      html: content ? renderPostHtml(content) : '',
+      html: content ? renderPostHtml(content, imageSizes) : '',
       headings: content ? collectHeadings(content) : [],
       related,
       products,

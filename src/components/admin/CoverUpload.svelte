@@ -126,7 +126,7 @@
   </div>
   <label class="mt-3 block">
     <span class="mb-1 block font-semibold">Mô tả ảnh</span>
-    <input class="field" maxlength="200" bind:value={alt} oninput={scheduleAlt} onblur={saveAlt} />
+    <input class="field" maxlength="200" data-cover-alt bind:value={alt} oninput={scheduleAlt} onblur={saveAlt} />
   </label>
 {:else}
   <div

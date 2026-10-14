@@ -1,4 +1,4 @@
-import { isHttpUrl } from '../../lib/http';
+import { isPostHref } from './links';
 
 export const NODE_TYPES = new Set([
   'doc',
@@ -78,7 +78,7 @@ function cleanMarks(value: unknown): Mark[] {
     if (typeof mark.type !== 'string' || !MARK_TYPES.has(mark.type)) continue;
     if (mark.type === 'link') {
       const href = typeof mark.attrs?.href === 'string' ? mark.attrs.href : '';
-      if (!isHttpUrl(href)) continue;
+      if (!isPostHref(href)) continue;
       marks.push({ type: 'link', attrs: { href } });
       continue;
     }
@@ -89,6 +89,24 @@ function cleanMarks(value: unknown): Mark[] {
 
 export function isMediaSrc(value: string): boolean {
   return value.startsWith('/media/') && !value.includes('..') && !value.includes('\\') && !value.includes('://');
+}
+
+type MediaNode = { type?: string; attrs?: { src?: unknown }; content?: MediaNode[] };
+
+export function collectMediaSrcs(node: MediaNode): string[] {
+  const found: string[] = [];
+  const seen = new Set<string>();
+  walk(node);
+  return found;
+
+  function walk(current: MediaNode): void {
+    const src = current.attrs?.src;
+    if (current.type === 'image' && typeof src === 'string' && isMediaSrc(src) && !seen.has(src)) {
+      seen.add(src);
+      found.push(src);
+    }
+    for (const child of current.content ?? []) walk(child);
+  }
 }
 
 function excerptFromNode(node: Node): string {

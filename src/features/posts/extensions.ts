@@ -5,7 +5,7 @@ import { TableCell } from '@tiptap/extension-table/cell';
 import { TableHeader } from '@tiptap/extension-table/header';
 import { TableRow } from '@tiptap/extension-table/row';
 import StarterKit from '@tiptap/starter-kit';
-import { isHttpUrl } from '../../lib/http';
+import { isPostHref } from './links';
 
 // Editor và trang công khai phải dùng cùng schema. Mỗi lần gọi tạo instance mới
 // vì Tiptap không cho dùng lại extension đã gắn vào một editor.
@@ -23,7 +23,7 @@ export function postExtensions(): Extensions {
         autolink: false,
         defaultProtocol: 'https',
         protocols: ['http', 'https'],
-        isAllowedUri: (url) => isHttpUrl(url),
+        isAllowedUri: (url) => isPostHref(url),
       },
     }),
     Image.extend({
