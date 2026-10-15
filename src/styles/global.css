@@ -261,6 +261,8 @@
     position: relative;
     z-index: 1;
     min-height: 22rem;
+    max-height: max(24rem, calc(100dvh - 16rem));
+    overflow-y: auto;
     padding: 1.25rem 1.5rem 2rem;
     outline: none;
     white-space: pre-wrap;
@@ -451,8 +453,10 @@
     background: var(--color-surface);
     padding: 0.9rem;
   }
-  .post-card + .post-card {
-    margin-top: 0.75rem;
+  .post-side {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
   }
   .post-card-title {
     font-size: 0.875rem;
