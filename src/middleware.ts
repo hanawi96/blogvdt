@@ -2,13 +2,14 @@ import { defineMiddleware } from 'astro:middleware';
 import { canAccessPath } from './features/auth/access';
 import { readSession, SESSION_COOKIE } from './features/auth/session';
 import { createDb } from './lib/db/client';
-import { getDbBinding } from './lib/cloudflare/env';
+import { getDbBinding, requestAllowsIndexing } from './lib/cloudflare/env';
 import { routes } from './lib/routes';
 
 export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.adminSession = null;
+  context.locals.allowIndex = requestAllowsIndexing(context.url.origin);
   const { pathname } = context.url;
-  if (!pathname.startsWith('/admin')) return next();
+  if (!pathname.startsWith('/admin')) return finish(context, await next());
 
   const sessionId = context.cookies.get(SESSION_COOKIE)?.value;
   try {
@@ -19,21 +20,29 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   const open = pathname === routes.adminLogin || pathname === routes.adminActivate;
   const session = context.locals.adminSession;
-  if (!session && !open) return privateResponse(context.redirect(routes.adminLogin));
+  if (!session && !open) return finish(context, privateResponse(context.redirect(routes.adminLogin)));
   if (session && !open && !canAccessPath(session.role, pathname)) {
-    return privateResponse(
-      new Response('Bạn không có quyền vào trang này.', {
-        status: 403,
-        headers: { 'content-type': 'text/plain; charset=utf-8' },
-      }),
+    return finish(
+      context,
+      privateResponse(
+        new Response('Bạn không có quyền vào trang này.', {
+          status: 403,
+          headers: { 'content-type': 'text/plain; charset=utf-8' },
+        }),
+      ),
     );
   }
 
-  return privateResponse(await next());
+  return finish(context, privateResponse(await next()));
 });
+
+function finish(context: { locals: App.Locals; url: URL }, response: Response): Response {
+  if (context.locals.allowIndex === false) response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+  return response;
+}
 
 function privateResponse(response: Response): Response {
   response.headers.set('Cache-Control', 'no-store');
-  response.headers.set('X-Robots-Tag', 'noindex');
+  response.headers.set('X-Robots-Tag', 'noindex, nofollow');
   return response;
 }

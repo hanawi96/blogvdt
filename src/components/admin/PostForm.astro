@@ -5,7 +5,8 @@ import type { MediaItem } from '../../features/media/types';
 import SearchPreview from './SearchPreview.astro';
 import SeoChecklist from './SeoChecklist.svelte';
 import SlugField from './SlugField.svelte';
-import { lengthNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
+import { lengthNote, metaDuplicateNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
+import type { MetaCorpus } from '../../lib/seo/meta';
 import { formatDateTime } from '../../lib/datetime';
 import { routes } from '../../lib/routes';
 import type { FieldErrors } from '../../lib/validation/errors';
@@ -49,9 +50,10 @@ interface Props {
   meta?: Meta;
   deleteAction?: string;
   livePublished?: boolean;
+  corpus?: MetaCorpus;
 }
 
-const { csrf, action, values, errors, formError, categories, media, site, postId, saved = false, meta, deleteAction, livePublished = false } = Astro.props;
+const { csrf, action, values, errors, formError, categories, media, site, postId, saved = false, meta, deleteAction, livePublished = false, corpus = { titles: [], descriptions: [] } } = Astro.props;
 const publishLabel = values.status === 'published' ? 'Cập nhật' : 'Xuất bản';
 const saveStatus = formError ? 'Lưu thất bại' : saved ? 'Đã lưu' : '';
 const previewTitle = values.seoTitle || values.title || 'Tiêu đề bài viết';
@@ -59,6 +61,7 @@ const previewDescription = values.metaDescription || values.excerpt || 'Thêm m�
 const previewSlug = values.slug || 'duong-dan';
 const titleLengthNote = lengthNote(values.seoTitle.length, SEO_TITLE_RANGE.min, SEO_TITLE_RANGE.max);
 const descriptionLengthNote = lengthNote(values.metaDescription.length, SEO_DESC_RANGE.min, SEO_DESC_RANGE.max);
+const duplicateNote = metaDuplicateNote(values.seoTitle || values.title, values.metaDescription || values.excerpt, corpus);
 const autosave = values.status === 'draft' ? 'on' : 'off';
 ---
 
@@ -105,6 +108,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
           description={previewDescription}
           slug={previewSlug}
           emptyDescription={!values.metaDescription && !values.excerpt}
+          corpus={corpus}
         />
         <label class="mt-4 block">
           <span class="seo-label">
@@ -124,6 +128,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
           <textarea class="field min-h-24" name="metaDescription" maxlength="300">{values.metaDescription}</textarea>
           <span class="seo-hint">Nếu để trống, hệ thống dùng tóm tắt. Nên khoảng 70–160 ký tự.</span>
           <span class="seo-hint" data-seo-desc-note>{descriptionLengthNote}</span>
+          <span class="seo-hint" data-seo-duplicate-note>{duplicateNote}</span>
           {errors.metaDescription && <span class="error-text">{errors.metaDescription}</span>}
         </label>
       </section>
@@ -163,7 +168,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
           <p class="mt-2 text-sm text-muted">Slug chỉ tự tạo khi ô này còn trống. Đổi slug bài đã xuất bản sẽ chuyển hướng 301.</p>
         </div>
       </section>
-      <SeoChecklist client:load siteName={site.name} host={site.host} publishedAt={meta?.publishedAt ?? null} />
+      <SeoChecklist client:load siteName={site.name} host={site.host} publishedAt={meta?.publishedAt ?? null} corpus={corpus} />
       {
         meta && (
           <section class="post-card">

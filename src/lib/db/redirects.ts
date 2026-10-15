@@ -4,6 +4,11 @@ import { isSafeRedirect } from '../http';
 import type { AppDb } from './client';
 import { redirects } from './schema';
 
+export async function listRedirectPaths(db: AppDb): Promise<string[]> {
+  const rows = await db.select({ fromPath: redirects.fromPath }).from(redirects);
+  return rows.map((row) => row.fromPath);
+}
+
 export async function findRedirect(db: AppDb, fromPath: string): Promise<string | null> {
   const rows = await db
     .select({ toPath: redirects.toPath })

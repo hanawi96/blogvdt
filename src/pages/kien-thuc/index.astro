@@ -1,38 +1,38 @@
 ---
 import DataError from '../../components/public/DataError.astro';
+import NotFound from '../../components/public/NotFound.astro';
 import Pagination from '../../components/public/Pagination.astro';
 import PostCard from '../../components/public/PostCard.astro';
-import { listPublicCategories, listPublishedPosts } from '../../features/posts/public';
+import { listPublicCategories, listPublishedPosts, parseListPage } from '../../features/posts/public';
 import { getPublicSite } from '../../features/settings/settings';
 import PublicLayout from '../../layouts/PublicLayout.astro';
 import { createDb } from '../../lib/db/client';
-import { getDbBinding } from '../../lib/cloudflare/env';
-import { buildMeta } from '../../lib/seo/meta';
-import { blogReadStatus, PRIVATE_PAGE_CACHE, PUBLIC_PAGE_CACHE } from '../../lib/seo/cache';
+import { applyCoverMeasure } from '../../features/media/media';
+import { getDbBinding, getSiteOrigin, optionalMediaBucket } from '../../lib/cloudflare/env';
+import { buildMeta, KNOWLEDGE_LIST_DESCRIPTION, knowledgeListMeta, notFoundMeta, unavailableMeta } from '../../lib/seo/meta';
+import { blogReadStatus, FRESH_PAGE_CACHE, PRIVATE_PAGE_CACHE } from '../../lib/seo/cache';
 import { routes } from '../../lib/routes';
 
-const page = pageNumber(Astro.url.searchParams.get('page'));
+const requestedPage = parseListPage(Astro.url.searchParams.get('page'));
+const page = requestedPage ?? 1;
 const loaded = await loadList();
-const outOfRange = Boolean(loaded.site) && loaded.total > 0 && page > loaded.pageCount;
+const outOfRange = requestedPage === null || (Boolean(loaded.site) && requestedPage > loaded.pageCount);
 const status = blogReadStatus({ hasSite: Boolean(loaded.site), failed: loaded.failed, notFound: outOfRange });
 if (status !== 200) {
   Astro.response.status = status;
   Astro.response.headers.set('X-Robots-Tag', 'noindex');
 }
-Astro.response.headers.set('Cache-Control', status === 200 ? PUBLIC_PAGE_CACHE : PRIVATE_PAGE_CACHE);
+Astro.response.headers.set('Cache-Control', status === 200 ? FRESH_PAGE_CACHE : PRIVATE_PAGE_CACHE);
 
-const meta = buildMeta(Astro.url.origin, {
-  title: loaded.site ? `Kiến thức | ${loaded.site.siteName}` : 'Chưa sẵn sàng',
-  description: loaded.site?.defaultSeoDescription || 'Bài viết về vòng tơ tằm thủ công.',
+const pageMeta = !loaded.site ? unavailableMeta() : outOfRange ? notFoundMeta() : knowledgeListMeta(loaded.site.siteName, page);
+const leadCover = loaded.posts.findIndex((post) => post.coverUrl);
+const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
+  title: pageMeta.title,
+  description: pageMeta.description,
   path: page > 1 ? `${routes.knowledgeList}?page=${page}` : routes.knowledgeList,
   siteName: loaded.site?.siteName,
   robots: loaded.site && !outOfRange ? 'index,follow' : 'noindex,nofollow',
 });
-
-function pageNumber(value: string | null): number {
-  const page = Number(value ?? '1');
-  return Number.isInteger(page) && page > 0 ? page : 1;
-}
 
 async function loadList() {
   try {
@@ -43,7 +43,7 @@ async function loadList() {
       listPublishedPosts(db, { page }),
       listPublicCategories(db),
     ]);
-    return { site, failed: false, posts: list.posts, categories, total: list.total, pageCount: list.pageCount };
+    return { site, failed: false, posts: await applyCoverMeasure(optionalMediaBucket(), list.posts), categories, total: list.total, pageCount: list.pageCount };
   } catch (error) {
     console.error(JSON.stringify({ event: 'post_list_public_failed', name: error instanceof Error ? error.name : 'unknown' }));
     return { site: null, failed: true, posts: [], categories: [], total: 0, pageCount: 1 };
@@ -64,14 +64,11 @@ async function loadList() {
     !loaded.site ? (
       <DataError failed={loaded.failed} />
     ) : outOfRange ? (
-      <main class="mx-auto max-w-5xl px-4 py-16">
-        <h1 class="text-3xl font-semibold">Không có trang này</h1>
-        <p class="mt-4"><a href={routes.knowledgeList}>Về danh sách bài viết</a></p>
-      </main>
+      <NotFound />
     ) : (
       <main class="mx-auto max-w-5xl px-4 py-10">
         <h1 class="text-3xl font-semibold">Kiến thức</h1>
-        <p class="mt-3 max-w-2xl text-muted">Bài viết về cách nhìn vòng tơ tằm thủ công và quy trình làm tại xưởng.</p>
+        <p class="mt-3 max-w-2xl text-muted">{KNOWLEDGE_LIST_DESCRIPTION}</p>
         <nav class="mt-6 flex flex-wrap gap-2" aria-label="Danh mục">
           <a class="btn btn-primary" href={routes.knowledgeList} aria-current="page">Tất cả</a>
           {loaded.categories.map((category) => (
@@ -82,8 +79,8 @@ async function loadList() {
           <p class="mt-8 text-muted">Chưa có bài viết.</p>
         ) : (
           <ul class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {loaded.posts.map((post) => (
-              <li><PostCard post={post} /></li>
+            {loaded.posts.map((post, index) => (
+              <li><PostCard post={post} eager={index === leadCover} /></li>
             ))}
           </ul>
         )}

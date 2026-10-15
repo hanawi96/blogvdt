@@ -24,6 +24,12 @@ export function categorySlug(path: string): string | null {
   return SLUG_PATTERN.test(slug) ? slug : null;
 }
 
+// Slug mới được lấy lại khi redirect đang trỏ về chính bài này. Redirect của bài khác thì chặn.
+export function redirectOccupiesSlug(currentPath: string | null, occupiedTarget: string | null): boolean {
+  if (!occupiedTarget) return false;
+  return occupiedTarget !== currentPath;
+}
+
 // Chỉ 301 khi đích đang xuất bản. Bản nháp và vòng lặp về chính URL này thì 404.
 export function publicRedirectTarget(target: string | null, currentPath: string, destinationPublished: boolean): string | null {
   if (!target || !destinationPublished || target === currentPath || !isSafeRedirect(target)) return null;

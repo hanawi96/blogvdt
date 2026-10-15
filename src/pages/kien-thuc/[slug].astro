@@ -7,25 +7,25 @@ import ProductCard from '../../components/public/ProductCard.astro';
 import { listFeaturedProducts } from '../../features/products/featured';
 import { collectMediaSrcs, sanitizePostContent } from '../../features/posts/content';
 import { collectHeadings } from '../../features/posts/headings';
-import { getPostBySlug, listRelatedPosts } from '../../features/posts/public';
+import { getPostBySlug, hiddenPostSlug, listRelatedPosts } from '../../features/posts/public';
 import { knowledgeSlug, publicRedirectTarget } from '../../features/posts/redirects';
 import { renderPostHtml } from '../../features/posts/render';
-import { mediaDimensionsByUrl } from '../../features/media/media';
+import { applyCoverMeasure, layoutContentImages } from '../../features/media/media';
 import { getPublicSite } from '../../features/settings/settings';
 import PublicLayout from '../../layouts/PublicLayout.astro';
 import { createDb } from '../../lib/db/client';
 import { findRedirect } from '../../lib/db/redirects';
-import { getDbBinding } from '../../lib/cloudflare/env';
+import { getDbBinding, getSiteOrigin, optionalMediaBucket } from '../../lib/cloudflare/env';
 import { formatDateTime } from '../../lib/datetime';
-import { blogPostingSchema, breadcrumbSchema, buildMeta, jsonLd, toAbsoluteUrl } from '../../lib/seo/meta';
-import { blogReadStatus, PRIVATE_PAGE_CACHE, PUBLIC_PAGE_CACHE } from '../../lib/seo/cache';
+import { blogPostingSchema, breadcrumbSchema, buildMeta, canonicalUrl, jsonLd, notFoundMeta, postPageMeta, toAbsoluteUrl, unavailableMeta } from '../../lib/seo/meta';
+import { blogReadStatus, FRESH_PAGE_CACHE, PRIVATE_PAGE_CACHE } from '../../lib/seo/cache';
 import { routes } from '../../lib/routes';
 
 const slug = Astro.params.slug ?? '';
 const loaded = await loadPost();
 if (loaded.redirectTo) {
   const response = Astro.redirect(loaded.redirectTo, 301);
-  response.headers.set('Cache-Control', PUBLIC_PAGE_CACHE);
+  response.headers.set('Cache-Control', FRESH_PAGE_CACHE);
   return response;
 }
 const status = blogReadStatus({ hasSite: Boolean(loaded.site), failed: loaded.failed, notFound: !loaded.post });
@@ -33,15 +33,27 @@ if (status !== 200) {
   Astro.response.status = status;
   Astro.response.headers.set('X-Robots-Tag', 'noindex');
 }
-Astro.response.headers.set('Cache-Control', status === 200 ? PUBLIC_PAGE_CACHE : PRIVATE_PAGE_CACHE);
+Astro.response.headers.set('Cache-Control', status === 200 ? FRESH_PAGE_CACHE : PRIVATE_PAGE_CACHE);
 
 const published = loaded.post?.publishedAt ? new Date(loaded.post.publishedAt).toISOString() : undefined;
 const modified = loaded.post ? new Date(loaded.post.updatedAt).toISOString() : undefined;
-const meta = buildMeta(Astro.url.origin, {
-  title: loaded.post ? `${loaded.post.seoTitle || loaded.post.title} | ${loaded.site?.siteName ?? ''}` : 'Không tìm thấy trang',
-  description: loaded.post?.metaDescription || loaded.post?.excerpt || loaded.site?.defaultSeoDescription || 'Không tìm thấy bài viết.',
-  path: loaded.post ? routes.knowledge(loaded.post.slug) : routes.knowledge(slug),
-  image: loaded.post?.coverUrl,
+const pageMeta = !loaded.site
+  ? unavailableMeta()
+  : loaded.post
+    ? postPageMeta({
+        title: loaded.post.title,
+        seoTitle: loaded.post.seoTitle,
+        metaDescription: loaded.post.metaDescription,
+        excerpt: loaded.post.excerpt,
+        siteName: loaded.site.siteName,
+      })
+    : notFoundMeta();
+const origin = getSiteOrigin(Astro.url.origin);
+const meta = buildMeta(origin, {
+  title: pageMeta.title,
+  description: pageMeta.description,
+  path: loaded.post ? routes.knowledge(loaded.post.slug) : undefined,
+  image: loaded.post ? loaded.post.coverUrl : null,
   type: loaded.post ? 'article' : 'website',
   siteName: loaded.site?.siteName,
   robots: loaded.post ? 'index,follow' : 'noindex,nofollow',
@@ -58,23 +70,21 @@ const crumbs = loaded.post && loaded.site
       { name: loaded.post.title, path: routes.knowledge(loaded.post.slug) },
     ]
   : [];
-const jsonLdBlocks = loaded.post && loaded.site
-  ? [
-      jsonLd(breadcrumbSchema(Astro.url.origin, crumbs)),
-      jsonLd(
-        blogPostingSchema({
-          headline: loaded.post.title,
-          description: meta.description,
-          canonical: meta.canonical,
-          image: meta.image,
-          publishedTime: published,
-          modifiedTime: modified,
-          siteName: loaded.site.siteName,
-          logo: toAbsoluteUrl(Astro.url.origin, loaded.site.logoUrl),
-        }),
-      ),
-    ]
-  : [];
+const trail = loaded.post && loaded.site ? breadcrumbSchema(origin, crumbs) : null;
+const posting = loaded.post && loaded.site
+  ? blogPostingSchema({
+      headline: loaded.post.title,
+      description: meta.description,
+      canonical: meta.canonical,
+      image: meta.image ? { url: meta.image, width: loaded.post.coverWidth, height: loaded.post.coverHeight } : null,
+      publishedTime: published,
+      modifiedTime: modified,
+      siteName: loaded.site.siteName,
+      authorUrl: canonicalUrl(origin, routes.home),
+      logo: toAbsoluteUrl(origin, loaded.site.logoUrl),
+    })
+  : null;
+const jsonLdBlocks = [trail, posting].flatMap((entry) => (entry ? [jsonLd(entry)] : []));
 
 async function loadPost() {
   try {
@@ -82,20 +92,23 @@ async function loadPost() {
     const site = await getPublicSite(db);
     if (!site) return { site: null, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo: null };
     const found = await getPostBySlug(db, slug);
-    if (!found || found.status !== 'published') {
-      if (!found) {
-        const currentPath = routes.knowledge(slug);
-        const target = await findRedirect(db, currentPath);
-        const destSlug = target ? knowledgeSlug(target) : null;
-        const destination = destSlug ? await getPostBySlug(db, destSlug) : null;
-        const redirectTo = publicRedirectTarget(target, currentPath, destination?.status === 'published');
-        if (redirectTo) return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo };
+    if (!found) {
+      if (await hiddenPostSlug(db, slug)) {
+        return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo: null };
       }
+      const currentPath = routes.knowledge(slug);
+      const target = await findRedirect(db, currentPath);
+      const destSlug = target ? knowledgeSlug(target) : null;
+      const destination = destSlug ? await getPostBySlug(db, destSlug) : null;
+      const redirectTo = publicRedirectTarget(target, currentPath, Boolean(destination));
+      if (redirectTo) return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo };
       return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo: null };
     }
-    const sanitized = sanitizePostContent(found.contentJson);
+    const bucket = optionalMediaBucket();
+    const [measured] = await applyCoverMeasure(bucket, [found]);
+    const sanitized = sanitizePostContent(measured.contentJson);
     const content = sanitized.ok ? (JSON.parse(sanitized.json) as JSONContent) : null;
-    const imageSizes = content ? await mediaDimensionsByUrl(db, collectMediaSrcs(content)) : new Map();
+    const images = content ? await layoutContentImages(db, bucket, collectMediaSrcs(content)) : { sizes: new Map(), missing: new Set<string>() };
     const [related, products] = await Promise.all([
       listRelatedPosts(db, { id: found.id, categoryId: found.categoryId }),
       listFeaturedProducts(db, 3),
@@ -103,10 +116,10 @@ async function loadPost() {
     return {
       site,
       failed: false,
-      post: found,
-      html: content ? renderPostHtml(content, imageSizes) : '',
+      post: measured,
+      html: content ? renderPostHtml(content, images.sizes, { skip: images.missing, eager: measured.coverUrl ? 0 : 1 }) : '',
       headings: content ? collectHeadings(content) : [],
-      related,
+      related: await applyCoverMeasure(bucket, related),
       products,
       redirectTo: null,
     };
@@ -122,6 +135,9 @@ async function loadPost() {
   description={meta.description}
   canonical={loaded.post ? meta.canonical : undefined}
   image={meta.image}
+  imageAlt={loaded.post?.coverAlt}
+  imageWidth={loaded.post?.coverWidth}
+  imageHeight={loaded.post?.coverHeight}
   robots={meta.robots}
   type={meta.type}
   siteName={meta.siteName}
@@ -160,6 +176,7 @@ async function loadPost() {
             alt={loaded.post.coverAlt}
             width={loaded.post.coverWidth ?? undefined}
             height={loaded.post.coverHeight ?? undefined}
+            fetchpriority="high"
           />
         )}
         {loaded.headings.length > 0 && (

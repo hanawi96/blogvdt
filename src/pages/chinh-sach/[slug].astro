@@ -1,25 +1,59 @@
 ---
-export const prerender = true;
-
-import { getPolicy, POLICIES, staticChrome } from '../../features/content/policies';
+import NotFound from '../../components/public/NotFound.astro';
+import { getPolicy, staticChrome } from '../../features/content/policies';
+import { getPublicSite } from '../../features/settings/settings';
 import PublicLayout from '../../layouts/PublicLayout.astro';
-
-export function getStaticPaths() {
-  return POLICIES.map((policy) => ({ params: { slug: policy.slug } }));
-}
+import { createDb } from '../../lib/db/client';
+import { getDbBinding, getSiteOrigin } from '../../lib/cloudflare/env';
+import { PRIVATE_PAGE_CACHE, PUBLIC_PAGE_CACHE } from '../../lib/seo/cache';
+import { buildMeta, notFoundMeta, policyPageMeta } from '../../lib/seo/meta';
+import { routes } from '../../lib/routes';
 
 const policy = getPolicy(Astro.params.slug ?? '');
-if (!policy) return new Response(null, { status: 404 });
+const chrome = await loadPolicyChrome();
+if (!policy) {
+  Astro.response.status = 404;
+  Astro.response.headers.set('X-Robots-Tag', 'noindex');
+  Astro.response.headers.set('Cache-Control', PRIVATE_PAGE_CACHE);
+}
+if (policy) Astro.response.headers.set('Cache-Control', PUBLIC_PAGE_CACHE);
+
+const pageMeta = policy ? policyPageMeta(policy, chrome.siteName) : notFoundMeta();
+const meta = policy
+  ? buildMeta(getSiteOrigin(Astro.url.origin), {
+      title: pageMeta.title,
+      description: pageMeta.description,
+      path: routes.policy(policy.slug),
+      siteName: chrome.siteName,
+    })
+  : null;
+
+async function loadPolicyChrome() {
+  try {
+    return (await getPublicSite(createDb(getDbBinding()))) ?? staticChrome;
+  } catch {
+    return staticChrome;
+  }
+}
 ---
 
 <PublicLayout
-  title={`${policy.title} | ${staticChrome.siteName}`}
-  description={policy.description}
-  siteName={staticChrome.siteName}
-  chrome={staticChrome}
+  title={pageMeta.title}
+  description={pageMeta.description}
+  canonical={meta?.canonical}
+  robots={policy ? 'index,follow' : 'noindex,nofollow'}
+  siteName={chrome.siteName}
+  faviconUrl={chrome.faviconUrl || '/favicon.svg'}
+  chrome={chrome}
 >
-  <main class="mx-auto max-w-3xl px-4 py-12">
-    <h1 class="text-3xl font-semibold">{policy.title}</h1>
-    {policy.paragraphs.map((paragraph) => <p class="mt-4 leading-relaxed">{paragraph}</p>)}
-  </main>
+  {
+    policy ? (
+      <main class="mx-auto max-w-3xl px-4 py-12">
+        <h1 class="text-3xl font-semibold">{policy.title}</h1>
+        {policy.paragraphs.map((paragraph) => <p class="mt-4 leading-relaxed">{paragraph}</p>)}
+      </main>
+    ) : (
+      <NotFound />
+    )
+  }
 </PublicLayout>

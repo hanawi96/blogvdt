@@ -7,7 +7,7 @@ import { getPublicSite } from '../../features/settings/settings';
 import PublicLayout from '../../layouts/PublicLayout.astro';
 import { createDb } from '../../lib/db/client';
 import { findRedirect } from '../../lib/db/redirects';
-import { getDbBinding } from '../../lib/cloudflare/env';
+import { getDbBinding, getSiteOrigin } from '../../lib/cloudflare/env';
 import { isSafeRedirect } from '../../lib/http';
 import { formatVnd } from '../../lib/money';
 import { breadcrumbSchema, buildMeta, jsonLd, productSchema } from '../../lib/seo/meta';
@@ -25,7 +25,8 @@ if (!visible) {
   Astro.response.headers.set('Cache-Control', 'public, max-age=60');
 }
 
-const meta = buildMeta(Astro.url.origin, {
+const origin = getSiteOrigin(Astro.url.origin);
+const meta = buildMeta(origin, {
   title: visible ? `${visible.seoTitle || visible.name} | ${loaded.site?.siteName ?? ''}` : 'Không tìm thấy trang',
   description: visible?.metaDescription || visible?.description || loaded.site?.defaultSeoDescription || 'Không tìm thấy sản phẩm.',
   path: routes.product(slug),
@@ -40,9 +41,10 @@ const crumbs = visible && loaded.site
       { name: visible.name, path: routes.product(visible.slug) },
     ]
   : [];
+const trail = visible && loaded.site ? breadcrumbSchema(origin, crumbs) : null;
 const jsonLdBlocks = visible && loaded.site
   ? [
-      jsonLd(breadcrumbSchema(Astro.url.origin, crumbs)),
+      ...(trail ? [jsonLd(trail)] : []),
       jsonLd(productSchema({
         name: visible.name,
         description: visible.description,
@@ -77,6 +79,9 @@ async function loadProduct() {
   description={meta.description}
   canonical={visible ? meta.canonical : undefined}
   image={meta.image}
+  imageAlt={visible?.images[0]?.alt}
+  imageWidth={visible?.images[0]?.width}
+  imageHeight={visible?.images[0]?.height}
   robots={meta.robots}
   siteName={meta.siteName}
   jsonLd={jsonLdBlocks}

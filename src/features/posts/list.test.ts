@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseListPage } from './public';
 import { copyTitle, statusTotals } from './posts';
 
 describe('danh sách bài viết', () => {
@@ -8,6 +9,15 @@ describe('danh sách bài viết', () => {
       draft: 1,
       published: 3,
     });
+  });
+
+  it('chỉ nhận số trang nguyên dương, còn lại là không tồn tại', () => {
+    expect(parseListPage(null)).toBe(1);
+    expect(parseListPage('2')).toBe(2);
+    expect(parseListPage('0')).toBeNull();
+    expect(parseListPage('abc')).toBeNull();
+    expect(parseListPage('01')).toBeNull();
+    expect(parseListPage('1000000')).toBeNull();
   });
 
   it('thêm hậu tố bản sao mà không vượt 180 ký tự', () => {

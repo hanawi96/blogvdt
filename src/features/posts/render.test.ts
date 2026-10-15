@@ -52,5 +52,26 @@ describe('render HTML bài viết', () => {
     );
     expect(html).toContain('width="800"');
     expect(html).toContain('height="600"');
+    expect(html).toContain('loading="lazy"');
+  });
+
+  it('ảnh đầu không lazy khi bài không có ảnh đại diện, ảnh hỏng bị bỏ', () => {
+    const html = renderPostHtml(
+      {
+        type: 'doc',
+        content: [
+          { type: 'image', attrs: { src: '/media/2026/10/a.webp', alt: '' } },
+          { type: 'image', attrs: { src: '/media/2026/10/b.webp', alt: 'Chi tiết chỉ' } },
+          { type: 'image', attrs: { src: '/media/missing.webp', alt: 'Mất' } },
+        ],
+      },
+      new Map([['/media/2026/10/b.webp', { width: 640, height: 480 }]]),
+      { skip: new Set(['/media/missing.webp']), eager: 1 },
+    );
+    expect(html).toContain('src="/media/2026/10/a.webp" alt="" fetchpriority="high"');
+    expect(html).not.toContain('src="/media/2026/10/a.webp" alt="" fetchpriority="high" loading="lazy"');
+    expect(html).toContain('src="/media/2026/10/b.webp"');
+    expect(html).toContain('loading="lazy"');
+    expect(html).not.toContain('missing.webp');
   });
 });

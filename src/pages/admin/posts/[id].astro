@@ -5,11 +5,12 @@ import { mutationError } from '../../../features/auth/session';
 import { listCategories } from '../../../features/posts/categories';
 import { autosaveResponse, excerptFieldValue, expectedRevision, firstFieldError, isAutosave, parsePostForm } from '../../../features/posts/form';
 import { activityActor } from '../../../features/activity/log';
-import { getPost, saveDraftPost, updatePost } from '../../../features/posts/posts';
+import { getPost, listMetaCorpus, saveDraftPost, updatePost } from '../../../features/posts/posts';
 import { listMedia } from '../../../features/media/media';
 import { getPublicSite } from '../../../features/settings/settings';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
+import { collectMetaCorpus, mergeMetaCorpus, siteListCorpus } from '../../../lib/seo/meta';
 import { routes } from '../../../lib/routes';
 import type { FieldErrors } from '../../../lib/validation/errors';
 
@@ -24,6 +25,7 @@ const post = await getPost(db, id);
 if (!post) return Astro.redirect(routes.adminPosts);
 
 const categories = await listCategories(db);
+const corpus = mergeMetaCorpus(await listMetaCorpus(db, id), collectMetaCorpus(categories), siteListCorpus());
 const site = await getPublicSite(db);
 const seoSite = {
   name: site?.siteName || 'Website',
@@ -118,5 +120,6 @@ function valuesFrom(form: FormData, fallbackContent: string) {
     site={seoSite}
     postId={id}
     livePublished={post.status === 'published'}
+    corpus={corpus}
   />
 </AdminLayout>

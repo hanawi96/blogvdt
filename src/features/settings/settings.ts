@@ -39,6 +39,9 @@ export type PublicSite = {
   logoAlt: string;
   faviconUrl: string;
   ogImageUrl: string;
+  ogImageAlt: string;
+  ogImageWidth: number | null;
+  ogImageHeight: number | null;
   defaultSeoTitle: string;
   defaultSeoDescription: string;
 };
@@ -61,20 +64,23 @@ export async function getPublicSite(db: AppDb): Promise<PublicSite | null> {
     logoAlt: logo?.alt || values.site_name,
     faviconUrl: favicon?.url ?? '',
     ogImageUrl: ogImage?.url ?? '',
+    ogImageAlt: ogImage?.alt ?? '',
+    ogImageWidth: ogImage?.width ?? null,
+    ogImageHeight: ogImage?.height ?? null,
     defaultSeoTitle: values.default_seo_title || values.site_name,
     defaultSeoDescription: values.default_seo_description || values.site_description,
   };
 }
 
-async function mediaByIds(db: AppDb, idTexts: string[]): Promise<Map<number, { url: string; alt: string }>> {
+async function mediaByIds(db: AppDb, idTexts: string[]): Promise<Map<number, { url: string; alt: string; width: number | null; height: number | null }>> {
   const ids = [...new Set(idTexts.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
-  const found = new Map<number, { url: string; alt: string }>();
+  const found = new Map<number, { url: string; alt: string; width: number | null; height: number | null }>();
   if (ids.length === 0) return found;
   const rows = await db
-    .select({ id: media.id, r2Key: media.r2Key, altText: media.altText })
+    .select({ id: media.id, r2Key: media.r2Key, altText: media.altText, width: media.width, height: media.height })
     .from(media)
     .where(inArray(media.id, ids));
-  for (const row of rows) found.set(row.id, { url: routes.media(row.r2Key), alt: row.altText });
+  for (const row of rows) found.set(row.id, { url: routes.media(row.r2Key), alt: row.altText, width: row.width, height: row.height });
   return found;
 }
 

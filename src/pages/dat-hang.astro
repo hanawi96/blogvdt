@@ -7,7 +7,7 @@ import { listOrderCatalog } from '../features/products/public';
 import { getPublicSite } from '../features/settings/settings';
 import PublicLayout from '../layouts/PublicLayout.astro';
 import { createDb } from '../lib/db/client';
-import { getDbBinding } from '../lib/cloudflare/env';
+import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
 import { clientIp, hashIp, isSameOrigin } from '../lib/http';
 import { formatVnd } from '../lib/money';
 import { buildMeta } from '../lib/seo/meta';
@@ -96,7 +96,7 @@ if (posted) {
   Astro.response.headers.set('Cache-Control', 'no-store');
 }
 
-const meta = buildMeta(Astro.url.origin, {
+const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
   title: site ? `Đặt hàng | ${site.siteName}` : 'Chưa sẵn sàng',
   description: 'Gửi thông tin để xưởng làm vòng. Chưa thanh toán trên website.',
   path: routes.checkout,

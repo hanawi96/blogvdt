@@ -10,6 +10,8 @@ interface Props {
   fallbackTitleName?: string;
   fallbackDescriptionName?: string;
   homeUrl?: boolean;
+  pathPrefix?: string;
+  corpus?: { titles: string[]; descriptions: string[] };
 }
 
 const {
@@ -23,7 +25,10 @@ const {
   fallbackTitleName = 'title',
   fallbackDescriptionName = 'excerpt',
   homeUrl = false,
+  pathPrefix = 'kien-thuc',
+  corpus = { titles: [], descriptions: [] },
 } = Astro.props;
+const urlText = homeUrl ? site.host : `${site.host} › ${pathPrefix.split('/').join(' › ')} › ${slug}`;
 ---
 
 <div
@@ -35,6 +40,8 @@ const {
   data-fallback-title={fallbackTitleName}
   data-fallback-description={fallbackDescriptionName}
   data-home-url={homeUrl ? '' : undefined}
+  data-path-prefix={pathPrefix}
+  data-corpus={JSON.stringify(corpus)}
 >
   <div class="serp-devices" role="group" aria-label="Kích thước xem trước">
     <button type="button" data-serp-device="desktop" aria-pressed="true">Máy tính</button>
@@ -47,7 +54,7 @@ const {
       </span>
       <span>{site.name}</span>
     </div>
-    <p class="serp-url" data-serp-url>{site.host} › kien-thuc › {slug}</p>
+    <p class="serp-url" data-serp-url>{urlText}</p>
     <p class="serp-title" data-serp-title>{title}</p>
     <p class="serp-desc" data-serp-desc data-empty={emptyDescription ? '' : undefined}>{description}</p>
   </div>
@@ -55,7 +62,7 @@ const {
 </div>
 
 <script>
-  import { lengthNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
+  import { lengthNote, metaDuplicateNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
 
   function fieldValue(form: HTMLFormElement, name: string): string {
     const field = form.querySelector(`[name="${name}"]`);
@@ -71,8 +78,20 @@ const {
     const meta = fieldValue(form, root.dataset.descriptionName || 'metaDescription');
     const excerpt = fieldValue(form, root.dataset.fallbackDescription || 'excerpt').trim();
     const slug = fieldValue(form, 'slug').trim() || 'duong-dan';
-    const headline = seoTitle.trim() || title || 'Tiêu đề bài viết';
-    const description = meta.trim() || excerpt || 'Thêm mô tả SEO hoặc tóm tắt để xem trước đoạn này.';
+    const resolvedTitle = seoTitle.trim() || title;
+    const resolvedDescription = meta.trim() || excerpt;
+    const headline = resolvedTitle || 'Tiêu đề bài viết';
+    const description = resolvedDescription || 'Thêm mô tả SEO hoặc tóm tắt để xem trước đoạn này.';
+    let corpus = { titles: [] as string[], descriptions: [] as string[] };
+    try {
+      const parsed = JSON.parse(root.dataset.corpus || '{}') as { titles?: unknown; descriptions?: unknown };
+      corpus = {
+        titles: Array.isArray(parsed.titles) ? parsed.titles.filter((item): item is string => typeof item === 'string') : [],
+        descriptions: Array.isArray(parsed.descriptions) ? parsed.descriptions.filter((item): item is string => typeof item === 'string') : [],
+      };
+    } catch {
+      corpus = { titles: [], descriptions: [] };
+    }
     const titleNode = root.querySelector('[data-serp-title]');
     const descNode = root.querySelector('[data-serp-desc]');
     const urlNode = root.querySelector('[data-serp-url]');
@@ -84,7 +103,8 @@ const {
     }
     if (urlNode) {
       const host = root.dataset.host || '';
-      urlNode.textContent = root.hasAttribute('data-home-url') ? host : `${host} › kien-thuc › ${slug}`;
+      const prefix = (root.dataset.pathPrefix || 'kien-thuc').split('/').join(' › ');
+      urlNode.textContent = root.hasAttribute('data-home-url') ? host : `${host} › ${prefix} › ${slug}`;
     }
     const titleCount = form.querySelector('[data-seo-title-count]');
     const descCount = form.querySelector('[data-seo-desc-count]');
@@ -94,6 +114,8 @@ const {
     if (descCount) descCount.textContent = `${meta.length} ký tự`;
     if (titleNote) titleNote.textContent = lengthNote(seoTitle.length, SEO_TITLE_RANGE.min, SEO_TITLE_RANGE.max);
     if (descNote) descNote.textContent = lengthNote(meta.length, SEO_DESC_RANGE.min, SEO_DESC_RANGE.max);
+    const duplicateNote = form.querySelector('[data-seo-duplicate-note]');
+    if (duplicateNote) duplicateNote.textContent = metaDuplicateNote(resolvedTitle, resolvedDescription, corpus);
   }
 
   function bind(root: HTMLElement) {

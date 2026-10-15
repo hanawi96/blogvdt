@@ -90,7 +90,7 @@ export async function getPublicProduct(db: AppDb, slug: string) {
   if (product.coverKey && product.coverId) {
     images.push({
       url: routes.media(product.coverKey),
-      alt: product.coverAlt || product.name,
+      alt: product.coverAlt ?? '',
       width: product.coverWidth,
       height: product.coverHeight,
     });
@@ -99,7 +99,7 @@ export async function getPublicProduct(db: AppDb, slug: string) {
     if (image.id === product.coverId) continue;
     images.push({
       url: routes.media(image.key),
-      alt: image.alt || product.name,
+      alt: image.alt,
       width: image.width,
       height: image.height,
     });
@@ -148,7 +148,7 @@ function toCard(row: {
     price: row.price,
     description: row.description,
     coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
-    coverAlt: row.coverAlt || row.name,
+    coverAlt: row.coverAlt ?? '',
     coverWidth: row.coverWidth,
     coverHeight: row.coverHeight,
   };

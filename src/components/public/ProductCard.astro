@@ -22,7 +22,7 @@ const { product } = Astro.props;
   {
     product.coverUrl && (
       product.slug ? (
-        <a href={routes.product(product.slug)}>
+        <a href={routes.product(product.slug)} aria-hidden={product.coverAlt ? undefined : 'true'} tabindex={product.coverAlt ? undefined : -1}>
           <img
             src={product.coverUrl}
             alt={product.coverAlt}

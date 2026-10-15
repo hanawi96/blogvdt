@@ -1,8 +1,9 @@
 ---
 import SiteFooter from '../components/public/SiteFooter.astro';
 import SiteHeader from '../components/public/SiteHeader.astro';
+import { shareImageType } from '../features/media/files';
 import type { PublicSite } from '../features/settings/settings';
-import { toAbsoluteUrl } from '../lib/seo/meta';
+import { plainMetaText, shareImageUrl, shareMetadata, shareOriginFrom, type ShareTags } from '../lib/seo/meta';
 import '../styles/global.css';
 
 interface Props {
@@ -10,6 +11,9 @@ interface Props {
   description: string;
   canonical?: string;
   image?: string | null;
+  imageAlt?: string | null;
+  imageWidth?: number | null;
+  imageHeight?: number | null;
   robots?: string;
   type?: 'website' | 'article';
   siteName?: string;
@@ -25,6 +29,9 @@ const {
   description,
   canonical,
   image = null,
+  imageAlt = null,
+  imageWidth = null,
+  imageHeight = null,
   robots = 'index,follow',
   type = 'website',
   siteName = title,
@@ -34,7 +41,43 @@ const {
   faviconUrl = '/favicon.svg',
   chrome = null,
 } = Astro.props;
-const shareImage = image || toAbsoluteUrl(Astro.url.origin, chrome?.ogImageUrl) || null;
+const robotsContent = Astro.locals.allowIndex === false ? 'noindex,nofollow' : robots;
+const shareOrigin = shareOriginFrom(canonical, Astro.url.origin);
+const share = shareMetadata({
+  title,
+  description,
+  canonical,
+  type,
+  image: await reachableShareImage(shareOrigin, [
+    { url: image, alt: imageAlt, width: imageWidth, height: imageHeight },
+    { url: chrome?.ogImageUrl, alt: chrome?.ogImageAlt, width: chrome?.ogImageWidth, height: chrome?.ogImageHeight },
+  ]),
+});
+const siteLabel = plainMetaText(siteName);
+
+async function reachableShareImage(
+  origin: string,
+  candidates: Array<{ url?: string | null; alt?: string | null; width?: number | null; height?: number | null }>,
+): Promise<ShareTags['image']> {
+  const pending = candidates.flatMap((item) => {
+    const url = shareImageUrl(origin, item.url);
+    return url ? [{ url, alt: item.alt, width: item.width, height: item.height }] : [];
+  });
+  if (pending.length === 0) return null;
+  let bucket: R2Bucket;
+  try {
+    const { getMediaBucket } = await import('../lib/cloudflare/env');
+    bucket = getMediaBucket();
+  } catch {
+    return null;
+  }
+  for (const item of pending) {
+    const mimeType = await shareImageType(bucket, item.url);
+    if (mimeType === null) continue;
+    return { url: item.url, alt: item.alt ?? '', width: item.width ?? null, height: item.height ?? null, mimeType };
+  }
+  return null;
+}
 ---
 
 <!doctype html>
@@ -42,23 +85,29 @@ const shareImage = image || toAbsoluteUrl(Astro.url.origin, chrome?.ogImageUrl) 
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width" />
-    <title>{title}</title>
-    <meta name="description" content={description} />
-    <meta name="robots" content={robots} />
-    {canonical && <link rel="canonical" href={canonical} />}
-    <meta property="og:title" content={title} />
-    <meta property="og:description" content={description} />
-    <meta property="og:type" content={type} />
-    <meta property="og:site_name" content={siteName} />
+    <title>{share.title}</title>
+    <meta name="description" content={share.description} />
+    <meta name="robots" content={robotsContent} />
+    {share.url && <link rel="canonical" href={share.url} />}
+    <meta property="og:title" content={share.title} />
+    <meta property="og:description" content={share.description} />
+    <meta property="og:type" content={share.type} />
+    <meta property="og:site_name" content={siteLabel} />
     <meta property="og:locale" content="vi_VN" />
-    {canonical && <meta property="og:url" content={canonical} />}
-    {shareImage && <meta property="og:image" content={shareImage} />}
-    {publishedTime && <meta property="article:published_time" content={publishedTime} />}
-    {modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}
-    <meta name="twitter:card" content={shareImage ? 'summary_large_image' : 'summary'} />
-    <meta name="twitter:title" content={title} />
-    <meta name="twitter:description" content={description} />
-    {shareImage && <meta name="twitter:image" content={shareImage} />}
+    {share.url && <meta property="og:url" content={share.url} />}
+    {share.image && <meta property="og:image" content={share.image.url} />}
+    {share.image?.mimeType && <meta property="og:image:type" content={share.image.mimeType} />}
+    {share.image?.width && <meta property="og:image:width" content={String(share.image.width)} />}
+    {share.image?.height && <meta property="og:image:height" content={String(share.image.height)} />}
+    {share.image?.alt && <meta property="og:image:alt" content={share.image.alt} />}
+    {share.type === 'article' && publishedTime && <meta property="article:published_time" content={publishedTime} />}
+    {share.type === 'article' && modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}
+    <meta name="twitter:card" content={share.card} />
+    <meta name="twitter:title" content={share.title} />
+    <meta name="twitter:description" content={share.description} />
+    {share.url && <meta name="twitter:url" content={share.url} />}
+    {share.image && <meta name="twitter:image" content={share.image.url} />}
+    {share.image?.alt && <meta name="twitter:image:alt" content={share.image.alt} />}
     {jsonLd.map((entry) => <script type="application/ld+json" set:html={entry} />)}
     <link rel="icon" href={faviconUrl} />
   </head>

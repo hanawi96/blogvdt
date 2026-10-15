@@ -1,0 +1,231 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { mutationError } from '../../features/auth/session';
+import { advanceHealthRun, loadHealth, type HealthSnapshot } from '../../features/seo/health-run';
+import {
+  HEALTH_CODE_LABELS,
+  HEALTH_CODES,
+  HEALTH_LOAD_ERROR,
+  HEALTH_RUN_ERROR,
+  healthFigures,
+  healthNote,
+  isHealthCode,
+  readHealthFilters,
+} from '../../features/seo/health';
+import { createDb } from '../../lib/db/client';
+import { getDbBinding, getSiteOrigin, optionalMediaBucket } from '../../lib/cloudflare/env';
+import { formatDateTime } from '../../lib/datetime';
+import { routes } from '../../lib/routes';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+if (session.role !== 'admin') return new Response('Bạn không có quyền vào trang này.', { status: 403 });
+
+const filters = readHealthFilters(Astro.url.searchParams);
+let formError = '';
+const origin = getSiteOrigin(Astro.url.origin);
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const blocked = mutationError(Astro.request, session, form);
+  if (blocked) {
+    Astro.response.status = 403;
+    formError = blocked;
+  } else {
+    try {
+      const mode = form.get('mode') === 'continue' ? 'continue' : 'start';
+      await advanceHealthRun(createDb(getDbBinding()), {
+        mode,
+        origin,
+        now: Date.now(),
+        bucket: optionalMediaBucket(),
+      });
+      return Astro.redirect(routes.adminSeo);
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'seo_health_run_failed', name: error instanceof Error ? error.name : 'unknown' }));
+      formError = HEALTH_RUN_ERROR;
+    }
+  }
+}
+
+let loadError = '';
+let snapshot: HealthSnapshot | null = null;
+try {
+  snapshot = await loadHealth(createDb(getDbBinding()), filters);
+} catch (error) {
+  console.error(JSON.stringify({ event: 'seo_health_load_failed', name: error instanceof Error ? error.name : 'unknown' }));
+  loadError = HEALTH_LOAD_ERROR;
+}
+
+const figures = snapshot?.figures ?? healthFigures({ failed: true, hasRun: false, errors: 0, warnings: 0, verified: 0, pending: 0 });
+const whenLabel = snapshot?.run ? formatDateTime(snapshot.run.finishedAt ?? snapshot.run.startedAt) : '';
+const note = loadError
+  ? loadError
+  : healthNote({
+      failed: false,
+      phase: snapshot?.run?.phase ?? null,
+      whenLabel,
+      published: snapshot?.published ?? 0,
+      verified: snapshot?.verified ?? 0,
+      unchecked: snapshot?.unchecked ?? 0,
+      stale: snapshot?.stale ?? 0,
+    });
+const inProgress = Boolean(snapshot?.run && snapshot.run.phase !== 'done');
+const filtered = Boolean(filters.severity || filters.code || filters.postId);
+const cards = [
+  ['Lỗi nghiêm trọng', figures.errors],
+  ['Cảnh báo', figures.warnings],
+  ['Đã xác minh', figures.verified],
+  ['Chưa xác minh', figures.pending],
+];
+
+function pageHref(page: number): string {
+  const params = new URLSearchParams();
+  if (filters.severity) params.set('severity', filters.severity);
+  if (filters.code) params.set('code', filters.code);
+  if (filters.postId) params.set('post', String(filters.postId));
+  if (page > 1) params.set('page', String(page));
+  const text = params.toString();
+  return text ? `${routes.adminSeo}?${text}` : routes.adminSeo;
+}
+
+function codeLabel(code: string): string {
+  return isHealthCode(code) ? HEALTH_CODE_LABELS[code] : code;
+}
+---
+
+<AdminLayout title="Kiểm tra SEO">
+  <p slot="lead">{note}</p>
+  <form slot="action" method="post" class="flex flex-wrap gap-2">
+    <input type="hidden" name="csrf" value={session.csrfToken} />
+    {
+      inProgress ? (
+        <>
+          <button class="btn btn-primary" type="submit" name="mode" value="continue">Tiếp tục kiểm tra</button>
+          <button class="btn" type="submit" name="mode" value="start">Kiểm tra lại từ đầu</button>
+        </>
+      ) : (
+        <button class="btn btn-primary" type="submit" name="mode" value="start">{snapshot?.run ? 'Kiểm tra lại' : 'Chạy kiểm tra'}</button>
+      )
+    }
+  </form>
+  {formError && <p class="error-text" role="alert">{formError}</p>}
+  <ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    {
+      cards.map(([label, value]) => (
+        <li class="rounded-md border border-line bg-surface p-4">
+          <p class="text-sm text-muted">{label}</p>
+          <p class="mt-1 text-2xl font-semibold">{value}</p>
+        </li>
+      ))
+    }
+  </ul>
+  {
+    snapshot?.run && (
+      <form class="post-toolbar mt-6" method="get">
+        <label class="sr-only" for="seo-severity">Mức độ</label>
+        <select id="seo-severity" class="field" name="severity">
+          <option value="" selected={filters.severity === ''}>Mọi mức</option>
+          <option value="error" selected={filters.severity === 'error'}>Lỗi nghiêm trọng</option>
+          <option value="warning" selected={filters.severity === 'warning'}>Cảnh báo</option>
+        </select>
+        <label class="sr-only" for="seo-code">Loại lỗi</label>
+        <select id="seo-code" class="field" name="code">
+          <option value="" selected={filters.code === ''}>Mọi loại</option>
+          {HEALTH_CODES.map((code) => (
+            <option value={code} selected={filters.code === code}>{HEALTH_CODE_LABELS[code]}</option>
+          ))}
+        </select>
+        <label class="sr-only" for="seo-post">Bài viết</label>
+        <select id="seo-post" class="field" name="post">
+          <option value="" selected={filters.postId === null}>Mọi bài</option>
+          {snapshot.postOptions.map((option) => (
+            <option value={option.id} selected={filters.postId === option.id}>{option.title}</option>
+          ))}
+          {filters.postId && !snapshot.postOptions.some((option) => option.id === filters.postId) && (
+            <option value={filters.postId} selected>Bài {filters.postId}</option>
+          )}
+        </select>
+        <button class="btn" type="submit">Lọc</button>
+        {filtered && <a class="btn" href={routes.adminSeo}>Bỏ lọc</a>}
+      </form>
+    )
+  }
+  {
+    snapshot?.uncheckedPosts.length ? (
+      <section class="mt-6">
+        <h2 class="text-lg font-semibold">Chưa kiểm tra</h2>
+        <ul class="mt-2 flex flex-col gap-1">
+          {snapshot.uncheckedPosts.map((post) => (
+            <li><a class="underline" href={routes.adminPost(post.id)}>{post.title}</a></li>
+          ))}
+        </ul>
+        {snapshot.unchecked > snapshot.uncheckedPosts.length && (
+          <p class="mt-2 text-sm text-muted">Còn {snapshot.unchecked - snapshot.uncheckedPosts.length} bài khác.</p>
+        )}
+      </section>
+    ) : null
+  }
+  {
+    snapshot?.stalePosts.length ? (
+      <section class="mt-6">
+        <h2 class="text-lg font-semibold">Đã sửa sau lần kiểm tra</h2>
+        <ul class="mt-2 flex flex-col gap-1">
+          {snapshot.stalePosts.map((post) => (
+            <li><a class="underline" href={routes.adminPost(post.id)}>{post.title}</a></li>
+          ))}
+        </ul>
+        {snapshot.stale > snapshot.stalePosts.length && (
+          <p class="mt-2 text-sm text-muted">Còn {snapshot.stale - snapshot.stalePosts.length} bài khác.</p>
+        )}
+      </section>
+    ) : null
+  }
+  {
+    snapshot && !snapshot.run && <p class="post-empty mt-6">Chưa có kết quả. Bấm Chạy kiểm tra để bắt đầu.</p>
+  }
+  {
+    snapshot?.run && snapshot.issues.length === 0 && (
+      <p class="post-empty mt-6">
+        {filtered ? 'Không có lỗi khớp bộ lọc.' : snapshot.run.phase === 'done' ? 'Không có lỗi trên các bài đã xác minh.' : 'Chưa thấy lỗi trên phần đã kiểm tra.'}
+      </p>
+    )
+  }
+  {
+    snapshot?.run && snapshot.issues.length > 0 && (
+      <table class="post-table mt-4">
+        <thead>
+          <tr>
+            <th>Bài viết</th>
+            <th>Mức</th>
+            <th>Loại</th>
+            <th>Nguyên nhân</th>
+            <th>Sửa</th>
+          </tr>
+        </thead>
+        <tbody>
+          {snapshot.issues.map((issue) => (
+            <tr>
+              <td data-label="Bài viết">
+                {issue.postId ? <a class="font-semibold underline" href={routes.adminPost(issue.postId)}>{issue.postTitle}</a> : issue.postTitle}
+              </td>
+              <td data-label="Mức">{issue.severity === 'error' ? 'Lỗi' : 'Cảnh báo'}</td>
+              <td data-label="Loại">{codeLabel(issue.code)}</td>
+              <td data-label="Nguyên nhân">{issue.detail}</td>
+              <td data-label="Sửa">{issue.postId ? <a class="underline" href={routes.adminPost(issue.postId)}>Sửa</a> : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
+  }
+  {
+    snapshot?.run && snapshot.pageCount > 1 && (
+      <nav class="post-pager" aria-label="Phân trang">
+        {snapshot.page > 1 && <a class="btn" href={pageHref(snapshot.page - 1)}>Trang trước</a>}
+        <span>Trang {snapshot.page}/{snapshot.pageCount}</span>
+        {snapshot.page < snapshot.pageCount && <a class="btn" href={pageHref(snapshot.page + 1)}>Trang sau</a>}
+      </nav>
+    )
+  }
+</AdminLayout>

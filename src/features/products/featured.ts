@@ -28,7 +28,7 @@ export async function listFeaturedProducts(db: AppDb, limit = 4) {
     price: row.price,
     description: row.description,
     coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
-    coverAlt: row.coverAlt || row.name,
+    coverAlt: row.coverAlt ?? '',
     coverWidth: row.coverWidth,
     coverHeight: row.coverHeight,
   }));

@@ -1,5 +1,6 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { hasInboundPostLink, inspectPostLinks, suggestPosts } from '../../../features/posts/link-lookup';
 import { listPosts, searchPublishedPosts, slugIsTaken, type PostListSort } from '../../../features/posts/posts';
 import { SLUG_PATTERN } from '../../../features/posts/slug';
 import { isPostStatus, POST_STATUS_LABELS } from '../../../features/posts/status';
@@ -13,19 +14,31 @@ if (!Astro.locals.adminSession) return Astro.redirect(routes.adminLogin);
 const wantsJson = Astro.request.headers.get('accept')?.includes('application/json') ?? false;
 if (wantsJson) {
   const db = createDb(getDbBinding());
+  const excludeRaw = Number(Astro.url.searchParams.get('exclude') ?? '');
+  const exclude = Number.isInteger(excludeRaw) && excludeRaw > 0 ? excludeRaw : null;
+  const jsonHeaders = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
   const slug = Astro.url.searchParams.get('slug');
   if (slug !== null) {
-    const excludeRaw = Number(Astro.url.searchParams.get('exclude') ?? '');
-    const exclude = Number.isInteger(excludeRaw) && excludeRaw > 0 ? excludeRaw : null;
     const taken = SLUG_PATTERN.test(slug) ? await slugIsTaken(db, slug, exclude) : false;
-    return new Response(JSON.stringify({ taken }), {
-      headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
-    });
+    return new Response(JSON.stringify({ taken }), { headers: jsonHeaders });
   }
-  const found = await searchPublishedPosts(db, Astro.url.searchParams.get('q') ?? '');
-  return new Response(JSON.stringify({ posts: found }), {
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
-  });
+  if (Astro.url.searchParams.get('check') === '1') {
+    const current = Astro.url.searchParams.get('current');
+    const issues = await inspectPostLinks(db, Astro.url.searchParams.getAll('path'), current);
+    const inbound = Astro.url.searchParams.get('inbound') === '1' && current ? await hasInboundPostLink(db, { path: current, excludeId: exclude }) : null;
+    return new Response(JSON.stringify({ issues, inbound }), { headers: jsonHeaders });
+  }
+  if (Astro.url.searchParams.get('suggest') === '1') {
+    const categoryRaw = Number(Astro.url.searchParams.get('category') ?? '');
+    const suggestions = await suggestPosts(db, {
+      title: Astro.url.searchParams.get('title') ?? '',
+      categoryId: Number.isInteger(categoryRaw) && categoryRaw > 0 ? categoryRaw : null,
+      excludeId: exclude,
+    });
+    return new Response(JSON.stringify({ suggestions }), { headers: jsonHeaders });
+  }
+  const found = await searchPublishedPosts(db, Astro.url.searchParams.get('q') ?? '', exclude);
+  return new Response(JSON.stringify({ posts: found }), { headers: jsonHeaders });
 }
 
 const query = Astro.url.searchParams.get('q') ?? '';

@@ -3,8 +3,7 @@ import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '..
 import type { AppDb } from '../../lib/db/client';
 import { media, posts, productMedia, products, siteSettings } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
-import { isMediaSrc } from '../posts/content';
-import { detectImageType, displayFilename, imageSizeError, mediaObjectKey } from './files';
+import { detectImageType, displayFilename, imageSizeError, mediaKeyFromPublicUrl, mediaObjectKey, readRasterSize } from './files';
 import type { MediaItem } from './types';
 import { collectMediaUses } from './uses';
 
@@ -60,25 +59,96 @@ export async function listMediaUses(db: AppDb) {
   });
 }
 
+const HEADER_BYTES = 4096;
+
+type HeaderBucket = {
+  get(key: string, options: { range: { offset: number; length: number } }): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>;
+};
+
 export async function mediaDimensionsByUrl(db: AppDb, urls: string[]) {
+  const rows = await mediaSizeRows(db, urls);
+  const sizes = new Map<string, { width: number; height: number }>();
+  for (const [url, size] of rows) {
+    if (size.width && size.height) sizes.set(url, { width: size.width, height: size.height });
+  }
+  return sizes;
+}
+
+async function mediaSizeRows(db: AppDb, urls: string[]) {
   const keys = new Map<string, string>();
   for (const url of urls) {
-    if (!isMediaSrc(url)) continue;
-    keys.set(url.slice('/media/'.length), url);
+    const key = mediaKeyFromPublicUrl(url);
+    if (key) keys.set(key, url);
   }
+  const found = new Map<string, { width: number | null; height: number | null }>();
   const keyList = [...keys.keys()].slice(0, 40);
-  if (keyList.length === 0) return new Map<string, { width: number; height: number }>();
+  if (keyList.length === 0) return found;
   const rows = await db
     .select({ r2Key: media.r2Key, width: media.width, height: media.height })
     .from(media)
     .where(inArray(media.r2Key, keyList));
-  const sizes = new Map<string, { width: number; height: number }>();
   for (const row of rows) {
-    if (!row.width || !row.height || row.width < 1 || row.height < 1) continue;
     const url = keys.get(row.r2Key);
-    if (url) sizes.set(url, { width: row.width, height: row.height });
+    if (url) found.set(url, { width: row.width, height: row.height });
   }
-  return sizes;
+  return found;
+}
+
+export async function layoutContentImages(db: AppDb, bucket: HeaderBucket | null, urls: string[]) {
+  const known = await mediaSizeRows(db, urls);
+  const missing = new Set(urls.filter((url) => !known.has(url)));
+  const measured = await layoutImages(bucket, known);
+  for (const url of measured.missing) missing.add(url);
+  return { sizes: measured.sizes, missing };
+}
+
+export async function applyCoverMeasure<T extends { coverUrl: string | null; coverWidth: number | null; coverHeight: number | null }>(
+  bucket: HeaderBucket | null,
+  cards: T[],
+): Promise<T[]> {
+  const known = new Map<string, { width: number | null; height: number | null }>();
+  for (const card of cards) {
+    if (card.coverUrl) known.set(card.coverUrl, { width: card.coverWidth, height: card.coverHeight });
+  }
+  if (known.size === 0) return cards;
+  const measured = await layoutImages(bucket, known);
+  return cards.map((card) => {
+    if (!card.coverUrl) return card;
+    if (measured.missing.has(card.coverUrl)) return { ...card, coverUrl: null };
+    const size = measured.sizes.get(card.coverUrl);
+    return size ? { ...card, coverWidth: size.width, coverHeight: size.height } : card;
+  });
+}
+
+async function layoutImages(bucket: HeaderBucket | null, known: Map<string, { width: number | null; height: number | null }>) {
+  const sizes = new Map<string, { width: number; height: number }>();
+  const missing = new Set<string>();
+  const pending: string[] = [];
+  for (const [url, size] of known) {
+    if (size.width && size.height && size.width > 0 && size.height > 0) sizes.set(url, { width: size.width, height: size.height });
+    else pending.push(url);
+  }
+  if (!bucket) return { sizes, missing };
+  await Promise.all(
+    pending.slice(0, 12).map(async (url) => {
+      const measured = await measureImageFile(bucket, url);
+      if (measured === 'missing') missing.add(url);
+      else if (measured) sizes.set(url, measured);
+    }),
+  );
+  return { sizes, missing };
+}
+
+async function measureImageFile(bucket: HeaderBucket, url: string): Promise<{ width: number; height: number } | null | 'missing'> {
+  const key = mediaKeyFromPublicUrl(url);
+  if (!key) return 'missing';
+  try {
+    const object = await bucket.get(key, { range: { offset: 0, length: HEADER_BYTES } });
+    if (!object) return 'missing';
+    return readRasterSize(new Uint8Array(await object.arrayBuffer()));
+  } catch {
+    return null;
+  }
 }
 
 export async function getMediaFile(db: AppDb, id: number) {

@@ -1,11 +1,17 @@
+import { canonicalUrl, siteOrigin } from './meta';
+
 export type SitemapEntry = { path: string; lastmod?: string };
 
-export function sitemapXml(origin: string, entries: SitemapEntry[]): string {
-  const base = origin.endsWith('/') ? origin.slice(0, -1) : origin;
-  const urls = entries.map((entry) => {
+export function sitemapXml(origin: string, entries: SitemapEntry[]): string | null {
+  if (!siteOrigin(origin)) return null;
+  const urls: string[] = [];
+  for (const entry of entries) {
+    const loc = canonicalUrl(origin, entry.path);
+    if (!loc) continue;
     const last = entry.lastmod ? `\n    <lastmod>${escapeXml(entry.lastmod)}</lastmod>` : '';
-    return `  <url>\n    <loc>${escapeXml(`${base}${entry.path}`)}</loc>${last}\n  </url>`;
-  });
+    urls.push(`  <url>\n    <loc>${escapeXml(loc)}</loc>${last}\n  </url>`);
+  }
+  if (urls.length === 0) return null;
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
 }
 
@@ -15,5 +21,5 @@ export function sitemapLastmod(value: number): string | undefined {
 }
 
 function escapeXml(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }

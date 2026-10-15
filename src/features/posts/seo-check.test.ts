@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkPostSeo, lengthNote, SEO_TITLE_RANGE } from './seo-check';
+import { checkPostSeo, lengthNote, metaDuplicateNote, SEO_TITLE_RANGE } from './seo-check';
 
 const base = {
   title: 'Nên hỏi gì khi đặt vòng cho bé',
@@ -45,6 +45,7 @@ describe('kiểm tra SEO', () => {
     expect(states.headings).toBe('pass');
     expect(states.links).toBe('pass');
     expect(states.author).toBe('pass');
+    expect(states.duplicate).toBe('pass');
   });
 
   it('thiếu dữ liệu thì lỗi và gợi ý tách riêng, slug trùng là lỗi', () => {
@@ -86,8 +87,11 @@ describe('kiểm tra SEO', () => {
     const byId = Object.fromEntries(checks.map((check) => [check.id, check]));
     expect(byId['seo-title']?.state).toBe('improve');
     expect(byId.headings?.detail).toContain('Tiêu đề 3');
-    expect(byId.alt?.state).toBe('improve');
-    expect(byId.links?.state).toBe('improve');
+    expect(byId.alt?.state).toBe('pass');
+    expect(byId.alt?.detail).toContain('trang trí');
+    expect(byId.links?.state).toBe('pass');
+    expect(byId.links?.detail).toContain('Chưa có liên kết');
+    expect(byId.inbound?.state).toBe('na');
   });
 
   it('đếm độ dài chỉ cảnh báo, không biến chuỗi rỗng thành cảnh báo', () => {
@@ -95,5 +99,32 @@ describe('kiểm tra SEO', () => {
     expect(lengthNote(10, SEO_TITLE_RANGE.min, SEO_TITLE_RANGE.max)).toContain('Hơi ngắn');
     expect(lengthNote(80, SEO_TITLE_RANGE.min, SEO_TITLE_RANGE.max)).toContain('Hơi dài');
     expect(lengthNote(40, SEO_TITLE_RANGE.min, SEO_TITLE_RANGE.max)).toBe('');
+  });
+
+  it('báo liên kết cũ hoặc bài chưa xuất bản, không ép số lượng liên kết', () => {
+    const checks = checkPostSeo({
+      ...base,
+      linkIssues: [
+        { path: '/kien-thuc/slug-cu', kind: 'redirect', official: '/kien-thuc/slug-moi' },
+        { path: '/kien-thuc/ban-nhap', kind: 'unpublished' },
+      ],
+      published: true,
+      inbound: false,
+    });
+    const byId = Object.fromEntries(checks.map((check) => [check.id, check]));
+    expect(byId.links?.state).toBe('improve');
+    expect(byId.links?.detail).toContain('/kien-thuc/slug-moi');
+    expect(byId.links?.detail).toContain('không còn');
+    expect(byId.inbound?.detail).toContain('Chưa có bài khác');
+  });
+
+  it('cảnh báo trùng nhưng không chặn vì độ dài', () => {
+    expect(metaDuplicateNote('Cùng một câu', 'Cùng một câu')).toContain('giống nhau');
+    expect(metaDuplicateNote('Bài mới', 'Mô tả riêng', { titles: ['Bài mới'], descriptions: [] })).toContain('Tiêu đề này');
+    expect(metaDuplicateNote('Bài mới', 'Mô tả riêng', { titles: [], descriptions: ['Mô tả riêng'] })).toContain('Mô tả này');
+    const checks = checkPostSeo({ ...base, seoTitle: 'Ngắn', corpus: { titles: ['Ngắn'], descriptions: [] } });
+    const duplicate = checks.find((check) => check.id === 'duplicate');
+    expect(duplicate?.state).toBe('improve');
+    expect(checks.find((check) => check.id === 'seo-title')?.state).toBe('improve');
   });
 });

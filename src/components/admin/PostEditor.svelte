@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import { Editor, type JSONContent } from '@tiptap/core';
-  import { isPostHref } from '../../features/posts/links';
+  import { isPostHref, postPathFromHref, type PostLinkIssue } from '../../features/posts/links';
   import { routes } from '../../lib/routes';
   import { isMediaSrc } from '../../features/posts/content';
   import { postExtensions } from '../../features/posts/extensions';
@@ -23,9 +23,12 @@
   let linkUrl = $state('');
   let linkQuery = $state('');
   let linkHits = $state<Array<{ title: string; path: string }>>([]);
+  let suggestions = $state<Array<{ title: string; path: string }>>([]);
+  let linkIssue = $state<PostLinkIssue | null>(null);
   let linkNote = $state('');
   let linkError = $state('');
   let linkTimer = 0;
+  let issueTimer = 0;
   let menu = $state<'heading' | 'link' | null>(null);
   let libraryOpen = $state(false);
   let imageAlt = $state('');
@@ -141,7 +144,10 @@
     linkHits = [];
     linkNote = '';
     linkError = '';
+    linkIssue = null;
     menu = 'link';
+    void loadSuggestions();
+    queueFieldCheck();
   }
 
   function queueLinkSearch(value: string) {
@@ -159,6 +165,8 @@
     }
     const url = new URL(routes.adminPosts, location.origin);
     url.searchParams.set('q', term);
+    const exclude = formValue('postId');
+    if (exclude) url.searchParams.set('exclude', exclude);
     try {
       const response = await fetch(url, { headers: { accept: 'application/json' } });
       if (!response.ok) {
@@ -194,6 +202,74 @@
 
   function choosePost(path: string) {
     applyLink(path);
+  }
+
+  function formValue(name: string): string {
+    const form = host?.closest('form');
+    if (!(form instanceof HTMLFormElement)) return '';
+    if (name === 'postId') return form.dataset.postId ?? '';
+    const field = form.querySelector(`[name="${name}"]`);
+    return field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement ? field.value : '';
+  }
+
+  async function loadSuggestions() {
+    const url = new URL(routes.adminPosts, location.origin);
+    url.searchParams.set('suggest', '1');
+    url.searchParams.set('title', formValue('title').slice(0, 120));
+    const category = formValue('categoryId');
+    if (category) url.searchParams.set('category', category);
+    const exclude = formValue('postId');
+    if (exclude) url.searchParams.set('exclude', exclude);
+    try {
+      const response = await fetch(url, { headers: { accept: 'application/json' } });
+      if (!response.ok || menu !== 'link') return;
+      const body = (await response.json()) as { suggestions?: unknown };
+      const rows = Array.isArray(body.suggestions) ? body.suggestions : [];
+      suggestions = rows.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') return [];
+        const record = entry as { title?: unknown; path?: unknown };
+        if (typeof record.title !== 'string' || typeof record.path !== 'string' || !record.path.startsWith('/kien-thuc/')) return [];
+        return [{ title: record.title, path: record.path }];
+      });
+    } catch {
+      suggestions = [];
+    }
+  }
+
+  function queueFieldCheck() {
+    window.clearTimeout(issueTimer);
+    issueTimer = window.setTimeout(() => void checkField(), 400);
+  }
+
+  async function checkField() {
+    const path = postPathFromHref(linkUrl);
+    if (!path || menu !== 'link') {
+      linkIssue = null;
+      return;
+    }
+    const url = new URL(routes.adminPosts, location.origin);
+    url.searchParams.set('check', '1');
+    url.searchParams.set('path', path);
+    const slug = formValue('slug').trim();
+    if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) url.searchParams.set('current', `/kien-thuc/${slug}`);
+    try {
+      const response = await fetch(url, { headers: { accept: 'application/json' } });
+      if (!response.ok || postPathFromHref(linkUrl) !== path) return;
+      const body = (await response.json()) as { issues?: unknown };
+      const issue = Array.isArray(body.issues) ? body.issues[0] : null;
+      if (!issue || typeof issue !== 'object') {
+        linkIssue = null;
+        return;
+      }
+      const record = issue as { path?: unknown; kind?: unknown; official?: unknown };
+      if (record.path !== path || (record.kind !== 'missing' && record.kind !== 'unpublished' && record.kind !== 'redirect' && record.kind !== 'self')) {
+        linkIssue = null;
+        return;
+      }
+      linkIssue = { path, kind: record.kind, official: typeof record.official === 'string' ? record.official : undefined };
+    } catch {
+      linkIssue = null;
+    }
   }
 
   function onLinkKey(event: KeyboardEvent) {
@@ -313,7 +389,7 @@
           <div class="editor-menu editor-link" role="dialog" aria-label="Liên kết">
             <label>
               <span class="sr-only">Địa chỉ liên kết</span>
-              <input class="field" type="text" placeholder="https:// hoặc /kien-thuc/..." bind:value={linkUrl} onkeydown={onLinkKey} />
+              <input class="field" type="text" placeholder="https:// hoặc /kien-thuc/..." bind:value={linkUrl} oninput={queueFieldCheck} onkeydown={onLinkKey} />
             </label>
             <label>
               <span class="editor-link-label">Tìm bài đã xuất bản</span>
@@ -332,6 +408,35 @@
               </ul>
             {:else if linkNote}
               <p class="editor-link-label">{linkNote}</p>
+            {/if}
+            {#if suggestions.length > 0}
+              <p class="editor-link-label">Gợi ý. Bấm để gắn, không tự chèn.</p>
+              <ul class="editor-link-list">
+                {#each suggestions as hit (hit.path)}
+                  <li>
+                    <button type="button" onclick={() => choosePost(hit.path)}>
+                      {hit.title}
+                      <span>{hit.path}</span>
+                    </button>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            {#if linkIssue}
+              <p class="editor-link-label">
+                {#if linkIssue.kind === 'redirect' && linkIssue.official}
+                  Đường dẫn cũ. URL chính là {linkIssue.official}.
+                {:else if linkIssue.kind === 'unpublished'}
+                  Bài này chưa xuất bản hoặc đã gỡ.
+                {:else if linkIssue.kind === 'self'}
+                  Đường dẫn này là chính bài đang viết.
+                {:else}
+                  Không có bài tương ứng.
+                {/if}
+              </p>
+              {#if linkIssue.kind === 'redirect' && linkIssue.official}
+                <button class="btn" type="button" onclick={() => applyLink(linkIssue?.official ?? '')}>Gắn URL chính thức</button>
+              {/if}
             {/if}
             {#if linkError}<p class="error-text">{linkError}</p>{/if}
             <div class="flex gap-2">

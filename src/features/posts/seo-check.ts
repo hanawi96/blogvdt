@@ -1,4 +1,5 @@
-import { isInternalHref } from './links';
+import { plainMetaText, type MetaCorpus } from '../../lib/seo/meta';
+import { isInternalHref, type PostLinkIssue } from './links';
 import { SLUG_PATTERN } from './slug';
 
 export const SEO_TITLE_RANGE = { min: 30, max: 60 };
@@ -28,6 +29,12 @@ export type SeoCheckInput = {
   publishedAt: number | null;
   siteName: string;
   host: string;
+  corpus?: MetaCorpus;
+  linkIssues?: PostLinkIssue[];
+  linkTruncated?: boolean;
+  checkingLinks?: boolean;
+  inbound?: boolean | null;
+  published?: boolean;
 };
 
 type JsonNode = {
@@ -57,10 +64,12 @@ export function checkPostSeo(input: SeoCheckInput): SeoCheck[] {
     contentItem(content),
     seoTitleItem(title, seoTitle, headline),
     descriptionItem(description),
+    duplicateItem(headline, description, input.corpus),
     coverItem(input.hasCover),
     imageItem(content, input.hasCover, input.coverAlt.trim()),
     headingItem(content),
-    linkItem(content),
+    linkItem(content, input),
+    inboundItem(input),
     authorItem(input.siteName.trim(), input.publishedAt),
   ];
 }
@@ -93,6 +102,31 @@ function seoTitleItem(title: string, seoTitle: string, headline: string): SeoChe
   return item('seo-title', 'SEO title', 'Độ dài nằm trong mức tham khảo.', 'pass', '');
 }
 
+export function metaDuplicateNote(headline: string, description: string, corpus?: MetaCorpus): string {
+  const title = plainMetaText(headline);
+  const desc = plainMetaText(description);
+  if (title && desc && title.toLocaleLowerCase('vi') === desc.toLocaleLowerCase('vi')) return 'Tiêu đề và mô tả đang giống nhau.';
+  const titleKey = title.toLocaleLowerCase('vi');
+  const descKey = desc.toLocaleLowerCase('vi');
+  if (titleKey && (corpus?.titles ?? []).some((item) => plainMetaText(item).toLocaleLowerCase('vi') === titleKey)) {
+    return 'Tiêu đề này đã được dùng ở một trang khác.';
+  }
+  if (descKey && (corpus?.descriptions ?? []).some((item) => plainMetaText(item).toLocaleLowerCase('vi') === descKey)) {
+    return 'Mô tả này đã được dùng ở một trang khác.';
+  }
+  return '';
+}
+
+function duplicateItem(headline: string, description: string, corpus?: MetaCorpus): SeoCheck {
+  if (!plainMetaText(headline) && !plainMetaText(description)) {
+    return item('duplicate', 'Trùng lặp', 'Chưa có tiêu đề hoặc mô tả để so sánh.', 'na', '');
+  }
+  const note = metaDuplicateNote(headline, description, corpus);
+  if (!note) return item('duplicate', 'Trùng lặp', 'Không trùng tiêu đề hoặc mô tả đã có.', 'pass', '');
+  const target = note.startsWith('Mô tả') || note.startsWith('Tiêu đề và mô tả') ? '[name="metaDescription"]' : '[name="seoTitle"]';
+  return item('duplicate', 'Trùng lặp', note, 'improve', target);
+}
+
 function descriptionItem(description: string): SeoCheck {
   if (!description) {
     return item('description', 'Mô tả', 'Thêm mô tả SEO hoặc tóm tắt.', 'improve', '[name="metaDescription"]');
@@ -113,8 +147,9 @@ function imageItem(content: ContentFacts | null, hasCover: boolean, coverAlt: st
   if (!content || (content.images.length === 0 && !hasCover)) {
     return item('alt', 'Mô tả ảnh', 'Chưa có ảnh để kiểm tra.', 'na', '');
   }
-  if (missingContentAlt) return item('alt', 'Mô tả ảnh', 'Có ảnh trong bài chưa có mô tả.', 'improve', '.ProseMirror');
-  if (missingCoverAlt) return item('alt', 'Mô tả ảnh', 'Ảnh đại diện chưa có mô tả.', 'improve', '[data-cover-alt]');
+  if (missingContentAlt || missingCoverAlt) {
+    return item('alt', 'Mô tả ảnh', 'Mô tả trống được giữ cho ảnh trang trí. Ảnh chứa thông tin nên mô tả đúng nội dung nhìn thấy.', 'pass', '');
+  }
   return item('alt', 'Mô tả ảnh', 'Ảnh đã có mô tả.', 'pass', '');
 }
 
@@ -127,14 +162,36 @@ function headingItem(content: ContentFacts | null): SeoCheck {
   return item('headings', 'Tiêu đề trong bài', 'Cấu trúc tiêu đề ổn.', 'pass', '');
 }
 
-function linkItem(content: ContentFacts | null): SeoCheck {
+function linkItem(content: ContentFacts | null, input: SeoCheckInput): SeoCheck {
   if (!content || content.text.trim().length === 0) {
     return item('links', 'Liên kết nội bộ', 'Chưa có nội dung để kiểm tra.', 'na', '');
   }
-  if (content.internal === 0) {
-    return item('links', 'Liên kết nội bộ', 'Nên thêm liên kết tới một bài hoặc sản phẩm trên website.', 'improve', '.ProseMirror');
+  const issues = input.linkIssues ?? [];
+  if (issues.length > 0) {
+    const notes = issues.slice(0, 3).map(linkNote);
+    if (issues.length > 3) notes.push('Còn liên kết khác cần xem.');
+    if (input.linkTruncated) notes.push('Chỉ kiểm tra 20 liên kết đầu.');
+    return item('links', 'Liên kết nội bộ', notes.join(' '), 'improve', '.ProseMirror');
   }
-  return item('links', 'Liên kết nội bộ', 'Đã có liên kết nội bộ.', 'pass', '');
+  if (input.checkingLinks) return item('links', 'Liên kết nội bộ', 'Đang kiểm tra liên kết.', 'na', '');
+  if (content.internal === 0) {
+    return item('links', 'Liên kết nội bộ', 'Chưa có liên kết nội bộ. Chỉ thêm khi bài khác thật sự liên quan.', 'pass', '');
+  }
+  return item('links', 'Liên kết nội bộ', 'Không có liên kết bài viết nào bị hỏng.', 'pass', '');
+}
+
+function inboundItem(input: SeoCheckInput): SeoCheck {
+  if (!input.published) return item('inbound', 'Bài trỏ tới', 'Chỉ kiểm tra khi bài đã xuất bản.', 'na', '');
+  if (input.inbound === null || input.inbound === undefined) return item('inbound', 'Bài trỏ tới', 'Đang kiểm tra bài khác có trỏ tới không.', 'na', '');
+  if (input.inbound) return item('inbound', 'Bài trỏ tới', 'Đã có bài khác trỏ tới bài này.', 'pass', '');
+  return item('inbound', 'Bài trỏ tới', 'Chưa có bài khác trỏ tới. Không cần thêm liên kết nếu chưa có bài phù hợp.', 'pass', '');
+}
+
+function linkNote(issue: PostLinkIssue): string {
+  if (issue.kind === 'redirect' && issue.official) return `${issue.path} là đường dẫn cũ. URL chính là ${issue.official}.`;
+  if (issue.kind === 'unpublished') return `${issue.path} không còn là bài đã xuất bản.`;
+  if (issue.kind === 'self') return `${issue.path} đang trỏ về chính bài này.`;
+  return `${issue.path} không có bài tương ứng.`;
 }
 
 function authorItem(siteName: string, publishedAt: number | null): SeoCheck {

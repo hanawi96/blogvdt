@@ -5,10 +5,12 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 import { activityActor } from '../../features/activity/log';
 import { mutationError } from '../../features/auth/session';
 import { listMedia } from '../../features/media/media';
-import { lengthNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
+import { lengthNote, metaDuplicateNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
+import { listMetaCorpus } from '../../features/posts/posts';
 import { getSettings, parseSettingsForm, saveSettings, SETTING_KEYS, type SiteSettingValues } from '../../features/settings/settings';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
+import { mergeMetaCorpus, siteListCorpus } from '../../lib/seo/meta';
 import { routes } from '../../lib/routes';
 import type { FieldErrors } from '../../lib/validation/errors';
 
@@ -64,6 +66,8 @@ const activeTab: SettingsTab = errorTab || (isTab(requestedTab) ? requestedTab :
 const logo = media.find((item) => String(item.id) === values.logo_media_id);
 const previewTitle = values.default_seo_title || values.site_name || 'Tên website';
 const previewDescription = values.default_seo_description || values.site_description || 'Thêm mô tả để xem trước đoạn này.';
+const corpus = mergeMetaCorpus(await listMetaCorpus(db, null), siteListCorpus());
+const duplicateNote = metaDuplicateNote(values.default_seo_title || values.site_name, values.default_seo_description || values.site_description, corpus);
 
 function valuesFrom(form: FormData, current: SiteSettingValues): SiteSettingValues {
   const next = { ...current };
@@ -159,6 +163,7 @@ function tabQuery(value: string | null): string {
         fallbackTitleName="site_name"
         fallbackDescriptionName="site_description"
         homeUrl
+        corpus={corpus}
       />
       <label class="mt-4 block">
         <span class="seo-label">
@@ -178,6 +183,7 @@ function tabQuery(value: string | null): string {
         <textarea class="field min-h-24" name="default_seo_description" maxlength="300">{values.default_seo_description}</textarea>
         <span class="seo-hint">Để trống thì dùng mô tả website. Nên khoảng 70–160 ký tự.</span>
         <span class="seo-hint" data-seo-desc-note>{lengthNote(values.default_seo_description.length, SEO_DESC_RANGE.min, SEO_DESC_RANGE.max)}</span>
+        <span class="seo-hint" data-seo-duplicate-note>{duplicateNote}</span>
         {errors.default_seo_description && <span class="error-text">{errors.default_seo_description}</span>}
       </label>
       <fieldset class="mt-4">

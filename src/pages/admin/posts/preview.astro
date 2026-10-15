@@ -1,8 +1,9 @@
 ---
 // Xem trước bản nháp: không ghi database, không index.
 import type { JSONContent } from '@tiptap/core';
+import { canAccessPath } from '../../../features/auth/access';
 import { mutationError } from '../../../features/auth/session';
-import { getMediaFile, mediaDimensionsByUrl } from '../../../features/media/media';
+import { applyCoverMeasure, getMediaFile, layoutContentImages } from '../../../features/media/media';
 import { collectMediaSrcs, sanitizePostContent } from '../../../features/posts/content';
 import { firstFieldError, parsePostForm } from '../../../features/posts/form';
 import { collectHeadings, type HeadingItem } from '../../../features/posts/headings';
@@ -11,13 +12,19 @@ import { renderPostHtml } from '../../../features/posts/render';
 import { getPublicSite } from '../../../features/settings/settings';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import PublicLayout from '../../../layouts/PublicLayout.astro';
-import { getDbBinding } from '../../../lib/cloudflare/env';
+import { getDbBinding, optionalMediaBucket } from '../../../lib/cloudflare/env';
 import { createDb } from '../../../lib/db/client';
 import { formatDateTime } from '../../../lib/datetime';
 import { routes } from '../../../lib/routes';
 
 const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
+if (!canAccessPath(session.role, Astro.url.pathname)) {
+  return new Response('Không có quyền xem trước bài này.', {
+    status: 403,
+    headers: { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow' },
+  });
+}
 const savedId = Number(Astro.url.searchParams.get('id') ?? '');
 const savedPreview = Astro.request.method === 'GET' && Number.isInteger(savedId) && savedId > 0;
 if (Astro.request.method !== 'POST' && !savedPreview) {
@@ -80,16 +87,20 @@ Astro.response.headers.set('Cache-Control', 'no-store');
 Astro.response.headers.set('X-Robots-Tag', 'noindex');
 
 async function articleFrom(title: string, description: string, contentJson: string, coverMediaId: number | null) {
+  const bucket = optionalMediaBucket();
   const sanitized = sanitizePostContent(contentJson);
   const content = sanitized.ok ? (JSON.parse(sanitized.json) as JSONContent) : null;
-  const cover = coverMediaId ? await getMediaFile(db, coverMediaId) : null;
-  const imageSizes = content ? await mediaDimensionsByUrl(db, collectMediaSrcs(content)) : new Map();
+  const stored = coverMediaId ? await getMediaFile(db, coverMediaId) : null;
+  const [measured] = stored
+    ? await applyCoverMeasure(bucket, [{ coverUrl: stored.url, coverWidth: stored.width, coverHeight: stored.height }])
+    : [null];
+  const images = content ? await layoutContentImages(db, bucket, collectMediaSrcs(content)) : { sizes: new Map(), missing: new Set<string>() };
   return {
     title,
     description,
-    html: content ? renderPostHtml(content, imageSizes) : '',
+    html: content ? renderPostHtml(content, images.sizes, { skip: images.missing, eager: measured?.coverUrl ? 0 : 1 }) : '',
     headings: content ? collectHeadings(content) : [],
-    cover: cover ? { url: cover.url, alt: cover.alt || title, width: cover.width, height: cover.height } : null,
+    cover: measured?.coverUrl ? { url: measured.coverUrl, alt: stored?.alt ?? '', width: measured.coverWidth, height: measured.coverHeight } : null,
   };
 }
 
@@ -99,10 +110,10 @@ const site = article ? await getPublicSite(db) : null;
 {
   article ? (
     <PublicLayout
-      title={`Xem trước: ${article.title}`}
-      description={article.description}
-      robots="noindex, nofollow"
-      siteName={site?.siteName ?? article.title}
+      title="Xem trước"
+      description="Bản xem trước. Trang này không được lập chỉ mục."
+      robots="noindex,nofollow"
+      siteName={site?.siteName || 'Xem trước'}
       faviconUrl={site?.faviconUrl || '/favicon.svg'}
       chrome={site}
     >
@@ -135,6 +146,7 @@ const site = article ? await getPublicSite(db) : null;
               alt={article.cover.alt}
               width={article.cover.width ?? undefined}
               height={article.cover.height ?? undefined}
+              fetchpriority="high"
             />
           )
         }

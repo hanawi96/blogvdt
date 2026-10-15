@@ -4,11 +4,14 @@ export const prerender = true;
 import NotFound from '../components/public/NotFound.astro';
 import { staticChrome } from '../features/content/policies';
 import PublicLayout from '../layouts/PublicLayout.astro';
+import { notFoundMeta } from '../lib/seo/meta';
+
+const pageMeta = notFoundMeta();
 ---
 
 <PublicLayout
-  title="Không tìm thấy trang"
-  description="Đường dẫn này không có nội dung công khai."
+  title={pageMeta.title}
+  description={pageMeta.description}
   robots="noindex,nofollow"
   siteName={staticChrome.siteName}
   chrome={staticChrome}

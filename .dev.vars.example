@@ -3,3 +3,5 @@
 ENVIRONMENT=development
 TURSO_DATABASE_URL=
 TURSO_AUTH_TOKEN=
+# Domain production cho canonical, sitemap và robots. Để trống khi chạy local.
+SITE_URL=

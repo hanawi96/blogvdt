@@ -7,12 +7,14 @@ describe('quyền CMS', () => {
     expect(canAccessPath('editor', '/admin')).toBe(true);
     expect(canAccessPath('editor', '/admin/posts')).toBe(true);
     expect(canAccessPath('editor', '/admin/posts/4')).toBe(true);
+    expect(canAccessPath('editor', '/admin/posts/preview')).toBe(true);
     expect(canAccessPath('editor', '/admin/categories')).toBe(true);
     expect(canAccessPath('editor', '/admin/media/3/delete')).toBe(true);
     expect(canAccessPath('editor', '/admin/account')).toBe(true);
     expect(canAccessPath('editor', '/admin/users')).toBe(false);
     expect(canAccessPath('editor', '/admin/activity-logs')).toBe(false);
     expect(canAccessPath('editor', '/admin/settings')).toBe(false);
+    expect(canAccessPath('editor', '/admin/seo')).toBe(false);
     expect(canAccessPath('editor', '/admin/products')).toBe(false);
     expect(canAccessPath('editor', '/admin/orders/14')).toBe(false);
   });
@@ -20,6 +22,7 @@ describe('quyền CMS', () => {
   it('quản trị vào được trang người dùng và cài đặt', () => {
     expect(canAccessPath('admin', '/admin/users/2')).toBe(true);
     expect(canAccessPath('admin', '/admin/settings')).toBe(true);
+    expect(canAccessPath('admin', '/admin/seo')).toBe(true);
     expect(canAccessPath('admin', '/admin/activity-logs')).toBe(true);
   });
 

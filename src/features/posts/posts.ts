@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, like } from 'drizzle-orm';
+import { and, asc, count, desc, eq, like, ne, or } from 'drizzle-orm';
 import {
   activityWrite,
   autosaveLogWrite,
@@ -10,11 +10,12 @@ import {
   type ActivityActor,
 } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
-import { slugRedirectQueries } from '../../lib/db/redirects';
+import { findRedirect, slugRedirectQueries } from '../../lib/db/redirects';
 import { categories, posts } from '../../lib/db/schema';
+import { collectMetaCorpus, type MetaCorpus } from '../../lib/seo/meta';
 import { routes } from '../../lib/routes';
 import { REVISION_CONFLICT, staleRevision } from './form';
-import { shouldStorePostRedirect } from './redirects';
+import { redirectOccupiesSlug, shouldStorePostRedirect } from './redirects';
 import { slugify } from './slug';
 import type { PostStatus } from './status';
 
@@ -30,6 +31,19 @@ export function statusTotals(rows: { status: string; value: number }[]) {
     if (row.status === 'published') published = row.value;
   }
   return { all: draft + published, draft, published };
+}
+
+export async function listMetaCorpus(db: AppDb, excludeId: number | null): Promise<MetaCorpus> {
+  const rows = await db
+    .select({
+      id: posts.id,
+      title: posts.title,
+      seoTitle: posts.seoTitle,
+      excerpt: posts.excerpt,
+      metaDescription: posts.metaDescription,
+    })
+    .from(posts);
+  return collectMetaCorpus(rows.filter((row) => excludeId === null || row.id !== excludeId));
 }
 
 export function copyTitle(title: string): string {
@@ -98,13 +112,19 @@ export async function listPosts(
   };
 }
 
-export async function searchPublishedPosts(db: AppDb, query: string) {
+export async function searchPublishedPosts(db: AppDb, query: string, excludeId: number | null = null) {
   const term = query.replace(/[%_]/g, '').trim().slice(0, 80);
   if (term.length < 2) return [];
   const rows = await db
     .select({ title: posts.title, slug: posts.slug })
     .from(posts)
-    .where(and(eq(posts.status, 'published'), like(posts.title, `%${term}%`)))
+    .where(
+      and(
+        eq(posts.status, 'published'),
+        excludeId ? ne(posts.id, excludeId) : undefined,
+        or(like(posts.title, `%${term}%`), like(posts.slug, `%${term}%`)),
+      ),
+    )
     .orderBy(desc(posts.publishedAt), desc(posts.id))
     .limit(8);
   return rows.map((row) => ({ title: row.title, path: routes.knowledge(row.slug) }));
@@ -125,7 +145,7 @@ export async function createPost(
   now = Date.now(),
   actor?: ActivityActor,
 ): Promise<{ ok: true; id: number; updatedAt: number } | { ok: false; error: string }> {
-  const slugError = await slugAvailable(db, input.slug, null);
+  const slugError = await slugAvailable(db, input.slug, null, null);
   if (slugError) return { ok: false, error: slugError };
   const action = input.status === 'published' ? 'post.publish' : 'post.create';
   await commitWrites(db, [
@@ -168,7 +188,7 @@ export async function updatePost(
   const action = postLogAction(current.status, input.status, postChanged(current, input));
   if (!action) return { ok: true, updatedAt: current.updatedAt };
   if (staleRevision(current.updatedAt, expectedUpdatedAt)) return { ok: false, error: REVISION_CONFLICT, conflict: true };
-  const slugError = await slugAvailable(db, input.slug, id);
+  const slugError = await slugAvailable(db, input.slug, id, current.slug);
   if (slugError) return { ok: false, error: slugError };
   const values = postValues(input, now, current.publishedAt);
   const redirect = shouldStorePostRedirect(current, input.slug)
@@ -219,7 +239,7 @@ export async function saveDraftPost(
   const draft = { ...input, status: 'draft' as const };
   if (!postChanged(current, draft)) return { ok: true, skipped: false, updatedAt: current.updatedAt };
   if (staleRevision(current.updatedAt, expectedUpdatedAt)) return { ok: false, error: REVISION_CONFLICT, conflict: true };
-  const slugError = await slugAvailable(db, input.slug, id);
+  const slugError = await slugAvailable(db, input.slug, id, current.slug);
   if (slugError) return { ok: false, error: slugError };
   const values = postValues(draft, now, current.publishedAt);
   const redirect = shouldStorePostRedirect(current, input.slug)
@@ -332,8 +352,17 @@ function postValues(input: PostInput, now: number, previousPublishedAt: number |
   };
 }
 
-async function slugAvailable(db: AppDb, slug: string, currentId: number | null): Promise<string | null> {
-  const rows = await db.select({ id: posts.id }).from(posts).where(eq(posts.slug, slug)).limit(1);
+async function slugAvailable(db: AppDb, slug: string, currentId: number | null, currentSlug: string | null = null): Promise<string | null> {
+  const rows = await db.select({ id: posts.id, slug: posts.slug }).from(posts).where(eq(posts.slug, slug)).limit(1);
   if (rows[0] && rows[0].id !== currentId) return 'Slug đã được dùng.';
+  let ownSlug = currentSlug;
+  if (ownSlug === null && rows[0]?.id === currentId) ownSlug = rows[0].slug;
+  if (ownSlug === null && currentId !== null) {
+    const own = await db.select({ slug: posts.slug }).from(posts).where(eq(posts.id, currentId)).limit(1);
+    ownSlug = own[0]?.slug ?? null;
+  }
+  if (ownSlug === slug) return null;
+  const occupied = await findRedirect(db, routes.knowledge(slug));
+  if (redirectOccupiesSlug(ownSlug ? routes.knowledge(ownSlug) : null, occupied)) return 'Slug đã được dùng cho một đường dẫn cũ.';
   return null;
 }

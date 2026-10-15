@@ -6,22 +6,24 @@ import { routes } from '../../lib/routes';
 interface Props {
   post: PublicPostCard;
   level?: 'h2' | 'h3';
+  eager?: boolean;
 }
 
-const { post, level = 'h2' } = Astro.props;
+const { post, level = 'h2', eager = false } = Astro.props;
 const Heading = level;
 ---
 
 <article class="overflow-hidden rounded-lg border border-line bg-surface">
   {
     post.coverUrl && (
-      <a href={routes.knowledge(post.slug)}>
+      <a href={routes.knowledge(post.slug)} aria-hidden={post.coverAlt ? undefined : 'true'} tabindex={post.coverAlt ? undefined : -1}>
         <img
           src={post.coverUrl}
           alt={post.coverAlt}
           width={post.coverWidth ?? undefined}
           height={post.coverHeight ?? undefined}
-          loading="lazy"
+          loading={eager ? undefined : 'lazy'}
+          decoding={eager ? undefined : 'async'}
           class="h-44 w-full object-cover"
         />
       </a>

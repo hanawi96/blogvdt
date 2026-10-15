@@ -19,6 +19,7 @@ const items = [
         [routes.adminProducts, 'Sản phẩm'],
         [routes.adminOrders, 'Đơn hàng'],
         [routes.adminSettings, 'Cài đặt'],
+        [routes.adminSeo, 'Kiểm tra SEO'],
         [routes.adminUsers, 'Người dùng'],
         [routes.adminActivity, 'Nhật ký'],
       ]
@@ -36,7 +37,7 @@ function current(href: string): boolean {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width" />
-    <meta name="robots" content="noindex" />
+    <meta name="robots" content="noindex,nofollow" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>{title}</title>
   </head>

@@ -214,3 +214,60 @@ export const activityLogs = sqliteTable(
     index('activity_logs_action_idx').on(table.action, table.createdAt),
   ],
 );
+
+// Một lần kiểm tra SEO. Trang đọc bản đã lưu, không quét lại khi mở trang.
+export const seoHealthRuns = sqliteTable(
+  'seo_health_runs',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    startedAt: integer('started_at').notNull(),
+    finishedAt: integer('finished_at'),
+    phase: text('phase').notNull().default('posts'),
+    cursor: integer('cursor').notNull().default(0),
+    linksTruncated: integer('links_truncated').notNull().default(0),
+  },
+  (table) => [check('seo_health_runs_phase_check', sql`${table.phase} in ('posts', 'links', 'inbound', 'done')`)],
+);
+
+export const seoHealthPosts = sqliteTable(
+  'seo_health_posts',
+  {
+    runId: integer('run_id')
+      .notNull()
+      .references(() => seoHealthRuns.id, { onDelete: 'cascade' }),
+    postId: integer('post_id')
+      .notNull()
+      .references(() => posts.id, { onDelete: 'cascade' }),
+  },
+  (table) => [primaryKey({ columns: [table.runId, table.postId] })],
+);
+
+export const seoHealthLinks = sqliteTable(
+  'seo_health_links',
+  {
+    runId: integer('run_id')
+      .notNull()
+      .references(() => seoHealthRuns.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.runId, table.path] })],
+);
+
+export const seoHealthIssues = sqliteTable(
+  'seo_health_issues',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    runId: integer('run_id')
+      .notNull()
+      .references(() => seoHealthRuns.id, { onDelete: 'cascade' }),
+    postId: integer('post_id').references(() => posts.id, { onDelete: 'cascade' }),
+    postTitle: text('post_title').notNull().default(''),
+    severity: text('severity').notNull(),
+    code: text('code').notNull(),
+    detail: text('detail').notNull(),
+  },
+  (table) => [
+    index('seo_health_issues_filter_idx').on(table.runId, table.severity, table.code, table.postId),
+    check('seo_health_issues_severity_check', sql`${table.severity} in ('error', 'warning')`),
+  ],
+);

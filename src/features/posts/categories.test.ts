@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { categoryDeleteWarning, categoryPageMeta, categoryRedirect } from './categories';
+import { categoryDeleteWarning, categoryRedirect } from './categories';
 
 describe('danh mục', () => {
   it('chỉ tạo redirect khi slug đổi', () => {
@@ -16,20 +16,4 @@ describe('danh mục', () => {
     expect(categoryDeleteWarning(2)).toContain('giữ lại');
   });
 
-  it('SEO trống thì dùng tên và mô tả danh mục', () => {
-    expect(
-      categoryPageMeta(
-        { name: 'Cách chọn vòng', description: 'Nhìn chất tơ.', seoTitle: '', metaDescription: '  ' },
-        'Vòng dâu',
-        'Mặc định',
-      ),
-    ).toEqual({ title: 'Cách chọn vòng | Vòng dâu', description: 'Nhìn chất tơ.' });
-    expect(
-      categoryPageMeta(
-        { name: 'Cách chọn vòng', description: null, seoTitle: 'Chọn vòng cho bé', metaDescription: 'Mô tả tìm kiếm.' },
-        'Vòng dâu',
-        'Mặc định',
-      ),
-    ).toEqual({ title: 'Chọn vòng cho bé | Vòng dâu', description: 'Mô tả tìm kiếm.' });
-  });
 });

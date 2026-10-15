@@ -8,9 +8,12 @@ import { collectHeadings } from './headings';
 export function renderPostHtml(
   content: JSONContent,
   imageSizes: ReadonlyMap<string, { width: number; height: number }> = new Map(),
+  options: { skip?: ReadonlySet<string>; eager?: number } = {},
 ): string {
   const ids = collectHeadings(content).map((item) => item.id);
   let headingIndex = 0;
+  let imageIndex = 0;
+  const eager = options.eager ?? 0;
   return renderToHTMLString({
     content,
     extensions: postExtensions(),
@@ -24,10 +27,13 @@ export function renderPostHtml(
         },
         image: ({ node }) => {
           const src = typeof node.attrs.src === 'string' ? node.attrs.src : '';
-          if (!isMediaSrc(src)) return '';
+          if (!isMediaSrc(src) || options.skip?.has(src)) return '';
           const alt = typeof node.attrs.alt === 'string' ? node.attrs.alt : '';
           const caption = typeof node.attrs.caption === 'string' ? node.attrs.caption : '';
-          const img = `<img src="${escapeHTMLAttribute(src)}" alt="${escapeHTMLAttribute(alt)}"${dimensionAttrs(imageSizes.get(src))} loading="lazy" />`;
+          const lead = imageIndex < eager;
+          imageIndex += 1;
+          const loading = lead ? ' fetchpriority="high"' : ' loading="lazy" decoding="async"';
+          const img = `<img src="${escapeHTMLAttribute(src)}" alt="${escapeHTMLAttribute(alt)}"${dimensionAttrs(imageSizes.get(src))}${loading} />`;
           if (!caption) return img;
           return `<figure>${img}<figcaption>${escapeHTMLAttribute(caption)}</figcaption></figure>`;
         },

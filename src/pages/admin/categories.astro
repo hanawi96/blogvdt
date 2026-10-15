@@ -1,11 +1,16 @@
 ---
+import SearchPreview from '../../components/admin/SearchPreview.astro';
 import SlugField from '../../components/admin/SlugField.svelte';
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { activityActor } from '../../features/activity/log';
 import { mutationError } from '../../features/auth/session';
 import { categoryDeleteWarning, deleteCategory, listCategories, saveCategory } from '../../features/posts/categories';
+import { lengthNote, metaDuplicateNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
+import { listMetaCorpus } from '../../features/posts/posts';
+import { getPublicSite } from '../../features/settings/settings';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
+import { collectMetaCorpus, mergeMetaCorpus, siteListCorpus } from '../../lib/seo/meta';
 import { routes } from '../../lib/routes';
 
 const session = Astro.locals.adminSession;
@@ -63,6 +68,16 @@ if (Astro.request.method !== 'POST' && editing) {
   seoTitle = editing.seoTitle ?? '';
   metaDescription = editing.metaDescription ?? '';
 }
+const site = await getPublicSite(db);
+const excludeCategory = editingId ? Number(editingId) : null;
+const corpus = mergeMetaCorpus(
+  collectMetaCorpus(categories.filter((category) => category.id !== excludeCategory)),
+  await listMetaCorpus(db, null),
+  siteListCorpus(),
+);
+const titleLengthNote = lengthNote(seoTitle.length, SEO_TITLE_RANGE.min, SEO_TITLE_RANGE.max);
+const descriptionLengthNote = lengthNote(metaDescription.length, SEO_DESC_RANGE.min, SEO_DESC_RANGE.max);
+const duplicateNote = metaDuplicateNote(seoTitle || name, metaDescription || description, corpus);
 const slugError = formError.startsWith('Slug') ? formError : '';
 const nameError = formError.startsWith('Nhập tên') || formError.startsWith('Tên') ? formError : '';
 const bannerError = slugError || nameError ? '' : formError;
@@ -83,15 +98,37 @@ const bannerError = slugError || nameError ? '' : formError;
         <span class="mb-1 block font-semibold">Mô tả</span>
         <textarea class="field min-h-24" name="description" maxlength="300">{description}</textarea>
       </label>
+      <div class="mt-4">
+        <SearchPreview
+          site={{ name: site?.siteName || 'Website', host: Astro.url.host, markUrl: site?.faviconUrl || site?.logoUrl || '' }}
+          title={seoTitle || name || 'Tên danh mục'}
+          description={metaDescription || description || 'Thêm mô tả SEO hoặc mô tả danh mục để xem trước đoạn này.'}
+          slug={slug || 'danh-muc'}
+          emptyDescription={!metaDescription && !description}
+          fallbackTitleName="name"
+          fallbackDescriptionName="description"
+          pathPrefix="kien-thuc/danh-muc"
+          corpus={corpus}
+        />
+      </div>
       <label class="mt-4 block">
-        <span class="mb-1 block font-semibold">SEO Title</span>
+        <span class="seo-label">
+          <span>SEO Title</span>
+          <span data-seo-title-count>{seoTitle.length} ký tự</span>
+        </span>
         <input class="field" name="seoTitle" maxlength="180" value={seoTitle} />
         <span class="seo-hint">Để trống thì dùng tên danh mục.</span>
+        <span class="seo-hint" data-seo-title-note>{titleLengthNote}</span>
       </label>
       <label class="mt-4 block">
-        <span class="mb-1 block font-semibold">Meta Description</span>
+        <span class="seo-label">
+          <span>Meta Description</span>
+          <span data-seo-desc-count>{metaDescription.length} ký tự</span>
+        </span>
         <textarea class="field min-h-24" name="metaDescription" maxlength="300">{metaDescription}</textarea>
-        <span class="seo-hint">Để trống thì dùng mô tả danh mục.</span>
+        <span class="seo-hint">Để trống thì dùng mô tả danh mục. Nên khoảng 70–160 ký tự.</span>
+        <span class="seo-hint" data-seo-desc-note>{descriptionLengthNote}</span>
+        <span class="seo-hint" data-seo-duplicate-note>{duplicateNote}</span>
       </label>
       <div class="category-actions">
         <button class="btn btn-primary" type="submit">{editingId ? 'Cập nhật' : 'Thêm danh mục'}</button>

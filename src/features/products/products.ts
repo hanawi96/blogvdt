@@ -114,7 +114,7 @@ export async function listProducts(
       isFeatured: canFeatureProduct(row.status, row.isFeatured),
       updatedAt: row.updatedAt,
       coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
-      coverAlt: row.coverAlt || row.name,
+      coverAlt: row.coverAlt ?? '',
     })),
     total,
     page,

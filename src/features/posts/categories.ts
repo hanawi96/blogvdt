@@ -128,15 +128,3 @@ export function categoryDeleteWarning(postCount: number): string {
   const label = postCount === 1 ? '1 bài viết' : `${postCount} bài viết`;
   return `Danh mục này có ${label}. Bài viết được giữ lại và chỉ bỏ khỏi danh mục. Xóa danh mục?`;
 }
-
-export function categoryPageMeta(
-  category: { name: string; description: string | null; seoTitle: string | null; metaDescription: string | null },
-  siteName: string,
-  fallbackDescription: string,
-): { title: string; description: string } {
-  const headline = category.seoTitle?.trim() || category.name;
-  return {
-    title: `${headline} | ${siteName}`,
-    description: category.metaDescription?.trim() || category.description?.trim() || fallbackDescription,
-  };
-}

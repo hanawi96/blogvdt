@@ -12,6 +12,7 @@ export const routes = {
   adminOrders: '/admin/orders',
   adminMedia: '/admin/media',
   adminSettings: '/admin/settings',
+  adminSeo: '/admin/seo',
   adminUsers: '/admin/users',
   adminActivity: '/admin/activity-logs',
   adminUserNew: '/admin/users/new',

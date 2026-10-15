@@ -6,6 +6,7 @@ declare global {
   namespace App {
     interface Locals {
       adminSession: AdminSession | null;
+      allowIndex?: boolean;
     }
   }
 }
