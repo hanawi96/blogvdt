@@ -1,9 +1,9 @@
-import { asc, desc, eq, like, or } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, like, or } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
 import { activityWrite, commitWrites, type ActivityActor } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
 import { dropPathQueries, goneQueries, listRedirectEdges, redirectHopQueries } from '../../lib/db/redirects';
-import { posts, redirects } from '../../lib/db/schema';
+import { categories, posts, redirects } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { publicPathExists } from './lookup';
 import {
@@ -48,16 +48,63 @@ export async function getManagedRedirect(db: AppDb, id: number) {
   return rows[0] ?? null;
 }
 
-export async function listRedirectPostTargets(db: AppDb, excludeSlug?: string) {
-  const rows = await db
-    .select({ title: posts.title, slug: posts.slug })
+const PICKER_LIMIT = 30;
+
+function publishedTargets(db: AppDb) {
+  return db
+    .select({ title: posts.title, slug: posts.slug, category: categories.name })
     .from(posts)
-    .where(eq(posts.status, 'published'))
-    .orderBy(asc(posts.title), asc(posts.id))
-    .limit(200);
+    .leftJoin(categories, eq(posts.categoryId, categories.id));
+}
+
+function toTargets(rows: { title: string; slug: string; category: string | null }[], excludeSlug?: string) {
   return rows
     .filter((row) => row.slug !== excludeSlug)
-    .map((row) => ({ title: row.title, path: routes.knowledge(row.slug) }));
+    .map((row) => ({ title: row.title, path: routes.knowledge(row.slug), category: row.category ?? '' }));
+}
+
+export async function listRedirectPostTargets(db: AppDb, excludeSlug?: string) {
+  const rows = await publishedTargets(db)
+    .where(and(eq(posts.status, 'published'), isNull(posts.deletedAt)))
+    .orderBy(asc(posts.title), asc(posts.id))
+    .limit(200);
+  return toTargets(rows, excludeSlug);
+}
+
+export async function listPickerPosts(db: AppDb) {
+  const rows = await publishedTargets(db)
+    .where(and(eq(posts.status, 'published'), isNull(posts.deletedAt)))
+    .orderBy(desc(posts.publishedAt), desc(posts.id))
+    .limit(PICKER_LIMIT);
+  return toTargets(rows);
+}
+
+export async function listPickerCategories(db: AppDb) {
+  return db.select({ id: categories.id, name: categories.name }).from(categories).orderBy(asc(categories.name));
+}
+
+export async function publishedRedirectTarget(db: AppDb, path: string) {
+  const slug = path.startsWith('/kien-thuc/') ? path.slice('/kien-thuc/'.length) : '';
+  if (!slug || slug.includes('/')) return null;
+  const rows = await publishedTargets(db)
+    .where(and(eq(posts.status, 'published'), isNull(posts.deletedAt), eq(posts.slug, slug)))
+    .limit(1);
+  return toTargets(rows)[0] ?? null;
+}
+
+export async function searchPickerPosts(db: AppDb, query: string, categoryId: number | null) {
+  const term = query.replace(/[%_]/g, '').trim().slice(0, 80).replace(/^\/kien-thuc\//, '');
+  if (term.length < 2 && categoryId === null) return listPickerPosts(db);
+  const filters = [eq(posts.status, 'published'), isNull(posts.deletedAt)];
+  if (term.length >= 2 || (categoryId !== null && term.length >= 1)) {
+    const match = or(like(posts.title, `%${term}%`), like(posts.slug, `%${term}%`));
+    if (match) filters.push(match);
+  }
+  if (categoryId === 0) filters.push(isNull(posts.categoryId));
+  else if (categoryId !== null && categoryId > 0) filters.push(eq(posts.categoryId, categoryId));
+  const where = and(...filters);
+  const rows = await publishedTargets(db).where(where).orderBy(desc(posts.publishedAt), desc(posts.id)).limit(PICKER_LIMIT);
+  return toTargets(rows);
 }
 
 export async function saveManagedRedirect(

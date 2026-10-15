@@ -8,6 +8,7 @@ import { collectMetaCorpus, mergeMetaCorpus, siteListCorpus, type MetaCorpus } f
 import { routes } from '../../lib/routes';
 import { mediaKeyFromPublicUrl } from '../media/files';
 import { collectPostPaths } from '../posts/links';
+import { livePublished } from '../posts/visibility';
 import { inspectPostLinks } from '../posts/link-lookup';
 import { SLUG_PATTERN } from '../posts/slug';
 import {
@@ -143,12 +144,12 @@ export async function advanceHealthRun(
 
 export async function loadHealth(db: AppDb, filters: HealthFilters): Promise<HealthSnapshot> {
   const run = await latestRun(db);
-  const published = await countPosts(db, eq(posts.status, 'published'));
+  const published = await countPosts(db, livePublished());
   if (!run) {
     const uncheckedPosts = await db
       .select({ id: posts.id, title: posts.title })
       .from(posts)
-      .where(eq(posts.status, 'published'))
+      .where(livePublished())
       .orderBy(asc(posts.id))
       .limit(8);
     return emptySnapshot(published, uncheckedPosts);
@@ -156,7 +157,7 @@ export async function loadHealth(db: AppDb, filters: HealthFilters): Promise<Hea
 
   const visible = and(
     eq(seoHealthIssues.runId, run.id),
-    sql`(${seoHealthIssues.postId} is null or exists (select 1 from posts where posts.id = ${seoHealthIssues.postId} and posts.status = 'published'))`,
+    sql`(${seoHealthIssues.postId} is null or exists (select 1 from posts where posts.id = ${seoHealthIssues.postId} and posts.status = 'published' and posts.deleted_at is null))`,
   );
   const listWhere = and(
     visible,
@@ -167,9 +168,9 @@ export async function loadHealth(db: AppDb, filters: HealthFilters): Promise<Hea
   const [totals, totalRows, unchecked, stale, verified] = await Promise.all([
     db.select({ severity: seoHealthIssues.severity, value: count() }).from(seoHealthIssues).where(visible).groupBy(seoHealthIssues.severity),
     db.select({ value: count() }).from(seoHealthIssues).where(listWhere),
-    countPosts(db, and(eq(posts.status, 'published'), missingRun(run.id))),
-    countPosts(db, and(eq(posts.status, 'published'), gt(posts.updatedAt, run.startedAt), inThisRun(run.id))),
-    countPosts(db, and(eq(posts.status, 'published'), lte(posts.updatedAt, run.startedAt), inThisRun(run.id))),
+    countPosts(db, and(livePublished(), missingRun(run.id))),
+    countPosts(db, and(livePublished(), gt(posts.updatedAt, run.startedAt), inThisRun(run.id))),
+    countPosts(db, and(livePublished(), lte(posts.updatedAt, run.startedAt), inThisRun(run.id))),
   ]);
   const errors = totals.find((item) => item.severity === 'error')?.value ?? 0;
   const warnings = totals.find((item) => item.severity === 'warning')?.value ?? 0;
@@ -193,13 +194,13 @@ export async function loadHealth(db: AppDb, filters: HealthFilters): Promise<Hea
     db
       .select({ id: posts.id, title: posts.title })
       .from(posts)
-      .where(and(eq(posts.status, 'published'), missingRun(run.id)))
+      .where(and(livePublished(), missingRun(run.id)))
       .orderBy(asc(posts.id))
       .limit(8),
     db
       .select({ id: posts.id, title: posts.title })
       .from(posts)
-      .where(and(eq(posts.status, 'published'), gt(posts.updatedAt, run.startedAt), inThisRun(run.id)))
+      .where(and(livePublished(), gt(posts.updatedAt, run.startedAt), inThisRun(run.id)))
       .orderBy(asc(posts.id))
       .limit(8),
     db
@@ -267,7 +268,7 @@ async function scanPosts(
     })
     .from(posts)
     .leftJoin(media, eq(posts.coverMediaId, media.id))
-    .where(and(eq(posts.status, 'published'), gt(posts.id, run.cursor)))
+    .where(and(livePublished(), gt(posts.id, run.cursor)))
     .orderBy(asc(posts.id))
     .limit(HEALTH_BATCH);
   if (rows.length === 0) {
@@ -343,7 +344,7 @@ async function scanLinks(db: AppDb, run: HealthRun): Promise<HealthRun> {
   const rows = await db
     .select({ id: posts.id, slug: posts.slug, contentJson: posts.contentJson })
     .from(posts)
-    .where(and(eq(posts.status, 'published'), gt(posts.id, run.cursor)))
+    .where(and(livePublished(), gt(posts.id, run.cursor)))
     .orderBy(asc(posts.id))
     .limit(HEALTH_BATCH);
   if (rows.length === 0) {
@@ -372,7 +373,7 @@ async function scanInbound(db: AppDb, run: HealthRun, now: number): Promise<Heal
     .select({ id: posts.id, title: posts.title, slug: posts.slug })
     .from(seoHealthPosts)
     .innerJoin(posts, eq(posts.id, seoHealthPosts.postId))
-    .where(and(eq(seoHealthPosts.runId, run.id), eq(posts.status, 'published'), gt(posts.id, run.cursor)))
+    .where(and(eq(seoHealthPosts.runId, run.id), livePublished(), gt(posts.id, run.cursor)))
     .orderBy(asc(posts.id))
     .limit(INBOUND_BATCH);
   if (rows.length === 0) {

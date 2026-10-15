@@ -30,7 +30,7 @@ VALUES
 
 INSERT INTO posts (
   id, category_id, title, slug, excerpt, cover_media_id, content_json,
-  seo_title, meta_description, status, published_at, created_at, updated_at
+  seo_title, meta_description, status, published_at, author_id, created_at, updated_at
 )
 VALUES
   (
@@ -45,6 +45,7 @@ VALUES
     'Cách xem tơ, màu chỉ và kích thước của một vòng làm tay.',
     'published',
     1790812800000,
+    1,
     1790812800000,
     1790812800000
   ),
@@ -60,6 +61,7 @@ VALUES
     'Quy trình xe sợi, lên khuôn và buộc chỉ của vòng tơ tằm thủ công.',
     'published',
     1791417600000,
+    1,
     1790812800000,
     1791417600000
   ),
@@ -75,6 +77,7 @@ VALUES
     'Cỡ vòng, màu chỉ và thời gian nhận hàng khi đặt vòng tơ tằm.',
     'published',
     1791763200000,
+    1,
     1791417600000,
     1791763200000
   ),
@@ -90,6 +93,7 @@ VALUES
     NULL,
     'draft',
     NULL,
+    1,
     1791763200000,
     1791763200000
   );

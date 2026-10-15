@@ -4,10 +4,15 @@ import { copyTitle, statusTotals } from './posts';
 
 describe('danh sách bài viết', () => {
   it('đếm tất cả, nháp và bài đã xuất bản', () => {
-    expect(statusTotals([{ status: 'published', value: 3 }, { status: 'draft', value: 1 }])).toEqual({
+    expect(statusTotals([
+      { status: 'published', trashed: 0, value: 3 },
+      { status: 'draft', trashed: 0, value: 1 },
+      { status: 'published', trashed: 1, value: 2 },
+    ])).toEqual({
       all: 4,
       draft: 1,
       published: 3,
+      trash: 2,
     });
   });
 

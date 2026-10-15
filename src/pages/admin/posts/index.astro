@@ -1,6 +1,6 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { hasInboundPostLink, inspectPostLinks, suggestPosts } from '../../../features/posts/link-lookup';
+import { hasInboundPostLink, inspectPostLinks, listPostLinkCounts, suggestPosts } from '../../../features/posts/link-lookup';
 import { listPosts, searchPublishedPosts, slugIsTaken, type PostListSort } from '../../../features/posts/posts';
 import RetiredUrlDialog from '../../../components/admin/RetiredUrlDialog.astro';
 import { listRedirectPostTargets } from '../../../features/redirects/manage';
@@ -11,7 +11,9 @@ import { getDbBinding } from '../../../lib/cloudflare/env';
 import { formatDateTime } from '../../../lib/datetime';
 import { routes } from '../../../lib/routes';
 
-if (!Astro.locals.adminSession) return Astro.redirect(routes.adminLogin);
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+const canPurge = session.role === 'admin';
 
 const wantsJson = Astro.request.headers.get('accept')?.includes('application/json') ?? false;
 if (wantsJson) {
@@ -45,18 +47,25 @@ if (wantsJson) {
 
 const query = Astro.url.searchParams.get('q') ?? '';
 const statusParam = Astro.url.searchParams.get('status') ?? '';
-const status = isPostStatus(statusParam) ? statusParam : '';
+const status = statusParam === 'trash' ? 'trash' : isPostStatus(statusParam) ? statusParam : '';
 const sort: PostListSort = Astro.url.searchParams.get('sort') === 'oldest' ? 'oldest' : 'newest';
 const page = Number(Astro.url.searchParams.get('page') ?? '1');
-const deleted = Astro.url.searchParams.get('deleted') === '1';
-const copyError = Astro.url.searchParams.get('error') === 'copy';
+const trashed = Astro.url.searchParams.get('trashed') === '1' || Astro.url.searchParams.get('deleted') === '1';
+const purged = Astro.url.searchParams.get('purged') === '1';
+const listError = Astro.url.searchParams.get('error') ?? '';
+const copyError = listError === 'copy';
+const actionError = copyError ? '' : listError.slice(0, 200);
 let loadError = '';
 let result: Awaited<ReturnType<typeof listPosts>> | null = null;
 let targets: { title: string; path: string }[] = [];
+let linkCounts: Awaited<ReturnType<typeof listPostLinkCounts>> = new Map();
 try {
   const db = createDb(getDbBinding());
   result = await listPosts(db, { query, status, sort, page: Number.isInteger(page) ? page : 1 });
-  targets = await listRedirectPostTargets(db);
+  [targets, linkCounts] = await Promise.all([
+    listRedirectPostTargets(db),
+    status === 'trash' ? Promise.resolve(new Map()) : listPostLinkCounts(db, result.rows),
+  ]);
 } catch (error) {
   console.error(JSON.stringify({ event: 'post_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
   loadError = 'Không tải được danh sách bài viết.';
@@ -66,6 +75,7 @@ const filters = [
   { id: '', label: 'Tất cả', count: result?.counts.all ?? 0 },
   { id: 'published', label: 'Đã xuất bản', count: result?.counts.published ?? 0 },
   { id: 'draft', label: 'Bản nháp', count: result?.counts.draft ?? 0 },
+  { id: 'trash', label: 'Thùng rác', count: result?.counts.trash ?? 0 },
 ] as const;
 
 function pageHref(next: { page?: number; status?: string; sort?: PostListSort; query?: string }): string {
@@ -84,10 +94,12 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
 ---
 
 <AdminLayout title="Quản lý bài viết">
-  <p slot="lead">{result ? `${result.libraryTotal} bài trong thư viện` : 'Danh sách bài viết'}</p>
+  <p slot="lead">{status === 'trash' ? 'Bài trong thùng rác vẫn giữ nội dung. Khôi phục sẽ thành bản nháp.' : result ? `${result.libraryTotal} bài trong thư viện` : 'Danh sách bài viết'}</p>
   <a slot="action" class="btn btn-primary" href={routes.adminPostNew}>Viết bài</a>
-  {deleted && <p class="mb-4 text-primary-strong" role="status">Đã xóa bài viết.</p>}
+  {trashed && <p class="mb-4 text-primary-strong" role="status">Đã chuyển bài vào thùng rác.</p>}
+  {purged && <p class="mb-4 text-primary-strong" role="status">Đã xóa vĩnh viễn bài viết.</p>}
   {copyError && <p class="error-text mb-4" role="alert">Không sao chép được bài viết.</p>}
+  {actionError && <p class="error-text mb-4" role="alert">{actionError}</p>}
   {loadError && <p class="error-text" role="alert">{loadError}</p>}
   {
     result && (
@@ -108,16 +120,66 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
         <div data-post-list>
           {result.rows.length === 0 ? (
             <p class="post-empty">
-              {result.counts.all === 0 && !query ? 'Chưa có bài viết.' : 'Không có bài khớp bộ lọc.'}
-              {result.counts.all === 0 && !query && <a href={routes.adminPostNew}>Viết bài đầu tiên</a>}
+              {status === 'trash' && !query
+                ? 'Thùng rác trống.'
+                : result.counts.all === 0 && !query
+                  ? 'Chưa có bài viết.'
+                  : 'Không có bài khớp bộ lọc.'}
+              {status !== 'trash' && result.counts.all === 0 && !query && <a href={routes.adminPostNew}>Viết bài đầu tiên</a>}
             </p>
+          ) : status === 'trash' ? (
+            <table class="post-table">
+              <thead>
+                <tr>
+                  <th>Tiêu đề</th>
+                  <th>Người xóa</th>
+                  <th>Trước khi xóa</th>
+                  <th>Vào thùng rác</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.rows.map((post) => {
+                  const actor = post.deletedByName?.trim() || '—';
+                  return (
+                    <tr>
+                      <td><span class="post-title">{post.title}</span></td>
+                      <td>{actor}</td>
+                      <td>
+                        <span class="post-status" data-status={post.status === 'published' ? 'published' : 'draft'}>
+                          {isPostStatus(post.status) ? POST_STATUS_LABELS[post.status] : post.status}
+                        </span>
+                      </td>
+                      <td>{post.deletedAt ? formatDateTime(post.deletedAt) : '—'}</td>
+                      <td>
+                        <div class="post-actions">
+                          <form method="post" action={routes.adminPostRestore(post.id)} data-busy onsubmit={`return confirm(${JSON.stringify(`Khôi phục “${post.title}” thành bản nháp?`)})`}>
+                            <input type="hidden" name="csrf" value={session.csrfToken} />
+                            <button class="btn" type="submit">Khôi phục</button>
+                          </form>
+                          {canPurge && (
+                            <form method="post" action={routes.adminPostPurge(post.id)} data-busy onsubmit={`return confirm(${JSON.stringify(`Xóa vĩnh viễn “${post.title}”? Không khôi phục được trong CMS.`)})`}>
+                              <input type="hidden" name="csrf" value={session.csrfToken} />
+                              <button class="btn btn-accent" type="submit">Xóa vĩnh viễn</button>
+                            </form>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           ) : (
             <table class="post-table">
               <thead>
                 <tr>
                   <th>Tiêu đề</th>
+                  <th>Tác giả</th>
                   <th>Danh mục</th>
                   <th>Trạng thái</th>
+                  <th title="Số bài đã xuất bản khác có liên kết tới bài này">Link vào</th>
+                  <th title="Số bài khác mà bài này liên kết tới">Link ra</th>
                   <th aria-sort={sort === 'oldest' ? 'ascending' : 'descending'}>
                     <a href={pageHref({ sort: sort === 'oldest' ? 'newest' : 'oldest', page: 1 })}>Cập nhật</a>
                   </th>
@@ -127,21 +189,27 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
               <tbody>
                 {result.rows.map((post) => {
                   const published = post.status === 'published';
+                  const wasPublic = published || post.publishedAt != null;
+                  const links = linkCounts.get(post.id);
                   return (
                     <tr>
                       <td>
                         <a class="post-title" href={routes.adminPost(post.id)}>{post.title}</a>
                       </td>
+                      <td data-label="Tác giả">{post.authorName?.trim() || post.authorUsername || '—'}</td>
                       <td>{post.categoryName ?? 'Chưa có danh mục'}</td>
                       <td>
                         <span class="post-status" data-status={published ? 'published' : 'draft'}>
                           {isPostStatus(post.status) ? POST_STATUS_LABELS[post.status] : post.status}
                         </span>
                       </td>
+                      <td data-label="Link vào">{links?.inbound ?? '—'}</td>
+                      <td data-label="Link ra">{links?.outbound ?? '—'}</td>
                       <td>{formatDateTime(post.updatedAt)}</td>
                       <td>
                         <div class="post-actions">
                           <a href={routes.adminPost(post.id)}>Sửa</a>
+                          <span class="post-actions-sep" aria-hidden="true">|</span>
                           {published ? (
                             <a href={routes.knowledge(post.slug)} target="_blank" rel="noopener">Xem bài</a>
                           ) : (
@@ -151,14 +219,14 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                             <summary aria-label={`Thao tác khác: ${post.title}`}>⋯</summary>
                             <div>
                               <form method="post" action={routes.adminPostCopy(post.id)}>
-                                <input type="hidden" name="csrf" value={Astro.locals.adminSession?.csrfToken} />
+                                <input type="hidden" name="csrf" value={session.csrfToken} />
                                 <button type="submit">Sao chép</button>
                               </form>
-                              <form id={`delete-post-${post.id}`} method="post" action={routes.adminPostDelete(post.id)} onsubmit={post.status === 'published' || post.publishedAt ? undefined : `return confirm(${JSON.stringify(`Xóa bài “${post.title}”? Thao tác này không hoàn tác.`)})`}>
-                                <input type="hidden" name="csrf" value={Astro.locals.adminSession?.csrfToken} />
+                              <form id={`delete-post-${post.id}`} method="post" action={routes.adminPostDelete(post.id)} onsubmit={wasPublic ? undefined : `return confirm(${JSON.stringify(`Chuyển “${post.title}” vào thùng rác? Bài sẽ ẩn khỏi website và có thể khôi phục.`)})`}>
+                                <input type="hidden" name="csrf" value={session.csrfToken} />
                                 <input type="hidden" name="urlAction" value="" />
                                 <input type="hidden" name="urlTarget" value="" />
-                                <button type="submit" data-retire={post.status === 'published' || post.publishedAt ? 'delete' : undefined} data-retire-form={post.status === 'published' || post.publishedAt ? `delete-post-${post.id}` : undefined}>Xóa</button>
+                                <button type="submit" data-retire={wasPublic ? 'delete' : undefined} data-retire-form={wasPublic ? `delete-post-${post.id}` : undefined}>Thùng rác</button>
                               </form>
                             </div>
                           </details>
@@ -213,6 +281,8 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
       else url.searchParams.delete('q');
       url.searchParams.delete('page');
       url.searchParams.delete('deleted');
+      url.searchParams.delete('trashed');
+      url.searchParams.delete('purged');
       url.searchParams.delete('error');
       if (url.toString() === location.href) return;
       list?.setAttribute('aria-busy', 'true');

@@ -14,6 +14,8 @@ export const ACTIVITY_ACTIONS = [
   'post.update',
   'post.publish',
   'post.unpublish',
+  'post.trash',
+  'post.restore',
   'post.delete',
   'category.create',
   'category.update',
@@ -41,6 +43,8 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'post.update': 'Sửa bài',
   'post.publish': 'Xuất bản',
   'post.unpublish': 'Gỡ bài',
+  'post.trash': 'Thùng rác',
+  'post.restore': 'Khôi phục bài',
   'post.delete': 'Xóa bài',
   'category.create': 'Tạo danh mục',
   'category.update': 'Sửa danh mục',
@@ -129,7 +133,9 @@ export function postSummary(action: ActivityAction, title: string): string {
   const name = quotedLabel(title, 'Không tiêu đề');
   if (action === 'post.publish') return `Đã xuất bản “${name}”.`;
   if (action === 'post.unpublish') return `Đã gỡ bài “${name}”.`;
-  if (action === 'post.delete') return `Đã xóa bài “${name}”.`;
+  if (action === 'post.trash') return `Đã chuyển “${name}” vào thùng rác.`;
+  if (action === 'post.restore') return `Đã khôi phục “${name}” thành bản nháp.`;
+  if (action === 'post.delete') return `Đã xóa vĩnh viễn “${name}”.`;
   if (action === 'post.create') return `Đã tạo bài “${name}”.`;
   return `Đã cập nhật bài “${name}”.`;
 }

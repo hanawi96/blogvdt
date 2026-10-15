@@ -49,7 +49,7 @@ type LinkNode = {
   content?: LinkNode[];
 };
 
-export function collectPostPaths(raw: string): { paths: string[]; truncated: boolean } {
+export function collectPostPaths(raw: string, limit = 20): { paths: string[]; truncated: boolean } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -70,7 +70,7 @@ export function collectPostPaths(raw: string): { paths: string[]; truncated: boo
         if (mark.type !== 'link' || typeof mark.attrs?.href !== 'string') continue;
         const path = postPathFromHref(mark.attrs.href);
         if (!path || seen.has(path)) continue;
-        if (found.length >= 20) {
+        if (found.length >= limit) {
           truncated = true;
           return;
         }
@@ -80,6 +80,32 @@ export function collectPostPaths(raw: string): { paths: string[]; truncated: boo
     }
     for (const child of current.content ?? []) walk(child);
   }
+}
+
+const COUNT_LIMIT = 500;
+
+export type PostLinkCount = { inbound: number; outbound: number };
+
+// Link ra: số bài khác mà nội dung bài này trỏ tới. Link vào: số bài nguồn khác trỏ tới bài này.
+export function postLinkCounts(
+  page: ReadonlyArray<{ id: number; slug: string; contentJson: string }>,
+  sources: ReadonlyArray<{ id: number; contentJson: string }>,
+): Map<number, PostLinkCount> {
+  const byPath = new Map(page.map((row) => [`/kien-thuc/${row.slug}`, row.id]));
+  const counts = new Map<number, PostLinkCount>();
+  for (const row of page) {
+    const own = `/kien-thuc/${row.slug}`;
+    const outbound = collectPostPaths(row.contentJson, COUNT_LIMIT).paths.filter((path) => path !== own).length;
+    counts.set(row.id, { inbound: 0, outbound });
+  }
+  for (const source of sources) {
+    for (const path of collectPostPaths(source.contentJson, COUNT_LIMIT).paths) {
+      const target = byPath.get(path);
+      const count = target === undefined || target === source.id ? undefined : counts.get(target);
+      if (count) count.inbound += 1;
+    }
+  }
+  return counts;
 }
 
 export type PostLinkIssue = {

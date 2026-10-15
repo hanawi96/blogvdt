@@ -895,24 +895,125 @@
   }
   .retire-dialog {
     width: min(32rem, calc(100% - 2rem));
+    max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
+    margin: auto;
+    overflow: auto;
+    overscroll-behavior: contain;
     border: 1px solid var(--color-line);
     border-radius: var(--radius-md);
     background: var(--color-surface);
     color: var(--color-ink);
-    padding: 1rem;
+    padding: 1.25rem;
   }
   .retire-dialog::backdrop {
-    background: rgb(0 0 0 / 0.45);
+    background: color-mix(in srgb, var(--color-ink) 45%, transparent);
+  }
+  .retire-dialog .category-actions {
+    justify-content: flex-end;
+    margin-top: 1.25rem;
   }
   .retire-options {
     display: grid;
     gap: 0.75rem;
     margin-top: 1rem;
   }
+  .retire-options input[type='radio'] {
+    flex: none;
+    margin-top: 0.2rem;
+  }
   .retire-target {
     display: grid;
     gap: 0.25rem;
     margin-left: 1.5rem;
+  }
+  .post-picker-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .post-picker-bar .btn:first-child {
+    max-width: 100%;
+    justify-content: flex-start;
+    text-align: left;
+  }
+  .post-picker-current,
+  .post-picker-count,
+  .post-picker-empty {
+    margin-top: 0.4rem;
+    color: var(--color-muted);
+    font-size: 0.875rem;
+  }
+  .post-picker-dialog {
+    width: min(36rem, calc(100% - 2rem));
+    max-height: min(40rem, calc(100dvh - 2rem));
+    margin: auto;
+    overflow: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-ink);
+    padding: 1rem;
+  }
+  .post-picker-dialog::backdrop {
+    background: color-mix(in srgb, var(--color-ink) 45%, transparent);
+  }
+  .post-picker-head,
+  .post-picker-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .post-picker-head {
+    justify-content: space-between;
+    margin-bottom: 0.85rem;
+  }
+  .post-picker-head h2 {
+    font-size: 1.125rem;
+    font-weight: 600;
+  }
+  .post-picker-filters .field {
+    flex: 1 1 12rem;
+    min-width: min(100%, 10rem);
+  }
+  .post-picker-filters select.field {
+    flex: 0 1 11rem;
+  }
+  .post-picker-list {
+    max-height: 22rem;
+    margin: 0.45rem 0 0;
+    overflow: auto;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+    padding: 0;
+    list-style: none;
+  }
+  .post-picker-list button {
+    display: grid;
+    width: 100%;
+    gap: 0.15rem;
+    border: 0;
+    border-bottom: 1px solid var(--color-line);
+    background: transparent;
+    padding: 0.65rem 0.75rem;
+    text-align: left;
+    cursor: pointer;
+  }
+  .post-picker-list li:last-child button {
+    border-bottom: 0;
+  }
+  .post-picker-list button span:first-child {
+    font-weight: 600;
+  }
+  .post-picker-list button span:last-child {
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+  }
+  .post-picker-list button:hover,
+  .post-picker-list button[aria-pressed='true'] {
+    background: var(--color-canvas);
   }
   .category-row {
     display: flex;
@@ -1630,6 +1731,11 @@
   .post-actions > a {
     font-weight: 600;
   }
+  .post-actions-sep {
+    margin-inline: -0.25rem;
+    color: var(--color-muted);
+    user-select: none;
+  }
   .row-menu {
     position: relative;
   }
@@ -1713,7 +1819,8 @@
       padding: 0.15rem 0;
     }
     .product-table td[data-label]::before,
-    .order-table td[data-label]::before {
+    .order-table td[data-label]::before,
+    [data-post-list] td[data-label]::before {
       content: attr(data-label);
       display: block;
       color: var(--color-muted);

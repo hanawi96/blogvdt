@@ -52,6 +52,8 @@ if (savedPreview) {
   const post = await getPost(db, savedId);
   if (!post) {
     message = 'Không tìm thấy bài viết.';
+  } else if (post.deletedAt != null) {
+    message = 'Bài đang ở thùng rác.';
   } else {
     publishedAt = post.publishedAt;
     updatedAt = post.updatedAt;

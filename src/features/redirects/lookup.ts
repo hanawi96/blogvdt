@@ -3,6 +3,7 @@ import type { AppDb } from '../../lib/db/client';
 import { findRedirect } from '../../lib/db/redirects';
 import { categories, posts, products } from '../../lib/db/schema';
 import { categorySlug, knowledgeSlug } from '../posts/redirects';
+import { livePublished } from '../posts/visibility';
 import { isStaticPublicPath, isSystemPath, productSlug, redirectOutcome, skipsRedirectLookup, type PublicRedirect } from './rules';
 
 export async function publicPathExists(db: AppDb, path: string): Promise<boolean> {
@@ -13,7 +14,7 @@ export async function publicPathExists(db: AppDb, path: string): Promise<boolean
     const rows = await db
       .select({ id: posts.id })
       .from(posts)
-      .where(and(eq(posts.slug, post), eq(posts.status, 'published')))
+      .where(and(eq(posts.slug, post), livePublished()))
       .limit(1);
     return Boolean(rows[0]);
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyPostLinks, collectPostPaths, postPathFromHref, rankLinkSuggestions } from './links';
+import { classifyPostLinks, collectPostPaths, postLinkCounts, postPathFromHref, rankLinkSuggestions } from './links';
 
 describe('liên kết nội bộ', () => {
   it('lấy đường dẫn chính thức từ href tương đối hoặc tuyệt đối', () => {
@@ -50,5 +50,25 @@ describe('liên kết nội bộ', () => {
     expect(collected.paths).toHaveLength(20);
     expect(collected.truncated).toBe(true);
     expect(collected.paths[0]).toBe('/kien-thuc/bai-0');
+  });
+
+  it('đếm link vào và link ra, bỏ link tự trỏ và link trùng', () => {
+    const doc = (...hrefs: string[]) =>
+      JSON.stringify({
+        type: 'doc',
+        content: [{ type: 'paragraph', content: hrefs.map((href) => ({ type: 'text', text: 'x', marks: [{ type: 'link', attrs: { href } }] })) }],
+      });
+    const page = [
+      { id: 1, slug: 'bai-a', contentJson: doc('/kien-thuc/bai-b', '/kien-thuc/bai-b?x=1', '/kien-thuc/bai-a', '/kien-thuc/bai-c') },
+      { id: 2, slug: 'bai-b', contentJson: doc() },
+    ];
+    const sources = [
+      { id: 1, contentJson: page[0].contentJson },
+      { id: 3, contentJson: doc('https://vongdautam.vn/kien-thuc/bai-b', '/kien-thuc/bai-b-cu') },
+      { id: 2, contentJson: doc('/kien-thuc/bai-b') },
+    ];
+    const counts = postLinkCounts(page, sources);
+    expect(counts.get(1)).toEqual({ inbound: 0, outbound: 2 });
+    expect(counts.get(2)).toEqual({ inbound: 2, outbound: 0 });
   });
 });

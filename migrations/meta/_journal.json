@@ -85,6 +85,20 @@
       "when": 1792120000000,
       "tag": "0011_redirect_manager",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1792130000000,
+      "tag": "0012_post_trash",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1792140000000,
+      "tag": "0013_post_author",
+      "breakpoints": true
     }
   ]
 }

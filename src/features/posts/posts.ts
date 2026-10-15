@@ -1,5 +1,6 @@
-import { and, asc, count, desc, eq, like, ne, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
+import { alias } from 'drizzle-orm/sqlite-core';
 import {
   activityWrite,
   autosaveLogWrite,
@@ -12,7 +13,7 @@ import {
 } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
 import { findRedirect, releasePathQuery, slugRedirectQueries } from '../../lib/db/redirects';
-import { categories, posts } from '../../lib/db/schema';
+import { categories, adminUsers, posts } from '../../lib/db/schema';
 import { collectMetaCorpus, type MetaCorpus } from '../../lib/seo/meta';
 import { routes } from '../../lib/routes';
 import { prepareRetirement, retirementRequired } from '../redirects/manage';
@@ -21,19 +22,24 @@ import { REVISION_CONFLICT, staleRevision } from './form';
 import { redirectOccupiesSlug, shouldStorePostRedirect } from './redirects';
 import { slugify } from './slug';
 import type { PostStatus } from './status';
+import { notTrashed } from './visibility';
+
+export type PostListFilter = PostStatus | 'trash' | '';
 
 const PAGE_SIZE = 20;
 
 export type PostListSort = 'newest' | 'oldest';
 
-export function statusTotals(rows: { status: string; value: number }[]) {
+export function statusTotals(rows: { status: string; trashed: number; value: number }[]) {
   let draft = 0;
   let published = 0;
+  let trash = 0;
   for (const row of rows) {
-    if (row.status === 'draft') draft = row.value;
-    if (row.status === 'published') published = row.value;
+    if (row.trashed) trash += row.value;
+    else if (row.status === 'draft') draft += row.value;
+    else if (row.status === 'published') published += row.value;
   }
-  return { all: draft + published, draft, published };
+  return { all: draft + published, draft, published, trash };
 }
 
 export async function listMetaCorpus(db: AppDb, excludeId: number | null): Promise<MetaCorpus> {
@@ -45,7 +51,8 @@ export async function listMetaCorpus(db: AppDb, excludeId: number | null): Promi
       excerpt: posts.excerpt,
       metaDescription: posts.metaDescription,
     })
-    .from(posts);
+    .from(posts)
+    .where(notTrashed());
   return collectMetaCorpus(rows.filter((row) => excludeId === null || row.id !== excludeId));
 }
 
@@ -68,23 +75,25 @@ export type PostInput = {
 
 export async function listPosts(
   db: AppDb,
-  filters: { query: string; status: PostStatus | ''; page: number; sort?: PostListSort },
+  filters: { query: string; status: PostListFilter; page: number; sort?: PostListSort },
 ) {
   const term = filters.query.replace(/[%_]/g, '').trim().slice(0, 180);
-  const conditions = [];
-  if (filters.status) conditions.push(eq(posts.status, filters.status));
+  const trashedFlag = sql<number>`case when ${posts.deletedAt} is null then 0 else 1 end`;
+  const author = alias(adminUsers, 'post_author');
+  const conditions = [filters.status === 'trash' ? isNotNull(posts.deletedAt) : notTrashed()];
+  if (filters.status && filters.status !== 'trash') conditions.push(eq(posts.status, filters.status));
   if (term) conditions.push(like(posts.title, `%${term}%`));
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const where = and(...conditions);
   const page = Math.max(1, filters.page);
   const sort: PostListSort = filters.sort === 'oldest' ? 'oldest' : 'newest';
   const [totalRows, countRows, libraryRows, rows] = await Promise.all([
     db.select({ value: count() }).from(posts).where(where),
     db
-      .select({ status: posts.status, value: count() })
+      .select({ status: posts.status, trashed: trashedFlag, value: count() })
       .from(posts)
       .where(term ? like(posts.title, `%${term}%`) : undefined)
-      .groupBy(posts.status),
-    term ? db.select({ value: count() }).from(posts) : Promise.resolve([]),
+      .groupBy(posts.status, trashedFlag),
+    term ? db.select({ value: count() }).from(posts).where(and(like(posts.title, `%${term}%`), notTrashed())) : Promise.resolve([]),
     db
       .select({
         id: posts.id,
@@ -93,12 +102,22 @@ export async function listPosts(
         status: posts.status,
         publishedAt: posts.publishedAt,
         updatedAt: posts.updatedAt,
+        deletedAt: posts.deletedAt,
+        deletedByName: adminUsers.displayName,
+        authorName: author.displayName,
+        authorUsername: author.username,
         categoryName: categories.name,
       })
       .from(posts)
       .leftJoin(categories, eq(posts.categoryId, categories.id))
+      .leftJoin(adminUsers, eq(posts.deletedBy, adminUsers.id))
+      .leftJoin(author, eq(posts.authorId, author.id))
       .where(where)
-      .orderBy(sort === 'oldest' ? asc(posts.updatedAt) : desc(posts.updatedAt), desc(posts.id))
+      .orderBy(
+        ...(filters.status === 'trash'
+          ? [desc(posts.deletedAt), desc(posts.id)]
+          : [sort === 'oldest' ? asc(posts.updatedAt) : desc(posts.updatedAt), desc(posts.id)]),
+      )
       .limit(PAGE_SIZE)
       .offset((page - 1) * PAGE_SIZE),
   ]);
@@ -125,6 +144,7 @@ export async function searchPublishedPosts(db: AppDb, query: string, excludeId: 
     .where(
       and(
         eq(posts.status, 'published'),
+        isNull(posts.deletedAt),
         excludeId ? ne(posts.id, excludeId) : undefined,
         or(like(posts.title, `%${term}%`), like(posts.slug, `%${term}%`)),
       ),
@@ -153,7 +173,7 @@ export async function createPost(
   if (slugError) return { ok: false, error: slugError };
   const action = input.status === 'published' ? 'post.publish' : 'post.create';
   await commitWrites(db, [
-    db.insert(posts).values({ ...postValues(input, now), createdAt: now }),
+    db.insert(posts).values({ ...postValues(input, now), authorId: actor?.id ?? null, createdAt: now }),
     ...(actor
       ? [
           activityWrite(
@@ -190,6 +210,7 @@ export async function updatePost(
 ): Promise<{ ok: true; updatedAt: number } | { ok: false; error: string; conflict?: boolean }> {
   const current = await getPost(db, id);
   if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
+  if (current.deletedAt != null) return { ok: false, error: 'Bài đang ở thùng rác. Hãy khôi phục trước khi sửa.' };
   const action = postLogAction(current.status, input.status, postChanged(current, input));
   if (!action) return { ok: true, updatedAt: current.updatedAt };
   if (staleRevision(current.updatedAt, expectedUpdatedAt)) return { ok: false, error: REVISION_CONFLICT, conflict: true };
@@ -198,7 +219,7 @@ export async function updatePost(
   const values = postValues(input, now, current.publishedAt);
   const pathWrites = await postPathWrites(db, current, input, now, actor, retirement);
   if (!pathWrites.ok) return pathWrites;
-  const match = expectedUpdatedAt === null ? eq(posts.id, id) : and(eq(posts.id, id), eq(posts.updatedAt, expectedUpdatedAt));
+  const match = and(eq(posts.id, id), isNull(posts.deletedAt), expectedUpdatedAt === null ? undefined : eq(posts.updatedAt, expectedUpdatedAt));
   const results = await commitWrites(db, [
     db.update(posts).set(values).where(match).returning({ id: posts.id }),
     ...(actor
@@ -239,6 +260,7 @@ export async function saveDraftPost(
 ): Promise<{ ok: true; skipped: boolean; updatedAt: number } | { ok: false; error: string; conflict?: boolean }> {
   const current = await getPost(db, id);
   if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
+  if (current.deletedAt != null) return { ok: false, error: 'Bài đang ở thùng rác. Hãy khôi phục trước khi sửa.' };
   if (current.status !== 'draft') return { ok: true, skipped: true, updatedAt: current.updatedAt };
   const draft = { ...input, status: 'draft' as const };
   if (!postChanged(current, draft)) return { ok: true, skipped: false, updatedAt: current.updatedAt };
@@ -256,10 +278,12 @@ export async function saveDraftPost(
     createdAt: now,
   };
   const autosaveLog = actor ? await autosaveLogWrite(db, entry, id) : null;
-  const match =
-    expectedUpdatedAt === null
-      ? and(eq(posts.id, id), eq(posts.status, 'draft'))
-      : and(eq(posts.id, id), eq(posts.status, 'draft'), eq(posts.updatedAt, expectedUpdatedAt));
+  const match = and(
+    eq(posts.id, id),
+    eq(posts.status, 'draft'),
+    isNull(posts.deletedAt),
+    expectedUpdatedAt === null ? undefined : eq(posts.updatedAt, expectedUpdatedAt),
+  );
   const results = await commitWrites(db, [
     db.update(posts).set(values).where(match).returning({ id: posts.id }),
     ...(autosaveLog ? [autosaveLog.query] : []),
@@ -281,6 +305,7 @@ export async function duplicatePost(
 ): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
   const current = await getPost(db, id);
   if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
+  if (current.deletedAt != null) return { ok: false, error: 'Bài đang ở thùng rác. Hãy khôi phục trước khi sao chép.' };
   const slug = await unusedCopySlug(db, current.slug);
   if (!slug) return { ok: false, error: 'Không tạo được đường dẫn cho bản sao.' };
   return createPost(
@@ -310,7 +335,7 @@ async function unusedCopySlug(db: AppDb, base: string): Promise<string | null> {
   return null;
 }
 
-export async function deletePost(
+export async function trashPost(
   db: AppDb,
   id: number,
   actor?: ActivityActor,
@@ -318,13 +343,99 @@ export async function deletePost(
   now = Date.now(),
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const current = await getPost(db, id);
-  if (!current) return { ok: true };
+  if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
+  if (current.deletedAt != null) return { ok: true };
   const wasPublic = current.status === 'published' || current.publishedAt !== null;
   if (wasPublic && !retirement) return { ok: false, error: retirementRequired };
   const prepared = wasPublic && retirement ? await prepareRetirement(db, routes.knowledge(current.slug), retirement, now, actor) : { ok: true as const, queries: [] as BatchItem<'sqlite'>[] };
   if (!prepared.ok) return prepared;
-  await commitWrites(db, [
-    db.delete(posts).where(eq(posts.id, id)),
+  const results = await commitWrites(db, [
+    db
+      .update(posts)
+      .set({ deletedAt: now, deletedBy: actor?.id ?? null, updatedAt: now })
+      .where(and(eq(posts.id, id), isNull(posts.deletedAt)))
+      .returning({ id: posts.id }),
+    ...(actor
+      ? [
+          activityWrite(
+            db,
+            {
+              actorId: actor.id,
+              actorName: actor.name,
+              action: 'post.trash',
+              objectType: 'post',
+              objectId: String(id),
+              summary: postSummary('post.trash', current.title),
+              createdAt: now,
+            },
+            true,
+          ),
+        ]
+      : []),
+    ...prepared.queries,
+  ]);
+  if (!changedRows(results[0])) {
+    const again = await getPost(db, id);
+    if (again?.deletedAt != null) return { ok: true };
+    return { ok: false, error: 'Không chuyển được bài vào thùng rác.' };
+  }
+  return { ok: true };
+}
+
+export async function restorePost(
+  db: AppDb,
+  id: number,
+  actor?: ActivityActor,
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const current = await getPost(db, id);
+  if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
+  if (current.deletedAt == null) return { ok: false, error: 'Bài không ở trong thùng rác.' };
+  const redirect = await findRedirect(db, routes.knowledge(current.slug));
+  if (redirect?.enabled === 1) {
+    return { ok: false, error: 'Đường dẫn này đang có chuyển hướng. Hãy xóa chuyển hướng trước khi khôi phục.' };
+  }
+  const results = await commitWrites(db, [
+    db
+      .update(posts)
+      .set({ status: 'draft', deletedAt: null, deletedBy: null, updatedAt: now })
+      .where(and(eq(posts.id, id), isNotNull(posts.deletedAt)))
+      .returning({ id: posts.id }),
+    ...(actor
+      ? [
+          activityWrite(
+            db,
+            {
+              actorId: actor.id,
+              actorName: actor.name,
+              action: 'post.restore',
+              objectType: 'post',
+              objectId: String(id),
+              summary: postSummary('post.restore', current.title),
+              createdAt: now,
+            },
+            true,
+          ),
+        ]
+      : []),
+  ]);
+  if (!changedRows(results[0])) return { ok: false, error: 'Không khôi phục được bài viết.' };
+  return { ok: true };
+}
+
+export async function purgePost(
+  db: AppDb,
+  id: number,
+  actor: ActivityActor | undefined,
+  role: string,
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (role !== 'admin') return { ok: false, error: 'Chỉ quản trị mới được xóa vĩnh viễn.' };
+  const current = await getPost(db, id);
+  if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
+  if (current.deletedAt == null) return { ok: false, error: 'Chỉ xóa vĩnh viễn bài đang ở thùng rác.' };
+  const results = await commitWrites(db, [
+    db.delete(posts).where(and(eq(posts.id, id), isNotNull(posts.deletedAt))).returning({ id: posts.id }),
     ...(actor
       ? [
           activityWrite(
@@ -342,8 +453,8 @@ export async function deletePost(
           ),
         ]
       : []),
-    ...prepared.queries,
   ]);
+  if (!changedRows(results[0])) return { ok: false, error: 'Không xóa được bài viết.' };
   return { ok: true };
 }
 

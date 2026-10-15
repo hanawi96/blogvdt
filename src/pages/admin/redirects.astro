@@ -1,4 +1,5 @@
 ---
+import PublishedPostPicker from '../../components/admin/PublishedPostPicker.astro';
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { activityActor } from '../../features/activity/log';
 import { mutationError } from '../../features/auth/session';
@@ -6,8 +7,11 @@ import {
   deleteManagedRedirect,
   getManagedRedirect,
   listManagedRedirects,
-  listRedirectPostTargets,
+  listPickerCategories,
+  listPickerPosts,
+  publishedRedirectTarget,
   saveManagedRedirect,
+  searchPickerPosts,
   setRedirectEnabled,
 } from '../../features/redirects/manage';
 import { createDb } from '../../lib/db/client';
@@ -18,6 +22,15 @@ const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
 
 const db = createDb(getDbBinding());
+if (Astro.request.method === 'GET' && Astro.url.searchParams.get('pick') === '1') {
+  const categoryRaw = Astro.url.searchParams.get('category') ?? '';
+  const categoryId = categoryRaw === 'none' ? 0 : /^\d{1,7}$/.test(categoryRaw) ? Number(categoryRaw) : null;
+  const posts = await searchPickerPosts(db, Astro.url.searchParams.get('q') ?? '', categoryId);
+  return new Response(JSON.stringify({ posts }), {
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+  });
+}
+
 const query = Astro.url.searchParams.get('q') ?? '';
 let formError = '';
 let editingId = '';
@@ -55,9 +68,8 @@ if (Astro.request.method === 'POST') {
         return Astro.redirect(`${routes.adminRedirects}?saved=1`, 303);
       }
     } else if (intent !== 'delete' && intent !== 'toggle') {
-      const picked = String(form.get('targetPost') ?? '');
       fromPath = String(form.get('fromPath') ?? '');
-      toPath = picked || String(form.get('toPath') ?? '');
+      toPath = String(form.get('toPath') ?? '');
       statusCode = String(form.get('statusCode') ?? '301');
       enabled = form.get('enabled') === '1';
       editingId = id ? String(id) : '';
@@ -77,12 +89,15 @@ if (Astro.request.method === 'POST') {
   }
 }
 
-const rows = await listManagedRedirects(db, query);
-const targets = await listRedirectPostTargets(db);
 const saved = Astro.url.searchParams.get('saved') === '1';
 const deleted = Astro.url.searchParams.get('deleted') === '1';
 const editId = Number(Astro.url.searchParams.get('edit') ?? '');
-const editing = Astro.request.method === 'GET' && Number.isInteger(editId) ? await getManagedRedirect(db, editId) : null;
+const [rows, targets, pickerCategories, editing] = await Promise.all([
+  listManagedRedirects(db, query),
+  listPickerPosts(db),
+  listPickerCategories(db),
+  Astro.request.method === 'GET' && Number.isInteger(editId) && editId > 0 ? getManagedRedirect(db, editId) : Promise.resolve(null),
+]);
 if (editing) {
   editingId = String(editing.id);
   fromPath = editing.fromPath;
@@ -90,6 +105,9 @@ if (editing) {
   statusCode = editing.statusCode === 302 ? '302' : '301';
   enabled = editing.enabled === 1;
 }
+const selectedTarget =
+  targets.find((target) => target.path === toPath) ??
+  (toPath.startsWith('/kien-thuc/') ? await publishedRedirectTarget(db, toPath) : null);
 const listHref = query ? `${routes.adminRedirects}?q=${encodeURIComponent(query)}` : routes.adminRedirects;
 
 function codeLabel(code: number): string {
@@ -114,13 +132,10 @@ function codeLabel(code: number): string {
         <span class="mb-1 block font-semibold">URL nguồn</span>
         <input class="field" name="fromPath" required maxlength="300" value={fromPath} placeholder="/kien-thuc/slug-cu" />
       </label>
-      <label class="mt-4 block">
+      <div class="mt-4">
         <span class="mb-1 block font-semibold">Bài đích đã xuất bản</span>
-        <select class="field" name="targetPost">
-          <option value="">Nhập đường dẫn bên dưới</option>
-          {targets.map((target) => <option value={target.path} selected={toPath === target.path}>{target.title}</option>)}
-        </select>
-      </label>
+        <PublishedPostPicker posts={targets} categories={pickerCategories} value={toPath} selected={selectedTarget} searchUrl={routes.adminRedirects} />
+      </div>
       <label class="mt-4 block">
         <span class="mb-1 block font-semibold">Hoặc đường dẫn đích</span>
         <input class="field" name="toPath" maxlength="300" value={toPath} placeholder="/kien-thuc/slug-moi" />

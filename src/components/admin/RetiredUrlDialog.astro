@@ -10,6 +10,7 @@ const { posts } = Astro.props;
   <form method="dialog">
     <h2 class="text-lg font-semibold">Xử lý URL cũ</h2>
     <p class="mt-2 text-sm text-muted">Chọn nội dung thay thế thật, trả 404, hoặc trả 410. Không tự chuyển về trang chủ.</p>
+    <p class="mt-2 text-sm text-muted" data-retire-note hidden>Bài sẽ vào thùng rác và có thể khôi phục. Dữ liệu không bị xóa.</p>
     <div class="retire-options">
       <label class="flex items-start gap-2">
         <input type="radio" name="retireChoice" value="redirect" checked />
@@ -71,6 +72,8 @@ const { posts } = Astro.props;
     if (!(dialog instanceof HTMLDialogElement)) return;
     dialog.dataset.mode = mode;
     dialog.dataset.form = formId;
+    const note = dialog.querySelector('[data-retire-note]');
+    if (note instanceof HTMLElement) note.hidden = mode !== 'delete';
     showError('');
     syncTarget();
     dialog.showModal();

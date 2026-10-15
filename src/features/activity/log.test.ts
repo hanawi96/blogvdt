@@ -34,6 +34,9 @@ describe('nhật ký', () => {
     expect(postLogAction('draft', 'published', true)).toBe('post.publish');
     expect(postLogAction('published', 'draft', true)).toBe('post.unpublish');
     expect(postSummary('post.publish', '  Bài\nA  ')).toBe('Đã xuất bản “Bài A”.');
+    expect(postSummary('post.trash', 'Bài A')).toBe('Đã chuyển “Bài A” vào thùng rác.');
+    expect(postSummary('post.restore', 'Bài A')).toBe('Đã khôi phục “Bài A” thành bản nháp.');
+    expect(postSummary('post.delete', 'Bài A')).toBe('Đã xóa vĩnh viễn “Bài A”.');
   });
 
   it('gom autosave trong 10 phút và tách sau mốc đó', () => {

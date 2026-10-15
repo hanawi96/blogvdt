@@ -105,12 +105,16 @@ export const posts = sqliteTable(
     metaDescription: text('meta_description'),
     status: text('status').notNull(),
     publishedAt: integer('published_at'),
+    deletedAt: integer('deleted_at'),
+    deletedBy: integer('deleted_by'),
+    authorId: integer('author_id').references(() => adminUsers.id, { onDelete: 'set null' }),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
   },
   (table) => [
     index('posts_status_published_idx').on(table.status, table.publishedAt),
     index('posts_category_idx').on(table.categoryId),
+    index('posts_deleted_at_idx').on(table.deletedAt),
     check('posts_status_check', sql`${table.status} in ('draft', 'published')`),
   ],
 );

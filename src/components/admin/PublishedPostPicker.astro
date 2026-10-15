@@ -1,0 +1,272 @@
+---
+interface PostOption {
+  title: string;
+  path: string;
+  category?: string;
+}
+
+interface Props {
+  posts: PostOption[];
+  categories: { id: number; name: string }[];
+  value?: string;
+  selected?: PostOption | null;
+  searchUrl: string;
+}
+
+const { posts, categories, value = '', selected = null, searchUrl } = Astro.props;
+const current = selected ?? posts.find((post) => post.path === value) ?? null;
+---
+
+<div
+  class="post-picker"
+  data-post-picker
+  data-pick-url={searchUrl}
+  data-selected-path={current?.path ?? ''}
+  data-selected-title={current?.title ?? ''}
+  data-selected-category={current?.category ?? ''}
+>
+  <div class="post-picker-bar">
+    <button class="btn" type="button" data-post-picker-open aria-haspopup="dialog">
+      {current ? current.title : 'Chọn bài đã xuất bản'}
+    </button>
+    <button class="btn" type="button" data-post-picker-clear hidden={!current}>Bỏ chọn</button>
+  </div>
+  <p class="post-picker-current" data-post-picker-current hidden={!current}>
+    {current ? `${current.category || 'Chưa phân loại'} · ${current.path}` : ''}
+  </p>
+  <dialog class="post-picker-dialog" aria-label="Chọn bài đã xuất bản">
+    <div class="post-picker-head">
+      <h2>Chọn bài đã xuất bản</h2>
+      <button class="btn" type="button" data-post-picker-close>Đóng</button>
+    </div>
+    <div class="post-picker-filters">
+      <input class="field" type="search" data-post-picker-q maxlength="80" placeholder="Gõ ít nhất 2 ký tự để tìm toàn bộ" />
+      <select class="field" data-post-picker-cat aria-label="Danh mục">
+        <option value="">Mọi danh mục</option>
+        {categories.map((category) => <option value={String(category.id)}>{category.name}</option>)}
+        <option value="none">Chưa phân loại</option>
+      </select>
+    </div>
+    <p class="post-picker-count" data-post-picker-count>{posts.length} bài mới nhất</p>
+    <ul class="post-picker-list" data-post-picker-list hidden={posts.length === 0}>
+      {posts.map((post) => (
+        <li
+          data-post-picker-item
+          data-path={post.path}
+          data-title={post.title}
+          data-category={post.category ?? ''}
+          data-search={`${post.title} ${post.path}`.toLowerCase()}
+        >
+          <button type="button" data-post-picker-pick aria-pressed={post.path === value ? 'true' : 'false'}>
+            <span>{post.title}</span>
+            <span>{post.category || 'Chưa phân loại'} · {post.path}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+    <p class="post-picker-empty" data-post-picker-empty hidden={posts.length > 0}>Chưa có bài đã xuất bản.</p>
+  </dialog>
+</div>
+
+<script>
+  document.querySelectorAll('[data-post-picker]').forEach((root) => {
+    if (!(root instanceof HTMLElement) || root.dataset.bound === '1') return;
+    root.dataset.bound = '1';
+    const dialog = root.querySelector('dialog');
+    const open = root.querySelector('[data-post-picker-open]');
+    const clear = root.querySelector('[data-post-picker-clear]');
+    const current = root.querySelector('[data-post-picker-current]');
+    const search = root.querySelector('[data-post-picker-q]');
+    const category = root.querySelector('[data-post-picker-cat]');
+    const empty = root.querySelector('[data-post-picker-empty]');
+    const count = root.querySelector('[data-post-picker-count]');
+    const list = root.querySelector('[data-post-picker-list]');
+    const pathInput = root.closest('form')?.querySelector('input[name="toPath"]');
+    if (
+      !(dialog instanceof HTMLDialogElement) ||
+      !(open instanceof HTMLButtonElement) ||
+      !(pathInput instanceof HTMLInputElement) ||
+      !(list instanceof HTMLElement) ||
+      !(search instanceof HTMLInputElement) ||
+      !(category instanceof HTMLSelectElement) ||
+      !(root instanceof HTMLElement)
+    ) {
+      return;
+    }
+    const host = root;
+    const box = list;
+    const queryField = search;
+    const categoryField = category;
+    const pathField = pathInput;
+    const openButton = open;
+    const modal = dialog;
+
+    const seed = [...list.querySelectorAll('[data-post-picker-item]')].map((item) => item.cloneNode(true));
+    let timer = 0;
+    let requestId = 0;
+    let inflight: AbortController | null = null;
+
+    function items() {
+      return [...box.querySelectorAll('[data-post-picker-item]')];
+    }
+
+    function paint() {
+      const path = pathField.value.trim();
+      const match = items().find((item) => item instanceof HTMLElement && item.dataset.path === path);
+      const known = path !== '' && path === host.dataset.selectedPath;
+      const title = (match instanceof HTMLElement ? match.dataset.title : '') || (known ? host.dataset.selectedTitle : '') || '';
+      const categoryName = (match instanceof HTMLElement ? match.dataset.category : '') || (known ? host.dataset.selectedCategory : '') || '';
+      openButton.textContent = title || 'Chọn bài đã xuất bản';
+      if (clear instanceof HTMLButtonElement) clear.hidden = title === '';
+      if (current instanceof HTMLElement) {
+        current.hidden = title === '';
+        current.textContent = title ? `${categoryName || 'Chưa phân loại'} · ${path}` : '';
+      }
+      for (const item of items()) {
+        const button = item.querySelector('[data-post-picker-pick]');
+        if (button instanceof HTMLButtonElement) button.setAttribute('aria-pressed', item instanceof HTMLElement && item.dataset.path === path ? 'true' : 'false');
+      }
+    }
+
+    function setStatus(shown: number, message: string, remote = false) {
+      box.hidden = shown === 0;
+      if (empty instanceof HTMLElement) {
+        empty.hidden = shown !== 0;
+        empty.textContent = message;
+      }
+      if (!(count instanceof HTMLElement)) return;
+      if (remote && shown === 30) count.textContent = '30 bài, gõ thêm để thu hẹp';
+      else if (shown === seed.length && queryField.value.trim() === '' && categoryField.value === '') count.textContent = `${shown} bài mới nhất`;
+      else count.textContent = `${shown} bài`;
+    }
+
+    function showSeed(term: string) {
+      box.replaceChildren();
+      let shown = 0;
+      for (const node of seed) {
+        const item = node.cloneNode(true);
+        if (!(item instanceof HTMLElement)) continue;
+        const visible = term === '' || (item.dataset.search ?? '').includes(term);
+        item.hidden = !visible;
+        if (visible) shown += 1;
+        box.appendChild(item);
+      }
+      setStatus(shown, seed.length === 0 ? 'Chưa có bài đã xuất bản.' : 'Không có bài khớp.');
+      box.removeAttribute('aria-busy');
+      paint();
+    }
+
+    function showPosts(posts: { title?: unknown; path?: unknown; category?: unknown }[]) {
+      box.replaceChildren();
+      const path = pathField.value.trim();
+      for (const post of posts) {
+        if (typeof post.title !== 'string' || typeof post.path !== 'string') continue;
+        const categoryName = typeof post.category === 'string' ? post.category : '';
+        const item = document.createElement('li');
+        item.dataset.postPickerItem = '';
+        item.dataset.path = post.path;
+        item.dataset.title = post.title;
+        item.dataset.category = categoryName;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.postPickerPick = '';
+        button.setAttribute('aria-pressed', post.path === path ? 'true' : 'false');
+        const title = document.createElement('span');
+        title.textContent = post.title;
+        const meta = document.createElement('span');
+        meta.textContent = `${categoryName || 'Chưa phân loại'} · ${post.path}`;
+        button.appendChild(title);
+        button.appendChild(meta);
+        item.appendChild(button);
+        box.appendChild(item);
+      }
+      setStatus(box.childElementCount, 'Không có bài khớp.', true);
+      box.removeAttribute('aria-busy');
+      paint();
+    }
+
+    function remember(path: string, title: string, categoryName: string) {
+      host.dataset.selectedPath = path;
+      host.dataset.selectedTitle = title;
+      host.dataset.selectedCategory = categoryName;
+    }
+
+    function postsFrom(payload: unknown) {
+      if (!payload || typeof payload !== 'object' || !('posts' in payload)) return [];
+      return Array.isArray(payload.posts) ? payload.posts : [];
+    }
+
+    async function runSearch() {
+      const term = queryField.value.trim();
+      const cat = categoryField.value;
+      if (term.length < 2 && cat === '') {
+        inflight?.abort();
+        showSeed(term.toLowerCase());
+        return;
+      }
+      const seq = ++requestId;
+      inflight?.abort();
+      const controller = new AbortController();
+      inflight = controller;
+      box.setAttribute('aria-busy', 'true');
+      if (count instanceof HTMLElement) count.textContent = 'Đang tìm…';
+      const url = new URL(host.dataset.pickUrl || '/admin/redirects', location.origin);
+      url.searchParams.set('pick', '1');
+      if (term) url.searchParams.set('q', term);
+      if (cat) url.searchParams.set('category', cat);
+      try {
+        const response = await fetch(url, { headers: { accept: 'application/json' }, signal: controller.signal });
+        if (!response.ok) throw new Error('search failed');
+        if (seq !== requestId) return;
+        showPosts(postsFrom(await response.json()));
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') return;
+        if (seq !== requestId) return;
+        box.removeAttribute('aria-busy');
+        if (count instanceof HTMLElement) count.textContent = 'Không tìm được. Thử lại.';
+      }
+    }
+
+    function schedule(delay: number) {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void runSearch(), delay);
+    }
+
+    openButton.addEventListener('click', () => {
+      queryField.value = '';
+      categoryField.value = '';
+      inflight?.abort();
+      showSeed('');
+      modal.showModal();
+      queryField.focus();
+    });
+    clear?.addEventListener('click', () => {
+      pathField.value = '';
+      remember('', '', '');
+      paint();
+    });
+    modal.querySelector('[data-post-picker-close]')?.addEventListener('click', () => modal.close());
+    modal.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const pick = target.closest('[data-post-picker-pick]');
+      if (pick) {
+        const item = pick.closest('[data-post-picker-item]');
+        const path = item instanceof HTMLElement ? (item.dataset.path ?? '') : '';
+        pathField.value = path;
+        remember(path, item instanceof HTMLElement ? (item.dataset.title ?? '') : '', item instanceof HTMLElement ? (item.dataset.category ?? '') : '');
+        paint();
+        modal.close();
+        return;
+      }
+      if (target === modal) modal.close();
+    });
+    queryField.addEventListener('input', () => schedule(200));
+    queryField.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') event.preventDefault();
+    });
+    categoryField.addEventListener('change', () => schedule(0));
+    pathField.addEventListener('input', paint);
+
+  });
+</script>

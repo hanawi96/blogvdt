@@ -25,16 +25,25 @@ if (!Number.isInteger(id) || id < 1) return Astro.redirect(routes.adminPosts);
 const db = createDb(getDbBinding());
 const post = await getPost(db, id);
 if (!post) return Astro.redirect(routes.adminPosts);
+const inTrash = post.deletedAt != null;
+if (inTrash && Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  if (isAutosave(form)) return autosaveResponse({ ok: false, error: 'Bài đang ở thùng rác.' }, 422);
+  return Astro.redirect(`${routes.adminPosts}?status=trash`);
+}
 
-const categories = await listCategories(db);
-const corpus = mergeMetaCorpus(await listMetaCorpus(db, id), collectMetaCorpus(categories), siteListCorpus());
-const site = await getPublicSite(db);
+const categories = inTrash ? [] : await listCategories(db);
+const corpus = inTrash
+  ? { titles: [], descriptions: [] }
+  : mergeMetaCorpus(await listMetaCorpus(db, id), collectMetaCorpus(categories), siteListCorpus());
+const site = inTrash ? null : await getPublicSite(db);
 const seoSite = {
   name: site?.siteName || 'Website',
   host: Astro.url.hostname,
   markUrl: site?.faviconUrl || site?.logoUrl || '',
 };
-const media = await listMedia(db);
+const media = inTrash ? [] : await listMedia(db);
+const targets = inTrash ? [] : await listRedirectPostTargets(db, post.slug);
 let values = {
   title: post.title,
   slug: post.slug,
@@ -50,8 +59,9 @@ let errors: FieldErrors = {};
 let formError = Astro.request.method === 'GET' ? (Astro.url.searchParams.get('error') ?? '').slice(0, 200) : '';
 let revision = post.updatedAt;
 const saved = Astro.url.searchParams.get('saved') === '1';
+const restored = Astro.url.searchParams.get('restored') === '1';
 
-if (Astro.request.method === 'POST') {
+if (!inTrash && Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const autosave = isAutosave(form);
   const expected = expectedRevision(form);
@@ -107,22 +117,39 @@ function valuesFrom(form: FormData, fallbackContent: string) {
 }
 ---
 
-<AdminLayout title="Sửa bài viết">
-  <PostForm
-    csrf={session.csrfToken}
-    action={routes.adminPost(id)}
-    deleteAction={routes.adminPostDelete(id)}
-    {values}
-    {errors}
-    {formError}
-    {saved}
-    meta={{ createdAt: post.createdAt, updatedAt: revision, publishedAt: post.publishedAt }}
-    {categories}
-    {media}
-    site={seoSite}
-    postId={id}
-    livePublished={post.status === 'published'}
-    corpus={corpus}
-    targets={await listRedirectPostTargets(db, post.slug)}
-  />
-</AdminLayout>
+{
+  inTrash ? (
+    <AdminLayout title="Bài trong thùng rác">
+      <p slot="lead">Bài này không còn trên website. Khôi phục sẽ thành bản nháp, không tự xuất bản.</p>
+      <p class="font-semibold">{post.title}</p>
+      <div class="category-actions">
+        <a class="btn" href={`${routes.adminPosts}?status=trash`}>Về thùng rác</a>
+        <form method="post" action={routes.adminPostRestore(id)} data-busy>
+          <input type="hidden" name="csrf" value={session.csrfToken} />
+          <button class="btn btn-primary" type="submit">Khôi phục thành bản nháp</button>
+        </form>
+      </div>
+    </AdminLayout>
+  ) : (
+    <AdminLayout title="Sửa bài viết">
+      {restored && <p class="mb-4 text-primary-strong" role="status">Đã khôi phục thành bản nháp. Bài chưa được xuất bản lại.</p>}
+      <PostForm
+        csrf={session.csrfToken}
+        action={routes.adminPost(id)}
+        deleteAction={routes.adminPostDelete(id)}
+        {values}
+        {errors}
+        {formError}
+        {saved}
+        meta={{ createdAt: post.createdAt, updatedAt: revision, publishedAt: post.publishedAt }}
+        {categories}
+        {media}
+        site={seoSite}
+        postId={id}
+        livePublished={post.status === 'published'}
+        corpus={corpus}
+        {targets}
+      />
+    </AdminLayout>
+  )
+}

@@ -2,14 +2,23 @@ import { and, desc, eq, inArray, isNull, like, ne, or } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { posts, redirects } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
-import { classifyPostLinks, collectPostPaths, postPathFromHref, rankLinkSuggestions, type PostLinkIssue } from './links';
+import {
+  classifyPostLinks,
+  collectPostPaths,
+  postLinkCounts,
+  postPathFromHref,
+  rankLinkSuggestions,
+  type PostLinkCount,
+  type PostLinkIssue,
+} from './links';
+import { livePublished } from './visibility';
 
 export async function inspectPostLinks(db: AppDb, paths: string[], currentPath: string | null): Promise<PostLinkIssue[]> {
   const unique = [...new Set(paths.map(postPathFromHref).filter((path): path is string => Boolean(path)))].slice(0, 20);
   if (unique.length === 0) return [];
   const slugs = unique.map(slugOf);
   const rows = await db
-    .select({ slug: posts.slug, status: posts.status })
+    .select({ slug: posts.slug, status: posts.status, deletedAt: posts.deletedAt })
     .from(posts)
     .where(inArray(posts.slug, slugs));
   const redirectRows = await db
@@ -20,7 +29,7 @@ export async function inspectPostLinks(db: AppDb, paths: string[], currentPath: 
   const targetSlugs = redirectRows.map((row) => slugOf(row.toPath)).filter((slug) => slug.length > 0 && !known.has(slug));
   if (targetSlugs.length > 0) {
     const targets = await db
-      .select({ slug: posts.slug, status: posts.status })
+      .select({ slug: posts.slug, status: posts.status, deletedAt: posts.deletedAt })
       .from(posts)
       .where(inArray(posts.slug, targetSlugs));
     rows.push(...targets);
@@ -29,7 +38,7 @@ export async function inspectPostLinks(db: AppDb, paths: string[], currentPath: 
   const unpublished = new Set<string>();
   for (const row of rows) {
     const path = routes.knowledge(row.slug);
-    if (row.status === 'published') published.add(path);
+    if (row.status === 'published' && row.deletedAt == null) published.add(path);
     else unpublished.add(path);
   }
   const redirectMap = new Map(redirectRows.map((row) => [row.fromPath, row.toPath]));
@@ -41,7 +50,7 @@ export async function suggestPosts(
   input: { title: string; categoryId: number | null; excludeId: number | null },
 ): Promise<Array<{ title: string; path: string }>> {
   const excluded = input.excludeId ? ne(posts.id, input.excludeId) : undefined;
-  const published = and(eq(posts.status, 'published'), excluded);
+  const published = and(livePublished(), excluded);
   const columns = { title: posts.title, slug: posts.slug };
   const order = [desc(posts.publishedAt), desc(posts.id)] as const;
   const [same, others] = await Promise.all([
@@ -75,9 +84,26 @@ export async function hasInboundPostLink(db: AppDb, input: { path: string; exclu
   const rows = await db
     .select({ contentJson: posts.contentJson })
     .from(posts)
-    .where(and(eq(posts.status, 'published'), input.excludeId ? ne(posts.id, input.excludeId) : undefined, like(posts.contentJson, `%${path}%`)))
+    .where(and(livePublished(), input.excludeId ? ne(posts.id, input.excludeId) : undefined, like(posts.contentJson, `%${path}%`)))
     .limit(8);
   return rows.some((row) => collectPostPaths(row.contentJson).paths.includes(path));
+}
+
+// Chỉ đọc bài của trang đang xem và bài xuất bản có chứa đường dẫn của chúng. LIKE lọc thô, parse JSON xác nhận.
+export async function listPostLinkCounts(db: AppDb, rows: ReadonlyArray<{ id: number; slug: string }>): Promise<Map<number, PostLinkCount>> {
+  if (rows.length === 0) return new Map();
+  const mentions = rows.map((row) => like(posts.contentJson, `%${routes.knowledge(row.slug)}%`));
+  const [page, sources] = await Promise.all([
+    db
+      .select({ id: posts.id, slug: posts.slug, contentJson: posts.contentJson })
+      .from(posts)
+      .where(inArray(posts.id, rows.map((row) => row.id))),
+    db
+      .select({ id: posts.id, contentJson: posts.contentJson })
+      .from(posts)
+      .where(and(livePublished(), or(...mentions))),
+  ]);
+  return postLinkCounts(page, sources);
 }
 
 function slugOf(path: string): string {

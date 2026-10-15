@@ -22,6 +22,8 @@ export const routes = {
   adminActivate: '/admin/activate',
   adminPost: (id: number) => `/admin/posts/${id}`,
   adminPostDelete: (id: number) => `/admin/posts/${id}/delete`,
+  adminPostRestore: (id: number) => `/admin/posts/${id}/restore`,
+  adminPostPurge: (id: number) => `/admin/posts/${id}/purge`,
   adminPostCopy: (id: number) => `/admin/posts/${id}/copy`,
   adminProduct: (id: number) => `/admin/products/${id}`,
   adminProductDelete: (id: number) => `/admin/products/${id}/delete`,

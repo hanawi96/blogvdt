@@ -3,6 +3,7 @@ import type { AppDb } from '../../lib/db/client';
 import { categories, media, posts } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { SLUG_PATTERN } from './slug';
+import { livePublished } from './visibility';
 
 export const POST_PAGE_SIZE = 9;
 
@@ -28,11 +29,9 @@ export type PublicPostCard = {
 };
 
 export async function listPublishedPosts(db: AppDb, filters: { page: number; categoryId?: number }) {
-  const where = filters.categoryId
-    ? and(eq(posts.status, 'published'), eq(posts.categoryId, filters.categoryId))
-    : eq(posts.status, 'published');
+  const live = filters.categoryId ? and(livePublished(), eq(posts.categoryId, filters.categoryId)) : livePublished();
   const page = Math.max(1, filters.page);
-  const totalRows = await db.select({ value: count() }).from(posts).where(where);
+  const totalRows = await db.select({ value: count() }).from(posts).where(live);
   const total = totalRows[0]?.value ?? 0;
   const rows = await db
     .select({
@@ -51,7 +50,7 @@ export async function listPublishedPosts(db: AppDb, filters: { page: number; cat
     .from(posts)
     .leftJoin(categories, eq(posts.categoryId, categories.id))
     .leftJoin(media, eq(posts.coverMediaId, media.id))
-    .where(where)
+    .where(live)
     .orderBy(desc(posts.publishedAt), desc(posts.id))
     .limit(POST_PAGE_SIZE)
     .offset((page - 1) * POST_PAGE_SIZE);
@@ -110,7 +109,7 @@ export async function getPostBySlug(db: AppDb, slug: string) {
     .from(posts)
     .leftJoin(categories, eq(posts.categoryId, categories.id))
     .leftJoin(media, eq(posts.coverMediaId, media.id))
-    .where(and(eq(posts.slug, slug), eq(posts.status, 'published')))
+    .where(and(eq(posts.slug, slug), livePublished()))
     .limit(1);
   const row = rows[0];
   if (!row) return null;
@@ -123,8 +122,8 @@ export async function getPostBySlug(db: AppDb, slug: string) {
 
 export async function listRelatedPosts(db: AppDb, input: { id: number; categoryId: number | null }) {
   const where = input.categoryId
-    ? and(eq(posts.status, 'published'), eq(posts.categoryId, input.categoryId), ne(posts.id, input.id))
-    : and(eq(posts.status, 'published'), ne(posts.id, input.id));
+    ? and(livePublished(), eq(posts.categoryId, input.categoryId), ne(posts.id, input.id))
+    : and(livePublished(), ne(posts.id, input.id));
   const rows = await db
     .select({
       id: posts.id,
@@ -152,7 +151,7 @@ export async function listSitemapPosts(db: AppDb) {
   const rows = await db
     .select({ slug: posts.slug, updatedAt: posts.updatedAt })
     .from(posts)
-    .where(eq(posts.status, 'published'))
+    .where(livePublished())
     .orderBy(desc(posts.publishedAt), desc(posts.id));
   return rows.filter((row) => SLUG_PATTERN.test(row.slug));
 }
