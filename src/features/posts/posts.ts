@@ -1,5 +1,14 @@
 import { and, asc, count, desc, eq, like } from 'drizzle-orm';
-import { runBatch } from '../../lib/db/batch';
+import {
+  activityWrite,
+  autosaveLogWrite,
+  changedRows,
+  commitWrites,
+  postChanged,
+  postLogAction,
+  postSummary,
+  type ActivityActor,
+} from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
 import { slugRedirectQueries } from '../../lib/db/redirects';
 import { categories, posts } from '../../lib/db/schema';
@@ -109,16 +118,37 @@ export async function getPost(db: AppDb, id: number) {
   return rows[0] ?? null;
 }
 
-export async function createPost(db: AppDb, input: PostInput, now = Date.now()): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+export async function createPost(
+  db: AppDb,
+  input: PostInput,
+  now = Date.now(),
+  actor?: ActivityActor,
+): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
   const slugError = await slugAvailable(db, input.slug, null);
   if (slugError) return { ok: false, error: slugError };
-  const inserted = await db
-    .insert(posts)
-    .values({
-      ...postValues(input, now),
-      createdAt: now,
-    })
-    .returning({ id: posts.id });
+  const action = input.status === 'published' ? 'post.publish' : 'post.create';
+  await commitWrites(db, [
+    db.insert(posts).values({ ...postValues(input, now), createdAt: now }),
+    ...(actor
+      ? [
+          activityWrite(
+            db,
+            {
+              actorId: actor.id,
+              actorName: actor.name,
+              action,
+              objectType: 'post',
+              objectId: null,
+              summary: postSummary(action, input.title),
+              createdAt: now,
+              useLastInsertId: true,
+            },
+            true,
+          ),
+        ]
+      : []),
+  ]);
+  const inserted = await db.select({ id: posts.id }).from(posts).where(eq(posts.slug, input.slug)).limit(1);
   const id = inserted[0]?.id;
   if (!id) return { ok: false, error: 'Không lưu được bài viết.' };
   return { ok: true, id };
@@ -129,19 +159,38 @@ export async function updatePost(
   id: number,
   input: PostInput,
   now = Date.now(),
+  actor?: ActivityActor,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const current = await getPost(db, id);
   if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
+  const action = postLogAction(current.status, input.status, postChanged(current, input));
+  if (!action) return { ok: true };
   const slugError = await slugAvailable(db, input.slug, id);
   if (slugError) return { ok: false, error: slugError };
   const values = postValues(input, now, current.publishedAt);
-  if (!shouldStorePostRedirect(current, input.slug)) {
-    await db.update(posts).set(values).where(eq(posts.id, id));
-    return { ok: true };
-  }
-  await runBatch(db, [
-    db.update(posts).set(values).where(eq(posts.id, id)),
-    ...slugRedirectQueries(db, routes.knowledge(current.slug), routes.knowledge(input.slug), now),
+  const redirect = shouldStorePostRedirect(current, input.slug)
+    ? slugRedirectQueries(db, routes.knowledge(current.slug), routes.knowledge(input.slug), now)
+    : [];
+  await commitWrites(db, [
+    db.update(posts).set(values).where(eq(posts.id, id)).returning({ id: posts.id }),
+    ...(actor
+      ? [
+          activityWrite(
+            db,
+            {
+              actorId: actor.id,
+              actorName: actor.name,
+              action,
+              objectType: 'post',
+              objectId: String(id),
+              summary: postSummary(action, input.title),
+              createdAt: now,
+            },
+            true,
+          ),
+        ]
+      : []),
+    ...redirect,
   ]);
   return { ok: true };
 }
@@ -152,22 +201,35 @@ export async function saveDraftPost(
   id: number,
   input: PostInput,
   now = Date.now(),
+  actor?: ActivityActor,
 ): Promise<{ ok: true; skipped: boolean } | { ok: false; error: string }> {
   const current = await getPost(db, id);
   if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
   if (current.status !== 'draft') return { ok: true, skipped: true };
+  const draft = { ...input, status: 'draft' as const };
+  if (!postChanged(current, draft)) return { ok: true, skipped: false };
   const slugError = await slugAvailable(db, input.slug, id);
   if (slugError) return { ok: false, error: slugError };
-  const values = postValues({ ...input, status: 'draft' }, now, current.publishedAt);
-  const updated = await db
-    .update(posts)
-    .set(values)
-    .where(and(eq(posts.id, id), eq(posts.status, 'draft')))
-    .returning({ id: posts.id });
-  if (updated.length === 0) return { ok: true, skipped: true };
-  if (shouldStorePostRedirect(current, input.slug)) {
-    await runBatch(db, slugRedirectQueries(db, routes.knowledge(current.slug), routes.knowledge(input.slug), now));
-  }
+  const values = postValues(draft, now, current.publishedAt);
+  const redirect = shouldStorePostRedirect(current, input.slug)
+    ? slugRedirectQueries(db, routes.knowledge(current.slug), routes.knowledge(input.slug), now)
+    : [];
+  const entry = {
+    actorId: actor?.id ?? 0,
+    actorName: actor?.name ?? '',
+    action: 'post.update' as const,
+    objectType: 'post' as const,
+    objectId: String(id),
+    summary: postSummary('post.update', input.title),
+    createdAt: now,
+  };
+  const autosaveLog = actor ? await autosaveLogWrite(db, entry, id) : null;
+  const results = await commitWrites(db, [
+    db.update(posts).set(values).where(and(eq(posts.id, id), eq(posts.status, 'draft'))).returning({ id: posts.id }),
+    ...(autosaveLog ? [autosaveLog.query] : []),
+    ...redirect,
+  ]);
+  if (!changedRows(results[0])) return { ok: true, skipped: true };
   return { ok: true, skipped: false };
 }
 
@@ -175,6 +237,7 @@ export async function duplicatePost(
   db: AppDb,
   id: number,
   now = Date.now(),
+  actor?: ActivityActor,
 ): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
   const current = await getPost(db, id);
   if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
@@ -194,6 +257,7 @@ export async function duplicatePost(
       status: 'draft',
     },
     now,
+    actor,
   );
 }
 
@@ -206,8 +270,29 @@ async function unusedCopySlug(db: AppDb, base: string): Promise<string | null> {
   return null;
 }
 
-export async function deletePost(db: AppDb, id: number): Promise<void> {
-  await db.delete(posts).where(eq(posts.id, id));
+export async function deletePost(db: AppDb, id: number, actor?: ActivityActor): Promise<void> {
+  const current = await getPost(db, id);
+  if (!current) return;
+  await commitWrites(db, [
+    db.delete(posts).where(eq(posts.id, id)),
+    ...(actor
+      ? [
+          activityWrite(
+            db,
+            {
+              actorId: actor.id,
+              actorName: actor.name,
+              action: 'post.delete',
+              objectType: 'post',
+              objectId: String(id),
+              summary: postSummary('post.delete', current.title),
+              createdAt: Date.now(),
+            },
+            true,
+          ),
+        ]
+      : []),
+  ]);
 }
 
 function postValues(input: PostInput, now: number, previousPublishedAt: number | null = null) {

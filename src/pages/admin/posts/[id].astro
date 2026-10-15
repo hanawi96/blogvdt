@@ -4,6 +4,7 @@ import PostForm from '../../../components/admin/PostForm.astro';
 import { mutationError } from '../../../features/auth/session';
 import { listCategories } from '../../../features/posts/categories';
 import { autosaveResponse, excerptFieldValue, firstFieldError, isAutosave, parsePostForm } from '../../../features/posts/form';
+import { activityActor } from '../../../features/activity/log';
 import { getPost, saveDraftPost, updatePost } from '../../../features/posts/posts';
 import { listMedia } from '../../../features/media/media';
 import { getPublicSite } from '../../../features/settings/settings';
@@ -57,7 +58,8 @@ if (Astro.request.method === 'POST') {
     const parsed = parsePostForm(form);
     if (autosave) {
       if (!parsed.ok) return autosaveResponse({ ok: false, error: firstFieldError(parsed.errors) }, 422);
-      const saved = await saveDraftPost(db, id, { ...parsed.input, status: 'draft' });
+      const actor = await activityActor(db, session.userId);
+      const saved = await saveDraftPost(db, id, { ...parsed.input, status: 'draft' }, Date.now(), actor);
       if (!saved.ok) return autosaveResponse({ ok: false, error: saved.error }, 422);
       return autosaveResponse({ ok: true, id, skipped: saved.skipped });
     }
@@ -66,7 +68,8 @@ if (Astro.request.method === 'POST') {
       Astro.response.status = 422;
       errors = parsed.errors;
     } else {
-      const updated = await updatePost(db, id, parsed.input);
+      const actor = await activityActor(db, session.userId);
+      const updated = await updatePost(db, id, parsed.input, Date.now(), actor);
       if (!updated.ok) {
         Astro.response.status = 422;
         formError = updated.error;

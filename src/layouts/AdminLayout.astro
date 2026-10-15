@@ -13,10 +13,16 @@ const items = [
   [routes.admin, 'Tổng quan'],
   [routes.adminPosts, 'Bài viết'],
   [routes.adminCategories, 'Danh mục'],
-  [routes.adminProducts, 'Sản phẩm'],
-  [routes.adminOrders, 'Đơn hàng'],
   [routes.adminMedia, 'Thư viện ảnh'],
-  [routes.adminSettings, 'Cài đặt'],
+  ...(session?.role === 'admin'
+    ? [
+        [routes.adminProducts, 'Sản phẩm'],
+        [routes.adminOrders, 'Đơn hàng'],
+        [routes.adminSettings, 'Cài đặt'],
+        [routes.adminUsers, 'Người dùng'],
+        [routes.adminActivity, 'Nhật ký'],
+      ]
+    : []),
 ] as const;
 
 function current(href: string): boolean {
@@ -55,12 +61,15 @@ function current(href: string): boolean {
                 </a>
               ))}
             </nav>
-            <form method="post" action={routes.adminLogout} class="px-3 py-4">
+            <div class="flex gap-2 px-3 py-4 md:block">
+              <a class="btn" href={routes.adminAccount}>Tài khoản</a>
+            <form method="post" action={routes.adminLogout} class="md:mt-2">
               <input type="hidden" name="csrf" value={session.csrfToken} />
               <button class="btn" type="submit">
                 Đăng xuất
               </button>
             </form>
+            </div>
           </aside>
           <div>
             <header class="admin-page-head">

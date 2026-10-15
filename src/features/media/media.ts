@@ -1,4 +1,5 @@
 import { desc, eq, inArray, like, or } from 'drizzle-orm';
+import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
 import { media, posts, productMedia, products, siteSettings } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
@@ -144,13 +145,37 @@ export async function updateMediaAlt(db: AppDb, id: number, altText: string): Pr
   await db.update(media).set({ altText: altText.slice(0, 200) }).where(eq(media.id, id));
 }
 
-export async function deleteMedia(db: AppDb, bucket: R2Bucket, id: number): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function deleteMedia(
+  db: AppDb,
+  bucket: R2Bucket,
+  id: number,
+  actor?: ActivityActor,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const rows = await db.select().from(media).where(eq(media.id, id)).limit(1);
   const item = rows[0];
   if (!item) return { ok: false, error: 'Không tìm thấy ảnh.' };
   const reason = await mediaInUse(db, item.id, item.r2Key);
   if (reason) return { ok: false, error: reason };
-  await db.delete(media).where(eq(media.id, id));
+  await commitWrites(db, [
+    db.delete(media).where(eq(media.id, id)),
+    ...(actor
+      ? [
+          activityWrite(
+            db,
+            {
+              actorId: actor.id,
+              actorName: actor.name,
+              action: 'media.delete',
+              objectType: 'media',
+              objectId: String(id),
+              summary: `Đã xóa ảnh ${quotedLabel(item.filename, 'Không tên')}.`,
+              createdAt: Date.now(),
+            },
+            true,
+          ),
+        ]
+      : []),
+  ]);
   await bucket.delete(item.r2Key);
   return { ok: true };
 }

@@ -1,6 +1,6 @@
 import { inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { runBatch } from '../../lib/db/batch';
+import { activityWrite, commitWrites, type ActivityActor } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
 import { media, siteSettings } from '../../lib/db/schema';
 import { isHttpUrl } from '../../lib/http';
@@ -138,17 +138,33 @@ export function changedSettingKeys(current: SiteSettingValues, next: SiteSetting
   return SETTING_KEYS.filter((key) => current[key] !== next[key]);
 }
 
-export async function saveSettings(db: AppDb, values: SiteSettingValues, now = Date.now()): Promise<number> {
+export async function saveSettings(db: AppDb, values: SiteSettingValues, now = Date.now(), actor?: ActivityActor): Promise<number> {
   const keys = changedSettingKeys(await getSettings(db), values);
   if (keys.length === 0) return 0;
-  await runBatch(
-    db,
-    keys.map((key) =>
+  await commitWrites(db, [
+    ...keys.map((key) =>
       db
         .insert(siteSettings)
         .values({ key, value: values[key], updatedAt: now })
         .onConflictDoUpdate({ target: siteSettings.key, set: { value: values[key], updatedAt: now } }),
     ),
-  );
+    ...(actor
+      ? [
+          activityWrite(
+            db,
+            {
+              actorId: actor.id,
+              actorName: actor.name,
+              action: 'settings.update',
+              objectType: 'settings',
+              objectId: null,
+              summary: 'Đã cập nhật cài đặt.',
+              createdAt: now,
+            },
+            false,
+          ),
+        ]
+      : []),
+  ]);
   return keys.length;
 }

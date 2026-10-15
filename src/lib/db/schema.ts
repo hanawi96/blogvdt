@@ -1,14 +1,41 @@
 import { sql } from 'drizzle-orm';
 import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
-export const adminUsers = sqliteTable('admin_users', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  username: text('username').notNull().unique(),
-  // pbkdf2-sha256$<số vòng>$<salt base64>$<hash base64>. Web Crypto, 100000 vòng.
-  passwordHash: text('password_hash').notNull(),
-  createdAt: integer('created_at').notNull(),
-  updatedAt: integer('updated_at').notNull(),
-});
+export const adminUsers = sqliteTable(
+  'admin_users',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    username: text('username').notNull().unique(),
+    displayName: text('display_name').notNull().default(''),
+    email: text('email').unique(),
+    role: text('role').notNull().default('admin'),
+    status: text('status').notNull().default('active'),
+    // pbkdf2-sha256$<số vòng>$<salt base64>$<hash base64>. Web Crypto, 100000 vòng.
+    passwordHash: text('password_hash').notNull(),
+    lastLoginAt: integer('last_login_at'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    check('admin_users_role_check', sql`${table.role} in ('admin', 'editor')`),
+    check('admin_users_status_check', sql`${table.status} in ('active', 'invited', 'disabled')`),
+  ],
+);
+
+export const passwordResets = sqliteTable(
+  'password_resets',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: integer('expires_at').notNull(),
+    usedAt: integer('used_at'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => [index('password_resets_user_idx').on(table.userId)],
+);
 
 export const sessions = sqliteTable(
   'sessions',
@@ -167,3 +194,23 @@ export const siteSettings = sqliteTable('site_settings', {
   value: text('value').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+// Tên người thao tác được chụp tại thời điểm ghi. Xóa tài khoản không xóa nhật ký.
+export const activityLogs = sqliteTable(
+  'activity_logs',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    actorId: integer('actor_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+    actorName: text('actor_name').notNull(),
+    action: text('action').notNull(),
+    objectType: text('object_type').notNull(),
+    objectId: text('object_id'),
+    summary: text('summary').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => [
+    index('activity_logs_recent_idx').on(table.createdAt, table.id),
+    index('activity_logs_actor_idx').on(table.actorId, table.action, table.objectType, table.objectId, table.createdAt),
+    index('activity_logs_action_idx').on(table.action, table.createdAt),
+  ],
+);

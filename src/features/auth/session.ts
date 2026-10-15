@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm';
-import { sessions } from '../../lib/db/schema';
+import { adminUsers, sessions } from '../../lib/db/schema';
 import type { AppDb } from '../../lib/db/client';
 import { isSameOrigin } from '../../lib/http';
+import { isAdminRole, type AdminRole } from './access';
 
 export const SESSION_COOKIE = 'admin_session';
 export const SESSION_MS = 8 * 60 * 60 * 1000;
@@ -19,10 +20,11 @@ export function sessionCookieOptions(secure: boolean) {
 export type AdminSession = {
   sessionId: string;
   userId: number;
+  role: AdminRole;
   csrfToken: string;
 };
 
-export async function createSession(db: AppDb, userId: number, now = Date.now()): Promise<AdminSession> {
+export async function createSession(db: AppDb, userId: number, role: AdminRole, now = Date.now()): Promise<AdminSession> {
   const sessionId = randomToken();
   const csrfToken = randomToken();
   await db.insert(sessions).values({
@@ -32,7 +34,7 @@ export async function createSession(db: AppDb, userId: number, now = Date.now())
     expiresAt: now + SESSION_MS,
     createdAt: now,
   });
-  return { sessionId, userId, csrfToken };
+  return { sessionId, userId, role, csrfToken };
 }
 
 export async function readSession(db: AppDb, sessionId: string | undefined, now = Date.now()): Promise<AdminSession | null> {
@@ -43,17 +45,19 @@ export async function readSession(db: AppDb, sessionId: string | undefined, now 
       userId: sessions.adminUserId,
       csrfToken: sessions.csrfToken,
       expiresAt: sessions.expiresAt,
+      role: adminUsers.role,
+      status: adminUsers.status,
     })
     .from(sessions)
+    .innerJoin(adminUsers, eq(adminUsers.id, sessions.adminUserId))
     .where(eq(sessions.id, sessionId))
     .limit(1);
   const row = rows[0];
-  if (!row) return null;
-  if (row.expiresAt <= now) {
-    await db.delete(sessions).where(eq(sessions.id, sessionId));
+  if (!row || row.expiresAt <= now || row.status !== 'active' || !isAdminRole(row.role)) {
+    if (row) await db.delete(sessions).where(eq(sessions.id, sessionId));
     return null;
   }
-  return { sessionId: row.sessionId, userId: row.userId, csrfToken: row.csrfToken };
+  return { sessionId: row.sessionId, userId: row.userId, role: row.role, csrfToken: row.csrfToken };
 }
 
 export async function destroySession(db: AppDb, sessionId: string): Promise<void> {
@@ -76,7 +80,12 @@ export function csrfMatches(expected: string, received: string): boolean {
   return difference === 0;
 }
 
-function randomToken(): string {
+export function randomToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export async function hashToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }

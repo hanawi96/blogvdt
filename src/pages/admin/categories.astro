@@ -1,6 +1,7 @@
 ---
 import SlugField from '../../components/admin/SlugField.svelte';
 import AdminLayout from '../../layouts/AdminLayout.astro';
+import { activityActor } from '../../features/activity/log';
 import { mutationError } from '../../features/auth/session';
 import { categoryDeleteWarning, deleteCategory, listCategories, saveCategory } from '../../features/posts/categories';
 import { createDb } from '../../lib/db/client';
@@ -29,8 +30,9 @@ if (Astro.request.method === 'POST') {
     const intent = String(form.get('intent') ?? 'save');
     const idValue = Number(form.get('id'));
     const id = Number.isInteger(idValue) && idValue > 0 ? idValue : undefined;
+    const actor = await activityActor(db, session.userId);
     if (intent === 'delete' && id) {
-      await deleteCategory(db, id);
+      await deleteCategory(db, id, actor);
       return Astro.redirect(routes.adminCategories, 303);
     }
     name = String(form.get('name') ?? '');
@@ -39,7 +41,7 @@ if (Astro.request.method === 'POST') {
     seoTitle = String(form.get('seoTitle') ?? '');
     metaDescription = String(form.get('metaDescription') ?? '');
     editingId = id ? String(id) : '';
-    const saved = await saveCategory(db, { id, name, slug, description, seoTitle, metaDescription });
+    const saved = await saveCategory(db, { id, name, slug, description, seoTitle, metaDescription }, Date.now(), actor);
     if (!saved.ok) {
       Astro.response.status = 422;
       formError = saved.error;

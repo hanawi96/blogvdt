@@ -1,0 +1,156 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { isAdminRole, isAdminStatus, ROLE_LABELS, STATUS_LABELS } from '../../../features/auth/access';
+import { listUsers, type UserListFilters } from '../../../features/auth/users';
+import { createDb } from '../../../lib/db/client';
+import { getDbBinding } from '../../../lib/cloudflare/env';
+import { formatDateTime } from '../../../lib/datetime';
+import { routes } from '../../../lib/routes';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+if (session.role !== 'admin') return new Response('Bạn không có quyền vào trang này.', { status: 403 });
+
+const query = Astro.url.searchParams.get('q') ?? '';
+const roleParam = Astro.url.searchParams.get('role') ?? '';
+const statusParam = Astro.url.searchParams.get('status') ?? '';
+const filters: UserListFilters = {
+  query,
+  role: isAdminRole(roleParam) ? roleParam : '',
+  status: isAdminStatus(statusParam) ? statusParam : '',
+  page: Number(Astro.url.searchParams.get('page') ?? '1'),
+};
+let loadError = '';
+let result: Awaited<ReturnType<typeof listUsers>> | null = null;
+try {
+  result = await listUsers(createDb(getDbBinding()), filters);
+} catch (error) {
+  console.error(JSON.stringify({ event: 'user_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
+  loadError = 'Không tải được danh sách người dùng.';
+}
+
+function pageHref(page: number): string {
+  const params = new URLSearchParams();
+  if (filters.query.trim()) params.set('q', filters.query.trim());
+  if (filters.role) params.set('role', filters.role);
+  if (filters.status) params.set('status', filters.status);
+  if (page > 1) params.set('page', String(page));
+  const text = params.toString();
+  return text ? `${routes.adminUsers}?${text}` : routes.adminUsers;
+}
+---
+
+<AdminLayout title="Người dùng">
+  <p slot="lead">{result ? `${result.libraryTotal} tài khoản` : 'Danh sách tài khoản'}</p>
+  <a slot="action" class="btn btn-primary" href={routes.adminUserNew}>Thêm tài khoản</a>
+  {loadError && <p class="error-text" role="alert">{loadError}</p>}
+  {
+    result && (
+      <>
+        <form class="post-toolbar" method="get" data-user-search>
+          <label class="sr-only" for="user-query">Tìm người dùng</label>
+          <input id="user-query" class="field" name="q" value={filters.query} placeholder="Tên hoặc email" maxlength="80" />
+          <label class="sr-only" for="user-role">Vai trò</label>
+          <select id="user-role" class="field" name="role">
+            <option value="" selected={filters.role === ''}>Mọi vai trò</option>
+            <option value="admin" selected={filters.role === 'admin'}>Quản trị</option>
+            <option value="editor" selected={filters.role === 'editor'}>Biên tập</option>
+          </select>
+          <label class="sr-only" for="user-status">Trạng thái</label>
+          <select id="user-status" class="field" name="status">
+            <option value="" selected={filters.status === ''}>Mọi trạng thái</option>
+            <option value="active" selected={filters.status === 'active'}>Đang hoạt động</option>
+            <option value="invited" selected={filters.status === 'invited'}>Chưa đặt mật khẩu</option>
+            <option value="disabled" selected={filters.status === 'disabled'}>Đã khóa</option>
+          </select>
+        </form>
+        <div data-user-list>
+          {result.rows.length === 0 ? (
+            <p class="post-empty">
+              {result.libraryTotal === 0 ? 'Chưa có tài khoản.' : 'Không có tài khoản khớp bộ lọc.'}
+            </p>
+          ) : (
+            <table class="post-table">
+              <thead>
+                <tr>
+                  <th>Người dùng</th>
+                  <th>Vai trò</th>
+                  <th>Trạng thái</th>
+                  <th>Đăng nhập cuối</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.rows.map((user) => (
+                  <tr>
+                    <td>
+                      <a class="post-title" href={routes.adminUser(user.id)}>{user.displayName || user.username}</a>
+                      <p class="text-sm text-muted">{user.email || user.username}</p>
+                    </td>
+                    <td data-label="Vai trò">{ROLE_LABELS[user.role]}</td>
+                    <td data-label="Trạng thái">
+                      <span class="post-status" data-status={user.status === 'active' ? 'active' : user.status}>{STATUS_LABELS[user.status]}</span>
+                    </td>
+                    <td data-label="Đăng nhập cuối">{user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'Chưa đăng nhập'}</td>
+                    <td><a href={routes.adminUser(user.id)}>Sửa</a></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {result.pageCount > 1 && (
+          <nav class="post-pager" aria-label="Phân trang">
+            {result.page > 1 && <a class="btn" href={pageHref(result.page - 1)}>Trang trước</a>}
+            <span>Trang {result.page}/{result.pageCount}</span>
+            {result.page < result.pageCount && <a class="btn" href={pageHref(result.page + 1)}>Trang sau</a>}
+          </nav>
+        )}
+      </>
+    )
+  }
+</AdminLayout>
+
+<script>
+  const form = document.querySelector('[data-user-search]');
+  const list = document.querySelector('[data-user-list]');
+  if (form instanceof HTMLFormElement) {
+    const input = form.querySelector('input[name="q"]');
+    let timer = 0;
+    const go = () => {
+      const data = new FormData(form);
+      const read = (name: string) => {
+        const value = data.get(name);
+        return typeof value === 'string' ? value : '';
+      };
+      const params = new URLSearchParams();
+      const term = read('q').trim();
+      const role = read('role');
+      const status = read('status');
+      if (term) params.set('q', term);
+      if (role === 'admin' || role === 'editor') params.set('role', role);
+      if (status === 'active' || status === 'invited' || status === 'disabled') params.set('status', status);
+      const text = params.toString();
+      const next = text ? `/admin/users?${text}` : '/admin/users';
+      if (next === location.pathname + location.search) return;
+      list?.setAttribute('aria-busy', 'true');
+      location.assign(next);
+    };
+    if (input instanceof HTMLInputElement) {
+      input.addEventListener('input', () => {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(go, 300);
+      });
+    }
+    form.addEventListener('change', (event) => {
+      if (event.target === input) return;
+      window.clearTimeout(timer);
+      go();
+    });
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      window.clearTimeout(timer);
+      go();
+    });
+  }
+</script>

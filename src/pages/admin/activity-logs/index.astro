@@ -1,0 +1,147 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import {
+  ACTIVITY_ACTIONS,
+  ACTIVITY_LABELS,
+  isActivityAction,
+  listActivity,
+  listActivityActors,
+  readActivityFilters,
+} from '../../../features/activity/log';
+import { createDb } from '../../../lib/db/client';
+import { getDbBinding } from '../../../lib/cloudflare/env';
+import { formatDateTime } from '../../../lib/datetime';
+import { routes } from '../../../lib/routes';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+if (session.role !== 'admin') return new Response('Bạn không có quyền vào trang này.', { status: 403 });
+
+const filters = readActivityFilters(Astro.url.searchParams);
+let loadError = '';
+let actors: { id: number; name: string }[] = [];
+let result: Awaited<ReturnType<typeof listActivity>> | null = null;
+try {
+  const db = createDb(getDbBinding());
+  actors = await listActivityActors(db);
+  result = await listActivity(db, filters);
+  if (result.invalid) loadError = 'Khoảng ngày không hợp lệ.';
+} catch (error) {
+  console.error(JSON.stringify({ event: 'activity_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
+  loadError = 'Không tải được nhật ký.';
+}
+
+function pageHref(page: number): string {
+  const params = new URLSearchParams();
+  if (filters.actorId) params.set('user', String(filters.actorId));
+  if (filters.action) params.set('action', filters.action);
+  if (filters.from) params.set('from', filters.from);
+  if (filters.to) params.set('to', filters.to);
+  if (page > 1) params.set('page', String(page));
+  const text = params.toString();
+  return text ? `${routes.adminActivity}?${text}` : routes.adminActivity;
+}
+
+function actionLabel(action: string): string {
+  return isActivityAction(action) ? ACTIVITY_LABELS[action] : action;
+}
+---
+
+<AdminLayout title="Nhật ký">
+  <p slot="lead">Chỉ xem. Nhật ký không sửa và không xóa được.</p>
+  {loadError && <p class="error-text" role="alert">{loadError}</p>}
+  {
+    result && (
+      <>
+        <form class="post-toolbar" method="get" data-activity-search>
+          <label class="sr-only" for="activity-user">Người dùng</label>
+          <select id="activity-user" class="field" name="user">
+            <option value="" selected={filters.actorId === null}>Mọi người</option>
+            {actors.map((actor) => (
+              <option value={actor.id} selected={filters.actorId === actor.id}>{actor.name}</option>
+            ))}
+          </select>
+          <label class="sr-only" for="activity-action">Hành động</label>
+          <select id="activity-action" class="field" name="action">
+            <option value="" selected={filters.action === ''}>Mọi hành động</option>
+            {ACTIVITY_ACTIONS.map((action) => (
+              <option value={action} selected={filters.action === action}>{ACTIVITY_LABELS[action]}</option>
+            ))}
+          </select>
+          <label class="sr-only" for="activity-from">Từ ngày</label>
+          <input id="activity-from" class="field" type="date" name="from" value={filters.from} />
+          <label class="sr-only" for="activity-to">Đến ngày</label>
+          <input id="activity-to" class="field" type="date" name="to" value={filters.to} />
+        </form>
+        {!result.invalid && (
+          <div data-activity-list>
+            {result.rows.length === 0 ? (
+              <p class="post-empty">{result.total === 0 && !filters.actorId && !filters.action && !filters.from && !filters.to ? 'Chưa có nhật ký.' : 'Không có nhật ký khớp bộ lọc.'}</p>
+            ) : (
+              <table class="post-table">
+                <thead>
+                  <tr>
+                    <th>Thời gian</th>
+                    <th>Người thực hiện</th>
+                    <th>Hành động</th>
+                    <th>Nội dung</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.rows.map((row) => (
+                    <tr>
+                      <td data-label="Thời gian">{formatDateTime(row.createdAt)}</td>
+                      <td data-label="Người thực hiện">{row.actorName}</td>
+                      <td data-label="Hành động">{actionLabel(row.action)}</td>
+                      <td data-label="Nội dung">{row.summary}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+        {!result.invalid && result.pageCount > 1 && (
+          <nav class="post-pager" aria-label="Phân trang">
+            {result.page > 1 && <a class="btn" href={pageHref(result.page - 1)}>Trang trước</a>}
+            <span>Trang {result.page}/{result.pageCount}</span>
+            {result.page < result.pageCount && <a class="btn" href={pageHref(result.page + 1)}>Trang sau</a>}
+          </nav>
+        )}
+      </>
+    )
+  }
+</AdminLayout>
+
+<script>
+  const form = document.querySelector('[data-activity-search]');
+  const list = document.querySelector('[data-activity-list]');
+  if (form instanceof HTMLFormElement) {
+    const go = () => {
+      const data = new FormData(form);
+      const read = (name: string) => {
+        const value = data.get(name);
+        return typeof value === 'string' ? value : '';
+      };
+      const params = new URLSearchParams();
+      const user = read('user');
+      const action = read('action');
+      const from = read('from');
+      const to = read('to');
+      if (/^[1-9]\d*$/.test(user)) params.set('user', user);
+      if (action) params.set('action', action);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(from)) params.set('from', from);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(to)) params.set('to', to);
+      const text = params.toString();
+      const next = text ? `/admin/activity-logs?${text}` : '/admin/activity-logs';
+      if (next === location.pathname + location.search) return;
+      list?.setAttribute('aria-busy', 'true');
+      location.assign(next);
+    };
+    form.addEventListener('change', go);
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      go();
+    });
+  }
+</script>

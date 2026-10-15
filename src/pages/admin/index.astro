@@ -7,7 +7,9 @@ import { getDbBinding } from '../../lib/cloudflare/env';
 import { formatDateTime } from '../../lib/datetime';
 import { routes } from '../../lib/routes';
 
-if (!Astro.locals.adminSession) return Astro.redirect(routes.adminLogin);
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+const admin = session.role === 'admin';
 
 let loadError = '';
 let dashboard: Awaited<ReturnType<typeof getDashboard>> | null = null;
@@ -19,13 +21,18 @@ try {
 }
 
 const cards = dashboard
-  ? [
-      ['Bài viết', dashboard.posts],
-      ['Đã xuất bản', dashboard.publishedPosts],
-      ['Sản phẩm', dashboard.products],
-      ['Đơn hàng', dashboard.orders],
-      ['Đơn mới', dashboard.newOrders],
-    ]
+  ? admin
+    ? [
+        ['Bài viết', dashboard.posts],
+        ['Đã xuất bản', dashboard.publishedPosts],
+        ['Sản phẩm', dashboard.products],
+        ['Đơn hàng', dashboard.orders],
+        ['Đơn mới', dashboard.newOrders],
+      ]
+    : [
+        ['Bài viết', dashboard.posts],
+        ['Đã xuất bản', dashboard.publishedPosts],
+      ]
   : [];
 ---
 
@@ -42,10 +49,10 @@ const cards = dashboard
             </li>
           ))}
         </ul>
-        <h2 class="mt-8 text-lg font-semibold">Đơn gần đây</h2>
-        {dashboard.recentOrders.length === 0 ? (
+        {admin && <h2 class="mt-8 text-lg font-semibold">Đơn gần đây</h2>}
+        {admin && dashboard.recentOrders.length === 0 ? (
           <p class="mt-3 text-muted">Chưa có đơn hàng.</p>
-        ) : (
+        ) : admin ? (
           <table class="mt-3 w-full border-collapse text-left">
             <thead>
               <tr class="border-b border-line">
@@ -66,7 +73,7 @@ const cards = dashboard
               ))}
             </tbody>
           </table>
-        )}
+        ) : null}
       </>
     )
   }

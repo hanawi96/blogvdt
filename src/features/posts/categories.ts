@@ -1,6 +1,6 @@
 import { asc, count, eq } from 'drizzle-orm';
+import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
-import { runBatch } from '../../lib/db/batch';
 import { slugRedirectQueries } from '../../lib/db/redirects';
 import { categories, posts } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
@@ -27,6 +27,7 @@ export async function saveCategory(
   db: AppDb,
   input: { id?: number; name: string; slug: string; description: string; seoTitle: string; metaDescription: string },
   now = Date.now(),
+  actor?: ActivityActor,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const name = input.name.trim();
   const slug = slugify(input.slug || name);
@@ -50,25 +51,71 @@ export async function saveCategory(
     updatedAt: now,
   };
   if (input.id) {
-    const current = await db.select({ slug: categories.slug }).from(categories).where(eq(categories.id, input.id)).limit(1);
-    if (!current[0]) return { ok: false, error: 'Không tìm thấy danh mục.' };
-    const redirect = categoryRedirect(current[0].slug, slug);
-    await runBatch(db, [
+    const current = await db
+      .select({
+        name: categories.name,
+        slug: categories.slug,
+        description: categories.description,
+        seoTitle: categories.seoTitle,
+        metaDescription: categories.metaDescription,
+      })
+      .from(categories)
+      .where(eq(categories.id, input.id))
+      .limit(1);
+    const row = current[0];
+    if (!row) return { ok: false, error: 'Không tìm thấy danh mục.' };
+    if (
+      row.name === name &&
+      row.slug === slug &&
+      (row.description ?? '') === description &&
+      (row.seoTitle ?? '') === seoTitle &&
+      (row.metaDescription ?? '') === metaDescription
+    ) {
+      return { ok: true };
+    }
+    const redirect = categoryRedirect(row.slug, slug);
+    await commitWrites(db, [
       db.update(categories).set(values).where(eq(categories.id, input.id)),
+      ...(actor ? [categoryLog(db, actor, 'category.update', input.id, name, now)] : []),
       ...(redirect ? slugRedirectQueries(db, redirect.from, redirect.to, now) : []),
     ]);
     return { ok: true };
   }
-  await db.insert(categories).values({ ...values, createdAt: now });
+  await commitWrites(db, [
+    db.insert(categories).values({ ...values, createdAt: now }),
+    ...(actor ? [categoryLog(db, actor, 'category.create', null, name, now, true)] : []),
+  ]);
   return { ok: true };
 }
 
 // Bài viết không bị xóa. category_id về null, đúng khóa ngoại của bảng posts.
-export async function deleteCategory(db: AppDb, id: number): Promise<void> {
-  await runBatch(db, [
+export async function deleteCategory(db: AppDb, id: number, actor?: ActivityActor, now = Date.now()): Promise<void> {
+  const current = await db.select({ name: categories.name }).from(categories).where(eq(categories.id, id)).limit(1);
+  const row = current[0];
+  if (!row) return;
+  await commitWrites(db, [
     db.update(posts).set({ categoryId: null }).where(eq(posts.categoryId, id)),
     db.delete(categories).where(eq(categories.id, id)),
+    ...(actor ? [categoryLog(db, actor, 'category.delete', id, row.name, now)] : []),
   ]);
+}
+
+function categoryLog(db: AppDb, actor: ActivityActor, action: 'category.create' | 'category.update' | 'category.delete', id: number | null, name: string, now: number, useLastInsertId = false) {
+  const verb = action === 'category.create' ? 'Đã tạo danh mục' : action === 'category.delete' ? 'Đã xóa danh mục' : 'Đã cập nhật danh mục';
+  return activityWrite(
+    db,
+    {
+      actorId: actor.id,
+      actorName: actor.name,
+      action,
+      objectType: 'category',
+      objectId: useLastInsertId ? null : id === null ? null : String(id),
+      summary: `${verb} ${quotedLabel(name, 'Không tên')}.`,
+      createdAt: now,
+      useLastInsertId,
+    },
+    true,
+  );
 }
 
 export function categoryRedirect(oldSlug: string, newSlug: string): { from: string; to: string } | null {

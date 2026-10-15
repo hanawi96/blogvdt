@@ -1145,7 +1145,9 @@
   }
   [data-post-list][aria-busy='true'],
   [data-product-list][aria-busy='true'],
-  [data-order-list][aria-busy='true'] {
+  [data-order-list][aria-busy='true'],
+  [data-user-list][aria-busy='true'],
+  [data-activity-list][aria-busy='true'] {
     opacity: 0.55;
   }
   @media (max-width: 760px) {

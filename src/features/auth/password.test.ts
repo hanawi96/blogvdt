@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hashPassword, verifyPassword } from './password';
+import { hashPassword, passwordError, verifyPassword } from './password';
 
 const SEEDED_HASH = 'pbkdf2-sha256$100000$bV4U+6I5zgQ0Z95uBC1llg==$JNy/7hDTmyXqaJERM88FsZm9O0a+7563KY8nRp5obh0=';
 
@@ -8,6 +8,11 @@ describe('mật khẩu', () => {
     expect(await verifyPassword('DevLocal-VongDau-2026', SEEDED_HASH)).toBe(true);
     expect(await verifyPassword('sai-mat-khau', SEEDED_HASH)).toBe(false);
     expect(await verifyPassword('DevLocal-VongDau-2026', 'khong-dung-dinh-dang')).toBe(false);
+  });
+
+  it('từ chối mật khẩu ngắn', () => {
+    expect(passwordError('ngan')).toMatch(/12/);
+    expect(passwordError('mat-khau-du-dai')).toBeNull();
   });
 
   it('hash mới xác minh lại được', async () => {

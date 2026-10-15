@@ -2,6 +2,14 @@ const ALGORITHM = 'pbkdf2-sha256';
 const ITERATIONS = 100_000;
 const HASH_BYTES = 32;
 const SALT_BYTES = 16;
+export const PASSWORD_MIN = 12;
+export const PASSWORD_MAX = 200;
+
+export function passwordError(password: string): string | null {
+  if (password.length < PASSWORD_MIN) return `Mật khẩu cần ít nhất ${PASSWORD_MIN} ký tự.`;
+  if (password.length > PASSWORD_MAX) return 'Mật khẩu quá dài.';
+  return null;
+}
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));

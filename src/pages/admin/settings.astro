@@ -2,6 +2,7 @@
 import MediaPicker from '../../components/admin/MediaPicker.svelte';
 import SearchPreview from '../../components/admin/SearchPreview.astro';
 import AdminLayout from '../../layouts/AdminLayout.astro';
+import { activityActor } from '../../features/activity/log';
 import { mutationError } from '../../features/auth/session';
 import { listMedia } from '../../features/media/media';
 import { lengthNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
@@ -45,7 +46,7 @@ if (Astro.request.method === 'POST') {
       formError = 'Chưa lưu. Kiểm tra các ô được báo và thử lại.';
     } else {
       try {
-        const changed = await saveSettings(db, parsed.values);
+        const changed = await saveSettings(db, parsed.values, Date.now(), await activityActor(db, session.userId));
         return Astro.redirect(`${routes.adminSettings}?saved=${changed > 0 ? '1' : '0'}${tabQuery(Astro.url.searchParams.get('tab'))}`, 303);
       } catch (error) {
         console.error(JSON.stringify({ event: 'settings_save_failed', name: error instanceof Error ? error.name : 'unknown' }));

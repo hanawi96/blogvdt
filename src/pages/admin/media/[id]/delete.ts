@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro';
+import { activityActor } from '../../../../features/activity/log';
 import { mutationError } from '../../../../features/auth/session';
 import { deleteMedia } from '../../../../features/media/media';
 import { createDb } from '../../../../lib/db/client';
@@ -19,7 +20,8 @@ export const POST: APIRoute = async ({ params, request, locals, redirect }) => {
     if (wantsJson) return json({ ok: false, error }, 403);
     return new Response(error, { status: 403 });
   }
-  const result = await deleteMedia(createDb(getDbBinding()), getMediaBucket(), id);
+  const db = createDb(getDbBinding());
+  const result = await deleteMedia(db, getMediaBucket(), id, await activityActor(db, session.userId));
   if (!result.ok) {
     if (wantsJson) return json({ ok: false, error: result.error }, 422);
     const code = result.error.includes('Không tìm thấy') ? 'missing' : 'in-use';

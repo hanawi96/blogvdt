@@ -1,0 +1,72 @@
+---
+import PublicLayout from '../../layouts/PublicLayout.astro';
+import { isSameOrigin } from '../../lib/http';
+import { consumePasswordReset } from '../../features/auth/users';
+import { createSession, SESSION_COOKIE, sessionCookieOptions } from '../../features/auth/session';
+import { createDb } from '../../lib/db/client';
+import { getDbBinding } from '../../lib/cloudflare/env';
+import { routes } from '../../lib/routes';
+
+const token = Astro.url.searchParams.get('token') ?? '';
+let formError = '';
+let done = false;
+
+if (Astro.request.method === 'POST') {
+  if (!isSameOrigin(Astro.request)) {
+    Astro.response.status = 403;
+    formError = 'Nguồn gửi không hợp lệ.';
+  } else {
+    const form = await Astro.request.formData();
+    const submitted = String(form.get('token') ?? '');
+    const password = String(form.get('password') ?? '');
+    const confirm = String(form.get('confirm') ?? '');
+    if (!submitted) {
+      Astro.response.status = 422;
+      formError = 'Liên kết không còn hiệu lực.';
+    } else if (password !== confirm) {
+      Astro.response.status = 422;
+      formError = 'Mật khẩu mới không khớp.';
+    } else {
+      const db = createDb(getDbBinding());
+      const result = await consumePasswordReset(db, submitted, password);
+      if (!result.ok) {
+        Astro.response.status = 422;
+        formError = result.error;
+      } else if (!Astro.locals.adminSession) {
+        const session = await createSession(db, result.userId, result.role);
+        Astro.cookies.set(SESSION_COOKIE, session.sessionId, sessionCookieOptions(Astro.url.protocol === 'https:'));
+        return Astro.redirect(routes.admin, 303);
+      } else {
+        done = true;
+      }
+    }
+  }
+}
+---
+
+<PublicLayout title="Đặt mật khẩu" description="Đặt mật khẩu quản trị" robots="noindex,nofollow">
+  <main class="mx-auto max-w-md px-4 py-16">
+    <h1 class="text-2xl font-semibold">Đặt mật khẩu</h1>
+    {formError && <p class="error-text mt-4" role="alert">{formError}</p>}
+    {
+      done ? (
+        <p class="mt-4" role="status">Đã đặt mật khẩu. Người dùng đăng nhập bằng email.</p>
+      ) : token ? (
+        <form class="mt-6" method="post" data-busy>
+          <input type="hidden" name="token" value={token} />
+          <label class="block">
+            <span class="mb-1 block font-semibold">Mật khẩu mới</span>
+            <input class="field" type="password" name="password" autocomplete="new-password" required minlength="12" maxlength="200" />
+          </label>
+          <label class="mt-4 block">
+            <span class="mb-1 block font-semibold">Nhập lại mật khẩu</span>
+            <input class="field" type="password" name="confirm" autocomplete="new-password" required minlength="12" maxlength="200" />
+          </label>
+          <button class="btn btn-primary mt-6" type="submit">Lưu mật khẩu</button>
+        </form>
+      ) : (
+        <p class="mt-4 text-muted">Liên kết không còn hiệu lực.</p>
+      )
+    }
+  </main>
+</PublicLayout>

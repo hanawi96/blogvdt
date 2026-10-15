@@ -12,7 +12,7 @@ import { fieldErrors, type FieldErrors } from '../../lib/validation/errors';
 if (Astro.locals.adminSession) return Astro.redirect(routes.admin);
 
 const loginSchema = z.object({
-  username: z.string().trim().min(1, 'Nhập tên đăng nhập.').max(64, 'Tên đăng nhập quá dài.'),
+  username: z.string().trim().min(1, 'Nhập tên đăng nhập hoặc email.').max(120, 'Tên đăng nhập quá dài.'),
   password: z.string().min(1, 'Nhập mật khẩu.').max(200, 'Mật khẩu quá dài.'),
 });
 
@@ -49,9 +49,14 @@ if (Astro.request.method === 'POST') {
       );
       if (!result.ok) {
         Astro.response.status = result.reason === 'locked' ? 429 : 401;
-        message = result.reason === 'locked' ? 'Đăng nhập tạm khóa. Thử lại sau 15 phút.' : 'Sai tên đăng nhập hoặc mật khẩu.';
+        message =
+          result.reason === 'locked'
+            ? 'Đăng nhập tạm khóa. Thử lại sau 15 phút.'
+            : result.reason === 'disabled'
+              ? 'Tài khoản đã bị khóa.'
+              : 'Sai tên đăng nhập hoặc mật khẩu.';
       } else {
-        const session = await createSession(createDb(getDbBinding()), result.userId);
+        const session = await createSession(createDb(getDbBinding()), result.userId, result.role);
         Astro.cookies.set(SESSION_COOKIE, session.sessionId, sessionCookieOptions(Astro.url.protocol === 'https:'));
         return Astro.redirect(routes.admin, 303);
       }
@@ -66,8 +71,8 @@ if (Astro.request.method === 'POST') {
     {message && <p class="error-text mt-4" role="alert">{message}</p>}
     <form class="mt-6" method="post" data-busy>
       <label class="block">
-        <span class="mb-1 block font-semibold">Tên đăng nhập</span>
-        <input class="field" name="username" autocomplete="username" required maxlength="64" value={username} />
+        <span class="mb-1 block font-semibold">Tên đăng nhập hoặc email</span>
+        <input class="field" name="username" autocomplete="username" required maxlength="120" value={username} />
         {errors.username && <span class="error-text">{errors.username}</span>}
       </label>
       <label class="mt-4 block">
