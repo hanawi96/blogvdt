@@ -15,6 +15,13 @@
       "when": 1791995126210,
       "tag": "0001_category_seo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792027446070,
+      "tag": "0002_order_internal_note",
+      "breakpoints": true
     }
   ]
 }

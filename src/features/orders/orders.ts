@@ -1,5 +1,6 @@
-import { and, count, desc, eq, gt, isNull, like, or } from 'drizzle-orm';
+import { and, count, desc, eq, gte, gt, inArray, isNull, like, lt, or } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
+import { routes } from '../../lib/routes';
 import { orders } from '../../lib/db/schema';
 import {
   formatOrderCode,
@@ -12,37 +13,88 @@ import {
   sequenceFromCode,
   type OrderDraft,
 } from './order';
-import type { OrderStatus } from './status';
+import { canTransitionOrder, isOrderStatus, orderCounts, orderTransitionError, type OrderStatus } from './status';
 
 const PAGE_SIZE = 20;
 
-export async function listOrders(db: AppDb, filters: { query: string; status: OrderStatus | ''; page: number }) {
+export type OrderListStatus = OrderStatus | '' | 'processing';
+
+export function orderListStatus(value: string | null | undefined): OrderListStatus {
+  if (value === 'processing') return 'processing';
+  if (value && isOrderStatus(value)) return value;
+  return '';
+}
+
+export function orderAdminQuery(input: { query?: string; status?: string; from?: string; to?: string; page?: number }): string {
+  const params = new URLSearchParams();
+  const query = (input.query ?? '').replace(/[%_]/g, '').trim().slice(0, 80);
+  const status = orderListStatus(input.status);
+  const from = dayParam(input.from);
+  const to = dayParam(input.to);
+  const page = input.page && Number.isInteger(input.page) && input.page > 1 ? input.page : 0;
+  if (query) params.set('q', query);
+  if (status) params.set('status', status);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  if (page) params.set('page', String(page));
+  const text = params.toString();
+  return text ? `${routes.adminOrders}?${text}` : routes.adminOrders;
+}
+
+function dayParam(value: string | undefined): string {
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
+}
+
+export async function listOrders(
+  db: AppDb,
+  filters: { query: string; status: OrderListStatus; page: number; start: number | null; end: number | null },
+) {
   const term = searchTerm(filters.query);
-  const conditions = [];
-  if (filters.status) conditions.push(eq(orders.status, filters.status));
-  if (term.phone) conditions.push(like(orders.phone, `%${term.phone}%`));
+  const shared = [];
+  if (term.phone) shared.push(like(orders.phone, `%${term.phone}%`));
   else if (term.text) {
-    conditions.push(or(like(orders.code, `%${term.text}%`), like(orders.customerName, `%${term.text}%`), like(orders.phone, `%${term.text}%`)));
+    shared.push(or(like(orders.code, `%${term.text}%`), like(orders.customerName, `%${term.text}%`), like(orders.phone, `%${term.text}%`)));
   }
+  if (filters.start !== null) shared.push(gte(orders.createdAt, filters.start));
+  if (filters.end !== null) shared.push(lt(orders.createdAt, filters.end));
+  const conditions = [...shared];
+  if (filters.status === 'processing') conditions.push(inArray(orders.status, ['confirmed', 'preparing', 'shipped']));
+  else if (filters.status) conditions.push(eq(orders.status, filters.status));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const countWhere = shared.length > 0 ? and(...shared) : undefined;
   const page = Math.max(1, filters.page);
-  const totalRows = await db.select({ value: count() }).from(orders).where(where);
+  const narrowed = Boolean(filters.status || term.text || term.phone || filters.start !== null || filters.end !== null);
+  const [totalRows, countRows, libraryRows, rows] = await Promise.all([
+    db.select({ value: count() }).from(orders).where(where),
+    db.select({ status: orders.status, value: count() }).from(orders).where(countWhere).groupBy(orders.status),
+    narrowed ? db.select({ value: count() }).from(orders) : Promise.resolve([]),
+    db
+      .select({
+        id: orders.id,
+        code: orders.code,
+        customerName: orders.customerName,
+        productName: orders.productName,
+        totalPrice: orders.totalPrice,
+        status: orders.status,
+        createdAt: orders.createdAt,
+      })
+      .from(orders)
+      .where(where)
+      .orderBy(desc(orders.createdAt), desc(orders.id))
+      .limit(PAGE_SIZE)
+      .offset((page - 1) * PAGE_SIZE),
+  ]);
   const total = totalRows[0]?.value ?? 0;
-  const rows = await db
-    .select({
-      id: orders.id,
-      code: orders.code,
-      customerName: orders.customerName,
-      productName: orders.productName,
-      status: orders.status,
-      createdAt: orders.createdAt,
-    })
-    .from(orders)
-    .where(where)
-    .orderBy(desc(orders.createdAt), desc(orders.id))
-    .limit(PAGE_SIZE)
-    .offset((page - 1) * PAGE_SIZE);
-  return { rows, total, page, pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)) };
+  const counts = orderCounts(countRows);
+  return {
+    rows,
+    total,
+    page,
+    pageSize: PAGE_SIZE,
+    pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+    counts,
+    libraryTotal: narrowed ? (libraryRows[0]?.value ?? 0) : counts.all,
+  };
 }
 
 export async function getOrder(db: AppDb, id: number) {
@@ -54,6 +106,7 @@ export async function getOrder(db: AppDb, id: number) {
       phone: orders.phone,
       address: orders.address,
       note: orders.note,
+      internalNote: orders.internalNote,
       productId: orders.productId,
       productName: orders.productName,
       unitPrice: orders.unitPrice,
@@ -78,8 +131,29 @@ export async function updateOrderStatus(
 ): Promise<{ ok: true; updatedAt: number } | { ok: false; error: string }> {
   const current = await getOrder(db, id);
   if (!current) return { ok: false, error: 'Không tìm thấy đơn hàng.' };
-  await db.update(orders).set({ status, updatedAt: now }).where(eq(orders.id, id));
+  if (!isOrderStatus(current.status)) return { ok: false, error: 'Trạng thái hiện tại không hợp lệ.' };
+  if (!canTransitionOrder(current.status, status)) return { ok: false, error: orderTransitionError(current.status, status) };
+  if (current.status !== status) {
+    await db.update(orders).set({ status, updatedAt: now }).where(eq(orders.id, id));
+  }
   return { ok: true, updatedAt: now };
+}
+
+export async function updateOrderNote(
+  db: AppDb,
+  id: number,
+  note: string,
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const text = note.trim();
+  if (text.length > 1000) return { ok: false, error: 'Ghi chú nội bộ tối đa 1000 ký tự.' };
+  const current = await getOrder(db, id);
+  if (!current) return { ok: false, error: 'Không tìm thấy đơn hàng.' };
+  const next = text || null;
+  if (current.internalNote !== next) {
+    await db.update(orders).set({ internalNote: next, updatedAt: now }).where(eq(orders.id, id));
+  }
+  return { ok: true };
 }
 
 export async function placeOrder(

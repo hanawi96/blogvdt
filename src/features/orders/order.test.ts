@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { isOrderStatus, ORDER_STATUSES } from './status';
+import { canTransitionOrder, isOrderStatus, orderCounts, ORDER_STATUSES } from './status';
 import {
   formatOrderCode,
   isRecentDuplicate,
   isUniqueViolation,
   normalizePhone,
+  orderCreatedRange,
   orderDayKey,
+  orderHandoffText,
   parseOrderSubmission,
   type CatalogProduct,
 } from './order';
@@ -62,6 +64,45 @@ describe('đơn hàng', () => {
     const now = 1_000_000;
     expect(isRecentDuplicate(now - 9 * 60 * 1000, now)).toBe(true);
     expect(isRecentDuplicate(now - 10 * 60 * 1000, now)).toBe(false);
+  });
+
+  it('chỉ cho chuyển trạng thái theo thứ tự xử lý hoặc hủy', () => {
+    expect(canTransitionOrder('new', 'confirmed')).toBe(true);
+    expect(canTransitionOrder('new', 'completed')).toBe(false);
+    expect(canTransitionOrder('shipped', 'completed')).toBe(true);
+    expect(canTransitionOrder('completed', 'cancelled')).toBe(false);
+    expect(canTransitionOrder('cancelled', 'new')).toBe(false);
+    expect(orderCounts([{ status: 'new', value: 2 }, { status: 'preparing', value: 1 }, { status: 'completed', value: 3 }])).toEqual({
+      all: 6,
+      incoming: 2,
+      processing: 1,
+      completed: 3,
+    });
+  });
+
+  it('lọc ngày theo lịch Việt Nam và sao chép giá lúc đặt', () => {
+    expect(orderCreatedRange('2026-10-14', '2026-10-14')).toEqual({
+      start: Date.parse('2026-10-14T00:00:00+07:00'),
+      end: Date.parse('2026-10-15T00:00:00+07:00'),
+      invalid: false,
+    });
+    expect(orderCreatedRange('2026-10-15', '2026-10-14').invalid).toBe(true);
+    const text = orderHandoffText({
+      code: 'VD20261014-0001',
+      customerName: 'Lê Minh An',
+      phone: '0901000099',
+      address: '12 đường Mẫu',
+      productName: 'Vòng tơ tằm trơn',
+      optionLabel: 'Size vừa',
+      quantity: 2,
+      unitPrice: 150000,
+      totalPrice: 300000,
+      note: null,
+      internalNote: 'Giao buổi chiều',
+    });
+    expect(text).toContain('Đơn giá: 150.000');
+    expect(text).toContain('Ghi chú nội bộ: Giao buổi chiều');
+    expect(text).not.toContain('Đã thanh toán');
   });
 
   it('nhận ra mã đơn trùng khi lỗi D1 bị Drizzle bọc lại', () => {

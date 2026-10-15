@@ -130,6 +130,7 @@ export const orders = sqliteTable(
     phone: text('phone').notNull(),
     address: text('address').notNull(),
     note: text('note'),
+    internalNote: text('internal_note'),
     productId: integer('product_id').references(() => products.id, { onDelete: 'set null' }),
     productName: text('product_name').notNull(),
     unitPrice: integer('unit_price').notNull(),

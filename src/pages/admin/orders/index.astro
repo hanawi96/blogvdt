@@ -1,87 +1,168 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { listOrders } from '../../../features/orders/orders';
+import { orderCreatedRange } from '../../../features/orders/order';
+import { listOrders, orderAdminQuery, orderListStatus } from '../../../features/orders/orders';
 import { isOrderStatus, ORDER_STATUS_LABELS, ORDER_STATUSES } from '../../../features/orders/status';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
 import { formatDateTime } from '../../../lib/datetime';
+import { formatVnd } from '../../../lib/money';
 import { routes } from '../../../lib/routes';
 
 if (!Astro.locals.adminSession) return Astro.redirect(routes.adminLogin);
 
 const query = Astro.url.searchParams.get('q') ?? '';
-const statusParam = Astro.url.searchParams.get('status') ?? '';
-const status = isOrderStatus(statusParam) ? statusParam : '';
+const status = orderListStatus(Astro.url.searchParams.get('status'));
+const from = Astro.url.searchParams.get('from') ?? '';
+const to = Astro.url.searchParams.get('to') ?? '';
 const page = Number(Astro.url.searchParams.get('page') ?? '1');
-let loadError = '';
+const range = orderCreatedRange(from, to);
+let loadError = range.invalid ? 'Khoảng ngày không hợp lệ.' : '';
 let result: Awaited<ReturnType<typeof listOrders>> | null = null;
-try {
-  result = await listOrders(createDb(getDbBinding()), { query, status, page: Number.isInteger(page) ? page : 1 });
-} catch (error) {
-  console.error(JSON.stringify({ event: 'order_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
-  loadError = 'Không tải được danh sách đơn.';
+if (!range.invalid) {
+  try {
+    result = await listOrders(createDb(getDbBinding()), {
+      query,
+      status,
+      start: range.start,
+      end: range.end,
+      page: Number.isInteger(page) ? page : 1,
+    });
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'order_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
+    loadError = 'Không tải được danh sách đơn.';
+  }
 }
 
+const stats = [
+  { id: '', label: 'Tổng đơn', count: result?.counts.all ?? 0 },
+  { id: 'new', label: 'Đơn mới', count: result?.counts.incoming ?? 0 },
+  { id: 'processing', label: 'Đang xử lý', count: result?.counts.processing ?? 0 },
+  { id: 'completed', label: 'Hoàn thành', count: result?.counts.completed ?? 0 },
+] as const;
+
 function pageHref(nextPage: number): string {
-  const params = new URLSearchParams();
-  if (query) params.set('q', query);
-  if (status) params.set('status', status);
-  if (nextPage > 1) params.set('page', String(nextPage));
-  const text = params.toString();
-  return text ? `${routes.adminOrders}?${text}` : routes.adminOrders;
+  return orderAdminQuery({ query, status, from, to, page: nextPage });
 }
 ---
 
-<AdminLayout title="Đơn hàng">
-  <form class="mb-4 flex flex-wrap gap-2" method="get">
-    <label class="sr-only" for="order-query">Tìm đơn</label>
-    <input id="order-query" class="field max-w-xs" name="q" value={query} placeholder="Mã, tên hoặc số điện thoại" maxlength="80" />
-    <label class="sr-only" for="order-status">Trạng thái</label>
-    <select id="order-status" class="field w-auto" name="status">
-      <option value="" selected={status === ''}>Mọi trạng thái</option>
-      {ORDER_STATUSES.map((item) => <option value={item} selected={status === item}>{ORDER_STATUS_LABELS[item]}</option>)}
-    </select>
-    <button class="btn" type="submit">Lọc</button>
-  </form>
-  {loadError && <p class="error-text" role="alert">{loadError}</p>}
-  {result && result.rows.length === 0 && <p class="text-muted">Chưa có đơn khớp bộ lọc.</p>}
+<AdminLayout title="Quản lý đơn hàng">
+  <p slot="lead">{result ? `${result.libraryTotal} đơn hàng` : 'Danh sách đơn hàng'}</p>
+  {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
   {
-    result && result.rows.length > 0 && (
-      <div class="overflow-x-auto">
-        <table class="w-full border-collapse text-left">
-          <thead>
-            <tr class="border-b border-line">
-              <th class="py-2">Mã</th>
-              <th class="py-2">Khách</th>
-              <th class="py-2">Sản phẩm</th>
-              <th class="py-2">Trạng thái</th>
-              <th class="py-2">Thời gian</th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.rows.map((order) => (
-              <tr class="border-b border-line">
-                <td class="py-2">
-                  <a class="font-semibold underline" href={routes.adminOrder(order.id)}>{order.code}</a>
-                </td>
-                <td class="py-2">{order.customerName}</td>
-                <td class="py-2">{order.productName}</td>
-                <td class="py-2">{isOrderStatus(order.status) ? ORDER_STATUS_LABELS[order.status] : order.status}</td>
-                <td class="py-2">{formatDateTime(order.createdAt)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )
-  }
-  {
-    result && result.pageCount > 1 && (
-      <nav class="mt-4 flex gap-3" aria-label="Phân trang">
-        {result.page > 1 && <a href={pageHref(result.page - 1)}>Trang trước</a>}
-        <span>Trang {result.page}/{result.pageCount}</span>
-        {result.page < result.pageCount && <a href={pageHref(result.page + 1)}>Trang sau</a>}
-      </nav>
+    result && (
+      <>
+        <div class="order-stats">
+          {stats.map((item) => (
+            <a href={orderAdminQuery({ query, status: item.id, from, to })} aria-current={status === item.id ? 'page' : undefined}>
+              <span>{item.label}</span>
+              <strong>{item.count}</strong>
+            </a>
+          ))}
+        </div>
+        <form class="post-toolbar product-toolbar order-toolbar" method="get" data-order-search>
+          <label class="sr-only" for="order-query">Tìm đơn</label>
+          <input id="order-query" class="field" name="q" value={query} placeholder="Mã, tên hoặc số điện thoại" maxlength="80" />
+          <label class="sr-only" for="order-status">Trạng thái</label>
+          <select id="order-status" class="field" name="status">
+            <option value="" selected={status === ''}>Tất cả trạng thái</option>
+            <option value="processing" selected={status === 'processing'}>Đang xử lý</option>
+            {ORDER_STATUSES.map((item) => <option value={item} selected={status === item}>{ORDER_STATUS_LABELS[item]}</option>)}
+          </select>
+          <label class="sr-only" for="order-from">Từ ngày</label>
+          <input id="order-from" class="field" type="date" name="from" value={from} />
+          <label class="sr-only" for="order-to">Đến ngày</label>
+          <input id="order-to" class="field" type="date" name="to" value={to} />
+        </form>
+        <div data-order-list>
+          {result.rows.length === 0 ? (
+            <p class="post-empty">{result.libraryTotal === 0 ? 'Chưa có đơn hàng.' : 'Không có đơn khớp bộ lọc.'}</p>
+          ) : (
+            <table class="post-table order-table">
+              <thead>
+                <tr>
+                  <th>Mã đơn</th>
+                  <th>Khách hàng</th>
+                  <th>Sản phẩm</th>
+                  <th>Tổng tiền</th>
+                  <th>Trạng thái</th>
+                  <th>Thời gian</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.rows.map((order) => (
+                  <tr>
+                    <td><a class="post-title" href={routes.adminOrder(order.id)}>{order.code}</a></td>
+                    <td data-label="Khách hàng">{order.customerName}</td>
+                    <td data-label="Sản phẩm">{order.productName}</td>
+                    <td data-label="Tổng tiền">{formatVnd(order.totalPrice)}</td>
+                    <td data-label="Trạng thái">
+                      <span class="order-badge" data-status={order.status}>
+                        {isOrderStatus(order.status) ? ORDER_STATUS_LABELS[order.status] : order.status}
+                      </span>
+                    </td>
+                    <td data-label="Thời gian">{formatDateTime(order.createdAt)}</td>
+                    <td><a href={routes.adminOrder(order.id)}>Xem</a></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {result.pageCount > 1 && (
+          <nav class="post-pager" aria-label="Phân trang">
+            {result.page > 1 && <a class="btn" href={pageHref(result.page - 1)}>Trang trước</a>}
+            <span>Trang {result.page}/{result.pageCount}</span>
+            {result.page < result.pageCount && <a class="btn" href={pageHref(result.page + 1)}>Trang sau</a>}
+          </nav>
+        )}
+      </>
     )
   }
 </AdminLayout>
+
+<script>
+  const form = document.querySelector('[data-order-search]');
+  const list = document.querySelector('[data-order-list]');
+  if (form instanceof HTMLFormElement) {
+    const input = form.querySelector('input[name="q"]');
+    let timer = 0;
+    const go = () => {
+      const data = new FormData(form);
+      const read = (name: string) => {
+        const value = data.get(name);
+        return typeof value === 'string' ? value : '';
+      };
+      const params = new URLSearchParams();
+      const term = read('q').trim();
+      const status = read('status');
+      const from = read('from');
+      const to = read('to');
+      if (term) params.set('q', term);
+      if (status) params.set('status', status);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(from)) params.set('from', from);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(to)) params.set('to', to);
+      const next = params.size ? `/admin/orders?${params}` : '/admin/orders';
+      if (next === `${location.pathname}${location.search}`) return;
+      list?.setAttribute('aria-busy', 'true');
+      location.assign(next);
+    };
+    if (input instanceof HTMLInputElement) {
+      input.addEventListener('input', () => {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(go, 300);
+      });
+    }
+    form.addEventListener('change', (event) => {
+      if (event.target === input) return;
+      window.clearTimeout(timer);
+      go();
+    });
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      window.clearTimeout(timer);
+      go();
+    });
+  }
+</script>
