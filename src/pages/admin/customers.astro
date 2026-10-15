@@ -1,0 +1,131 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { userInitials } from '../../features/auth/users';
+import { CUSTOMER_SORTS, customerAdminQuery, customerSort, listCustomers } from '../../features/orders/customers';
+import { orderAdminQuery } from '../../features/orders/orders';
+import { createDb } from '../../lib/db/client';
+import { getDbBinding } from '../../lib/cloudflare/env';
+import { formatDateTime } from '../../lib/datetime';
+import { formatVnd } from '../../lib/money';
+import { routes } from '../../lib/routes';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+if (session.role !== 'admin') return new Response('Bạn không có quyền vào trang này.', { status: 403 });
+
+const query = Astro.url.searchParams.get('q') ?? '';
+const sort = customerSort(Astro.url.searchParams.get('sort'));
+const page = Number(Astro.url.searchParams.get('page') ?? '1');
+let loadError = '';
+let result: Awaited<ReturnType<typeof listCustomers>> | null = null;
+try {
+  result = await listCustomers(createDb(getDbBinding()), { query, sort, page: Number.isInteger(page) ? page : 1 });
+} catch (error) {
+  console.error(JSON.stringify({ event: 'customer_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
+  loadError = 'Không tải được danh sách khách hàng.';
+}
+---
+
+<AdminLayout title="Khách hàng">
+  <p slot="lead">{result ? `${result.libraryTotal} khách hàng` : 'Danh sách khách hàng'}</p>
+  {loadError && <p class="error-text" role="alert">{loadError}</p>}
+  {
+    result && (
+      <>
+        <form class="post-toolbar" method="get" data-customer-search>
+          <label class="sr-only" for="customer-query">Tìm khách hàng</label>
+          <input id="customer-query" class="field" name="q" value={query} placeholder="Tên hoặc số điện thoại" maxlength="80" />
+          <label class="sr-only" for="customer-sort">Sắp xếp</label>
+          <select id="customer-sort" class="field" name="sort">
+            {CUSTOMER_SORTS.map((item) => <option value={item.value} selected={sort === item.value}>{item.label}</option>)}
+          </select>
+        </form>
+        <div data-customer-list>
+          {result.rows.length === 0 ? (
+            <p class="post-empty">{result.libraryTotal === 0 ? 'Chưa có khách hàng. Khách sẽ xuất hiện sau đơn đầu tiên.' : 'Không có khách khớp tìm kiếm.'}</p>
+          ) : (
+            <table class="post-table">
+              <thead>
+                <tr>
+                  <th>Khách hàng</th>
+                  <th>Địa chỉ</th>
+                  <th>Số đơn</th>
+                  <th>Tổng chi tiêu</th>
+                  <th>Đơn gần nhất</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.rows.map((customer) => (
+                  <tr>
+                    <td data-label="Khách hàng">
+                      <div class="user-cell">
+                        <span class="user-avatar" aria-hidden="true">{userInitials(customer.customerName)}</span>
+                        <div class="min-w-0">
+                          <p class="post-title truncate">{customer.customerName}</p>
+                          <a class="text-sm text-muted" href={`tel:${customer.phone}`}>{customer.phone}</a>
+                        </div>
+                      </div>
+                    </td>
+                    <td data-label="Địa chỉ"><span class="line-clamp-2 max-w-xs">{customer.address}</span></td>
+                    <td data-label="Số đơn">{customer.orderCount}</td>
+                    <td data-label="Tổng chi tiêu">{formatVnd(customer.spent)}</td>
+                    <td data-label="Đơn gần nhất">{formatDateTime(customer.lastOrderAt)}</td>
+                    <td data-label="Thao tác">
+                      <a class="font-semibold underline" href={orderAdminQuery({ query: customer.phone })}>Xem đơn</a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {result.pageCount > 1 && (
+          <nav class="post-pager" aria-label="Phân trang">
+            {result.page > 1 && <a class="btn" href={customerAdminQuery({ query, sort, page: result.page - 1 })}>Trang trước</a>}
+            <span>Trang {result.page}/{result.pageCount}</span>
+            {result.page < result.pageCount && <a class="btn" href={customerAdminQuery({ query, sort, page: result.page + 1 })}>Trang sau</a>}
+          </nav>
+        )}
+      </>
+    )
+  }
+</AdminLayout>
+
+<script>
+  const form = document.querySelector('[data-customer-search]');
+  const list = document.querySelector('[data-customer-list]');
+  if (form instanceof HTMLFormElement) {
+    const input = form.querySelector('input[name="q"]');
+    let timer = 0;
+    const go = () => {
+      const data = new FormData(form);
+      const term = String(data.get('q') ?? '').trim();
+      const sort = String(data.get('sort') ?? '');
+      const params = new URLSearchParams();
+      if (term) params.set('q', term);
+      if (sort === 'orders' || sort === 'spent') params.set('sort', sort);
+      const text = params.toString();
+      const next = text ? `/admin/customers?${text}` : '/admin/customers';
+      if (next === location.pathname + location.search) return;
+      list?.setAttribute('aria-busy', 'true');
+      location.assign(next);
+    };
+    if (input instanceof HTMLInputElement) {
+      input.addEventListener('input', () => {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(go, 300);
+      });
+    }
+    form.addEventListener('change', (event) => {
+      if (event.target === input) return;
+      window.clearTimeout(timer);
+      go();
+    });
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      window.clearTimeout(timer);
+      go();
+    });
+  }
+</script>

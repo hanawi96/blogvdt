@@ -50,7 +50,7 @@ export async function listOrders(
   db: AppDb,
   filters: { query: string; status: OrderListStatus; page: number; start: number | null; end: number | null },
 ) {
-  const term = searchTerm(filters.query);
+  const term = orderSearchTerm(filters.query);
   const shared = [];
   if (term.phone) shared.push(like(orders.phone, `%${term.phone}%`));
   else if (term.text) {
@@ -314,7 +314,7 @@ export async function placeCartOrder(
   return { ok: false, status: 503, error: 'Chưa tạo được mã đơn. Thử lại.' };
 }
 
-function searchTerm(query: string): { text: string; phone: string } {
+export function orderSearchTerm(query: string): { text: string; phone: string } {
   const text = query.replace(/[%_]/g, '').trim().slice(0, 80);
   const digits = text.replace(/\D/g, '');
   if (/^[\d\s.+\-()]+$/.test(text) && digits.length >= 8) return { text: '', phone: normalizePhone(text) ?? digits };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseProductForm } from './form';
-import { productAdminQuery, productListSort } from './products';
+import { productAdminQuery, productListSort, readProductBulk } from './products';
 import { canFeatureProduct } from './status';
 
 describe('danh sách sản phẩm', () => {
@@ -19,6 +19,33 @@ describe('danh sách sản phẩm', () => {
     expect(productAdminQuery({ status: 'archived', sort: 'random', notice: 'feature-error' })).toBe(
       '/admin/products?error=feature',
     );
+  });
+
+  it('đọc thao tác hàng loạt: lọc trùng, bỏ ID sai, từ chối hành động lạ và quá 100 sản phẩm', () => {
+    const form = new FormData();
+    form.set('bulk', 'inactive');
+    for (const id of ['3', '3', '7', 'abc', '-1', '2.5', '0']) form.append('ids', id);
+    expect(readProductBulk(form)).toEqual({ action: 'inactive', ids: [3, 7] });
+
+    form.set('bulk', 'archive');
+    expect(readProductBulk(form)).toBe(null);
+
+    const empty = new FormData();
+    empty.set('bulk', 'delete');
+    expect(readProductBulk(empty)).toBe(null);
+
+    const many = new FormData();
+    many.set('bulk', 'delete');
+    for (let id = 1; id <= 101; id += 1) many.append('ids', String(id));
+    expect(readProductBulk(many)).toBe(null);
+    many.delete('ids');
+    for (let id = 1; id <= 100; id += 1) many.append('ids', String(id));
+    expect(readProductBulk(many)?.ids).toHaveLength(100);
+
+    expect(productAdminQuery({ status: 'active', bulk: { action: 'delete', count: 2 } })).toBe(
+      '/admin/products?status=active&bulk=delete&n=2',
+    );
+    expect(productAdminQuery({ bulk: 'error' })).toBe('/admin/products?error=bulk');
   });
 
   it('không cho sản phẩm ngừng bán được đánh dấu nổi bật', () => {

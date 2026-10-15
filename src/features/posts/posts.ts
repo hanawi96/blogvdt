@@ -106,6 +106,7 @@ export async function listPosts(
         deletedByName: adminUsers.displayName,
         authorName: author.displayName,
         authorUsername: author.username,
+        categoryId: posts.categoryId,
         categoryName: categories.name,
       })
       .from(posts)
@@ -333,6 +334,52 @@ async function unusedCopySlug(db: AppDb, base: string): Promise<string | null> {
     if (slug && !(await slugIsTaken(db, slug, null))) return slug;
   }
   return null;
+}
+
+export async function setPostCategory(
+  db: AppDb,
+  id: number,
+  categoryId: number | null,
+  actor?: ActivityActor,
+  now = Date.now(),
+): Promise<{ ok: true; categoryName: string | null } | { ok: false; status: 404 | 409 | 422; error: string }> {
+  const [postRows, categoryRows] = await Promise.all([
+    db.select({ title: posts.title, categoryId: posts.categoryId, deletedAt: posts.deletedAt }).from(posts).where(eq(posts.id, id)).limit(1),
+    categoryId === null ? Promise.resolve([]) : db.select({ name: categories.name }).from(categories).where(eq(categories.id, categoryId)).limit(1),
+  ]);
+  const post = postRows[0];
+  if (!post) return { ok: false, status: 404, error: 'Không tìm thấy bài viết.' };
+  if (post.deletedAt != null) return { ok: false, status: 409, error: 'Bài đang ở thùng rác.' };
+  const category = categoryRows[0];
+  if (categoryId !== null && !category) return { ok: false, status: 422, error: 'Danh mục không còn tồn tại.' };
+  const categoryName = category?.name ?? null;
+  if (post.categoryId === categoryId) return { ok: true, categoryName };
+  const results = await commitWrites(db, [
+    db
+      .update(posts)
+      .set({ categoryId, updatedAt: now })
+      .where(and(eq(posts.id, id), isNull(posts.deletedAt)))
+      .returning({ id: posts.id }),
+    ...(actor
+      ? [
+          activityWrite(
+            db,
+            {
+              actorId: actor.id,
+              actorName: actor.name,
+              action: 'post.update',
+              objectType: 'post',
+              objectId: String(id),
+              summary: postSummary('post.update', post.title),
+              createdAt: now,
+            },
+            true,
+          ),
+        ]
+      : []),
+  ]);
+  if (!changedRows(results[0])) return { ok: false, status: 409, error: 'Không đổi được danh mục.' };
+  return { ok: true, categoryName };
 }
 
 export async function trashPost(

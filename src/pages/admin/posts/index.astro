@@ -3,7 +3,7 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { hasInboundPostLink, inspectPostLinks, listPostLinkCounts, suggestPosts } from '../../../features/posts/link-lookup';
 import { listPosts, searchPublishedPosts, slugIsTaken, type PostListSort } from '../../../features/posts/posts';
 import RetiredUrlDialog from '../../../components/admin/RetiredUrlDialog.astro';
-import { listRedirectPostTargets } from '../../../features/redirects/manage';
+import { listPickerCategories, listRedirectPostTargets } from '../../../features/redirects/manage';
 import { SLUG_PATTERN } from '../../../features/posts/slug';
 import { isPostStatus, POST_STATUS_LABELS } from '../../../features/posts/status';
 import { createDb } from '../../../lib/db/client';
@@ -59,12 +59,15 @@ let loadError = '';
 let result: Awaited<ReturnType<typeof listPosts>> | null = null;
 let targets: { title: string; path: string }[] = [];
 let linkCounts: Awaited<ReturnType<typeof listPostLinkCounts>> = new Map();
+let categoryOptions: { id: number; name: string }[] = [];
 try {
   const db = createDb(getDbBinding());
   result = await listPosts(db, { query, status, sort, page: Number.isInteger(page) ? page : 1 });
-  [targets, linkCounts] = await Promise.all([
+  const inTrash = status === 'trash';
+  [targets, linkCounts, categoryOptions] = await Promise.all([
     listRedirectPostTargets(db),
-    status === 'trash' ? Promise.resolve(new Map()) : listPostLinkCounts(db, result.rows),
+    inTrash ? Promise.resolve(new Map()) : listPostLinkCounts(db, result.rows),
+    inTrash ? Promise.resolve([]) : listPickerCategories(db),
   ]);
 } catch (error) {
   console.error(JSON.stringify({ event: 'post_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
@@ -104,20 +107,23 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
   {
     result && (
       <>
-        <form class="post-toolbar" method="get" data-post-search>
-          {status && <input type="hidden" name="status" value={status} />}
-          {sort === 'oldest' && <input type="hidden" name="sort" value="oldest" />}
-          <label class="sr-only" for="post-query">Tìm bài viết</label>
-          <input id="post-query" class="field" name="q" value={query} placeholder="Tìm bài viết..." maxlength="180" />
-        </form>
-        <div class="post-filters" role="group" aria-label="Lọc trạng thái">
-          {filters.map((filter) => (
-            <a href={pageHref({ status: filter.id, page: 1 })} aria-current={status === filter.id ? 'page' : undefined}>
-              {filter.label} ({filter.count})
-            </a>
-          ))}
+        <div class="post-controls">
+          <form class="post-toolbar" method="get" data-post-search>
+            {status && <input type="hidden" name="status" value={status} />}
+            {sort === 'oldest' && <input type="hidden" name="sort" value="oldest" />}
+            <label class="sr-only" for="post-query">Tìm bài viết</label>
+            <input id="post-query" class="field" name="q" value={query} placeholder="Tìm bài viết..." maxlength="180" />
+          </form>
+          <div class="post-filters" role="group" aria-label="Lọc trạng thái">
+            {filters.map((filter) => (
+              <a href={pageHref({ status: filter.id, page: 1 })} aria-current={status === filter.id ? 'page' : undefined}>
+                {filter.label} ({filter.count})
+              </a>
+            ))}
+          </div>
         </div>
-        <div data-post-list>
+        <p class="mb-3 text-sm" role="status" data-category-status hidden></p>
+        <div data-post-list data-csrf={session.csrfToken}>
           {result.rows.length === 0 ? (
             <p class="post-empty">
               {status === 'trash' && !query
@@ -212,7 +218,19 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                         <a class="post-title" href={routes.adminPost(post.id)}>{post.title}</a>
                       </td>
                       <td data-label="Tác giả">{post.authorName?.trim() || post.authorUsername || '—'}</td>
-                      <td>{post.categoryName ?? 'Chưa có danh mục'}</td>
+                      <td data-label="Danh mục">
+                        <select
+                          class="post-category"
+                          data-post-category={routes.adminPostCategory(post.id)}
+                          data-saved={post.categoryId ?? ''}
+                          aria-label={`Danh mục của “${post.title}”`}
+                        >
+                          <option value="">Chưa có danh mục</option>
+                          {categoryOptions.map((category) => (
+                            <option value={category.id} selected={category.id === post.categoryId}>{category.name}</option>
+                          ))}
+                        </select>
+                      </td>
                       <td>
                         <span class="post-status" data-status={published ? 'published' : 'draft'}>
                           {isPostStatus(post.status) ? POST_STATUS_LABELS[post.status] : post.status}
@@ -294,6 +312,42 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
   const form = document.querySelector('[data-post-search]');
   const input = document.querySelector('#post-query');
   const list = document.querySelector('[data-post-list]');
+
+  const categoryStatus = document.querySelector('[data-category-status]');
+  let categoryTimer = 0;
+  const announce = (text: string, failed: boolean) => {
+    if (!(categoryStatus instanceof HTMLElement)) return;
+    window.clearTimeout(categoryTimer);
+    categoryStatus.textContent = text;
+    categoryStatus.className = `mb-3 text-sm ${failed ? 'error-text' : 'text-primary-strong'}`;
+    categoryStatus.hidden = false;
+    if (!failed) categoryTimer = window.setTimeout(() => (categoryStatus.hidden = true), 2500);
+  };
+  document.addEventListener('change', async (event) => {
+    const select = event.target;
+    if (!(select instanceof HTMLSelectElement) || !select.dataset.postCategory) return;
+    const body = new FormData();
+    body.set('csrf', list instanceof HTMLElement ? (list.dataset.csrf ?? '') : '');
+    body.set('categoryId', select.value);
+    select.disabled = true;
+    let error = '';
+    try {
+      const response = await fetch(select.dataset.postCategory, { method: 'POST', body, headers: { accept: 'application/json' } });
+      const data: unknown = await response.json().catch(() => null);
+      if (response.ok) select.dataset.saved = select.value;
+      else if (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string') error = data.error;
+      else error = 'Không đổi được danh mục.';
+    } catch {
+      error = 'Không kết nối được. Hãy thử lại.';
+    }
+    select.disabled = false;
+    if (error) {
+      select.value = select.dataset.saved ?? '';
+      announce(error, true);
+    } else {
+      announce(`Đã đổi danh mục thành “${select.selectedOptions[0]?.text ?? ''}”.`, false);
+    }
+  });
   if (form instanceof HTMLFormElement && input instanceof HTMLInputElement) {
     let timer = 0;
     const go = () => {

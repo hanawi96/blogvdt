@@ -149,13 +149,21 @@ const bannerError = slugError || nameError ? '' : formError;
                   <p class="text-sm text-muted">{category.slug}</p>
                   <p class="text-sm text-muted">{category.postCount === 0 ? 'Chưa có bài' : category.postCount === 1 ? '1 bài' : `${category.postCount} bài`}</p>
                 </div>
-                <div class="flex gap-2">
-                  <a class="btn" href={`${routes.adminCategories}?edit=${category.id}`}>Sửa</a>
-                  <form method="post" onsubmit={`return confirm(${JSON.stringify(categoryDeleteWarning(category.postCount))})`}>
+                <div class="post-actions">
+                  <a href={`${routes.adminCategories}?edit=${category.id}`}>Sửa</a>
+                  <span class="post-actions-sep" aria-hidden="true">|</span>
+                  <form
+                    method="post"
+                    data-busy
+                    data-confirm-title={`Xóa “${category.name}”?`}
+                    data-confirm={categoryDeleteWarning(category.postCount)}
+                    data-confirm-ok="Xóa"
+                    data-confirm-tone="danger"
+                  >
                     <input type="hidden" name="csrf" value={session.csrfToken} />
                     <input type="hidden" name="intent" value="delete" />
                     <input type="hidden" name="id" value={category.id} />
-                    <button class="btn btn-accent" type="submit">Xóa</button>
+                    <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
                   </form>
                 </div>
               </li>

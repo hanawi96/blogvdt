@@ -18,6 +18,7 @@ describe('quyền CMS', () => {
     expect(canAccessPath('editor', '/admin/products')).toBe(false);
     expect(canAccessPath('editor', '/admin/product-categories')).toBe(false);
     expect(canAccessPath('editor', '/admin/orders/14')).toBe(false);
+    expect(canAccessPath('editor', '/admin/customers')).toBe(false);
     expect(canAccessPath('editor', '/admin/redirects')).toBe(false);
   });
 

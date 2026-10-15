@@ -12,21 +12,27 @@ interface Props {
 const { title } = Astro.props;
 const session = Astro.locals.adminSession;
 const path = Astro.url.pathname;
+const isAdmin = session?.role === 'admin';
 const items = [
   [routes.admin, 'Tổng quan'],
   [routes.adminPosts, 'Bài viết'],
   [routes.adminCategories, 'Danh mục'],
-  [routes.adminMedia, 'Thư viện ảnh'],
-  ...(session?.role === 'admin'
+  ...(isAdmin
     ? [
-        [routes.adminProductCategories, 'Danh mục sản phẩm'],
         [routes.adminProducts, 'Sản phẩm'],
+        [routes.adminProductCategories, 'Danh mục SP'],
         [routes.adminOrders, 'Đơn hàng'],
-        [routes.adminSettings, 'Cài đặt'],
+        [routes.adminCustomers, 'Khách hàng'],
+      ]
+    : []),
+  [routes.adminMedia, 'Thư viện ảnh'],
+  ...(isAdmin
+    ? [
         [routes.adminSeo, 'Kiểm tra SEO'],
         [routes.adminRedirects, 'Chuyển hướng'],
         [routes.adminUsers, 'Người dùng'],
         [routes.adminActivity, 'Nhật ký'],
+        [routes.adminSettings, 'Cài đặt'],
       ]
     : []),
 ] as const;
@@ -52,7 +58,21 @@ function current(href: string): boolean {
       session ? (
         <div class="min-h-screen md:grid md:grid-cols-[15rem_1fr]">
           <aside class="admin-side">
-            <p class="admin-brand">Quản trị</p>
+            <div class="admin-side-head">
+              <button
+                class="admin-menu-toggle"
+                type="button"
+                data-nav-open
+                aria-controls="admin-drawer"
+                aria-expanded="false"
+                aria-label="Mở menu quản trị"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                </svg>
+              </button>
+              <p class="admin-brand">Quản trị</p>
+            </div>
             <nav class="admin-nav" aria-label="Quản trị">
               {items.map(([href, label]) => (
                 <a
@@ -72,6 +92,7 @@ function current(href: string): boolean {
                 aria-expanded="false"
                 aria-controls="account-menu"
                 aria-haspopup="menu"
+                aria-label={`Tài khoản: ${session.displayName.trim() || 'Tài khoản'} (${ROLE_LABELS[session.role]})`}
               >
                 {session.avatarUrl ? (
                   <img class="user-avatar" src={session.avatarUrl} alt="" width="40" height="40" />
@@ -95,6 +116,27 @@ function current(href: string): boolean {
               </div>
             </div>
           </aside>
+          <dialog id="admin-drawer" class="admin-drawer" aria-label="Menu quản trị">
+            <div class="admin-drawer-head">
+              <p class="admin-brand">Quản trị</p>
+              <button class="admin-menu-toggle" type="button" data-nav-close aria-label="Đóng menu">
+                <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                </svg>
+              </button>
+            </div>
+            <nav class="admin-drawer-nav" aria-label="Menu quản trị">
+              {items.map(([href, label]) => (
+                <a
+                  href={href}
+                  aria-current={current(href) ? 'page' : undefined}
+                  class:list={[current(href) && 'is-current']}
+                >
+                  {label}
+                </a>
+              ))}
+            </nav>
+          </dialog>
           <div>
             <header class="admin-page-head">
               <div>
@@ -116,6 +158,26 @@ function current(href: string): boolean {
     )
   }
     <script>
+      const drawer = document.getElementById('admin-drawer');
+      const drawerOpen = document.querySelector('[data-nav-open]');
+      if (drawer instanceof HTMLDialogElement && drawerOpen instanceof HTMLButtonElement) {
+        const menu = drawer;
+        drawerOpen.addEventListener('click', () => {
+          menu.showModal();
+          drawerOpen.setAttribute('aria-expanded', 'true');
+        });
+        menu.addEventListener('close', () => drawerOpen.setAttribute('aria-expanded', 'false'));
+        menu.querySelector('[data-nav-close]')?.addEventListener('click', () => menu.close());
+        menu.addEventListener('click', (event) => {
+          if (event.target !== menu) return;
+          const box = menu.getBoundingClientRect();
+          if (event.clientX > box.right || event.clientX < box.left || event.clientY < box.top || event.clientY > box.bottom) menu.close();
+        });
+        // Drawer modal chỉ dành cho màn hẹp; mở rộng cửa sổ thì đóng để trang không bị khóa sau backdrop.
+        window.matchMedia('(width >= 48rem)').addEventListener('change', (event) => {
+          if (event.matches && menu.open) menu.close();
+        });
+      }
       const account = document.querySelector('[data-account]');
       const accountTrigger = account?.querySelector('[data-account-trigger]');
       const accountPanel = account?.querySelector('[data-account-panel]');

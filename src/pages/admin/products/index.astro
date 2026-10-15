@@ -1,8 +1,7 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { listProductCategories } from '../../../features/products/categories';
 import { listProducts, productAdminQuery, productListSort, type ProductListSort } from '../../../features/products/products';
-import { isProductStatus, PRODUCT_STATUS_LABELS } from '../../../features/products/status';
+import { isProductStatus, PRODUCT_STATUS_LABELS, type ProductStatus } from '../../../features/products/status';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
 import { formatDateTime } from '../../../lib/datetime';
@@ -10,10 +9,11 @@ import { formatVnd } from '../../../lib/money';
 import { routes } from '../../../lib/routes';
 
 if (!Astro.locals.adminSession) return Astro.redirect(routes.adminLogin);
+const csrfToken = Astro.locals.adminSession.csrfToken;
 
 const query = Astro.url.searchParams.get('q') ?? '';
 const statusParam = Astro.url.searchParams.get('status') ?? '';
-const status = isProductStatus(statusParam) ? statusParam : '';
+const status: ProductStatus | '' = isProductStatus(statusParam) ? statusParam : '';
 const categoryValue = Number(Astro.url.searchParams.get('category') ?? '');
 const categoryId = Number.isInteger(categoryValue) && categoryValue > 0 ? categoryValue : null;
 const sort = productListSort(Astro.url.searchParams.get('sort'));
@@ -21,19 +21,28 @@ const page = Number(Astro.url.searchParams.get('page') ?? '1');
 const deleted = Astro.url.searchParams.get('deleted') === '1';
 const featured = Astro.url.searchParams.get('featured');
 const featureError = Astro.url.searchParams.get('error') === 'feature';
+const bulkError = Astro.url.searchParams.get('error') === 'bulk';
+const bulkParam = Astro.url.searchParams.get('bulk') ?? '';
+const bulkCount = Math.max(0, Number(Astro.url.searchParams.get('n')) || 0);
+const bulkStatus = isProductStatus(bulkParam) ? bulkParam : null;
+const bulkNotice =
+  bulkParam === 'delete'
+    ? `Đã xóa ${bulkCount} sản phẩm. Đơn cũ vẫn giữ tên và giá lúc đặt.`
+    : bulkStatus
+      ? bulkCount > 0
+        ? `Đã chuyển ${bulkCount} sản phẩm sang ${PRODUCT_STATUS_LABELS[bulkStatus]}.`
+        : `Các sản phẩm đã chọn vốn đã ở trạng thái ${PRODUCT_STATUS_LABELS[bulkStatus]}.`
+      : '';
 let loadError = '';
 let result: Awaited<ReturnType<typeof listProducts>> | null = null;
-let categoryOptions: { id: number; name: string }[] = [];
+let clientFilter = false;
 try {
   const db = createDb(getDbBinding());
-  categoryOptions = (await listProductCategories(db)).map((category) => ({ id: category.id, name: category.name }));
-  result = await listProducts(db, {
-    query,
-    status,
-    categoryId,
-    sort,
-    page: Number.isInteger(page) ? page : 1,
-  });
+  const filters = { query, status, sort, page: Number.isInteger(page) ? page : 1 };
+  result = await listProducts(db, filters);
+  // Lọc danh mục ngay trên trình duyệt chỉ khi mọi sản phẩm khớp đã nằm trong một trang; nhiều trang thì lọc ở server.
+  clientFilter = result.pageCount === 1;
+  if (!clientFilter && categoryId) result = await listProducts(db, { ...filters, categoryId });
 } catch (error) {
   console.error(JSON.stringify({ event: 'product_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
   loadError = 'Không tải được danh sách sản phẩm.';
@@ -47,150 +56,205 @@ const sorts: { id: ProductListSort; label: string }[] = [
   { id: 'price-desc', label: 'Giá giảm dần' },
 ];
 
+const activeCategory = result?.categories.some((category) => category.id === categoryId) ? categoryId : null;
+const isRowShown = (rowCategory: number | null) => !clientFilter || activeCategory === null || rowCategory === activeCategory;
+const shownCount = result?.rows.filter((product) => isRowShown(product.categoryId)).length ?? 0;
+
 function pageHref(next: { page?: number }): string {
   return productAdminQuery({ query, status, category: categoryId, sort, page: next.page ?? 1 });
 }
 ---
 
 <AdminLayout title="Quản lý sản phẩm">
-  <p slot="lead">{result ? `${result.libraryTotal} sản phẩm trong cửa hàng` : 'Danh sách sản phẩm'}</p>
+  <p slot="lead" data-product-lead>{result ? `${result.libraryTotal} sản phẩm trong cửa hàng` : 'Danh sách sản phẩm'}</p>
   <a slot="action" class="btn btn-primary" href={routes.adminProductNew}>Thêm sản phẩm</a>
-  {deleted && <p class="mb-4 text-primary-strong" role="status">Đã xóa sản phẩm. Đơn cũ vẫn giữ tên và giá lúc đặt.</p>}
-  {featured === '1' && <p class="mb-4 text-primary-strong" role="status">Đã đánh dấu nổi bật trên trang chủ.</p>}
-  {featured === '0' && <p class="mb-4 text-primary-strong" role="status">Đã bỏ nổi bật.</p>}
-  {featureError && <p class="error-text mb-4" role="alert">Không đánh dấu nổi bật được. Chỉ sản phẩm đang bán mới hiện ở trang chủ.</p>}
-  {loadError && <p class="error-text" role="alert">{loadError}</p>}
   {
     result && (
-      <>
-        <form class="post-toolbar product-toolbar" method="get" data-product-search>
-          <label class="sr-only" for="product-query">Tìm sản phẩm</label>
-          <input id="product-query" class="field" name="q" value={query} placeholder="Tìm sản phẩm..." maxlength="160" />
-          <label class="sr-only" for="product-category">Danh mục</label>
-          <select id="product-category" class="field" name="category">
-            <option value="" selected={categoryId === null}>Tất cả danh mục</option>
-            {categoryOptions.map((category) => (
-              <option value={category.id} selected={categoryId === category.id}>{category.name}</option>
-            ))}
-          </select>
-          <label class="sr-only" for="product-status">Trạng thái</label>
-          <select id="product-status" class="field" name="status">
-            <option value="" selected={status === ''}>Tất cả trạng thái</option>
-            <option value="active" selected={status === 'active'}>Đang bán</option>
-            <option value="inactive" selected={status === 'inactive'}>Ngừng bán</option>
-          </select>
-          <label class="sr-only" for="product-sort">Sắp xếp</label>
-          <select id="product-sort" class="field" name="sort">
-            {sorts.map((item) => (
-              <option value={item.id} selected={sort === item.id}>{item.label}</option>
-            ))}
-          </select>
-        </form>
-        <div data-product-list>
-          {result.rows.length === 0 ? (
-            <p class="post-empty">
-              {result.libraryTotal === 0 ? 'Chưa có sản phẩm.' : 'Không có sản phẩm khớp bộ lọc.'}
-              {result.libraryTotal === 0 && <a href={routes.adminProductNew}>Thêm sản phẩm đầu tiên</a>}
-            </p>
-          ) : (
-            <table class="post-table product-table">
-              <thead>
-                <tr>
-                  <th>Sản phẩm</th>
-                  <th>Giá</th>
-                  <th>Danh mục</th>
-                  <th>Kiểu dây</th>
-                  <th>Trạng thái</th>
-                  <th>Nổi bật</th>
-                  <th>Cập nhật</th>
-                  <th>Thao tác</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.rows.map((product) => {
-                  const active = product.status === 'active';
-                  return (
-                    <tr>
-                      <td>
-                        <div class="product-main">
-                          {product.coverUrl ? (
-                            <img class="product-thumb" src={product.coverUrl} alt={product.coverAlt} width="44" height="44" loading="lazy" />
-                          ) : (
-                            <span class="product-thumb is-empty" aria-hidden="true" />
-                          )}
-                          <a class="post-title" href={routes.adminProduct(product.id)}>{product.name}</a>
-                        </div>
-                      </td>
-                      <td data-label="Giá">
-                        {formatVnd(product.price)}
-                        {product.comparePrice != null && (
-                          <span class="product-compare">{formatVnd(product.comparePrice)}</span>
-                        )}
-                      </td>
-                      <td data-label="Danh mục">{product.categoryName || '—'}</td>
-                      <td data-label="Kiểu dây">{product.cordType || '—'}</td>
-                      <td data-label="Trạng thái">
-                        <span class="post-status" data-status={active ? 'active' : 'inactive'}>
-                          {isProductStatus(product.status) ? PRODUCT_STATUS_LABELS[product.status] : product.status}
-                        </span>
-                      </td>
-                      <td data-label="Nổi bật">
-                        <span class="product-flag" data-on={product.isFeatured ? 'true' : 'false'}>{product.isFeatured ? 'Nổi bật' : '—'}</span>
-                      </td>
-                      <td data-label="Cập nhật">{formatDateTime(product.updatedAt)}</td>
-                      <td>
-                        <div class="post-actions">
-                          <a href={routes.adminProduct(product.id)}>Sửa</a>
-                          {active && (
-                            <>
-                              <span class="post-actions-sep" aria-hidden="true">|</span>
-                              <a href={routes.product(product.slug)} target="_blank" rel="noopener">Xem sản phẩm</a>
-                            </>
-                          )}
-                          <details class="row-menu">
-                            <summary aria-label={`Thao tác khác: ${product.name}`}>⋯</summary>
-                            <div>
-                              {active && (
-                                <form method="post" action={routes.adminProductFeature(product.id)}>
-                                  <input type="hidden" name="csrf" value={Astro.locals.adminSession?.csrfToken} />
-                                  <input type="hidden" name="featured" value={product.isFeatured ? '0' : '1'} />
-                                  <input type="hidden" name="q" value={query} />
-                                  <input type="hidden" name="status" value={status} />
-                                  <input type="hidden" name="category" value={categoryId ? String(categoryId) : ''} />
-                                  <input type="hidden" name="sort" value={sort} />
-                                  <input type="hidden" name="page" value={String(result.page)} />
-                                  <button type="submit">{product.isFeatured ? 'Bỏ nổi bật' : 'Bật nổi bật'}</button>
-                                </form>
-                              )}
-                              <form method="post" action={routes.adminProductDelete(product.id)} onsubmit={`return confirm(${JSON.stringify(`Xóa sản phẩm “${product.name}”? Đơn cũ vẫn giữ tên và giá lúc đặt.`)})`}>
-                                <input type="hidden" name="csrf" value={Astro.locals.adminSession?.csrfToken} />
-                                <input type="hidden" name="q" value={query} />
-                                <input type="hidden" name="status" value={status} />
-                                <input type="hidden" name="category" value={categoryId ? String(categoryId) : ''} />
-                                <input type="hidden" name="sort" value={sort} />
-                                <button type="submit">Xóa</button>
-                              </form>
-                            </div>
-                          </details>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-        {result.pageCount > 1 && (
-          <nav class="post-pager" aria-label="Phân trang">
-            {result.page > 1 && <a class="btn" href={pageHref({ page: result.page - 1 })}>Trang trước</a>}
-            <span>Trang {result.page}/{result.pageCount}</span>
-            {result.page < result.pageCount && <a class="btn" href={pageHref({ page: result.page + 1 })}>Trang sau</a>}
-          </nav>
-        )}
-      </>
+      <form class="post-toolbar product-toolbar" method="get" data-product-search>
+        <label class="sr-only" for="product-query">Tìm sản phẩm</label>
+        <input type="hidden" name="category" value={activeCategory ?? ''} />
+        <input id="product-query" class="field" name="q" value={query} placeholder="Tìm sản phẩm..." maxlength="160" />
+        <label class="sr-only" for="product-status">Trạng thái</label>
+        <select id="product-status" class="field" name="status">
+          <option value="" selected={status === ''}>Tất cả trạng thái</option>
+          <option value="active" selected={status === 'active'}>Đang bán</option>
+          <option value="inactive" selected={status === 'inactive'}>Ngừng bán</option>
+        </select>
+        <label class="sr-only" for="product-sort">Sắp xếp</label>
+        <select id="product-sort" class="field" name="sort">
+          {sorts.map((item) => (
+            <option value={item.id} selected={sort === item.id}>{item.label}</option>
+          ))}
+        </select>
+      </form>
     )
   }
+  <div data-product-results>
+    {deleted && <p class="mb-4 text-primary-strong" role="status">Đã xóa sản phẩm. Đơn cũ vẫn giữ tên và giá lúc đặt.</p>}
+    {featured === '1' && <p class="mb-4 text-primary-strong" role="status">Đã đánh dấu nổi bật trên trang chủ.</p>}
+    {featured === '0' && <p class="mb-4 text-primary-strong" role="status">Đã bỏ nổi bật.</p>}
+    {featureError && <p class="error-text mb-4" role="alert">Không đánh dấu nổi bật được. Chỉ sản phẩm đang bán mới hiện ở trang chủ.</p>}
+    {bulkNotice && <p class="mb-4 text-primary-strong" role="status">{bulkNotice}</p>}
+    {bulkError && <p class="error-text mb-4" role="alert">Không thực hiện được thao tác hàng loạt. Chọn tối đa 100 sản phẩm rồi thử lại.</p>}
+    {loadError && <p class="error-text" role="alert">{loadError}</p>}
+    {
+      result && (
+        <>
+          {result.categories.length > 0 && (
+            <nav class="post-filters product-presets" aria-label="Lọc theo danh mục" data-product-presets data-client-filter={clientFilter ? '' : undefined}>
+              <a href={productAdminQuery({ query, status, sort })} data-category="" aria-current={activeCategory === null ? 'page' : undefined}>
+                Tất cả ({result.allCount})
+              </a>
+              {result.categories.map((category) => (
+                <a
+                  href={productAdminQuery({ query, status, category: category.id, sort })}
+                  data-category={category.id}
+                  aria-current={activeCategory === category.id ? 'page' : undefined}
+                >
+                  {category.name} ({category.count})
+                </a>
+              ))}
+            </nav>
+          )}
+          <form id="product-bulk" class="bulk-bar" method="post" action={routes.adminProductsBulk} aria-label="Thao tác hàng loạt" data-product-bulk hidden>
+            <input type="hidden" name="csrf" value={csrfToken} />
+            <input type="hidden" name="q" value={query} />
+            <input type="hidden" name="status" value={status} />
+            <input type="hidden" name="category" value={activeCategory ?? ''} />
+            <input type="hidden" name="sort" value={sort} />
+            <input type="hidden" name="page" value={String(result.page)} />
+            <span class="bulk-count" aria-live="polite" data-bulk-count>Đã chọn 0</span>
+            <button class="bulk-link" type="button" data-bulk-pick-all>Chọn tất cả</button>
+            <button class="btn" type="submit" name="bulk" value="active">Đang bán</button>
+            <button class="btn" type="submit" name="bulk" value="inactive">Ngừng bán</button>
+            <button class="btn btn-accent" type="submit" name="bulk" value="delete">Xóa</button>
+            <button class="bulk-link" type="button" data-bulk-clear>Bỏ chọn</button>
+            <span class="error-text" role="alert" data-bulk-error hidden></span>
+          </form>
+          <div data-product-list>
+            {result.rows.length === 0 ? (
+              <p class="post-empty">
+                {result.libraryTotal === 0 ? 'Chưa có sản phẩm.' : 'Không có sản phẩm khớp bộ lọc.'}
+                {result.libraryTotal === 0 && <a href={routes.adminProductNew}>Thêm sản phẩm đầu tiên</a>}
+              </p>
+            ) : (
+              <>
+                <p class="post-empty" data-product-empty hidden={shownCount > 0}>Không có sản phẩm thuộc danh mục này.</p>
+                <table class="post-table product-table" hidden={shownCount === 0}>
+                  <thead>
+                    <tr>
+                      <th class="product-check">
+                        <input type="checkbox" aria-label="Chọn tất cả sản phẩm đang hiện" data-bulk-all />
+                      </th>
+                      <th>Sản phẩm</th>
+                      <th>Giá</th>
+                      <th>Danh mục</th>
+                      <th>Kiểu dây</th>
+                      <th>Trạng thái</th>
+                      <th>Nổi bật</th>
+                      <th>Cập nhật</th>
+                      <th>Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.rows.map((product) => {
+                      const active = product.status === 'active';
+                      return (
+                        <tr data-category={product.categoryId ?? ''} hidden={!isRowShown(product.categoryId)}>
+                          <td class="product-check">
+                            <input
+                              type="checkbox"
+                              form="product-bulk"
+                              name="ids"
+                              value={product.id}
+                              aria-label={`Chọn ${product.name}`}
+                              data-featured={product.isFeatured ? '1' : undefined}
+                            />
+                          </td>
+                          <td>
+                            <div class="product-main">
+                              {product.coverUrl ? (
+                                <img class="product-thumb" src={product.coverUrl} alt={product.coverAlt} width="44" height="44" loading="lazy" />
+                              ) : (
+                                <span class="product-thumb is-empty" aria-hidden="true" />
+                              )}
+                              <a class="post-title" href={routes.adminProduct(product.id)}>{product.name}</a>
+                            </div>
+                          </td>
+                          <td data-label="Giá">
+                            {formatVnd(product.price)}
+                            {product.comparePrice != null && <span class="product-compare">{formatVnd(product.comparePrice)}</span>}
+                          </td>
+                          <td data-label="Danh mục">{product.categoryName || '—'}</td>
+                          <td data-label="Kiểu dây">{product.cordType || '—'}</td>
+                          <td data-label="Trạng thái">
+                            <span class="post-status" data-status={active ? 'active' : 'inactive'}>
+                              {isProductStatus(product.status) ? PRODUCT_STATUS_LABELS[product.status] : product.status}
+                            </span>
+                          </td>
+                          <td data-label="Nổi bật">
+                            <span class="product-flag" data-on={product.isFeatured ? 'true' : 'false'}>{product.isFeatured ? 'Nổi bật' : '—'}</span>
+                          </td>
+                          <td data-label="Cập nhật">{formatDateTime(product.updatedAt)}</td>
+                          <td>
+                            <div class="post-actions">
+                              <a href={routes.adminProduct(product.id)}>Sửa</a>
+                              {active && (
+                                <>
+                                  <span class="post-actions-sep" aria-hidden="true">|</span>
+                                  <a href={routes.product(product.slug)} target="_blank" rel="noopener">Xem sản phẩm</a>
+                                </>
+                              )}
+                              <details class="row-menu">
+                                <summary aria-label={`Thao tác khác: ${product.name}`}>⋯</summary>
+                                <div>
+                                  {active && (
+                                    <form method="post" action={routes.adminProductFeature(product.id)}>
+                                      <input type="hidden" name="csrf" value={csrfToken} />
+                                      <input type="hidden" name="featured" value={product.isFeatured ? '0' : '1'} />
+                                      <input type="hidden" name="q" value={query} />
+                                      <input type="hidden" name="status" value={status} />
+                                      <input type="hidden" name="category" value={activeCategory ?? ''} />
+                                      <input type="hidden" name="sort" value={sort} />
+                                      <input type="hidden" name="page" value={String(result.page)} />
+                                      <button type="submit">{product.isFeatured ? 'Bỏ nổi bật' : 'Bật nổi bật'}</button>
+                                    </form>
+                                  )}
+                                  <form
+                                    method="post"
+                                    action={routes.adminProductDelete(product.id)}
+                                    onsubmit={`return confirm(${JSON.stringify(`Xóa sản phẩm “${product.name}”? Đơn cũ vẫn giữ tên và giá lúc đặt.`)})`}
+                                  >
+                                    <input type="hidden" name="csrf" value={csrfToken} />
+                                    <input type="hidden" name="q" value={query} />
+                                    <input type="hidden" name="status" value={status} />
+                                    <input type="hidden" name="category" value={activeCategory ?? ''} />
+                                    <input type="hidden" name="sort" value={sort} />
+                                    <button type="submit">Xóa</button>
+                                  </form>
+                                </div>
+                              </details>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </>
+            )}
+          </div>
+          {result.pageCount > 1 && (
+            <nav class="post-pager" aria-label="Phân trang">
+              {result.page > 1 && <a class="btn" href={pageHref({ page: result.page - 1 })}>Trang trước</a>}
+              <span>Trang {result.page}/{result.pageCount}</span>
+              {result.page < result.pageCount && <a class="btn" href={pageHref({ page: result.page + 1 })}>Trang sau</a>}
+            </nav>
+          )}
+        </>
+      )
+    }
+  </div>
 </AdminLayout>
 
 <script>
@@ -210,20 +274,206 @@ function pageHref(next: { page?: number }): string {
     }
   });
 
-  const form = document.querySelector('[data-product-search]');
-  const list = document.querySelector('[data-product-list]');
-  if (form instanceof HTMLFormElement) {
-    const input = form.querySelector('input[name="q"]');
+  // Vùng kết quả được thay HTML sau mỗi thao tác hàng loạt, nên mọi phần tử bên trong đều truy vấn lại khi dùng.
+  const results = document.querySelector<HTMLElement>('[data-product-results]');
+  const searchForm = document.querySelector('[data-product-search]');
+  let anchor: HTMLInputElement | null = null;
+
+  const rowBoxes = () => (results ? [...results.querySelectorAll<HTMLInputElement>('input[name="ids"]')] : []);
+  const isShown = (box: HTMLInputElement) => !box.closest('tr')?.hidden;
+  const productList = () => results?.querySelector('[data-product-list]');
+
+  function syncSelection() {
+    const boxes = rowBoxes();
+    const shown = boxes.filter(isShown);
+    const picked = boxes.filter((box) => box.checked).length;
+    const allShown = shown.length > 0 && shown.every((box) => box.checked);
+    const all = results?.querySelector<HTMLInputElement>('[data-bulk-all]');
+    if (all) {
+      all.checked = allShown;
+      all.indeterminate = picked > 0 && !allShown;
+    }
+    const bar = results?.querySelector<HTMLFormElement>('[data-product-bulk]');
+    if (!bar) return;
+    bar.hidden = picked === 0;
+    const count = bar.querySelector('[data-bulk-count]');
+    if (count) count.textContent = `Đã chọn ${picked}`;
+    const pickAll = bar.querySelector<HTMLButtonElement>('[data-bulk-pick-all]');
+    if (pickAll) pickAll.hidden = allShown;
+    const error = bar.querySelector<HTMLElement>('[data-bulk-error]');
+    if (error && picked === 0) error.hidden = true;
+  }
+
+  function pick(checked: boolean) {
+    for (const box of rowBoxes()) box.checked = checked && isShown(box);
+    syncSelection();
+  }
+
+  function showCategory(category: string) {
+    const presets = results?.querySelector('[data-product-presets]');
+    const list = productList();
+    if (!presets || !list) return;
+    for (const link of presets.querySelectorAll('a')) {
+      if (link.dataset.category === category) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    }
+    let shown = 0;
+    for (const row of list.querySelectorAll<HTMLTableRowElement>('tbody tr')) {
+      row.hidden = category !== '' && row.dataset.category !== category;
+      // Bỏ chọn dòng bị ẩn để thao tác hàng loạt không chạm sản phẩm người dùng không nhìn thấy.
+      const box = row.querySelector<HTMLInputElement>('input[name="ids"]');
+      if (row.hidden && box) box.checked = false;
+      if (!row.hidden) shown += 1;
+    }
+    const table = list.querySelector('table');
+    const empty = list.querySelector<HTMLElement>('[data-product-empty]');
+    if (table) table.hidden = shown === 0;
+    if (empty) empty.hidden = shown > 0;
+    for (const input of document.querySelectorAll<HTMLInputElement>('input[type="hidden"][name="category"]')) input.value = category;
+    syncSelection();
+  }
+
+  function setConfirm(form: HTMLFormElement, confirm: { title: string; message: string; ok: string; tone: string } | null) {
+    if (!confirm) {
+      delete form.dataset.confirm;
+      return;
+    }
+    form.dataset.confirm = confirm.message;
+    form.dataset.confirmTitle = confirm.title;
+    form.dataset.confirmOk = confirm.ok;
+    form.dataset.confirmTone = confirm.tone;
+  }
+
+  results?.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+
+    const link = target.closest<HTMLAnchorElement>('[data-product-presets] a');
+    if (link) {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const current = link.getAttribute('aria-current') === 'page';
+      if (!link.closest('[data-client-filter]')) {
+        if (!current) productList()?.setAttribute('aria-busy', 'true');
+        return;
+      }
+      event.preventDefault();
+      if (current) return;
+      showCategory(link.dataset.category ?? '');
+      history.pushState(null, '', link.href);
+      return;
+    }
+
+    if (target instanceof HTMLInputElement && target.name === 'ids') {
+      if (event.shiftKey && anchor && anchor !== target && anchor.isConnected) {
+        const shown = rowBoxes().filter(isShown);
+        const from = shown.indexOf(anchor);
+        const to = shown.indexOf(target);
+        if (from >= 0 && to >= 0) {
+          for (const box of shown.slice(Math.min(from, to), Math.max(from, to) + 1)) box.checked = target.checked;
+        }
+      }
+      anchor = target;
+      return;
+    }
+
+    if (target.closest('[data-bulk-pick-all]')) return pick(true);
+    if (target.closest('[data-bulk-clear]')) return pick(false);
+
+    const action = target.closest<HTMLButtonElement>('[data-product-bulk] button[name="bulk"]');
+    if (action?.form) {
+      const picked = rowBoxes().filter((box) => box.checked);
+      const featuredCount = picked.filter((box) => box.dataset.featured === '1').length;
+      if (action.value === 'delete') {
+        setConfirm(action.form, {
+          title: 'Xóa sản phẩm',
+          message: `${picked.length} sản phẩm sẽ bị xóa vĩnh viễn. Đơn cũ vẫn giữ tên và giá lúc đặt.`,
+          ok: `Xóa ${picked.length} sản phẩm`,
+          tone: 'danger',
+        });
+      } else if (action.value === 'inactive' && featuredCount > 0) {
+        setConfirm(action.form, {
+          title: 'Ngừng bán sản phẩm',
+          message: `${featuredCount} sản phẩm đang nổi bật sẽ bị bỏ nổi bật khi chuyển sang Ngừng bán.`,
+          ok: 'Ngừng bán',
+          tone: '',
+        });
+      } else {
+        setConfirm(action.form, null);
+      }
+    }
+  });
+
+  results?.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.hasAttribute('data-bulk-all')) return pick(target.checked);
+    if (target.name === 'ids') syncSelection();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+    if (rowBoxes().some((box) => box.checked)) pick(false);
+  });
+
+  // ConfirmDialog chặn ở pha capture; lượt submit đã xác nhận mới tới đây.
+  document.addEventListener('submit', async (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || !form.hasAttribute('data-product-bulk') || event.defaultPrevented || !results) return;
+    event.preventDefault();
+    if (form.dataset.sending === '1') return;
+    const data = new FormData(form);
+    if (event.submitter instanceof HTMLButtonElement && event.submitter.name) data.set(event.submitter.name, event.submitter.value);
+    const buttons = [...form.querySelectorAll('button')];
+    const error = form.querySelector<HTMLElement>('[data-bulk-error]');
+    form.dataset.sending = '1';
+    for (const button of buttons) button.disabled = true;
+    productList()?.setAttribute('aria-busy', 'true');
+    try {
+      const response = await fetch(form.getAttribute('action') ?? location.href, { method: 'POST', body: data, headers: { accept: 'text/html' } });
+      const url = new URL(response.url);
+      if (response.ok && url.pathname !== location.pathname) {
+        location.assign(url);
+        return;
+      }
+      const next = response.ok ? new DOMParser().parseFromString(await response.text(), 'text/html') : null;
+      const nextResults = next?.querySelector('[data-product-results]');
+      if (!next || !nextResults) throw new Error(`bulk_${response.status}`);
+      results.innerHTML = nextResults.innerHTML;
+      const lead = document.querySelector('[data-product-lead]');
+      const nextLead = next.querySelector('[data-product-lead]');
+      if (lead && nextLead) lead.textContent = nextLead.textContent;
+      for (const name of ['bulk', 'n', 'error', 'deleted', 'featured']) url.searchParams.delete(name);
+      history.replaceState(null, '', url.pathname + url.search);
+      anchor = null;
+      syncSelection();
+    } catch {
+      if (error) {
+        error.textContent = 'Không thực hiện được. Tải lại trang rồi thử lại.';
+        error.hidden = false;
+      }
+    } finally {
+      delete form.dataset.sending;
+      for (const button of buttons) button.disabled = false;
+      productList()?.removeAttribute('aria-busy');
+    }
+  });
+
+  if (results?.querySelector('[data-client-filter]')) {
+    window.addEventListener('popstate', () => showCategory(new URL(location.href).searchParams.get('category') ?? ''));
+  }
+
+  if (searchForm instanceof HTMLFormElement) {
+    const input = searchForm.querySelector('input[name="q"]');
     let timer = 0;
     const go = () => {
-      const data = new FormData(form);
+      const data = new FormData(searchForm);
       const read = (name: string) => {
         const value = data.get(name);
         return typeof value === 'string' ? value : '';
       };
       const url = new URL(productListUrl(read('q'), read('status'), read('sort'), read('category')), location.origin);
       if (url.pathname + url.search === location.pathname + location.search) return;
-      list?.setAttribute('aria-busy', 'true');
+      productList()?.setAttribute('aria-busy', 'true');
       location.assign(url);
     };
     if (input instanceof HTMLInputElement) {
@@ -232,17 +482,19 @@ function pageHref(next: { page?: number }): string {
         timer = window.setTimeout(go, 300);
       });
     }
-    form.addEventListener('change', (event) => {
+    searchForm.addEventListener('change', (event) => {
       if (event.target === input) return;
       window.clearTimeout(timer);
       go();
     });
-    form.addEventListener('submit', (event) => {
+    searchForm.addEventListener('submit', (event) => {
       event.preventDefault();
       window.clearTimeout(timer);
       go();
     });
   }
+
+  syncSelection();
 
   function productListUrl(query: string, status: string, sort: string, category: string): string {
     const params = new URLSearchParams();
@@ -251,7 +503,6 @@ function pageHref(next: { page?: number }): string {
     if (term) params.set('q', term);
     if (status === 'active' || status === 'inactive') params.set('status', status);
     if (Number.isInteger(categoryId) && categoryId > 0) params.set('category', String(categoryId));
-    if (sort && sort !== 'newest') params.set('sort', sort);
     if (sort && sort !== 'newest') params.set('sort', sort);
     const text = params.toString();
     return text ? `/admin/products?${text}` : '/admin/products';

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, like } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, like, ne } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
 import { runBatch } from '../../lib/db/batch';
 import type { AppDb } from '../../lib/db/client';
@@ -7,7 +7,7 @@ import { media, productCategories, productMedia, products, redirects } from '../
 import { routes } from '../../lib/routes';
 import { canFeatureProduct, isProductStatus, type ProductStatus } from './status';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 100;
 const PRODUCT_SORTS = ['newest', 'oldest', 'name', 'price-asc', 'price-desc'] as const;
 
 export type ProductListSort = (typeof PRODUCT_SORTS)[number];
@@ -23,6 +23,7 @@ export function productAdminQuery(input: {
   sort?: string;
   page?: number;
   notice?: 'deleted' | 'featured-on' | 'featured-off' | 'feature-error';
+  bulk?: { action: ProductBulkAction; count: number } | 'error';
 }): string {
   const params = new URLSearchParams();
   const query = (input.query ?? '').replace(/[%_]/g, '').trim().slice(0, 160);
@@ -35,12 +36,15 @@ export function productAdminQuery(input: {
   if (category) params.set('category', String(category));
   if (sort !== 'newest') params.set('sort', sort);
   if (page) params.set('page', String(page));
-  if (sort !== 'newest') params.set('sort', sort);
-  if (page) params.set('page', String(page));
   if (input.notice === 'deleted') params.set('deleted', '1');
   if (input.notice === 'featured-on') params.set('featured', '1');
   if (input.notice === 'featured-off') params.set('featured', '0');
   if (input.notice === 'feature-error') params.set('error', 'feature');
+  if (input.bulk === 'error') params.set('error', 'bulk');
+  else if (input.bulk) {
+    params.set('bulk', input.bulk.action);
+    params.set('n', String(input.bulk.count));
+  }
   const text = params.toString();
   return text ? `${routes.adminProducts}?${text}` : routes.adminProducts;
 }
@@ -84,17 +88,25 @@ export async function listProducts(
   filters: { query: string; status: ProductStatus | ''; categoryId?: number | null; page: number; sort?: ProductListSort },
 ) {
   const term = filters.query.replace(/[%_]/g, '').trim().slice(0, 160);
-  const conditions = [];
-  if (filters.status) conditions.push(eq(products.status, filters.status));
-  if (filters.categoryId) conditions.push(eq(products.categoryId, filters.categoryId));
-  if (term) conditions.push(like(products.name, `%${term}%`));
+  const shared = [];
+  if (filters.status) shared.push(eq(products.status, filters.status));
+  if (term) shared.push(like(products.name, `%${term}%`));
+  const conditions = filters.categoryId ? [...shared, eq(products.categoryId, filters.categoryId)] : shared;
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = Math.max(1, filters.page);
   const sort = productListSort(filters.sort);
   const filtered = Boolean(term || filters.status || filters.categoryId);
-  const [totalRows, libraryRows, rows] = await Promise.all([
+  const [totalRows, libraryRows, sharedRows, categoryRows, rows] = await Promise.all([
     db.select({ value: count() }).from(products).where(where),
     filtered ? db.select({ value: count() }).from(products) : Promise.resolve([]),
+    filters.categoryId ? db.select({ value: count() }).from(products).where(and(...shared)) : Promise.resolve([]),
+    // Đếm trong ON (không phải WHERE) để danh mục chưa có sản phẩm khớp vẫn hiện với số 0.
+    db
+      .select({ id: productCategories.id, name: productCategories.name, count: count(products.id) })
+      .from(productCategories)
+      .leftJoin(products, and(eq(products.categoryId, productCategories.id), ...shared))
+      .groupBy(productCategories.id)
+      .orderBy(asc(productCategories.sortOrder), asc(productCategories.name), asc(productCategories.id)),
     db
       .select({
         id: products.id,
@@ -102,6 +114,7 @@ export async function listProducts(
         slug: products.slug,
         price: products.price,
         comparePrice: products.comparePrice,
+        categoryId: products.categoryId,
         categoryName: productCategories.name,
         cordType: products.cordType,
         status: products.status,
@@ -126,6 +139,7 @@ export async function listProducts(
       slug: row.slug,
       price: row.price,
       comparePrice: row.comparePrice,
+      categoryId: row.categoryId,
       categoryName: row.categoryName ?? '',
       cordType: row.cordType,
       status: row.status,
@@ -140,6 +154,8 @@ export async function listProducts(
     pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)),
     sort,
     libraryTotal: filtered ? (libraryRows[0]?.value ?? 0) : total,
+    categories: categoryRows,
+    allCount: filters.categoryId ? (sharedRows[0]?.value ?? 0) : total,
   };
 }
 
@@ -239,15 +255,54 @@ export async function setProductFeatured(
   return { ok: true, featured: next };
 }
 
-export async function deleteProduct(db: AppDb, id: number): Promise<void> {
-  const current = await getProduct(db, id);
-  if (!current) return;
-  const path = routes.product(current.slug);
+export const PRODUCT_BULK_ACTIONS = ['active', 'inactive', 'delete'] as const;
+export type ProductBulkAction = (typeof PRODUCT_BULK_ACTIONS)[number];
+
+export function readProductBulk(form: FormData): { action: ProductBulkAction; ids: number[] } | null {
+  const action = PRODUCT_BULK_ACTIONS.find((item) => item === form.get('bulk'));
+  const ids = [...new Set(form.getAll('ids').map(Number))].filter((id) => Number.isInteger(id) && id > 0);
+  if (!action || ids.length === 0 || ids.length > PAGE_SIZE) return null;
+  return { action, ids };
+}
+
+export async function setProductsStatus(db: AppDb, ids: number[], status: ProductStatus, now = Date.now()): Promise<number> {
+  const values = status === 'active' ? { status, updatedAt: now } : { status, isFeatured: false, updatedAt: now };
+  const results = await runBatch(
+    db,
+    idChunks(ids).map((chunk) =>
+      db
+        .update(products)
+        .set(values)
+        .where(and(inArray(products.id, chunk), ne(products.status, status)))
+        .returning({ id: products.id }),
+    ),
+  );
+  return results.reduce((total, rows) => total + (Array.isArray(rows) ? rows.length : 0), 0);
+}
+
+export async function deleteProducts(db: AppDb, ids: number[]): Promise<number> {
+  const chunks = idChunks(ids);
+  const found = await runBatch(
+    db,
+    chunks.map((chunk) => db.select({ slug: products.slug }).from(products).where(inArray(products.id, chunk))),
+  );
+  const paths = found.flatMap((rows) => (Array.isArray(rows) ? rows.map((row: { slug: string }) => routes.product(row.slug)) : []));
+  if (paths.length === 0) return 0;
   await runBatch(db, [
-    db.delete(redirects).where(eq(redirects.fromPath, path)),
-    db.delete(redirects).where(eq(redirects.toPath, path)),
-    db.delete(products).where(eq(products.id, id)),
+    ...idChunks(paths).flatMap((chunk) => [
+      db.delete(redirects).where(inArray(redirects.fromPath, chunk)),
+      db.delete(redirects).where(inArray(redirects.toPath, chunk)),
+    ]),
+    ...chunks.map((chunk) => db.delete(products).where(inArray(products.id, chunk))),
   ]);
+  return paths.length;
+}
+
+// D1 giới hạn 100 tham số mỗi câu lệnh; chia nhỏ rồi gửi chung một batch để vẫn một lượt và nguyên tử.
+function idChunks<T>(values: T[], size = 50): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) chunks.push(values.slice(index, index + size));
+  return chunks;
 }
 
 function productValues(input: ProductInput, now: number) {
