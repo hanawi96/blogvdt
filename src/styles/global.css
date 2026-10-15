@@ -893,7 +893,8 @@
     gap: 0.5rem;
     margin-top: 1rem;
   }
-  .retire-dialog {
+  .retire-dialog,
+  .confirm-dialog {
     width: min(32rem, calc(100% - 2rem));
     max-height: calc(100vh - 2rem);
     max-height: calc(100dvh - 2rem);
@@ -906,10 +907,15 @@
     color: var(--color-ink);
     padding: 1.25rem;
   }
-  .retire-dialog::backdrop {
+  .confirm-dialog {
+    width: min(26rem, calc(100% - 2rem));
+  }
+  .retire-dialog::backdrop,
+  .confirm-dialog::backdrop {
     background: color-mix(in srgb, var(--color-ink) 45%, transparent);
   }
-  .retire-dialog .category-actions {
+  .retire-dialog .category-actions,
+  .confirm-dialog .category-actions {
     justify-content: flex-end;
     margin-top: 1.25rem;
   }

@@ -153,12 +153,27 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                       <td>{post.deletedAt ? formatDateTime(post.deletedAt) : '—'}</td>
                       <td>
                         <div class="post-actions">
-                          <form method="post" action={routes.adminPostRestore(post.id)} data-busy onsubmit={`return confirm(${JSON.stringify(`Khôi phục “${post.title}” thành bản nháp?`)})`}>
+                          <form
+                            method="post"
+                            action={routes.adminPostRestore(post.id)}
+                            data-busy
+                            data-confirm-title="Khôi phục bài viết?"
+                            data-confirm={`“${post.title}” sẽ trở lại thành bản nháp. Bài không tự xuất bản lại.`}
+                            data-confirm-ok="Khôi phục"
+                          >
                             <input type="hidden" name="csrf" value={session.csrfToken} />
                             <button class="btn" type="submit">Khôi phục</button>
                           </form>
                           {canPurge && (
-                            <form method="post" action={routes.adminPostPurge(post.id)} data-busy onsubmit={`return confirm(${JSON.stringify(`Xóa vĩnh viễn “${post.title}”? Không khôi phục được trong CMS.`)})`}>
+                            <form
+                              method="post"
+                              action={routes.adminPostPurge(post.id)}
+                              data-busy
+                              data-confirm-title="Xóa vĩnh viễn?"
+                              data-confirm={`“${post.title}” sẽ bị xóa khỏi cơ sở dữ liệu và không khôi phục được trong CMS. Ảnh trong thư viện được giữ nguyên.`}
+                              data-confirm-ok="Xóa vĩnh viễn"
+                              data-confirm-tone="danger"
+                            >
                               <input type="hidden" name="csrf" value={session.csrfToken} />
                               <button class="btn btn-accent" type="submit">Xóa vĩnh viễn</button>
                             </form>
@@ -222,7 +237,14 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                                 <input type="hidden" name="csrf" value={session.csrfToken} />
                                 <button type="submit">Sao chép</button>
                               </form>
-                              <form id={`delete-post-${post.id}`} method="post" action={routes.adminPostDelete(post.id)} onsubmit={wasPublic ? undefined : `return confirm(${JSON.stringify(`Chuyển “${post.title}” vào thùng rác? Bài sẽ ẩn khỏi website và có thể khôi phục.`)})`}>
+                              <form
+                                id={`delete-post-${post.id}`}
+                                method="post"
+                                action={routes.adminPostDelete(post.id)}
+                                data-confirm-title={wasPublic ? undefined : 'Chuyển vào thùng rác?'}
+                                data-confirm={wasPublic ? undefined : `“${post.title}” sẽ rời khỏi danh sách bài viết. Bạn có thể khôi phục trong tab Thùng rác.`}
+                                data-confirm-ok={wasPublic ? undefined : 'Chuyển vào thùng rác'}
+                              >
                                 <input type="hidden" name="csrf" value={session.csrfToken} />
                                 <input type="hidden" name="urlAction" value="" />
                                 <input type="hidden" name="urlTarget" value="" />

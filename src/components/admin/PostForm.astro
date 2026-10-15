@@ -57,6 +57,7 @@ interface Props {
 
 const { csrf, action, values, errors, formError, categories, media, site, postId, saved = false, meta, deleteAction, livePublished = false, corpus = { titles: [], descriptions: [] }, targets = [] } = Astro.props;
 const publishLabel = values.status === 'published' ? 'Cập nhật' : 'Xuất bản';
+const wasPublic = livePublished || meta?.publishedAt != null;
 const saveStatus = formError ? 'Lưu thất bại' : saved ? 'Đã lưu' : '';
 const previewTitle = values.seoTitle || values.title || 'Tiêu đề bài viết';
 const previewDescription = values.metaDescription || values.excerpt || 'Thêm mô tả SEO hoặc tóm tắt để xem trước đoạn này.';
@@ -198,7 +199,15 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
         deleteAction && (
           <details class="post-card">
             <summary>Thao tác khác</summary>
-            <button class="btn btn-accent mt-3" type="submit" form="delete-post" data-retire="delete" data-retire-form="delete-post">Cho vào thùng rác</button>
+            <button
+              class="btn btn-accent mt-3"
+              type="submit"
+              form="delete-post"
+              data-retire={wasPublic ? 'delete' : undefined}
+              data-retire-form={wasPublic ? 'delete-post' : undefined}
+            >
+              Cho vào thùng rác
+            </button>
           </details>
         )
       }
@@ -207,7 +216,14 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
 </form>
 {
   deleteAction && (
-    <form id="delete-post" method="post" action={deleteAction}>
+    <form
+      id="delete-post"
+      method="post"
+      action={deleteAction}
+      data-confirm-title={wasPublic ? undefined : 'Chuyển vào thùng rác?'}
+      data-confirm={wasPublic ? undefined : `“${values.title}” sẽ rời khỏi danh sách bài viết. Bạn có thể khôi phục trong tab Thùng rác.`}
+      data-confirm-ok={wasPublic ? undefined : 'Chuyển vào thùng rác'}
+    >
       <input type="hidden" name="csrf" value={csrf} />
       <input type="hidden" name="urlAction" value="" />
       <input type="hidden" name="urlTarget" value="" />

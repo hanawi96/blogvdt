@@ -1,0 +1,74 @@
+<dialog id="confirm-action" class="confirm-dialog" aria-labelledby="confirm-action-title" aria-describedby="confirm-action-message">
+  <h2 id="confirm-action-title" class="text-lg font-semibold" data-confirm-title></h2>
+  <p id="confirm-action-message" class="mt-2 text-sm text-muted" data-confirm-message></p>
+  <div class="category-actions">
+    <button class="btn" type="button" data-confirm-cancel autofocus>Hủy</button>
+    <button class="btn btn-primary" type="button" data-confirm-ok>Xác nhận</button>
+  </div>
+</dialog>
+
+<script>
+  // Form có data-confirm hỏi lại bằng modal thay cho confirm() của trình duyệt.
+  // Bắt ở pha capture để chặn trước khi data-busy khóa nút.
+  const dialog = document.getElementById('confirm-action');
+  const titleLine = dialog?.querySelector('[data-confirm-title]');
+  const messageLine = dialog?.querySelector('[data-confirm-message]');
+  const okButton = dialog?.querySelector('[data-confirm-ok]');
+  const cancelButton = dialog?.querySelector('[data-confirm-cancel]');
+
+  if (
+    dialog instanceof HTMLDialogElement &&
+    titleLine instanceof HTMLElement &&
+    messageLine instanceof HTMLElement &&
+    okButton instanceof HTMLButtonElement &&
+    cancelButton instanceof HTMLButtonElement
+  ) {
+    const modal = dialog;
+    const ok = okButton;
+    let pending: { form: HTMLFormElement; submitter: HTMLButtonElement | null } | null = null;
+
+    document.addEventListener(
+      'submit',
+      (event) => {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement) || !form.dataset.confirm) return;
+        if (form.dataset.confirmed === '1') {
+          delete form.dataset.confirmed;
+          return;
+        }
+        event.preventDefault();
+        const submitter = event.submitter instanceof HTMLButtonElement ? event.submitter : null;
+        pending = { form, submitter };
+        titleLine.textContent = form.dataset.confirmTitle || 'Xác nhận thao tác';
+        messageLine.textContent = form.dataset.confirm;
+        ok.textContent = form.dataset.confirmOk || 'Xác nhận';
+        ok.classList.toggle('btn-accent', form.dataset.confirmTone === 'danger');
+        ok.classList.toggle('btn-primary', form.dataset.confirmTone !== 'danger');
+        modal.showModal();
+      },
+      true,
+    );
+
+    ok.addEventListener('click', () => {
+      const current = pending;
+      pending = null;
+      modal.close();
+      if (!current) return;
+      current.form.dataset.confirmed = '1';
+      current.form.requestSubmit(current.submitter ?? undefined);
+    });
+
+    cancelButton.addEventListener('click', () => modal.close());
+
+    modal.addEventListener('close', () => {
+      pending = null;
+    });
+
+    modal.addEventListener('click', (event) => {
+      if (event.target !== modal) return;
+      const box = modal.getBoundingClientRect();
+      const outside = event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+      if (outside) modal.close();
+    });
+  }
+</script>
