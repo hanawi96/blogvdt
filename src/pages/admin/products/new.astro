@@ -3,6 +3,7 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import ProductForm from '../../../components/admin/ProductForm.astro';
 import { mutationError } from '../../../features/auth/session';
 import { listMedia } from '../../../features/media/media';
+import { listProductCategories } from '../../../features/products/categories';
 import { parseProductForm } from '../../../features/products/form';
 import { createProduct } from '../../../features/products/products';
 import { createDb } from '../../../lib/db/client';
@@ -15,10 +16,14 @@ if (!session) return Astro.redirect(routes.adminLogin);
 
 const db = createDb(getDbBinding());
 const media = await listMedia(db);
+const categories = await listProductCategories(db);
 const empty = {
   name: '',
   slug: '',
   price: '',
+  comparePrice: '',
+  categoryId: '',
+  cordType: '',
   description: '',
   coverMediaId: '',
   album: [] as string[],
@@ -66,6 +71,9 @@ function valuesFrom(form: FormData) {
     name: read('name'),
     slug: read('slug'),
     price: read('price'),
+    comparePrice: read('comparePrice'),
+    categoryId: read('categoryId'),
+    cordType: read('cordType'),
     description: read('description'),
     coverMediaId: read('coverMediaId'),
     album: form.getAll('album').filter((value): value is string => typeof value === 'string'),
@@ -80,5 +88,5 @@ function valuesFrom(form: FormData) {
 ---
 
 <AdminLayout title="Thêm sản phẩm">
-  <ProductForm csrf={session.csrfToken} action={routes.adminProductNew} {values} {errors} {formError} {media} />
+  <ProductForm csrf={session.csrfToken} action={routes.adminProductNew} {values} {errors} {formError} {media} {categories} />
 </AdminLayout>

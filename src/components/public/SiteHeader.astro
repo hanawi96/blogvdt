@@ -11,11 +11,12 @@ const path = Astro.url.pathname;
 const items = [
   [routes.home, 'Trang chủ'],
   [routes.knowledgeList, 'Kiến thức'],
-  [routes.products, 'Sản phẩm'],
+  [routes.catalog, 'Mẫu vòng'],
 ] as const;
 
 function current(href: string): boolean {
   if (href === routes.home) return path === routes.home;
+  if (href === routes.catalog) return path === href || path.startsWith('/san-pham/');
   if (href.startsWith('/#')) return false;
   return path === href || path.startsWith(`${href}/`);
 }

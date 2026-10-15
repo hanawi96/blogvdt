@@ -18,6 +18,7 @@ const items = [
   [routes.adminMedia, 'Thư viện ảnh'],
   ...(session?.role === 'admin'
     ? [
+        [routes.adminProductCategories, 'Danh mục sản phẩm'],
         [routes.adminProducts, 'Sản phẩm'],
         [routes.adminOrders, 'Đơn hàng'],
         [routes.adminSettings, 'Cài đặt'],
@@ -137,6 +138,7 @@ function current(href: string): boolean {
           form.querySelectorAll('button[type="submit"]').forEach((button) => {
             if (button instanceof HTMLButtonElement) button.disabled = true;
           });
+          if (submitter instanceof HTMLButtonElement) submitter.disabled = true;
           const target = submitter instanceof HTMLButtonElement ? submitter : form.querySelector('button[type="submit"]');
           if (target instanceof HTMLButtonElement && target.dataset.keepLabel !== 'true') target.textContent = 'Đang lưu...';
         });

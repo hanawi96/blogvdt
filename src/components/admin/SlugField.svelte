@@ -10,6 +10,8 @@
     label = 'Tiêu đề',
     field = 'title',
     titleInput = '',
+    nameMax = 180,
+    slugPattern = '',
   }: {
     title?: string;
     slug?: string;
@@ -18,6 +20,8 @@
     label?: string;
     field?: string;
     titleInput?: string;
+    nameMax?: number;
+    slugPattern?: string;
   } = $props();
 
   let titleValue = $state(untrack(() => title));
@@ -52,12 +56,22 @@
 {#if !titleInput}
   <label class="block">
     <span class="mb-1 block font-semibold">{label}</span>
-    <input class="field" name={field} required maxlength="180" value={titleValue} oninput={onTitle} />
+    <input class="field" name={field} required maxlength={nameMax} value={titleValue} oninput={onTitle} />
     {#if titleError}<span class="error-text">{titleError}</span>{/if}
   </label>
 {/if}
 <label class={titleInput ? 'block' : 'mt-4 block'}>
   <span class="mb-1 block font-semibold">Slug</span>
-    <input class="field" name="slug" required maxlength="180" value={slugValue} oninput={onSlug} bind:this={slugInput} />
+    <input
+      class="field"
+      name="slug"
+      required
+      maxlength="180"
+      pattern={slugPattern || undefined}
+      title={slugPattern ? 'Slug chỉ gồm chữ thường, số và dấu gạch.' : undefined}
+      value={slugValue}
+      oninput={onSlug}
+      bind:this={slugInput}
+    />
   {#if slugError}<span class="error-text">{slugError}</span>{/if}
 </label>

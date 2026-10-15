@@ -1,0 +1,48 @@
+---
+import { formatVnd } from '../../lib/money';
+import { routes } from '../../lib/routes';
+
+interface Props {
+  product: {
+    name: string;
+    slug: string;
+    price: number;
+    comparePrice: number | null;
+    coverUrl: string | null;
+    coverAlt: string;
+    coverWidth: number | null;
+    coverHeight: number | null;
+  };
+  eager?: boolean;
+}
+
+const { product, eager = false } = Astro.props;
+const href = routes.product(product.slug);
+const alt = product.coverAlt || product.name;
+---
+
+<article class="overflow-hidden rounded-lg border border-line bg-surface">
+  <a href={href}>
+    {
+      product.coverUrl ? (
+        <img
+          src={product.coverUrl}
+          alt={alt}
+          width={product.coverWidth ?? undefined}
+          height={product.coverHeight ?? undefined}
+          loading={eager ? 'eager' : 'lazy'}
+          fetchpriority={eager ? 'high' : undefined}
+          class="aspect-square w-full object-cover"
+        />
+      ) : (
+        <span class="block aspect-square bg-canvas" aria-hidden="true"></span>
+      )
+    }
+  </a>
+  <div class="p-3">
+    <h2 class="text-base font-semibold"><a href={href}>{product.name}</a></h2>
+    <p class="mt-1 font-semibold text-primary-strong">{formatVnd(product.price)}</p>
+    {product.comparePrice != null && <p class="product-compare">{formatVnd(product.comparePrice)}</p>}
+    <p class="mt-1 text-sm text-muted">Đang bán</p>
+  </div>
+</article>

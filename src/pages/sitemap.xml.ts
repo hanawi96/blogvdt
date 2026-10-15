@@ -23,7 +23,7 @@ export const GET: APIRoute = async ({ url }) => {
     const entries: SitemapEntry[] = [
       { path: routes.home, lastmod: contentLastmod },
       { path: routes.knowledgeList, lastmod: contentLastmod },
-      { path: routes.products },
+      { path: routes.catalog },
       ...categories.map((category) => ({ path: routes.knowledgeCategory(category.slug), lastmod: sitemapLastmod(category.updatedAt) })),
       ...posts.map((post) => ({ path: routes.knowledge(post.slug), lastmod: sitemapLastmod(post.updatedAt) })),
       ...productPages.map((product) => ({ path: routes.product(product.slug), lastmod: sitemapLastmod(product.updatedAt) })),

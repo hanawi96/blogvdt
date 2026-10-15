@@ -18,6 +18,9 @@ export const ACTIVITY_ACTIONS = [
   'category.create',
   'category.update',
   'category.delete',
+  'product_category.create',
+  'product_category.update',
+  'product_category.delete',
   'user.create',
   'user.update',
   'user.disable',
@@ -39,6 +42,9 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'category.create': 'Tạo danh mục',
   'category.update': 'Sửa danh mục',
   'category.delete': 'Xóa danh mục',
+  'product_category.create': 'Tạo danh mục sản phẩm',
+  'product_category.update': 'Sửa danh mục sản phẩm',
+  'product_category.delete': 'Xóa danh mục sản phẩm',
   'user.create': 'Tạo tài khoản',
   'user.update': 'Sửa tài khoản',
   'user.disable': 'Khóa tài khoản',
@@ -48,7 +54,7 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'media.delete': 'Xóa ảnh',
 };
 
-export type ActivityObject = 'post' | 'category' | 'user' | 'media' | 'settings';
+export type ActivityObject = 'post' | 'category' | 'product_category' | 'user' | 'media' | 'settings';
 
 export type ActivityActor = { id: number; name: string };
 

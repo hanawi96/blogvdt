@@ -4,6 +4,7 @@ import ProductForm from '../../../components/admin/ProductForm.astro';
 import { mutationError } from '../../../features/auth/session';
 import { listMedia } from '../../../features/media/media';
 import { optionsText, readOptions } from '../../../features/products/options';
+import { listProductCategories } from '../../../features/products/categories';
 import { parseProductForm } from '../../../features/products/form';
 import { getProduct, updateProduct } from '../../../features/products/products';
 import { createDb } from '../../../lib/db/client';
@@ -22,10 +23,14 @@ const product = await getProduct(db, id);
 if (!product) return Astro.redirect(routes.adminProducts);
 
 const media = await listMedia(db);
+const categories = await listProductCategories(db);
 let values = {
   name: product.name,
   slug: product.slug,
   price: String(product.price),
+  comparePrice: product.comparePrice == null ? '' : String(product.comparePrice),
+  categoryId: product.categoryId ? String(product.categoryId) : '',
+  cordType: product.cordType,
   description: product.description,
   coverMediaId: product.coverMediaId ? String(product.coverMediaId) : '',
   album: product.albumIds.map(String),
@@ -73,6 +78,9 @@ function valuesFrom(form: FormData) {
     name: read('name'),
     slug: read('slug'),
     price: read('price'),
+    comparePrice: read('comparePrice'),
+    categoryId: read('categoryId'),
+    cordType: read('cordType'),
     description: read('description'),
     coverMediaId: read('coverMediaId'),
     album: form.getAll('album').filter((value): value is string => typeof value === 'string'),
@@ -96,5 +104,6 @@ function valuesFrom(form: FormData) {
     {errors}
     {formError}
     {media}
+    {categories}
   />
 </AdminLayout>

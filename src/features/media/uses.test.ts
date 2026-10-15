@@ -41,6 +41,20 @@ describe('nơi dùng ảnh', () => {
     expect(uses['5']).toEqual([{ href: '/admin/users/2', label: 'An' }]);
   });
 
+  it('ghi ảnh đại diện danh mục sản phẩm', () => {
+    const uses = collectMediaUses({
+      media: [],
+      posts: [],
+      products: [],
+      album: [],
+      logoId: '',
+      faviconId: '',
+      ogImageId: '',
+      productCategoryCovers: [{ id: 2, name: 'Vòng charm', coverMediaId: 7 }],
+    });
+    expect(uses['7']).toEqual([{ href: '/admin/product-categories?edit=2', label: 'Vòng charm' }]);
+  });
+
   it('nhận ảnh gắn trong mô tả danh mục', () => {
     const uses = collectMediaUses({
       media: [{ id: 6, key: '2026/10/dm.webp' }],

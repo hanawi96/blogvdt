@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, inArray, isNotNull, like, notInArray, or, type SQL } from 'drizzle-orm';
 import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
-import { adminUsers, categories, media, posts, productMedia, products, siteSettings } from '../../lib/db/schema';
+import { adminUsers, categories, media, posts, productCategories, productMedia, products, siteSettings } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { detectImageType, displayFilename, imageSizeError, mediaKeyFromPublicUrl, mediaObjectKey, readRasterSize } from './files';
 import { clampMediaPage, MEDIA_PAGE_SIZE, type MediaLibraryQuery } from './library';
@@ -51,7 +51,7 @@ function toMediaItem(row: {
 }
 
 export async function listMediaUses(db: AppDb) {
-  const [library, postRows, productRows, albumRows, settings, avatars, categoryRows] = await Promise.all([
+  const [library, postRows, productRows, albumRows, settings, avatars, categoryRows, productCategoryRows] = await Promise.all([
     db.select({ id: media.id, key: media.r2Key }).from(media),
     db.select({ id: posts.id, title: posts.title, coverMediaId: posts.coverMediaId, contentJson: posts.contentJson }).from(posts),
     db.select({ id: products.id, name: products.name, coverMediaId: products.coverMediaId }).from(products),
@@ -68,6 +68,7 @@ export async function listMediaUses(db: AppDb) {
       .from(adminUsers)
       .where(isNotNull(adminUsers.avatarMediaId)),
     db.select({ id: categories.id, name: categories.name, description: categories.description }).from(categories),
+    db.select({ id: productCategories.id, name: productCategories.name, coverMediaId: productCategories.coverMediaId }).from(productCategories),
   ]);
   const setting = (key: string) => settings.find((row) => row.key === key)?.value ?? '';
   return collectMediaUses({
@@ -80,6 +81,7 @@ export async function listMediaUses(db: AppDb) {
     ogImageId: setting('og_media_id'),
     avatars,
     categories: categoryRows,
+    productCategoryCovers: productCategoryRows,
   });
 }
 
@@ -335,7 +337,7 @@ export async function deleteMedia(
 async function mediaInUse(db: AppDb, id: number, key: string): Promise<string | null> {
   const idText = String(id);
   const marker = `%/media/${key}%`;
-  const [coverPost, coverProduct, album, content, settings, avatar, category] = await Promise.all([
+  const [coverPost, coverProduct, album, content, settings, avatar, category, productCategory] = await Promise.all([
     db.select({ id: posts.id }).from(posts).where(eq(posts.coverMediaId, id)).limit(1),
     db.select({ id: products.id }).from(products).where(eq(products.coverMediaId, id)).limit(1),
     db.select({ productId: productMedia.productId }).from(productMedia).where(eq(productMedia.mediaId, id)).limit(1),
@@ -346,9 +348,10 @@ async function mediaInUse(db: AppDb, id: number, key: string): Promise<string | 
       .where(or(eq(siteSettings.key, 'logo_media_id'), eq(siteSettings.key, 'favicon_media_id'), eq(siteSettings.key, 'og_media_id'))),
     db.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.avatarMediaId, id)).limit(1),
     db.select({ id: categories.id }).from(categories).where(like(categories.description, marker)).limit(1),
+    db.select({ id: productCategories.id }).from(productCategories).where(eq(productCategories.coverMediaId, id)).limit(1),
   ]);
   const usedInSettings = settings.some((row) => row.value === idText);
-  if (coverPost[0] || coverProduct[0] || album[0] || content[0] || usedInSettings || avatar[0] || category[0]) {
+  if (coverPost[0] || coverProduct[0] || album[0] || content[0] || usedInSettings || avatar[0] || category[0] || productCategory[0]) {
     return 'Ảnh đang được dùng, chưa xóa được.';
   }
   return null;

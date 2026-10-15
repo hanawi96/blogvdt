@@ -3,7 +3,7 @@ import type { BatchItem } from 'drizzle-orm/batch';
 import { runBatch } from '../../lib/db/batch';
 import type { AppDb } from '../../lib/db/client';
 import { slugRedirectQueries } from '../../lib/db/redirects';
-import { media, productMedia, products, redirects } from '../../lib/db/schema';
+import { media, productCategories, productMedia, products, redirects } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { canFeatureProduct, isProductStatus, type ProductStatus } from './status';
 
@@ -19,6 +19,7 @@ export function productListSort(value: string | null | undefined): ProductListSo
 export function productAdminQuery(input: {
   query?: string;
   status?: string;
+  category?: number | null;
   sort?: string;
   page?: number;
   notice?: 'deleted' | 'featured-on' | 'featured-off' | 'feature-error';
@@ -26,10 +27,14 @@ export function productAdminQuery(input: {
   const params = new URLSearchParams();
   const query = (input.query ?? '').replace(/[%_]/g, '').trim().slice(0, 160);
   const status = isProductStatus(input.status ?? '') ? input.status : '';
+  const category = input.category && Number.isInteger(input.category) && input.category > 0 ? input.category : 0;
   const sort = productListSort(input.sort);
   const page = input.page && Number.isInteger(input.page) && input.page > 1 ? input.page : 0;
   if (query) params.set('q', query);
   if (status) params.set('status', status);
+  if (category) params.set('category', String(category));
+  if (sort !== 'newest') params.set('sort', sort);
+  if (page) params.set('page', String(page));
   if (sort !== 'newest') params.set('sort', sort);
   if (page) params.set('page', String(page));
   if (input.notice === 'deleted') params.set('deleted', '1');
@@ -46,9 +51,11 @@ export function readProductListContext(form: FormData) {
     return typeof value === 'string' ? value : '';
   };
   const page = Number(read('page'));
+  const category = Number(read('category'));
   return {
     query: read('q'),
     status: read('status'),
+    category: Number.isInteger(category) && category > 0 ? category : null,
     sort: read('sort'),
     page: Number.isInteger(page) && page > 0 ? page : 1,
   };
@@ -58,6 +65,9 @@ export type ProductInput = {
   name: string;
   slug: string;
   price: number;
+  comparePrice: number | null;
+  categoryId: number | null;
+  cordType: string;
   description: string;
   coverMediaId: number | null;
   albumIds: number[];
@@ -71,16 +81,17 @@ export type ProductInput = {
 
 export async function listProducts(
   db: AppDb,
-  filters: { query: string; status: ProductStatus | ''; page: number; sort?: ProductListSort },
+  filters: { query: string; status: ProductStatus | ''; categoryId?: number | null; page: number; sort?: ProductListSort },
 ) {
   const term = filters.query.replace(/[%_]/g, '').trim().slice(0, 160);
   const conditions = [];
   if (filters.status) conditions.push(eq(products.status, filters.status));
+  if (filters.categoryId) conditions.push(eq(products.categoryId, filters.categoryId));
   if (term) conditions.push(like(products.name, `%${term}%`));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = Math.max(1, filters.page);
   const sort = productListSort(filters.sort);
-  const filtered = Boolean(term || filters.status);
+  const filtered = Boolean(term || filters.status || filters.categoryId);
   const [totalRows, libraryRows, rows] = await Promise.all([
     db.select({ value: count() }).from(products).where(where),
     filtered ? db.select({ value: count() }).from(products) : Promise.resolve([]),
@@ -90,6 +101,9 @@ export async function listProducts(
         name: products.name,
         slug: products.slug,
         price: products.price,
+        comparePrice: products.comparePrice,
+        categoryName: productCategories.name,
+        cordType: products.cordType,
         status: products.status,
         isFeatured: products.isFeatured,
         updatedAt: products.updatedAt,
@@ -98,6 +112,7 @@ export async function listProducts(
       })
       .from(products)
       .leftJoin(media, eq(products.coverMediaId, media.id))
+      .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
       .where(where)
       .orderBy(...productOrder(sort))
       .limit(PAGE_SIZE)
@@ -110,6 +125,9 @@ export async function listProducts(
       name: row.name,
       slug: row.slug,
       price: row.price,
+      comparePrice: row.comparePrice,
+      categoryName: row.categoryName ?? '',
+      cordType: row.cordType,
       status: row.status,
       isFeatured: canFeatureProduct(row.status, row.isFeatured),
       updatedAt: row.updatedAt,
@@ -154,6 +172,8 @@ export async function createProduct(
   if (slugError) return { ok: false, error: slugError };
   const mediaError = await mediaAvailable(db, input);
   if (mediaError) return { ok: false, error: mediaError };
+  const categoryError = await categoryAvailable(db, input.categoryId);
+  if (categoryError) return { ok: false, error: categoryError };
   const inserted = await db
     .insert(products)
     .values({ ...productValues(input, now), createdAt: now })
@@ -184,6 +204,8 @@ export async function updateProduct(
   if (slugError) return { ok: false, error: slugError };
   const mediaError = await mediaAvailable(db, input);
   if (mediaError) return { ok: false, error: mediaError };
+  const categoryError = await categoryAvailable(db, input.categoryId);
+  if (categoryError) return { ok: false, error: categoryError };
   const queries: BatchItem<'sqlite'>[] = [
     db.update(products).set(productValues(input, now)).where(eq(products.id, id)),
     db.delete(productMedia).where(eq(productMedia.productId, id)),
@@ -233,6 +255,9 @@ function productValues(input: ProductInput, now: number) {
     name: input.name,
     slug: input.slug,
     price: input.price,
+    comparePrice: input.comparePrice,
+    categoryId: input.categoryId,
+    cordType: input.cordType,
     description: input.description,
     coverMediaId: input.coverMediaId,
     optionsJson: JSON.stringify(input.options),
@@ -253,6 +278,12 @@ async function slugAvailable(db: AppDb, slug: string, currentId: number | null):
   const rows = await db.select({ id: products.id }).from(products).where(eq(products.slug, slug)).limit(1);
   if (rows[0] && rows[0].id !== currentId) return 'Slug đã được dùng.';
   return null;
+}
+
+async function categoryAvailable(db: AppDb, categoryId: number | null): Promise<string | null> {
+  if (!categoryId) return null;
+  const rows = await db.select({ id: productCategories.id }).from(productCategories).where(eq(productCategories.id, categoryId)).limit(1);
+  return rows[0] ? null : 'Danh mục không còn.';
 }
 
 async function mediaAvailable(db: AppDb, input: ProductInput): Promise<string | null> {

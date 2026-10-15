@@ -17,6 +17,7 @@ export function collectMediaUses(input: {
   ogImageId: string;
   avatars?: { mediaId: number | null; userId: number; name: string }[];
   categories?: CategoryUse[];
+  productCategoryCovers?: { id: number; name: string; coverMediaId: number | null }[];
 }): Record<string, MediaUse[]> {
   const uses = new Map<number, MediaUse[]>();
   const add = (id: number | null, use: MediaUse) => {
@@ -45,6 +46,12 @@ export function collectMediaUses(input: {
   add(Number(input.ogImageId), { href: routes.adminSettings, label: 'Ảnh chia sẻ' });
   for (const avatar of input.avatars ?? []) {
     add(avatar.mediaId, { href: routes.adminUser(avatar.userId), label: avatar.name || `Tài khoản #${avatar.userId}` });
+  }
+  for (const category of input.productCategoryCovers ?? []) {
+    add(category.coverMediaId, {
+      href: `${routes.adminProductCategories}?edit=${category.id}`,
+      label: category.name || `Danh mục sản phẩm #${category.id}`,
+    });
   }
   for (const category of input.categories ?? []) {
     const text = category.description ?? '';

@@ -1,5 +1,6 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { listProductCategories } from '../../../features/products/categories';
 import { listProducts, productAdminQuery, productListSort, type ProductListSort } from '../../../features/products/products';
 import { isProductStatus, PRODUCT_STATUS_LABELS } from '../../../features/products/status';
 import { createDb } from '../../../lib/db/client';
@@ -13,6 +14,8 @@ if (!Astro.locals.adminSession) return Astro.redirect(routes.adminLogin);
 const query = Astro.url.searchParams.get('q') ?? '';
 const statusParam = Astro.url.searchParams.get('status') ?? '';
 const status = isProductStatus(statusParam) ? statusParam : '';
+const categoryValue = Number(Astro.url.searchParams.get('category') ?? '');
+const categoryId = Number.isInteger(categoryValue) && categoryValue > 0 ? categoryValue : null;
 const sort = productListSort(Astro.url.searchParams.get('sort'));
 const page = Number(Astro.url.searchParams.get('page') ?? '1');
 const deleted = Astro.url.searchParams.get('deleted') === '1';
@@ -20,10 +23,14 @@ const featured = Astro.url.searchParams.get('featured');
 const featureError = Astro.url.searchParams.get('error') === 'feature';
 let loadError = '';
 let result: Awaited<ReturnType<typeof listProducts>> | null = null;
+let categoryOptions: { id: number; name: string }[] = [];
 try {
-  result = await listProducts(createDb(getDbBinding()), {
+  const db = createDb(getDbBinding());
+  categoryOptions = (await listProductCategories(db)).map((category) => ({ id: category.id, name: category.name }));
+  result = await listProducts(db, {
     query,
     status,
+    categoryId,
     sort,
     page: Number.isInteger(page) ? page : 1,
   });
@@ -41,7 +48,7 @@ const sorts: { id: ProductListSort; label: string }[] = [
 ];
 
 function pageHref(next: { page?: number }): string {
-  return productAdminQuery({ query, status, sort, page: next.page ?? 1 });
+  return productAdminQuery({ query, status, category: categoryId, sort, page: next.page ?? 1 });
 }
 ---
 
@@ -59,6 +66,13 @@ function pageHref(next: { page?: number }): string {
         <form class="post-toolbar product-toolbar" method="get" data-product-search>
           <label class="sr-only" for="product-query">Tìm sản phẩm</label>
           <input id="product-query" class="field" name="q" value={query} placeholder="Tìm sản phẩm..." maxlength="160" />
+          <label class="sr-only" for="product-category">Danh mục</label>
+          <select id="product-category" class="field" name="category">
+            <option value="" selected={categoryId === null}>Tất cả danh mục</option>
+            {categoryOptions.map((category) => (
+              <option value={category.id} selected={categoryId === category.id}>{category.name}</option>
+            ))}
+          </select>
           <label class="sr-only" for="product-status">Trạng thái</label>
           <select id="product-status" class="field" name="status">
             <option value="" selected={status === ''}>Tất cả trạng thái</option>
@@ -84,6 +98,8 @@ function pageHref(next: { page?: number }): string {
                 <tr>
                   <th>Sản phẩm</th>
                   <th>Giá</th>
+                  <th>Danh mục</th>
+                  <th>Kiểu dây</th>
                   <th>Trạng thái</th>
                   <th>Nổi bật</th>
                   <th>Cập nhật</th>
@@ -105,7 +121,14 @@ function pageHref(next: { page?: number }): string {
                           <a class="post-title" href={routes.adminProduct(product.id)}>{product.name}</a>
                         </div>
                       </td>
-                      <td data-label="Giá">{formatVnd(product.price)}</td>
+                      <td data-label="Giá">
+                        {formatVnd(product.price)}
+                        {product.comparePrice != null && (
+                          <span class="product-compare">{formatVnd(product.comparePrice)}</span>
+                        )}
+                      </td>
+                      <td data-label="Danh mục">{product.categoryName || '—'}</td>
+                      <td data-label="Kiểu dây">{product.cordType || '—'}</td>
                       <td data-label="Trạng thái">
                         <span class="post-status" data-status={active ? 'active' : 'inactive'}>
                           {isProductStatus(product.status) ? PRODUCT_STATUS_LABELS[product.status] : product.status}
@@ -128,6 +151,7 @@ function pageHref(next: { page?: number }): string {
                                   <input type="hidden" name="featured" value={product.isFeatured ? '0' : '1'} />
                                   <input type="hidden" name="q" value={query} />
                                   <input type="hidden" name="status" value={status} />
+                                  <input type="hidden" name="category" value={categoryId ? String(categoryId) : ''} />
                                   <input type="hidden" name="sort" value={sort} />
                                   <input type="hidden" name="page" value={String(result.page)} />
                                   <button type="submit">{product.isFeatured ? 'Bỏ nổi bật' : 'Bật nổi bật'}</button>
@@ -137,6 +161,7 @@ function pageHref(next: { page?: number }): string {
                                 <input type="hidden" name="csrf" value={Astro.locals.adminSession?.csrfToken} />
                                 <input type="hidden" name="q" value={query} />
                                 <input type="hidden" name="status" value={status} />
+                                <input type="hidden" name="category" value={categoryId ? String(categoryId) : ''} />
                                 <input type="hidden" name="sort" value={sort} />
                                 <button type="submit">Xóa</button>
                               </form>
@@ -191,7 +216,7 @@ function pageHref(next: { page?: number }): string {
         const value = data.get(name);
         return typeof value === 'string' ? value : '';
       };
-      const url = new URL(productListUrl(read('q'), read('status'), read('sort')), location.origin);
+      const url = new URL(productListUrl(read('q'), read('status'), read('sort'), read('category')), location.origin);
       if (url.pathname + url.search === location.pathname + location.search) return;
       list?.setAttribute('aria-busy', 'true');
       location.assign(url);
@@ -214,11 +239,14 @@ function pageHref(next: { page?: number }): string {
     });
   }
 
-  function productListUrl(query: string, status: string, sort: string): string {
+  function productListUrl(query: string, status: string, sort: string, category: string): string {
     const params = new URLSearchParams();
     const term = query.trim();
+    const categoryId = Number(category);
     if (term) params.set('q', term);
     if (status === 'active' || status === 'inactive') params.set('status', status);
+    if (Number.isInteger(categoryId) && categoryId > 0) params.set('category', String(categoryId));
+    if (sort && sort !== 'newest') params.set('sort', sort);
     if (sort && sort !== 'newest') params.set('sort', sort);
     const text = params.toString();
     return text ? `/admin/products?${text}` : '/admin/products';

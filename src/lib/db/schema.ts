@@ -115,13 +115,27 @@ export const posts = sqliteTable(
   ],
 );
 
+export const productCategories = sqliteTable('product_categories', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),
+  description: text('description').notNull().default(''),
+  coverMediaId: integer('cover_media_id').references(() => media.id, { onDelete: 'set null' }),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 export const products = sqliteTable(
   'products',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
+    categoryId: integer('category_id').references(() => productCategories.id, { onDelete: 'set null' }),
     name: text('name').notNull(),
     slug: text('slug').notNull().unique(),
     price: integer('price').notNull(),
+    comparePrice: integer('compare_price'),
+    cordType: text('cord_type').notNull().default(''),
     description: text('description').notNull().default(''),
     coverMediaId: integer('cover_media_id').references(() => media.id, { onDelete: 'set null' }),
     optionsJson: text('options_json').notNull().default('[]'),
@@ -136,8 +150,10 @@ export const products = sqliteTable(
   (table) => [
     index('products_status_idx').on(table.status),
     index('products_featured_idx').on(table.isFeatured),
+    index('products_category_idx').on(table.categoryId),
     check('products_status_check', sql`${table.status} in ('active', 'inactive')`),
     check('products_price_check', sql`${table.price} >= 0`),
+    check('products_compare_price_check', sql`${table.comparePrice} is null or ${table.comparePrice} >= 0`),
   ],
 );
 
