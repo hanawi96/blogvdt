@@ -8,6 +8,7 @@ import {
   orderCreatedRange,
   orderDayKey,
   orderHandoffText,
+  parseCartOrder,
   parseOrderSubmission,
   type CatalogProduct,
 } from './order';
@@ -103,6 +104,25 @@ describe('đơn hàng', () => {
     expect(text).toContain('Đơn giá: 150.000');
     expect(text).toContain('Ghi chú nội bộ: Giao buổi chiều');
     expect(text).not.toContain('Đã thanh toán');
+    const many = orderHandoffText({
+      code: 'VD20261014-0002',
+      customerName: 'Lê Minh An',
+      phone: '0901000099',
+      address: '12 đường Mẫu',
+      productName: 'Vòng tơ tằm trơn + 1 mẫu',
+      optionLabel: null,
+      quantity: 3,
+      unitPrice: 0,
+      totalPrice: 480000,
+      note: null,
+      internalNote: null,
+      items: [
+        { productName: 'Vòng tơ tằm trơn', optionLabel: 'Size vừa', quantity: 2, lineTotal: 300000 },
+        { productName: 'Vòng không size', optionLabel: null, quantity: 1, lineTotal: 180000 },
+      ],
+    });
+    expect(many).toContain('- Vòng tơ tằm trơn (Size vừa) × 2');
+    expect(many).not.toContain('Đơn giá:');
   });
 
   it('nhận ra mã đơn trùng khi lỗi D1 bị Drizzle bọc lại', () => {
@@ -111,5 +131,24 @@ describe('đơn hàng', () => {
     expect(isUniqueViolation(wrapped)).toBe(true);
     expect(isUniqueViolation(new Error('Failed query', { cause: new Error('no such table: orders') }))).toBe(false);
     expect(isUniqueViolation('UNIQUE constraint failed')).toBe(false);
+  });
+
+  it('tính một đơn cho nhiều mẫu và giữ đơn một mẫu', () => {
+    const parsed = parseCartOrder(
+      {
+        ...valid,
+        lines: [
+          { slug: 'vong-to-tam-tron', quantity: 2, option: 'Size vừa' },
+          { slug: 'khong-co-size', quantity: 1, option: '' },
+        ],
+      },
+      catalog,
+    );
+    expect(parsed.ok && parsed.cart?.totalPrice).toBe(400000);
+    expect(parsed.ok && parsed.cart?.productName).toBe('Vòng tơ tằm trơn, Vòng không size');
+    expect(parsed.ok && parsed.single).toBeNull();
+    const single = parseCartOrder({ ...valid, lines: [{ slug: 'khong-co-size', quantity: 1, option: '' }] }, catalog);
+    expect(single.ok && single.single?.totalPrice).toBe(100000);
+    expect(single.ok && single.cart).toBeNull();
   });
 });

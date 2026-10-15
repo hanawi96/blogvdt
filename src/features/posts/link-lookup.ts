@@ -15,7 +15,7 @@ export async function inspectPostLinks(db: AppDb, paths: string[], currentPath: 
   const redirectRows = await db
     .select({ fromPath: redirects.fromPath, toPath: redirects.toPath })
     .from(redirects)
-    .where(inArray(redirects.fromPath, unique));
+    .where(and(inArray(redirects.fromPath, unique), eq(redirects.enabled, 1), inArray(redirects.statusCode, [301, 302])));
   const known = new Set(slugs);
   const targetSlugs = redirectRows.map((row) => slugOf(row.toPath)).filter((slug) => slug.length > 0 && !known.has(slug));
   if (targetSlugs.length > 0) {

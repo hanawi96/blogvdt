@@ -1,4 +1,5 @@
 import { and, asc, count, desc, eq, like, ne, or } from 'drizzle-orm';
+import type { BatchItem } from 'drizzle-orm/batch';
 import {
   activityWrite,
   autosaveLogWrite,
@@ -10,10 +11,12 @@ import {
   type ActivityActor,
 } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
-import { findRedirect, slugRedirectQueries } from '../../lib/db/redirects';
+import { findRedirect, releasePathQuery, slugRedirectQueries } from '../../lib/db/redirects';
 import { categories, posts } from '../../lib/db/schema';
 import { collectMetaCorpus, type MetaCorpus } from '../../lib/seo/meta';
 import { routes } from '../../lib/routes';
+import { prepareRetirement, retirementRequired } from '../redirects/manage';
+import type { UrlRetirement } from '../redirects/rules';
 import { REVISION_CONFLICT, staleRevision } from './form';
 import { redirectOccupiesSlug, shouldStorePostRedirect } from './redirects';
 import { slugify } from './slug';
@@ -88,6 +91,7 @@ export async function listPosts(
         title: posts.title,
         slug: posts.slug,
         status: posts.status,
+        publishedAt: posts.publishedAt,
         updatedAt: posts.updatedAt,
         categoryName: categories.name,
       })
@@ -182,6 +186,7 @@ export async function updatePost(
   now = Date.now(),
   actor?: ActivityActor,
   expectedUpdatedAt: number | null = null,
+  retirement: UrlRetirement | null = null,
 ): Promise<{ ok: true; updatedAt: number } | { ok: false; error: string; conflict?: boolean }> {
   const current = await getPost(db, id);
   if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
@@ -191,9 +196,8 @@ export async function updatePost(
   const slugError = await slugAvailable(db, input.slug, id, current.slug);
   if (slugError) return { ok: false, error: slugError };
   const values = postValues(input, now, current.publishedAt);
-  const redirect = shouldStorePostRedirect(current, input.slug)
-    ? slugRedirectQueries(db, routes.knowledge(current.slug), routes.knowledge(input.slug), now)
-    : [];
+  const pathWrites = await postPathWrites(db, current, input, now, actor, retirement);
+  if (!pathWrites.ok) return pathWrites;
   const match = expectedUpdatedAt === null ? eq(posts.id, id) : and(eq(posts.id, id), eq(posts.updatedAt, expectedUpdatedAt));
   const results = await commitWrites(db, [
     db.update(posts).set(values).where(match).returning({ id: posts.id }),
@@ -214,7 +218,7 @@ export async function updatePost(
           ),
         ]
       : []),
-    ...redirect,
+    ...pathWrites.queries,
   ]);
   if (!changedRows(results[0])) {
     const again = await getPost(db, id);
@@ -242,9 +246,6 @@ export async function saveDraftPost(
   const slugError = await slugAvailable(db, input.slug, id, current.slug);
   if (slugError) return { ok: false, error: slugError };
   const values = postValues(draft, now, current.publishedAt);
-  const redirect = shouldStorePostRedirect(current, input.slug)
-    ? slugRedirectQueries(db, routes.knowledge(current.slug), routes.knowledge(input.slug), now)
-    : [];
   const entry = {
     actorId: actor?.id ?? 0,
     actorName: actor?.name ?? '',
@@ -262,7 +263,6 @@ export async function saveDraftPost(
   const results = await commitWrites(db, [
     db.update(posts).set(values).where(match).returning({ id: posts.id }),
     ...(autosaveLog ? [autosaveLog.query] : []),
-    ...redirect,
   ]);
   if (!changedRows(results[0])) {
     const again = await getPost(db, id);
@@ -310,9 +310,19 @@ async function unusedCopySlug(db: AppDb, base: string): Promise<string | null> {
   return null;
 }
 
-export async function deletePost(db: AppDb, id: number, actor?: ActivityActor): Promise<void> {
+export async function deletePost(
+  db: AppDb,
+  id: number,
+  actor?: ActivityActor,
+  retirement: UrlRetirement | null = null,
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const current = await getPost(db, id);
-  if (!current) return;
+  if (!current) return { ok: true };
+  const wasPublic = current.status === 'published' || current.publishedAt !== null;
+  if (wasPublic && !retirement) return { ok: false, error: retirementRequired };
+  const prepared = wasPublic && retirement ? await prepareRetirement(db, routes.knowledge(current.slug), retirement, now, actor) : { ok: true as const, queries: [] as BatchItem<'sqlite'>[] };
+  if (!prepared.ok) return prepared;
   await commitWrites(db, [
     db.delete(posts).where(eq(posts.id, id)),
     ...(actor
@@ -326,13 +336,34 @@ export async function deletePost(db: AppDb, id: number, actor?: ActivityActor): 
               objectType: 'post',
               objectId: String(id),
               summary: postSummary('post.delete', current.title),
-              createdAt: Date.now(),
+              createdAt: now,
             },
             true,
           ),
         ]
       : []),
+    ...prepared.queries,
   ]);
+  return { ok: true };
+}
+
+async function postPathWrites(
+  db: AppDb,
+  current: { status: string; publishedAt: number | null; slug: string },
+  input: PostInput,
+  now: number,
+  actor: ActivityActor | undefined,
+  retirement: UrlRetirement | null,
+): Promise<{ ok: true; queries: BatchItem<'sqlite'>[] } | { ok: false; error: string }> {
+  if (current.status === 'published' && input.status !== 'published') {
+    if (!retirement) return { ok: false, error: retirementRequired };
+    return prepareRetirement(db, routes.knowledge(current.slug), retirement, now, actor);
+  }
+  if (input.status !== 'published') return { ok: true, queries: [] };
+  if (shouldStorePostRedirect(current, input.slug)) {
+    return { ok: true, queries: slugRedirectQueries(db, routes.knowledge(current.slug), routes.knowledge(input.slug), now) };
+  }
+  return { ok: true, queries: [releasePathQuery(db, routes.knowledge(input.slug))] };
 }
 
 function postValues(input: PostInput, now: number, previousPublishedAt: number | null = null) {
@@ -362,7 +393,8 @@ async function slugAvailable(db: AppDb, slug: string, currentId: number | null, 
     ownSlug = own[0]?.slug ?? null;
   }
   if (ownSlug === slug) return null;
-  const occupied = await findRedirect(db, routes.knowledge(slug));
+  const row = await findRedirect(db, routes.knowledge(slug));
+  const occupied = !row || row.enabled !== 1 ? null : row.statusCode === 410 ? routes.knowledge(slug) : row.toPath || null;
   if (redirectOccupiesSlug(ownSlug ? routes.knowledge(ownSlug) : null, occupied)) return 'Slug đã được dùng cho một đường dẫn cũ.';
   return null;
 }

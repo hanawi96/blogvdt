@@ -8,6 +8,7 @@ import SlugField from './SlugField.svelte';
 import { lengthNote, metaDuplicateNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
 import type { MetaCorpus } from '../../lib/seo/meta';
 import { formatDateTime } from '../../lib/datetime';
+import RetiredUrlDialog from './RetiredUrlDialog.astro';
 import { routes } from '../../lib/routes';
 import type { FieldErrors } from '../../lib/validation/errors';
 
@@ -51,9 +52,10 @@ interface Props {
   deleteAction?: string;
   livePublished?: boolean;
   corpus?: MetaCorpus;
+  targets?: { title: string; path: string }[];
 }
 
-const { csrf, action, values, errors, formError, categories, media, site, postId, saved = false, meta, deleteAction, livePublished = false, corpus = { titles: [], descriptions: [] } } = Astro.props;
+const { csrf, action, values, errors, formError, categories, media, site, postId, saved = false, meta, deleteAction, livePublished = false, corpus = { titles: [], descriptions: [] }, targets = [] } = Astro.props;
 const publishLabel = values.status === 'published' ? 'Cập nhật' : 'Xuất bản';
 const saveStatus = formError ? 'Lưu thất bại' : saved ? 'Đã lưu' : '';
 const previewTitle = values.seoTitle || values.title || 'Tiêu đề bài viết';
@@ -65,8 +67,10 @@ const duplicateNote = metaDuplicateNote(values.seoTitle || values.title, values.
 const autosave = values.status === 'draft' ? 'on' : 'off';
 ---
 
-<form class="post-write" method="post" action={action} data-busy data-post-form data-autosave={autosave} data-live-published={livePublished ? '1' : '0'} data-site-host={site.host} data-post-id={postId ?? ''}>
+<form id="post-form" class="post-write" method="post" action={action} data-busy data-post-form data-autosave={autosave} data-live-published={livePublished ? '1' : '0'} data-site-host={site.host} data-post-id={postId ?? ''}>
   <input type="hidden" name="csrf" value={csrf} />
+  <input type="hidden" name="urlAction" value="" />
+  <input type="hidden" name="urlTarget" value="" />
   <input type="hidden" name="updatedAt" value={meta ? String(meta.updatedAt) : ''} />
   {postId ? <input type="hidden" name="postId" value={String(postId)} /> : null}
   <button class="sr-only" type="submit" tabindex="-1" data-keep-label="true">Lưu trạng thái hiện tại</button>
@@ -77,7 +81,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
       <button class="btn btn-compact" id="preview-post" type="submit" formmethod="post" formaction={routes.adminPostPreview} formtarget="_blank" data-keep-label="true">Xem trước</button>
       <button class="btn btn-compact" id="save-draft" type="submit" data-keep-label="true" hidden={values.status === 'published'}>Lưu nháp</button>
       <button class="btn btn-compact btn-primary" id="save-publish" type="submit" data-keep-label="true">{publishLabel}</button>
-      <button class="btn btn-compact" id="unpublish-post" type="submit" data-keep-label="true" hidden={values.status !== 'published'}>Gỡ xuất bản</button>
+      <button class="btn btn-compact" id="unpublish-post" type="submit" data-keep-label="true" data-retire="unpublish" data-retire-form="post-form" hidden={values.status !== 'published'}>Gỡ xuất bản</button>
     </div>
   </div>
   {formError && <p class="error-text" role="alert">{formError}</p>}
@@ -194,7 +198,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
         deleteAction && (
           <details class="post-card">
             <summary>Thao tác khác</summary>
-            <button class="btn btn-accent mt-3" type="submit" form="delete-post">Xóa bài viết</button>
+            <button class="btn btn-accent mt-3" type="submit" form="delete-post" data-retire="delete" data-retire-form="delete-post">Xóa bài viết</button>
           </details>
         )
       }
@@ -203,11 +207,14 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
 </form>
 {
   deleteAction && (
-    <form id="delete-post" method="post" action={deleteAction} onsubmit="return confirm('Xóa bài viết này?')">
+    <form id="delete-post" method="post" action={deleteAction}>
       <input type="hidden" name="csrf" value={csrf} />
+      <input type="hidden" name="urlAction" value="" />
+      <input type="hidden" name="urlTarget" value="" />
     </form>
   )
 }
+<RetiredUrlDialog posts={targets} />
 
 <script>
   const form = document.querySelector('form[data-post-form]');
@@ -215,7 +222,6 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
   const publish = document.getElementById('save-publish');
   const draft = document.getElementById('save-draft');
   const unpublish = document.getElementById('unpublish-post');
-  const unpublishConfirm = 'Gỡ bài này khỏi trang công khai? Nội dung vẫn được giữ để sửa và xuất bản lại.';
 
   function syncActions() {
     if (!(status instanceof HTMLSelectElement)) return;
@@ -230,15 +236,6 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
   });
   publish?.addEventListener('click', () => {
     if (status instanceof HTMLSelectElement) status.value = 'published';
-  });
-  unpublish?.addEventListener('click', (event) => {
-    if (!(form instanceof HTMLFormElement) || !(status instanceof HTMLSelectElement)) return;
-    if (form.dataset.confirmedUnpublish === '1') return;
-    event.preventDefault();
-    if (!window.confirm(unpublishConfirm)) return;
-    status.value = 'draft';
-    form.dataset.confirmedUnpublish = '1';
-    if (event.currentTarget instanceof HTMLButtonElement) form.requestSubmit(event.currentTarget);
   });
   status?.addEventListener('change', syncActions);
   syncActions();
@@ -366,10 +363,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
       form.dataset.confirmedUnpublish !== '1'
     ) {
       event.preventDefault();
-      if (!window.confirm(unpublishConfirm)) return;
-      form.dataset.confirmedUnpublish = '1';
-      if (event.submitter instanceof HTMLButtonElement) form.requestSubmit(event.submitter);
-      else form.requestSubmit();
+      form.dispatchEvent(new CustomEvent('retire-open', { detail: { mode: 'unpublish', form: 'post-form' } }));
       return;
     }
     if (form.dataset.leaving === '1') {

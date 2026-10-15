@@ -9,7 +9,8 @@ export function shouldStorePostRedirect(
   nextSlug: string,
 ): boolean {
   if (current.slug === nextSlug) return false;
-  return current.status === 'published' || current.publishedAt !== null;
+  // Chỉ bài đang xuất bản mới có URL công khai cần 301. Gỡ bài chọn 301, 404 hoặc 410 riêng.
+  return current.status === 'published';
 }
 
 export function knowledgeSlug(path: string): string | null {

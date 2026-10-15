@@ -4,7 +4,7 @@ import { categorySlug, knowledgeSlug, publicRedirectTarget, redirectOccupiesSlug
 describe('redirect bài viết', () => {
   it('chỉ lưu redirect khi slug đổi và URL cũ từng hoặc đang public', () => {
     expect(shouldStorePostRedirect({ status: 'published', publishedAt: 1, slug: 'a' }, 'b')).toBe(true);
-    expect(shouldStorePostRedirect({ status: 'draft', publishedAt: 1, slug: 'a' }, 'b')).toBe(true);
+    expect(shouldStorePostRedirect({ status: 'draft', publishedAt: 1, slug: 'a' }, 'b')).toBe(false);
     expect(shouldStorePostRedirect({ status: 'draft', publishedAt: null, slug: 'a' }, 'b')).toBe(false);
     expect(shouldStorePostRedirect({ status: 'published', publishedAt: 1, slug: 'a' }, 'a')).toBe(false);
   });

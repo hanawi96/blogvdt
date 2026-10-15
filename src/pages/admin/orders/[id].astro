@@ -82,19 +82,37 @@ const statusLabel = isOrderStatus(order.status) ? ORDER_STATUS_LABELS[order.stat
         <div><dt>Ghi chú của khách</dt><dd>{order.note || '—'}</dd></div>
       </dl>
       <h2>Sản phẩm lúc đặt</h2>
-      <dl>
-        <div>
-          <dt>Sản phẩm</dt>
-          <dd>
-            {order.productName}
-            {order.productId && <a href={routes.adminProduct(order.productId)}>Xem sản phẩm hiện tại</a>}
-          </dd>
-        </div>
-        <div><dt>Lựa chọn</dt><dd>{order.optionLabel || '—'}</dd></div>
-        <div><dt>Số lượng</dt><dd>{order.quantity}</dd></div>
-        <div><dt>Đơn giá</dt><dd>{formatVnd(order.unitPrice)}</dd></div>
-        <div><dt>Tổng tiền</dt><dd>{formatVnd(order.totalPrice)}</dd></div>
-      </dl>
+      {order.items.length > 0 ? (
+        <>
+          <ul class="order-lines">
+            {order.items.map((item) => (
+              <li>
+                <span>
+                  {item.productName}
+                  {item.optionLabel ? ` (${item.optionLabel})` : ''} — {item.quantity} × {formatVnd(item.unitPrice)}
+                </span>
+                <strong>{formatVnd(item.lineTotal)}</strong>
+                {item.productId && <a href={routes.adminProduct(item.productId)}>Xem sản phẩm hiện tại</a>}
+              </li>
+            ))}
+          </ul>
+          <p>Tổng tiền: {formatVnd(order.totalPrice)}</p>
+        </>
+      ) : (
+        <dl>
+          <div>
+            <dt>Sản phẩm</dt>
+            <dd>
+              {order.productName}
+              {order.productId && <a href={routes.adminProduct(order.productId)}>Xem sản phẩm hiện tại</a>}
+            </dd>
+          </div>
+          <div><dt>Lựa chọn</dt><dd>{order.optionLabel || '—'}</dd></div>
+          <div><dt>Số lượng</dt><dd>{order.quantity}</dd></div>
+          <div><dt>Đơn giá</dt><dd>{formatVnd(order.unitPrice)}</dd></div>
+          <div><dt>Tổng tiền</dt><dd>{formatVnd(order.totalPrice)}</dd></div>
+        </dl>
+      )}
       <p class="order-note">Giá và tên sản phẩm được giữ tại thời điểm đặt, không đổi khi sửa giá hiện tại.</p>
       <h2>Thanh toán</h2>
       <p class="order-pay">Chưa ghi nhận thanh toán. Trạng thái xử lý đơn không có nghĩa đã thu tiền.</p>

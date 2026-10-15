@@ -5,17 +5,17 @@ import OrderForm from '../../components/public/OrderForm.astro';
 import { getPublicProduct } from '../../features/products/public';
 import { getPublicSite } from '../../features/settings/settings';
 import PublicLayout from '../../layouts/PublicLayout.astro';
+import { redirectHttpResponse } from '../../features/redirects/http';
+import { resolvePublicRedirect } from '../../features/redirects/lookup';
 import { createDb } from '../../lib/db/client';
-import { findRedirect } from '../../lib/db/redirects';
 import { getDbBinding, getSiteOrigin } from '../../lib/cloudflare/env';
-import { isSafeRedirect } from '../../lib/http';
 import { formatVnd } from '../../lib/money';
 import { breadcrumbSchema, buildMeta, jsonLd, productSchema } from '../../lib/seo/meta';
 import { routes } from '../../lib/routes';
 
 const slug = Astro.params.slug ?? '';
 const loaded = await loadProduct();
-if (loaded.redirectTo) return Astro.redirect(loaded.redirectTo, 301);
+if (loaded.http) return loaded.http;
 const visible = loaded.product?.status === 'active' ? loaded.product : null;
 if (!visible) {
   Astro.response.status = loaded.site ? 404 : 503;
@@ -60,16 +60,16 @@ async function loadProduct() {
   try {
     const db = createDb(getDbBinding());
     const site = await getPublicSite(db);
-    if (!site) return { site: null, failed: false, product: null, redirectTo: null };
+    if (!site) return { site: null, failed: false, product: null, http: null };
     const product = await getPublicProduct(db, slug);
-    if (!product) {
-      const target = await findRedirect(db, routes.product(slug));
-      if (target && isSafeRedirect(target)) return { site, failed: false, product: null, redirectTo: target };
+    if (product?.status !== 'active') {
+      const outcome = await resolvePublicRedirect(db, routes.product(slug));
+      if (outcome) return { site, failed: false, product: null, http: redirectHttpResponse(outcome) };
     }
-    return { site, failed: false, product, redirectTo: null };
+    return { site, failed: false, product, http: null };
   } catch (error) {
     console.error(JSON.stringify({ event: 'product_public_failed', name: error instanceof Error ? error.name : 'unknown' }));
-    return { site: null, failed: true, product: null, redirectTo: null };
+    return { site: null, failed: true, product: null, http: null };
   }
 }
 ---
@@ -135,6 +135,13 @@ async function loadProduct() {
         <section id="dat-hang" class="mt-10 rounded-lg border border-line bg-surface p-4 sm:p-6" aria-labelledby="order-heading">
           <h2 id="order-heading" class="text-xl font-semibold">Đặt hàng</h2>
           <p class="mt-2 text-muted">Xưởng gọi lại để chốt đơn. Website không thu tiền trực tuyến.</p>
+          <form class="mt-4" method="post" action={routes.cart} data-cart-form data-cart-from="order" data-requires-option={visible.options.length > 0 ? 'true' : 'false'}>
+            <input type="hidden" name="intent" value="add" />
+            <input type="hidden" name="slug" value={visible.slug} />
+            <input type="hidden" name="option" value="" />
+            <input type="hidden" name="quantity" value="1" />
+            <button class="btn" type="submit">Thêm vào giỏ</button>
+          </form>
           <OrderForm product={visible} />
         </section>
       </main>

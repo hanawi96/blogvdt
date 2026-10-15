@@ -1,7 +1,7 @@
-import { and, count, desc, eq, gte, gt, inArray, isNull, like, lt, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, gt, inArray, isNull, like, lt, or } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { routes } from '../../lib/routes';
-import { orders } from '../../lib/db/schema';
+import { orderItems, orders } from '../../lib/db/schema';
 import {
   formatOrderCode,
   isRecentDuplicate,
@@ -11,6 +11,7 @@ import {
   ORDER_IP_WINDOW_MS,
   orderDayKey,
   sequenceFromCode,
+  type CartOrderDraft,
   type OrderDraft,
 } from './order';
 import { canTransitionOrder, isOrderStatus, orderCounts, orderTransitionError, type OrderStatus } from './status';
@@ -120,7 +121,21 @@ export async function getOrder(db: AppDb, id: number) {
     .from(orders)
     .where(eq(orders.id, id))
     .limit(1);
-  return rows[0] ?? null;
+  const order = rows[0];
+  if (!order) return null;
+  const items = await db
+    .select({
+      productId: orderItems.productId,
+      productName: orderItems.productName,
+      unitPrice: orderItems.unitPrice,
+      quantity: orderItems.quantity,
+      optionLabel: orderItems.optionLabel,
+      lineTotal: orderItems.lineTotal,
+    })
+    .from(orderItems)
+    .where(eq(orderItems.orderId, order.id))
+    .orderBy(asc(orderItems.sortOrder), asc(orderItems.id));
+  return { ...order, items };
 }
 
 export async function updateOrderStatus(
@@ -208,6 +223,88 @@ export async function placeOrder(
         createdAt: now,
         updatedAt: now,
       });
+      return { ok: true, code };
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      sequence += 1;
+    }
+  }
+  return { ok: false, status: 503, error: 'Chưa tạo được mã đơn. Thử lại.' };
+}
+
+export async function placeCartOrder(
+  db: AppDb,
+  draft: CartOrderDraft,
+  ipHash: string,
+  now = Date.now(),
+): Promise<{ ok: true; code: string } | { ok: false; status: 409 | 429 | 503; error: string }> {
+  const recent = await db
+    .select({ value: count() })
+    .from(orders)
+    .where(and(eq(orders.ipHash, ipHash), gt(orders.createdAt, now - ORDER_IP_WINDOW_MS)));
+  if ((recent[0]?.value ?? 0) >= ORDER_IP_LIMIT) {
+    return { ok: false, status: 429, error: 'Đặt hàng tạm khóa. Thử lại sau ít phút.' };
+  }
+  const duplicate = await db
+    .select({ createdAt: orders.createdAt })
+    .from(orders)
+    .where(and(eq(orders.phone, draft.phone), isNull(orders.productId), eq(orders.productName, draft.productName), eq(orders.totalPrice, draft.totalPrice)))
+    .orderBy(desc(orders.createdAt))
+    .limit(1);
+  if (duplicate[0] && isRecentDuplicate(duplicate[0].createdAt, now)) {
+    return { ok: false, status: 409, error: 'Đơn cùng các mẫu vừa được gửi. Nếu cần đổi, hãy gọi xưởng.' };
+  }
+  const day = orderDayKey(now);
+  const latest = await db
+    .select({ code: orders.code })
+    .from(orders)
+    .where(like(orders.code, `VD${day}-%`))
+    .orderBy(desc(orders.code))
+    .limit(1);
+  let sequence = sequenceFromCode(latest[0]?.code ?? '') + 1;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (sequence > 9999) return { ok: false, status: 503, error: 'Hết mã đơn trong ngày. Hãy gọi xưởng để đặt.' };
+    const code = formatOrderCode(day, sequence);
+    try {
+      const inserted = await db
+        .insert(orders)
+        .values({
+          code,
+          customerName: draft.customerName,
+          phone: draft.phone,
+          address: draft.address,
+          note: draft.note || null,
+          productId: null,
+          productName: draft.productName,
+          unitPrice: 0,
+          quantity: draft.quantity,
+          optionLabel: null,
+          totalPrice: draft.totalPrice,
+          status: 'new',
+          ipHash,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: orders.id });
+      const orderId = inserted[0]?.id;
+      if (!orderId) return { ok: false, status: 503, error: 'Chưa tạo được mã đơn. Thử lại.' };
+      try {
+        await db.insert(orderItems).values(
+          draft.lines.map((line, index) => ({
+            orderId,
+            productId: line.productId,
+            productName: line.productName,
+            unitPrice: line.unitPrice,
+            quantity: line.quantity,
+            optionLabel: line.optionLabel,
+            lineTotal: line.lineTotal,
+            sortOrder: index,
+          })),
+        );
+      } catch (error) {
+        await db.delete(orders).where(eq(orders.id, orderId));
+        throw error;
+      }
       return { ok: true, code };
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;

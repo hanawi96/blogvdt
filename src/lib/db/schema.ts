@@ -205,12 +205,41 @@ export const orders = sqliteTable(
   ],
 );
 
-export const redirects = sqliteTable('redirects', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  fromPath: text('from_path').notNull().unique(),
-  toPath: text('to_path').notNull(),
-  createdAt: integer('created_at').notNull(),
-});
+export const orderItems = sqliteTable(
+  'order_items',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    productId: integer('product_id').references(() => products.id, { onDelete: 'set null' }),
+    productName: text('product_name').notNull(),
+    unitPrice: integer('unit_price').notNull(),
+    quantity: integer('quantity').notNull(),
+    optionLabel: text('option_label'),
+    lineTotal: integer('line_total').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+  },
+  (table) => [
+    index('order_items_order_idx').on(table.orderId),
+    check('order_items_quantity_check', sql`${table.quantity} > 0`),
+    check('order_items_price_check', sql`${table.unitPrice} >= 0`),
+  ],
+);
+
+export const redirects = sqliteTable(
+  'redirects',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    fromPath: text('from_path').notNull().unique(),
+    toPath: text('to_path').notNull(),
+    statusCode: integer('status_code').notNull().default(301),
+    enabled: integer('enabled').notNull().default(1),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull().default(0),
+  },
+  (table) => [index('redirects_to_path_idx').on(table.toPath)],
+);
 
 export const siteSettings = sqliteTable('site_settings', {
   key: text('key').primaryKey(),

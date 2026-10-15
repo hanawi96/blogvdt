@@ -1,0 +1,187 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { activityActor } from '../../features/activity/log';
+import { mutationError } from '../../features/auth/session';
+import {
+  deleteManagedRedirect,
+  getManagedRedirect,
+  listManagedRedirects,
+  listRedirectPostTargets,
+  saveManagedRedirect,
+  setRedirectEnabled,
+} from '../../features/redirects/manage';
+import { createDb } from '../../lib/db/client';
+import { getDbBinding } from '../../lib/cloudflare/env';
+import { routes } from '../../lib/routes';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+
+const db = createDb(getDbBinding());
+const query = Astro.url.searchParams.get('q') ?? '';
+let formError = '';
+let editingId = '';
+let fromPath = '';
+let toPath = '';
+let statusCode = '301';
+let enabled = true;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const blocked = mutationError(Astro.request, session, form);
+  if (blocked) {
+    Astro.response.status = 403;
+    formError = blocked;
+  } else {
+    const intent = String(form.get('intent') ?? 'save');
+    const idValue = Number(form.get('id'));
+    const id = Number.isInteger(idValue) && idValue > 0 ? idValue : undefined;
+    const actor = await activityActor(db, session.userId);
+    if (intent === 'delete' && id) {
+      const removed = await deleteManagedRedirect(db, id, Date.now(), actor);
+      if (!removed.ok) {
+        Astro.response.status = 422;
+        formError = removed.error;
+      } else {
+        return Astro.redirect(`${routes.adminRedirects}?deleted=1`, 303);
+      }
+    } else if (intent === 'toggle' && id) {
+      const turnedOn = String(form.get('enabled') ?? '') === '1';
+      const toggled = await setRedirectEnabled(db, id, turnedOn, Date.now(), actor);
+      if (!toggled.ok) {
+        Astro.response.status = 422;
+        formError = toggled.error;
+      } else {
+        return Astro.redirect(`${routes.adminRedirects}?saved=1`, 303);
+      }
+    } else if (intent !== 'delete' && intent !== 'toggle') {
+      const picked = String(form.get('targetPost') ?? '');
+      fromPath = String(form.get('fromPath') ?? '');
+      toPath = picked || String(form.get('toPath') ?? '');
+      statusCode = String(form.get('statusCode') ?? '301');
+      enabled = form.get('enabled') === '1';
+      editingId = id ? String(id) : '';
+      const saved = await saveManagedRedirect(
+        db,
+        { id, fromPath, toPath, statusCode: Number(statusCode), enabled },
+        Date.now(),
+        actor,
+      );
+      if (!saved.ok) {
+        Astro.response.status = 422;
+        formError = saved.error;
+      } else {
+        return Astro.redirect(`${routes.adminRedirects}?saved=1`, 303);
+      }
+    }
+  }
+}
+
+const rows = await listManagedRedirects(db, query);
+const targets = await listRedirectPostTargets(db);
+const saved = Astro.url.searchParams.get('saved') === '1';
+const deleted = Astro.url.searchParams.get('deleted') === '1';
+const editId = Number(Astro.url.searchParams.get('edit') ?? '');
+const editing = Astro.request.method === 'GET' && Number.isInteger(editId) ? await getManagedRedirect(db, editId) : null;
+if (editing) {
+  editingId = String(editing.id);
+  fromPath = editing.fromPath;
+  toPath = editing.toPath;
+  statusCode = editing.statusCode === 302 ? '302' : '301';
+  enabled = editing.enabled === 1;
+}
+const listHref = query ? `${routes.adminRedirects}?q=${encodeURIComponent(query)}` : routes.adminRedirects;
+
+function codeLabel(code: number): string {
+  if (code === 302) return '302';
+  if (code === 410) return '410';
+  return '301';
+}
+---
+
+<AdminLayout title="Chuyển hướng">
+  <p slot="lead" class="text-sm text-muted">Chỉ đường dẫn trong website. Đổi slug bài đã xuất bản vẫn tự tạo 301.</p>
+  {saved && !formError && <p class="mb-4 text-primary-strong" role="status">Đã lưu chuyển hướng.</p>}
+  {deleted && !formError && <p class="mb-4 text-primary-strong" role="status">Đã xóa chuyển hướng.</p>}
+  {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
+  <div class="category-layout">
+    <form class="category-panel" method="post" data-busy>
+      <h2 class="category-panel-title">{editingId ? 'Sửa chuyển hướng' : 'Thêm chuyển hướng'}</h2>
+      <input type="hidden" name="csrf" value={session.csrfToken} />
+      <input type="hidden" name="intent" value="save" />
+      {editingId && <input type="hidden" name="id" value={editingId} />}
+      <label class="block">
+        <span class="mb-1 block font-semibold">URL nguồn</span>
+        <input class="field" name="fromPath" required maxlength="300" value={fromPath} placeholder="/kien-thuc/slug-cu" />
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Bài đích đã xuất bản</span>
+        <select class="field" name="targetPost">
+          <option value="">Nhập đường dẫn bên dưới</option>
+          {targets.map((target) => <option value={target.path} selected={toPath === target.path}>{target.title}</option>)}
+        </select>
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Hoặc đường dẫn đích</span>
+        <input class="field" name="toPath" maxlength="300" value={toPath} placeholder="/kien-thuc/slug-moi" />
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Mã HTTP</span>
+        <select class="field" name="statusCode">
+          <option value="301" selected={statusCode === '301'}>301 — vĩnh viễn</option>
+          <option value="302" selected={statusCode === '302'}>302 — tạm thời</option>
+        </select>
+      </label>
+      <label class="mt-4 flex items-center gap-2">
+        <input type="checkbox" name="enabled" value="1" checked={enabled} />
+        <span>Đang bật</span>
+      </label>
+      <div class="category-actions">
+        <button class="btn btn-primary" type="submit">{editingId ? 'Cập nhật' : 'Thêm chuyển hướng'}</button>
+        {editingId && <a class="btn" href={listHref}>Hủy</a>}
+      </div>
+    </form>
+    <section class="category-panel">
+      <h2 class="category-panel-title">Danh sách</h2>
+      <form class="category-search" method="get">
+        <label>
+          <span class="sr-only">Tìm URL</span>
+          <input class="field" type="search" name="q" value={query} maxlength="180" placeholder="Tìm URL nguồn hoặc đích" />
+        </label>
+      </form>
+      {
+        rows.length === 0 ? (
+          <p class="text-muted">{query ? 'Không có chuyển hướng khớp.' : 'Chưa có chuyển hướng.'}</p>
+        ) : (
+          <ul>
+            {rows.map((row) => (
+              <li class:list={['category-row', editingId === String(row.id) && 'category-row-current']}>
+                <div>
+                  <p class="font-semibold">{row.fromPath}</p>
+                  <p class="text-sm text-muted">{row.statusCode === 410 ? '410, không có đích' : `${codeLabel(row.statusCode)} → ${row.toPath}`}</p>
+                  <p class="text-sm text-muted">{row.enabled === 1 ? 'Đang bật' : 'Đang tắt'}</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <a class="btn" href={`${routes.adminRedirects}?edit=${row.id}${query ? `&q=${encodeURIComponent(query)}` : ''}`}>Sửa</a>
+                  <form method="post" data-busy>
+                    <input type="hidden" name="csrf" value={session.csrfToken} />
+                    <input type="hidden" name="intent" value="toggle" />
+                    <input type="hidden" name="id" value={row.id} />
+                    <input type="hidden" name="enabled" value={row.enabled === 1 ? '0' : '1'} />
+                    <button class="btn" type="submit">{row.enabled === 1 ? 'Tắt' : 'Bật'}</button>
+                  </form>
+                  <form method="post" data-busy onsubmit="return confirm('Xóa chuyển hướng này?')">
+                    <input type="hidden" name="csrf" value={session.csrfToken} />
+                    <input type="hidden" name="intent" value="delete" />
+                    <input type="hidden" name="id" value={row.id} />
+                    <button class="btn btn-accent" type="submit">Xóa</button>
+                  </form>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    </section>
+  </div>
+</AdminLayout>

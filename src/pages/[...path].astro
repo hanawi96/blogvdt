@@ -1,0 +1,50 @@
+---
+import NotFound from '../components/public/NotFound.astro';
+import { staticChrome } from '../features/content/policies';
+import { redirectHttpResponse } from '../features/redirects/http';
+import { resolvePublicRedirect } from '../features/redirects/lookup';
+import PublicLayout from '../layouts/PublicLayout.astro';
+import { createDb } from '../lib/db/client';
+import { getDbBinding } from '../lib/cloudflare/env';
+import { notFoundMeta } from '../lib/seo/meta';
+import { PRIVATE_PAGE_CACHE } from '../lib/seo/cache';
+import { skipsRedirectLookup } from '../features/redirects/rules';
+
+const raw = Astro.params.path;
+const joined = Array.isArray(raw) ? raw.join('/') : (raw ?? '');
+const path = `/${joined}`.replace(/\/{2,}/g, '/');
+const pageMeta = notFoundMeta();
+
+if (!skipsRedirectLookup(path)) {
+  try {
+    const outcome = await resolvePublicRedirect(createDb(getDbBinding()), path);
+    if (outcome) return redirectHttpResponse(outcome);
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'redirect_lookup_failed', name: error instanceof Error ? error.name : 'unknown' }));
+    Astro.response.status = 503;
+    Astro.response.headers.set('Cache-Control', PRIVATE_PAGE_CACHE);
+    Astro.response.headers.set('X-Robots-Tag', 'noindex');
+  }
+}
+
+if (Astro.response.status !== 503) {
+  Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', PRIVATE_PAGE_CACHE);
+  Astro.response.headers.set('X-Robots-Tag', 'noindex');
+}
+---
+
+{
+  Astro.response.status === 503 ? (
+    <PublicLayout title="Tạm thời không xem được" description="Không tải được nội dung." robots="noindex,nofollow" siteName={staticChrome.siteName} chrome={staticChrome}>
+      <main class="mx-auto max-w-3xl px-4 py-16">
+        <h1 class="text-3xl font-semibold">Tạm thời không xem được</h1>
+        <p class="mt-4 text-muted">Hãy thử lại sau ít phút.</p>
+      </main>
+    </PublicLayout>
+  ) : (
+    <PublicLayout title={pageMeta.title} description={pageMeta.description} robots="noindex,nofollow" siteName={staticChrome.siteName} chrome={staticChrome}>
+      <NotFound />
+    </PublicLayout>
+  )
+}

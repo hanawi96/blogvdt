@@ -2,6 +2,8 @@
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { hasInboundPostLink, inspectPostLinks, suggestPosts } from '../../../features/posts/link-lookup';
 import { listPosts, searchPublishedPosts, slugIsTaken, type PostListSort } from '../../../features/posts/posts';
+import RetiredUrlDialog from '../../../components/admin/RetiredUrlDialog.astro';
+import { listRedirectPostTargets } from '../../../features/redirects/manage';
 import { SLUG_PATTERN } from '../../../features/posts/slug';
 import { isPostStatus, POST_STATUS_LABELS } from '../../../features/posts/status';
 import { createDb } from '../../../lib/db/client';
@@ -50,8 +52,11 @@ const deleted = Astro.url.searchParams.get('deleted') === '1';
 const copyError = Astro.url.searchParams.get('error') === 'copy';
 let loadError = '';
 let result: Awaited<ReturnType<typeof listPosts>> | null = null;
+let targets: { title: string; path: string }[] = [];
 try {
-  result = await listPosts(createDb(getDbBinding()), { query, status, sort, page: Number.isInteger(page) ? page : 1 });
+  const db = createDb(getDbBinding());
+  result = await listPosts(db, { query, status, sort, page: Number.isInteger(page) ? page : 1 });
+  targets = await listRedirectPostTargets(db);
 } catch (error) {
   console.error(JSON.stringify({ event: 'post_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
   loadError = 'Không tải được danh sách bài viết.';
@@ -149,9 +154,11 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                                 <input type="hidden" name="csrf" value={Astro.locals.adminSession?.csrfToken} />
                                 <button type="submit">Sao chép</button>
                               </form>
-                              <form method="post" action={routes.adminPostDelete(post.id)} onsubmit={`return confirm(${JSON.stringify(`Xóa bài “${post.title}”? Thao tác này không hoàn tác.`)})`}>
+                              <form id={`delete-post-${post.id}`} method="post" action={routes.adminPostDelete(post.id)} onsubmit={post.status === 'published' || post.publishedAt ? undefined : `return confirm(${JSON.stringify(`Xóa bài “${post.title}”? Thao tác này không hoàn tác.`)})`}>
                                 <input type="hidden" name="csrf" value={Astro.locals.adminSession?.csrfToken} />
-                                <button type="submit">Xóa</button>
+                                <input type="hidden" name="urlAction" value="" />
+                                <input type="hidden" name="urlTarget" value="" />
+                                <button type="submit" data-retire={post.status === 'published' || post.publishedAt ? 'delete' : undefined} data-retire-form={post.status === 'published' || post.publishedAt ? `delete-post-${post.id}` : undefined}>Xóa</button>
                               </form>
                             </div>
                           </details>
@@ -174,6 +181,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
       </>
     )
   }
+  <RetiredUrlDialog posts={targets} />
 </AdminLayout>
 
 <script>

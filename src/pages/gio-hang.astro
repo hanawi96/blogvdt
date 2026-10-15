@@ -1,0 +1,238 @@
+---
+import DataError from '../components/public/DataError.astro';
+import { addCartLine, CART_COOKIE, cartCookieOptions, parseCart, postedCartLines, serializeCart, type CartLine } from '../features/cart/cart';
+import { parseCartOrder } from '../features/orders/order';
+import { placeCartOrder, placeOrder } from '../features/orders/orders';
+import { listOrderCatalog } from '../features/products/public';
+import { getPublicSite } from '../features/settings/settings';
+import PublicLayout from '../layouts/PublicLayout.astro';
+import { createDb } from '../lib/db/client';
+import { getDbBinding } from '../lib/cloudflare/env';
+import { clientIp, hashIp, isSameOrigin } from '../lib/http';
+import { formatVnd } from '../lib/money';
+import { routes } from '../lib/routes';
+import type { FieldErrors } from '../lib/validation/errors';
+
+const secure = Astro.url.protocol === 'https:';
+const loaded = await loadCart();
+let lines = parseCart(Astro.cookies.get(CART_COOKIE)?.value);
+let formError = '';
+let errors: FieldErrors = {};
+const values = { customerName: '', phone: '', address: '', note: '' };
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const read = (name: string) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value : '';
+  };
+  const intent = read('intent');
+  values.customerName = read('customerName');
+  values.phone = read('phone');
+  values.address = read('address');
+  values.note = read('note');
+  if (!loaded.site) {
+    Astro.response.status = 503;
+  } else if (!isSameOrigin(Astro.request)) {
+    Astro.response.status = 403;
+    formError = 'Nguồn gửi không hợp lệ.';
+  } else if (intent === 'add') {
+    const added = addCartLine(lines, { slug: read('slug'), option: read('option'), quantity: Number(read('quantity') || '1') });
+    const product = loaded.catalog.find((item) => item.slug === read('slug'));
+    if (!added.ok) formError = added.error;
+    else if (!product) formError = 'Sản phẩm không còn bán.';
+    else if (product.options.length > 0 && !product.options.includes(read('option').trim())) formError = 'Chọn một lựa chọn của sản phẩm.';
+    else if (product.options.length === 0 && read('option').trim()) formError = 'Sản phẩm này không có lựa chọn.';
+    else {
+      remember(added.lines);
+      return Astro.redirect(routes.cart, 303);
+    }
+  } else if (intent === 'save' || intent.startsWith('remove:')) {
+    const posted = linesFrom(form, intent);
+    if (!posted.ok) formError = posted.error;
+    else {
+      remember(posted.lines.filter((line) => loaded.catalog.some((item) => item.slug === line.slug)));
+      return Astro.redirect(routes.cart, 303);
+    }
+  } else if (intent === 'order') {
+    const posted = linesFrom(form, intent);
+    if (!posted.ok) {
+      Astro.response.status = 422;
+      formError = posted.error;
+    } else {
+      lines = posted.lines;
+      const parsed = parseCartOrder({ ...values, company: read('company'), lines }, loaded.catalog);
+      if (!parsed.ok) {
+        Astro.response.status = parsed.blocked ? 403 : 422;
+        formError = parsed.blocked ? 'Không gửi được đơn.' : '';
+        errors = parsed.errors;
+      } else if (!loaded.db) {
+        Astro.response.status = 503;
+        formError = 'Chưa lưu được đơn. Thử lại sau.';
+      } else {
+        try {
+          let address: string | null = null;
+          try {
+            address = Astro.clientAddress;
+          } catch {
+            address = null;
+          }
+          const ipHash = await hashIp(clientIp(Astro.request, address));
+          const saved = parsed.single
+            ? await placeOrder(loaded.db, parsed.single, ipHash)
+            : parsed.cart
+              ? await placeCartOrder(loaded.db, parsed.cart, ipHash)
+              : { ok: false as const, status: 422 as const, error: 'Giỏ đang trống.' };
+          if (!saved.ok) {
+            Astro.response.status = saved.status;
+            formError = saved.error;
+          } else {
+            Astro.cookies.set(CART_COOKIE, '', cartCookieOptions(secure, 0));
+            const response = Astro.redirect(`${routes.checkoutSuccess}?ma=${saved.code}`, 303);
+            response.headers.set('Cache-Control', 'private, no-store');
+            return response;
+          }
+        } catch (error) {
+          Astro.response.status = 503;
+          formError = 'Chưa lưu được đơn. Thử lại sau.';
+          console.error(JSON.stringify({ event: 'cart_order_failed', name: error instanceof Error ? error.name : 'unknown' }));
+        }
+      }
+    }
+  } else {
+    Astro.response.status = 422;
+    formError = 'Thao tác không hợp lệ.';
+  }
+}
+
+const resolved = lines.flatMap((line) => {
+  const product = loaded.catalog.find((item) => item.slug === line.slug);
+  if (!product) return [];
+  return [{ ...line, name: product.name, price: product.price, options: product.options, lineTotal: product.price * line.quantity }];
+});
+const dropped = resolved.length !== lines.length;
+if (dropped && Astro.request.method === 'GET') remember(resolved.map(({ slug, quantity, option }) => ({ slug, quantity, option })));
+const total = resolved.reduce((sum, line) => sum + line.lineTotal, 0);
+
+function linesFrom(form: FormData, intent: string): { ok: true; lines: CartLine[] } | { ok: false; error: string } {
+  const slugs = strings(form, 'slug');
+  const quantities = strings(form, 'quantity');
+  const options = strings(form, 'option');
+  if (intent.startsWith('remove:')) {
+    const index = Number(intent.slice('remove:'.length));
+    if (!Number.isInteger(index) || index < 0 || index >= slugs.length) return { ok: false, error: 'Không xóa được mẫu này.' };
+    slugs.splice(index, 1);
+    quantities.splice(index, 1);
+    options.splice(index, 1);
+  }
+  return postedCartLines(slugs, quantities, options);
+}
+
+function strings(form: FormData, name: string): string[] {
+  return form.getAll(name).flatMap((value) => (typeof value === 'string' ? [value] : []));
+}
+
+function remember(next: CartLine[]) {
+  Astro.cookies.set(CART_COOKIE, next.length ? serializeCart(next) : '', cartCookieOptions(secure, next.length ? undefined : 0));
+}
+
+async function loadCart() {
+  try {
+    const db = createDb(getDbBinding());
+    const site = await getPublicSite(db);
+    if (!site) return { site: null, failed: false, catalog: [], db: null };
+    return { site, failed: false, catalog: await listOrderCatalog(db), db };
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'cart_load_failed', name: error instanceof Error ? error.name : 'unknown' }));
+    return { site: null, failed: true, catalog: [], db: null };
+  }
+}
+---
+
+<PublicLayout
+  title={loaded.site ? `Giỏ hàng | ${loaded.site.siteName}` : 'Chưa sẵn sàng'}
+  description="Gom nhiều mẫu vòng rồi gửi một lần. Website không thu tiền trực tuyến."
+  robots="noindex,nofollow"
+  siteName={loaded.site?.siteName}
+  faviconUrl={loaded.site?.faviconUrl || '/favicon.svg'}
+  chrome={loaded.site}
+>
+  {
+    !loaded.site ? (
+      <DataError failed={loaded.failed} />
+    ) : (
+      <main class="mx-auto max-w-xl px-4 py-10">
+        <h1 class="text-3xl font-semibold">Giỏ hàng</h1>
+        <p class="mt-3 text-muted">Một lần gửi cho nhiều mẫu. Xưởng gọi lại để chốt, website không thu tiền trực tuyến.</p>
+        {dropped && <p class="mt-4 text-muted">Đã bỏ mẫu không còn bán.</p>}
+        {formError && <p class="error-text mt-4" role="alert">{formError}</p>}
+        {errors.cart && <p class="error-text mt-4" role="alert">{errors.cart}</p>}
+        {resolved.length === 0 ? (
+          <p class="mt-6"><a href={routes.catalog}>Xem mẫu vòng</a></p>
+        ) : (
+          <form class="mt-6" method="post" action={routes.cart}>
+            {resolved.map((line, index) => (
+              <div class="cart-line">
+                <div>
+                  <p class="font-semibold">{line.name}</p>
+                  <p class="text-sm text-primary-strong">{formatVnd(line.price)}</p>
+                  <input type="hidden" name="slug" value={line.slug} />
+                  {line.options.length > 0 ? (
+                    <label class="mt-2 block text-sm font-semibold">
+                      Lựa chọn
+                      <select class="field mt-1" name="option">
+                        <option value="">Chọn</option>
+                        {line.options.map((option) => <option value={option} selected={option === line.option}>{option}</option>)}
+                      </select>
+                    </label>
+                  ) : (
+                    <input type="hidden" name="option" value="" />
+                  )}
+                  {errors[`option${index}`] && <p class="error-text mt-1">{errors[`option${index}`]}</p>}
+                </div>
+                <label class="text-sm font-semibold">
+                  Số lượng
+                  <input class="field cart-line-qty mt-1" name="quantity" type="number" min="1" max="20" required value={line.quantity} />
+                  {errors[`quantity${index}`] && <p class="error-text mt-1">{errors[`quantity${index}`]}</p>}
+                </label>
+                <div>
+                  <p class="font-semibold">{formatVnd(line.lineTotal)}</p>
+                  <button class="btn mt-2" type="submit" name="intent" value={`remove:${index}`}>Xóa</button>
+                </div>
+              </div>
+            ))}
+            <p class="mt-4 text-lg font-semibold">Tổng: {formatVnd(total)}</p>
+            <button class="btn mt-3" type="submit" name="intent" value="save">Cập nhật giỏ</button>
+            <h2 class="mt-8 text-xl font-semibold">Thông tin nhận hàng</h2>
+            <div class="absolute -left-[9999px]" aria-hidden="true">
+              <label for="company">Công ty</label>
+              <input id="company" name="company" tabindex="-1" autocomplete="off" />
+            </div>
+            <label class="mt-4 block" for="customer-name">
+              <span class="mb-1 block font-semibold">Họ tên</span>
+              <input id="customer-name" class="field" name="customerName" required maxlength="80" autocomplete="name" value={values.customerName} />
+              {errors.customerName && <span class="error-text">{errors.customerName}</span>}
+            </label>
+            <label class="mt-4 block" for="phone">
+              <span class="mb-1 block font-semibold">Số điện thoại</span>
+              <input id="phone" class="field" name="phone" type="tel" required maxlength="20" autocomplete="tel" value={values.phone} />
+              {errors.phone && <span class="error-text">{errors.phone}</span>}
+            </label>
+            <label class="mt-4 block" for="address">
+              <span class="mb-1 block font-semibold">Địa chỉ nhận hàng</span>
+              <textarea id="address" class="field min-h-24" name="address" required maxlength="240" autocomplete="street-address">{values.address}</textarea>
+              {errors.address && <span class="error-text">{errors.address}</span>}
+            </label>
+            <label class="mt-4 block" for="note">
+              <span class="mb-1 block font-semibold">Ghi chú</span>
+              <textarea id="note" class="field min-h-20" name="note" maxlength="500">{values.note}</textarea>
+              {errors.note && <span class="error-text">{errors.note}</span>}
+            </label>
+            <button class="btn btn-accent mt-6" type="submit" name="intent" value="order">Gửi đơn</button>
+          </form>
+        )}
+      </main>
+    )
+  }
+</PublicLayout>

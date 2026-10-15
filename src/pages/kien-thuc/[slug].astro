@@ -7,14 +7,14 @@ import ProductCard from '../../components/public/ProductCard.astro';
 import { listFeaturedProducts } from '../../features/products/featured';
 import { collectMediaSrcs, sanitizePostContent } from '../../features/posts/content';
 import { collectHeadings } from '../../features/posts/headings';
-import { getPostBySlug, hiddenPostSlug, listRelatedPosts } from '../../features/posts/public';
-import { knowledgeSlug, publicRedirectTarget } from '../../features/posts/redirects';
+import { getPostBySlug, listRelatedPosts } from '../../features/posts/public';
+import { redirectHttpResponse } from '../../features/redirects/http';
+import { resolvePublicRedirect } from '../../features/redirects/lookup';
 import { renderPostHtml } from '../../features/posts/render';
 import { applyCoverMeasure, layoutContentImages } from '../../features/media/media';
 import { getPublicSite } from '../../features/settings/settings';
 import PublicLayout from '../../layouts/PublicLayout.astro';
 import { createDb } from '../../lib/db/client';
-import { findRedirect } from '../../lib/db/redirects';
 import { getDbBinding, getSiteOrigin, optionalMediaBucket } from '../../lib/cloudflare/env';
 import { formatDateTime } from '../../lib/datetime';
 import { blogPostingSchema, breadcrumbSchema, buildMeta, canonicalUrl, jsonLd, notFoundMeta, postPageMeta, toAbsoluteUrl, unavailableMeta } from '../../lib/seo/meta';
@@ -23,11 +23,7 @@ import { routes } from '../../lib/routes';
 
 const slug = Astro.params.slug ?? '';
 const loaded = await loadPost();
-if (loaded.redirectTo) {
-  const response = Astro.redirect(loaded.redirectTo, 301);
-  response.headers.set('Cache-Control', FRESH_PAGE_CACHE);
-  return response;
-}
+if (loaded.http) return loaded.http;
 const status = blogReadStatus({ hasSite: Boolean(loaded.site), failed: loaded.failed, notFound: !loaded.post });
 if (status !== 200) {
   Astro.response.status = status;
@@ -90,19 +86,12 @@ async function loadPost() {
   try {
     const db = createDb(getDbBinding());
     const site = await getPublicSite(db);
-    if (!site) return { site: null, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo: null };
+    if (!site) return { site: null, failed: false, post: null, html: '', headings: [], related: [], products: [], http: null };
     const found = await getPostBySlug(db, slug);
     if (!found) {
-      if (await hiddenPostSlug(db, slug)) {
-        return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo: null };
-      }
-      const currentPath = routes.knowledge(slug);
-      const target = await findRedirect(db, currentPath);
-      const destSlug = target ? knowledgeSlug(target) : null;
-      const destination = destSlug ? await getPostBySlug(db, destSlug) : null;
-      const redirectTo = publicRedirectTarget(target, currentPath, Boolean(destination));
-      if (redirectTo) return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo };
-      return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], redirectTo: null };
+      const outcome = await resolvePublicRedirect(db, routes.knowledge(slug));
+      if (outcome) return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], http: redirectHttpResponse(outcome) };
+      return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], http: null };
     }
     const bucket = optionalMediaBucket();
     const [measured] = await applyCoverMeasure(bucket, [found]);
@@ -121,11 +110,11 @@ async function loadPost() {
       headings: content ? collectHeadings(content) : [],
       related: await applyCoverMeasure(bucket, related),
       products,
-      redirectTo: null,
+      http: null,
     };
   } catch (error) {
     console.error(JSON.stringify({ event: 'post_public_failed', name: error instanceof Error ? error.name : 'unknown' }));
-    return { site: null, failed: true, post: null, html: '', headings: [], related: [], products: [], redirectTo: null };
+    return { site: null, failed: true, post: null, html: '', headings: [], related: [], products: [], http: null };
   }
 }
 ---

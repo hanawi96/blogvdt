@@ -121,15 +121,6 @@ export async function getPostBySlug(db: AppDb, slug: string) {
   };
 }
 
-export async function hiddenPostSlug(db: AppDb, slug: string): Promise<boolean> {
-  const rows = await db
-    .select({ id: posts.id })
-    .from(posts)
-    .where(and(eq(posts.slug, slug), ne(posts.status, 'published')))
-    .limit(1);
-  return Boolean(rows[0]);
-}
-
 export async function listRelatedPosts(db: AppDb, input: { id: number; categoryId: number | null }) {
   const where = input.categoryId
     ? and(eq(posts.status, 'published'), eq(posts.categoryId, input.categoryId), ne(posts.id, input.id))

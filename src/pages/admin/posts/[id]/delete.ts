@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { activityActor } from '../../../../features/activity/log';
 import { mutationError } from '../../../../features/auth/session';
 import { deletePost } from '../../../../features/posts/posts';
+import { readRetirement } from '../../../../features/redirects/rules';
 import { createDb } from '../../../../lib/db/client';
 import { getDbBinding } from '../../../../lib/cloudflare/env';
 import { routes } from '../../../../lib/routes';
@@ -17,6 +18,7 @@ export const POST: APIRoute = async ({ params, request, locals, redirect }) => {
   const error = mutationError(request, session, form);
   if (error) return new Response(error, { status: 403 });
   const db = createDb(getDbBinding());
-  await deletePost(db, id, await activityActor(db, session.userId));
+  const removed = await deletePost(db, id, await activityActor(db, session.userId), readRetirement(form));
+  if (!removed.ok) return redirect(`${routes.adminPost(id)}?error=${encodeURIComponent(removed.error)}`, 303);
   return redirect(`${routes.adminPosts}?deleted=1`, 303);
 };

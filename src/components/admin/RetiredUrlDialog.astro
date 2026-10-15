@@ -1,0 +1,130 @@
+---
+interface Props {
+  posts: { title: string; path: string }[];
+}
+
+const { posts } = Astro.props;
+---
+
+<dialog id="retire-url" class="retire-dialog">
+  <form method="dialog">
+    <h2 class="text-lg font-semibold">Xử lý URL cũ</h2>
+    <p class="mt-2 text-sm text-muted">Chọn nội dung thay thế thật, trả 404, hoặc trả 410. Không tự chuyển về trang chủ.</p>
+    <div class="retire-options">
+      <label class="flex items-start gap-2">
+        <input type="radio" name="retireChoice" value="redirect" checked />
+        <span>Chuyển hướng 301 tới nội dung thay thế</span>
+      </label>
+      <div class="retire-target" data-retire-target>
+        <label class="block">
+          <span class="mb-1 block text-sm font-semibold">Bài đã xuất bản</span>
+          <select class="field" data-retire-post>
+            <option value="">Chọn bài</option>
+            {posts.map((post) => <option value={post.path}>{post.title}</option>)}
+          </select>
+        </label>
+        <label class="mt-3 block">
+          <span class="mb-1 block text-sm font-semibold">Hoặc đường dẫn nội bộ</span>
+          <input class="field" data-retire-path maxlength="300" placeholder="/kien-thuc/bai-thay-the" />
+        </label>
+      </div>
+      <label class="flex items-start gap-2">
+        <input type="radio" name="retireChoice" value="404" />
+        <span>Trả 404 — không còn trang này</span>
+      </label>
+      <label class="flex items-start gap-2">
+        <input type="radio" name="retireChoice" value="410" />
+        <span>Trả 410 — nội dung đã được gỡ</span>
+      </label>
+    </div>
+    <p class="error-text mt-3" data-retire-error hidden></p>
+    <div class="category-actions">
+      <button class="btn" type="button" data-retire-cancel>Hủy</button>
+      <button class="btn btn-primary" type="button" data-retire-confirm>Xác nhận</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+  const dialog = document.getElementById('retire-url');
+  const targetBox = dialog?.querySelector('[data-retire-target]');
+  const errorLine = dialog?.querySelector('[data-retire-error]');
+  const postSelect = dialog?.querySelector('[data-retire-post]');
+  const pathInput = dialog?.querySelector('[data-retire-path]');
+
+  function choice(): string {
+    const selected = dialog?.querySelector('input[name="retireChoice"]:checked');
+    return selected instanceof HTMLInputElement ? selected.value : '404';
+  }
+
+  function syncTarget() {
+    if (targetBox instanceof HTMLElement) targetBox.hidden = choice() !== 'redirect';
+  }
+
+  function showError(message: string) {
+    if (!(errorLine instanceof HTMLElement)) return;
+    errorLine.hidden = message === '';
+    errorLine.textContent = message;
+  }
+
+  function openRetire(mode: string, formId: string) {
+    if (!(dialog instanceof HTMLDialogElement)) return;
+    dialog.dataset.mode = mode;
+    dialog.dataset.form = formId;
+    showError('');
+    syncTarget();
+    dialog.showModal();
+  }
+
+  dialog?.addEventListener('change', syncTarget);
+  dialog?.querySelector('[data-retire-cancel]')?.addEventListener('click', () => {
+    if (dialog instanceof HTMLDialogElement) dialog.close();
+  });
+  dialog?.querySelector('[data-retire-confirm]')?.addEventListener('click', () => {
+    if (!(dialog instanceof HTMLDialogElement)) return;
+    const selected = choice();
+    const postPath = postSelect instanceof HTMLSelectElement ? postSelect.value : '';
+    const typed = pathInput instanceof HTMLInputElement ? pathInput.value.trim() : '';
+    const target = postPath || typed;
+    if (selected === 'redirect' && !target) {
+      showError('Chọn bài đã xuất bản hoặc nhập đường dẫn nội bộ.');
+      return;
+    }
+    const formId = dialog.dataset.form ?? '';
+    const form = document.getElementById(formId);
+    if (!(form instanceof HTMLFormElement)) return;
+    const action = form.querySelector('input[name="urlAction"]');
+    const urlTarget = form.querySelector('input[name="urlTarget"]');
+    if (action instanceof HTMLInputElement) action.value = selected;
+    if (urlTarget instanceof HTMLInputElement) urlTarget.value = selected === 'redirect' ? target : '';
+    dialog.close();
+    if (dialog.dataset.mode === 'unpublish') {
+      const status = document.getElementById('post-status');
+      if (status instanceof HTMLSelectElement) status.value = 'draft';
+      form.dataset.confirmedUnpublish = '1';
+      const submitter = document.getElementById('unpublish-post');
+      if (submitter instanceof HTMLButtonElement) form.requestSubmit(submitter);
+      else form.requestSubmit();
+      return;
+    }
+    form.requestSubmit();
+  });
+
+  document.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const trigger = target.closest('[data-retire]');
+    if (!(trigger instanceof HTMLButtonElement)) return;
+    event.preventDefault();
+    const formId = trigger.dataset.retireForm || trigger.form?.id || '';
+    openRetire(trigger.dataset.retire || 'delete', formId);
+  });
+
+  document.getElementById('post-form')?.addEventListener('retire-open', (event) => {
+    const detail = event instanceof CustomEvent ? event.detail : null;
+    if (!detail || typeof detail !== 'object') return;
+    const mode = 'mode' in detail && typeof detail.mode === 'string' ? detail.mode : 'unpublish';
+    const formId = 'form' in detail && typeof detail.form === 'string' ? detail.form : 'post-form';
+    openRetire(mode, formId);
+  });
+</script>

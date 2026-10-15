@@ -47,6 +47,93 @@ function current(href: string): boolean {
           </a>
         ))
       }
+      <a
+        href={routes.cart}
+        data-cart-link
+        aria-label="Giỏ hàng"
+        aria-current={path === routes.cart ? 'page' : undefined}
+        class:list={['rounded-md px-3 py-2', path === routes.cart ? 'bg-primary text-surface' : 'text-ink']}
+      >
+        Giỏ<span data-cart-count hidden></span>
+      </a>
     </nav>
   </div>
 </header>
+<script>
+  import { CART_COOKIE, CART_MAX_AGE, addCartLine, cartCount, parseCart, serializeCart, type CartLine } from '../../features/cart/cart';
+
+  function readCookie(): CartLine[] {
+    const raw = document.cookie.split('; ').find((part) => part.startsWith(`${CART_COOKIE}=`));
+    if (!raw) return [];
+    const value = raw.slice(CART_COOKIE.length + 1);
+    try {
+      return parseCart(value.includes('%') ? decodeURIComponent(value) : value);
+    } catch {
+      return [];
+    }
+  }
+
+  function paint(lines: CartLine[]) {
+    const count = cartCount(lines);
+    const node = document.querySelector('[data-cart-count]');
+    const link = document.querySelector('[data-cart-link]');
+    if (node instanceof HTMLElement) {
+      node.hidden = count < 1;
+      node.textContent = count > 0 ? ` ${count}` : '';
+    }
+    if (link instanceof HTMLAnchorElement) link.setAttribute('aria-label', count > 0 ? `Giỏ hàng, ${count} chiếc` : 'Giỏ hàng');
+  }
+
+  function store(lines: CartLine[]) {
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    const maxAge = lines.length === 0 ? 0 : CART_MAX_AGE;
+    const value = lines.length === 0 ? '' : encodeURIComponent(serializeCart(lines));
+    document.cookie = `${CART_COOKIE}=${value}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`;
+    paint(lines);
+  }
+
+  function flash(button: HTMLButtonElement, text: string) {
+    const previous = button.dataset.label || button.textContent || 'Thêm vào giỏ';
+    button.dataset.label = previous;
+    button.textContent = text;
+    window.setTimeout(() => {
+      button.textContent = button.dataset.label || previous;
+    }, 1200);
+  }
+
+  paint(readCookie());
+  document.querySelectorAll('form[data-cart-form]').forEach((node) => {
+    if (!(node instanceof HTMLFormElement)) return;
+    node.addEventListener('submit', (event) => {
+      if (node.dataset.cartFrom === 'order') {
+        const option = document.getElementById('option');
+        const quantity = document.getElementById('quantity');
+        const optionField = node.querySelector('[name="option"]');
+        const quantityField = node.querySelector('[name="quantity"]');
+        if (optionField instanceof HTMLInputElement && option instanceof HTMLSelectElement) optionField.value = option.value;
+        if (quantityField instanceof HTMLInputElement && quantity instanceof HTMLInputElement) quantityField.value = quantity.value;
+      }
+      const data = new FormData(node);
+      const option = String(data.get('option') ?? '').trim();
+      const button = node.querySelector('button');
+      if (node.dataset.requiresOption === 'true' && option.length === 0) {
+        event.preventDefault();
+        if (button instanceof HTMLButtonElement) flash(button, 'Chọn lựa chọn');
+        return;
+      }
+      event.preventDefault();
+      const quantity = Number(data.get('quantity') ?? '1');
+      const result = addCartLine(readCookie(), {
+        slug: String(data.get('slug') ?? ''),
+        option,
+        quantity: Number.isInteger(quantity) ? quantity : 1,
+      });
+      if (!result.ok) {
+        if (button instanceof HTMLButtonElement) flash(button, 'Giỏ đã đầy');
+        return;
+      }
+      store(result.lines);
+      if (button instanceof HTMLButtonElement) flash(button, 'Đã thêm');
+    });
+  });
+</script>

@@ -4,10 +4,15 @@ import { routes } from '../../lib/routes';
 
 interface Props {
   product: {
+    id: number;
     name: string;
     slug: string;
     price: number;
     comparePrice: number | null;
+    description: string;
+    cordType: string;
+    categoryName: string | null;
+    options: string[];
     coverUrl: string | null;
     coverAlt: string;
     coverWidth: number | null;
@@ -18,7 +23,10 @@ interface Props {
 
 const { product, eager = false } = Astro.props;
 const href = routes.product(product.slug);
+const orderHref = `${routes.checkout}?san-pham=${encodeURIComponent(product.slug)}`;
 const alt = product.coverAlt || product.name;
+const dialogId = `quick-${product.id}`;
+const titleId = `quick-title-${product.id}`;
 ---
 
 <article class="overflow-hidden rounded-lg border border-line bg-surface">
@@ -44,5 +52,80 @@ const alt = product.coverAlt || product.name;
     <p class="mt-1 font-semibold text-primary-strong">{formatVnd(product.price)}</p>
     {product.comparePrice != null && <p class="product-compare">{formatVnd(product.comparePrice)}</p>}
     <p class="mt-1 text-sm text-muted">Đang bán</p>
+    <div class="catalog-card-actions">
+      <button class="btn" type="button" data-quick-open aria-haspopup="dialog" aria-controls={dialogId}>Xem nhanh</button>
+      {
+        product.options.length > 0 ? (
+          <button class="btn" type="button" data-quick-open aria-controls={dialogId}>Thêm vào giỏ</button>
+        ) : (
+          <form method="post" action={routes.cart} data-cart-form>
+            <input type="hidden" name="intent" value="add" />
+            <input type="hidden" name="slug" value={product.slug} />
+            <input type="hidden" name="option" value="" />
+            <input type="hidden" name="quantity" value="1" />
+            <button class="btn" type="submit">Thêm vào giỏ</button>
+          </form>
+        )
+      }
+      <a class="btn btn-primary" href={orderHref}>Đặt hàng</a>
+    </div>
   </div>
+  <dialog id={dialogId} class="quick-view" aria-labelledby={titleId}>
+    <form class="quick-view-bar" method="dialog">
+      <button class="btn" type="submit">Đóng</button>
+    </form>
+    <div class="quick-view-body">
+      {
+        product.coverUrl ? (
+          <img class="quick-view-photo" src={product.coverUrl} alt={alt} width={product.coverWidth ?? undefined} height={product.coverHeight ?? undefined} />
+        ) : (
+          <span class="quick-view-empty" aria-hidden="true"></span>
+        )
+      }
+      <div>
+        <p id={titleId} class="text-xl font-semibold">{product.name}</p>
+        <p class="mt-1 font-semibold text-primary-strong">{formatVnd(product.price)}</p>
+        {product.comparePrice != null && <p class="product-compare">{formatVnd(product.comparePrice)}</p>}
+        <p class="mt-1 text-sm text-muted">Đang bán</p>
+        {product.categoryName && <p class="mt-3 text-sm">Danh mục: {product.categoryName}</p>}
+        {product.cordType && <p class="mt-1 text-sm">Kiểu dây: {product.cordType}</p>}
+        {product.description && <p class="mt-3 whitespace-pre-line leading-relaxed">{product.description}</p>}
+        {
+          product.options.length > 0 && (
+            <form class="mt-3" method="post" action={routes.cart} data-cart-form data-requires-option="true">
+              <input type="hidden" name="intent" value="add" />
+              <input type="hidden" name="slug" value={product.slug} />
+              <input type="hidden" name="quantity" value="1" />
+              <label class="block text-sm font-semibold">
+                Lựa chọn
+                <select class="field mt-1" name="option" required>
+                  <option value="">Chọn</option>
+                  {product.options.map((option) => <option value={option}>{option}</option>)}
+                </select>
+              </label>
+              <button class="btn mt-3" type="submit">Thêm vào giỏ</button>
+            </form>
+          )
+        }
+        <div class="quick-view-actions">
+          <a class="btn btn-primary" href={orderHref}>Đặt hàng</a>
+          <a class="btn" href={href}>Xem chi tiết</a>
+        </div>
+      </div>
+    </div>
+  </dialog>
 </article>
+<script>
+  document.querySelectorAll('[data-quick-open]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const dialog = button.closest('article')?.querySelector('dialog');
+      if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
+    });
+  });
+  document.querySelectorAll('dialog.quick-view').forEach((dialog) => {
+    if (!(dialog instanceof HTMLDialogElement)) return;
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+  });
+</script>

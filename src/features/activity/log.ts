@@ -28,6 +28,9 @@ export const ACTIVITY_ACTIONS = [
   'password.change',
   'settings.update',
   'media.delete',
+  'redirect.create',
+  'redirect.update',
+  'redirect.delete',
 ] as const;
 
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];
@@ -52,9 +55,12 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'password.change': 'Đổi mật khẩu',
   'settings.update': 'Cập nhật cài đặt',
   'media.delete': 'Xóa ảnh',
+  'redirect.create': 'Tạo chuyển hướng',
+  'redirect.update': 'Sửa chuyển hướng',
+  'redirect.delete': 'Xóa chuyển hướng',
 };
 
-export type ActivityObject = 'post' | 'category' | 'product_category' | 'user' | 'media' | 'settings';
+export type ActivityObject = 'post' | 'category' | 'product_category' | 'user' | 'media' | 'settings' | 'redirect';
 
 export type ActivityActor = { id: number; name: string };
 
