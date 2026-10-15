@@ -1,63 +1,104 @@
 ---
+import MediaPicker from '../../components/admin/MediaPicker.svelte';
 import AdminLayout from '../../layouts/AdminLayout.astro';
+import { activityActor } from '../../features/activity/log';
+import { ROLE_LABELS } from '../../features/auth/access';
 import { mutationError } from '../../features/auth/session';
-import { changeOwnPassword } from '../../features/auth/users';
+import { getUser, PROFILE_LINKS, readUserProfile, updateUser, type UserProfile } from '../../features/auth/users';
+import { listMedia } from '../../features/media/media';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
+import { formatDateTime } from '../../lib/datetime';
 import { routes } from '../../lib/routes';
 
 const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
 
+const db = createDb(getDbBinding());
+const user = await getUser(db, session.userId);
+if (!user) return Astro.redirect(routes.adminLogin);
+
+let displayName = user.displayName;
+let email = user.email ?? '';
+let profile: UserProfile = {
+  avatarMediaId: user.avatarMediaId,
+  bio: user.bio,
+  facebookUrl: user.facebookUrl,
+  zaloUrl: user.zaloUrl,
+  instagramUrl: user.instagramUrl,
+  tiktokUrl: user.tiktokUrl,
+  websiteUrl: user.websiteUrl,
+};
 let formError = '';
-let saved = Astro.url.searchParams.get('saved') === '1';
+let saved = '';
 
 if (Astro.request.method === 'POST') {
-  saved = false;
   const form = await Astro.request.formData();
   const blocked = mutationError(Astro.request, session, form);
+  displayName = String(form.get('displayName') ?? '');
+  email = String(form.get('email') ?? '');
+  const parsed = readUserProfile(form);
+  profile = parsed.profile;
   if (blocked) {
     Astro.response.status = 403;
     formError = blocked;
-  } else if (String(form.get('next') ?? '') !== String(form.get('confirm') ?? '')) {
+  } else if (parsed.avatarInvalid) {
     Astro.response.status = 422;
-    formError = 'Mật khẩu mới không khớp.';
+    formError = 'Ảnh không hợp lệ.';
   } else {
-    const changed = await changeOwnPassword(
-      createDb(getDbBinding()),
+    const updated = await updateUser(
+      db,
       session.userId,
-      session.sessionId,
-      String(form.get('current') ?? ''),
-      String(form.get('next') ?? ''),
+      { displayName, email, role: user.role, status: user.status, ...profile },
+      Date.now(),
+      await activityActor(db, session.userId),
     );
-    if (!changed.ok) {
+    if (!updated.ok) {
       Astro.response.status = 422;
-      formError = changed.error;
+      formError = updated.error;
     } else {
-      return Astro.redirect(`${routes.adminAccount}?saved=1`, 303);
+      saved = 'Đã lưu tài khoản.';
+      session.displayName = displayName.trim();
     }
   }
 }
+
+const current = (await getUser(db, session.userId)) ?? user;
+const library = await listMedia(db);
 ---
 
-<AdminLayout title="Tài khoản">
-  <p slot="lead">Đổi mật khẩu của bạn. Các phiên khác sẽ bị đăng xuất.</p>
-  {saved && <p class="mb-4 text-primary-strong" role="status">Đã đổi mật khẩu.</p>}
+<AdminLayout title="Thông tin tài khoản">
+  <p slot="lead">{ROLE_LABELS[current.role]}</p>
+  {saved && <p class="mb-4 text-primary-strong" role="status">{saved}</p>}
   {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
   <form class="max-w-xl" method="post" data-busy>
     <input type="hidden" name="csrf" value={session.csrfToken} />
-    <label class="block">
-      <span class="mb-1 block font-semibold">Mật khẩu hiện tại</span>
-      <input class="field" type="password" name="current" autocomplete="current-password" required maxlength="200" />
+    <h2 class="text-lg font-semibold">Hồ sơ</h2>
+    <div class="mt-4">
+      <MediaPicker client:load csrf={session.csrfToken} items={library} name="avatarMediaId" selected={profile.avatarMediaId ? [String(profile.avatarMediaId)] : []} />
+    </div>
+    <label class="mt-4 block">
+      <span class="mb-1 block font-semibold">Giới thiệu</span>
+      <textarea class="field" name="bio" maxlength="500" rows="4">{profile.bio}</textarea>
+    </label>
+    <div class="profile-links mt-4">
+      {PROFILE_LINKS.map(([key, label]) => (
+        <label class:list={['block', key === 'websiteUrl' && 'is-wide']}>
+          <span class="mb-1 block font-semibold">{label}</span>
+          <input class="field" type="url" name={key} maxlength="300" value={profile[key]} placeholder="https://" />
+        </label>
+      ))}
+    </div>
+    <h2 class="mt-8 text-lg font-semibold">Tài khoản</h2>
+    <label class="mt-4 block">
+      <span class="mb-1 block font-semibold">Họ tên</span>
+      <input class="field" name="displayName" required maxlength="80" value={displayName} />
     </label>
     <label class="mt-4 block">
-      <span class="mb-1 block font-semibold">Mật khẩu mới</span>
-      <input class="field" type="password" name="next" autocomplete="new-password" required minlength="12" maxlength="200" />
+      <span class="mb-1 block font-semibold">Email</span>
+      <input class="field" type="email" name="email" required maxlength="120" value={email} />
     </label>
-    <label class="mt-4 block">
-      <span class="mb-1 block font-semibold">Nhập lại mật khẩu mới</span>
-      <input class="field" type="password" name="confirm" autocomplete="new-password" required minlength="12" maxlength="200" />
-    </label>
-    <button class="btn btn-primary mt-6" type="submit">Đổi mật khẩu</button>
+    <p class="mt-4 text-sm text-muted">Vai trò: {ROLE_LABELS[current.role]}. Đăng nhập cuối: {current.lastLoginAt ? formatDateTime(current.lastLoginAt) : 'Chưa đăng nhập'}.</p>
+    <button class="btn btn-primary mt-6" type="submit">Lưu</button>
   </form>
 </AdminLayout>

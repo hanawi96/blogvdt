@@ -1,5 +1,7 @@
 ---
 import '../styles/global.css';
+import { ROLE_LABELS } from '../features/auth/access';
+import { userInitials } from '../features/auth/users';
 import { routes } from '../lib/routes';
 
 interface Props {
@@ -46,30 +48,44 @@ function current(href: string): boolean {
     {
       session ? (
         <div class="min-h-screen md:grid md:grid-cols-[15rem_1fr]">
-          <aside class="border-b border-line bg-surface md:border-r md:border-b-0">
-            <p class="px-4 py-5 text-lg font-semibold">Quản trị</p>
-            <nav class="flex gap-1 overflow-x-auto px-3 pb-3 md:block" aria-label="Quản trị">
+          <aside class="admin-side">
+            <p class="admin-brand">Quản trị</p>
+            <nav class="admin-nav" aria-label="Quản trị">
               {items.map(([href, label]) => (
                 <a
                   href={href}
                   aria-current={current(href) ? 'page' : undefined}
-                  class:list={[
-                    'block rounded-md px-3 py-2 whitespace-nowrap',
-                    current(href) ? 'bg-primary text-surface' : 'text-ink',
-                  ]}
+                  class:list={[current(href) && 'is-current']}
                 >
                   {label}
                 </a>
               ))}
             </nav>
-            <div class="flex gap-2 px-3 py-4 md:block">
-              <a class="btn" href={routes.adminAccount}>Tài khoản</a>
-            <form method="post" action={routes.adminLogout} class="md:mt-2">
-              <input type="hidden" name="csrf" value={session.csrfToken} />
-              <button class="btn" type="submit">
-                Đăng xuất
+            <div class="admin-account" data-account>
+              <button
+                class:list={['admin-account-trigger', current(routes.adminAccount) && 'is-current']}
+                type="button"
+                data-account-trigger
+                aria-expanded="false"
+                aria-controls="account-menu"
+                aria-haspopup="menu"
+              >
+                <span class="user-avatar" aria-hidden="true">{userInitials(session.displayName)}</span>
+                <span class="admin-account-meta">
+                  <span class="admin-account-label">{session.displayName.trim() || 'Tài khoản'}</span>
+                  <span class="admin-account-role">{ROLE_LABELS[session.role]}</span>
+                </span>
+                <svg class="admin-account-chevron" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4 6.5 8 10.5 12 6.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+                </svg>
               </button>
-            </form>
+              <div class="admin-account-panel" id="account-menu" data-account-panel role="menu" hidden>
+                <a role="menuitem" href={routes.adminAccount}>Thông tin tài khoản</a>
+                <form method="post" action={routes.adminLogout}>
+                  <input type="hidden" name="csrf" value={session.csrfToken} />
+                  <button role="menuitem" type="submit">Đăng xuất</button>
+                </form>
+              </div>
             </div>
           </aside>
           <div>
@@ -92,6 +108,25 @@ function current(href: string): boolean {
     )
   }
     <script>
+      const account = document.querySelector('[data-account]');
+      const accountTrigger = account?.querySelector('[data-account-trigger]');
+      const accountPanel = account?.querySelector('[data-account-panel]');
+      if (account instanceof HTMLElement && accountTrigger instanceof HTMLButtonElement && accountPanel instanceof HTMLElement) {
+        const setAccountOpen = (open: boolean) => {
+          accountTrigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+          accountPanel.hidden = !open;
+        };
+        accountTrigger.addEventListener('click', () => {
+          setAccountOpen(accountTrigger.getAttribute('aria-expanded') !== 'true');
+        });
+        document.addEventListener('click', (event) => {
+          if (!(event.target instanceof Node) || account.contains(event.target)) return;
+          setAccountOpen(false);
+        });
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') setAccountOpen(false);
+        });
+      }
       document.querySelectorAll('form[data-busy]').forEach((form) => {
         if (!(form instanceof HTMLFormElement)) return;
         form.addEventListener('submit', (event) => {

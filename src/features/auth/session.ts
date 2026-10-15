@@ -22,6 +22,7 @@ export type AdminSession = {
   userId: number;
   role: AdminRole;
   csrfToken: string;
+  displayName: string;
 };
 
 export async function createSession(db: AppDb, userId: number, role: AdminRole, now = Date.now()): Promise<AdminSession> {
@@ -34,7 +35,8 @@ export async function createSession(db: AppDb, userId: number, role: AdminRole, 
     expiresAt: now + SESSION_MS,
     createdAt: now,
   });
-  return { sessionId, userId, role, csrfToken };
+  const names = await db.select({ displayName: adminUsers.displayName }).from(adminUsers).where(eq(adminUsers.id, userId)).limit(1);
+  return { sessionId, userId, role, csrfToken, displayName: names[0]?.displayName ?? '' };
 }
 
 export async function readSession(db: AppDb, sessionId: string | undefined, now = Date.now()): Promise<AdminSession | null> {
@@ -47,6 +49,7 @@ export async function readSession(db: AppDb, sessionId: string | undefined, now 
       expiresAt: sessions.expiresAt,
       role: adminUsers.role,
       status: adminUsers.status,
+      displayName: adminUsers.displayName,
     })
     .from(sessions)
     .innerJoin(adminUsers, eq(adminUsers.id, sessions.adminUserId))
@@ -57,7 +60,7 @@ export async function readSession(db: AppDb, sessionId: string | undefined, now 
     if (row) await db.delete(sessions).where(eq(sessions.id, sessionId));
     return null;
   }
-  return { sessionId: row.sessionId, userId: row.userId, role: row.role, csrfToken: row.csrfToken };
+  return { sessionId: row.sessionId, userId: row.userId, role: row.role, csrfToken: row.csrfToken, displayName: row.displayName };
 }
 
 export async function destroySession(db: AppDb, sessionId: string): Promise<void> {
