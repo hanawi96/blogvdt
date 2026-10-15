@@ -22,6 +22,7 @@ export async function uploadMedia(csrf: string, file: File): Promise<MediaItem> 
     url: payload.url,
     alt: payload.alt ?? '',
     filename: payload.filename ?? image.file.name,
+    mimeType: payload.mimeType ?? image.file.type,
     width: payload.width ?? image.width,
     height: payload.height ?? image.height,
     sizeBytes: payload.sizeBytes ?? image.file.size,

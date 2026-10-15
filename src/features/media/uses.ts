@@ -5,6 +5,7 @@ type MediaKey = { id: number; key: string };
 type PostUse = { id: number; title: string; coverMediaId: number | null; contentJson: string };
 type ProductUse = { id: number; name: string; coverMediaId: number | null };
 type AlbumUse = { mediaId: number; productId: number; productName: string };
+type CategoryUse = { id: number; name: string; description: string | null };
 
 export function collectMediaUses(input: {
   media: MediaKey[];
@@ -15,6 +16,7 @@ export function collectMediaUses(input: {
   faviconId: string;
   ogImageId: string;
   avatars?: { mediaId: number | null; userId: number; name: string }[];
+  categories?: CategoryUse[];
 }): Record<string, MediaUse[]> {
   const uses = new Map<number, MediaUse[]>();
   const add = (id: number | null, use: MediaUse) => {
@@ -43,6 +45,14 @@ export function collectMediaUses(input: {
   add(Number(input.ogImageId), { href: routes.adminSettings, label: 'Ảnh chia sẻ' });
   for (const avatar of input.avatars ?? []) {
     add(avatar.mediaId, { href: routes.adminUser(avatar.userId), label: avatar.name || `Tài khoản #${avatar.userId}` });
+  }
+  for (const category of input.categories ?? []) {
+    const text = category.description ?? '';
+    if (!text.includes('/media/')) continue;
+    const use = { href: routes.adminCategories, label: category.name || `Danh mục #${category.id}` };
+    for (const item of input.media) {
+      if (text.includes(`/media/${item.key}`)) add(item.id, use);
+    }
   }
 
   return Object.fromEntries([...uses].map(([id, list]) => [String(id), list]));

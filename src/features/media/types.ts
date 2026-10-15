@@ -3,6 +3,7 @@ export type MediaItem = {
   url: string;
   alt: string;
   filename: string;
+  mimeType: string;
   width: number | null;
   height: number | null;
   sizeBytes: number;

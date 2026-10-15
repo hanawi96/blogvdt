@@ -1,10 +1,11 @@
-import { desc, eq, inArray, isNotNull, like, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, like, notInArray, or, type SQL } from 'drizzle-orm';
 import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
-import { adminUsers, media, posts, productMedia, products, siteSettings } from '../../lib/db/schema';
+import { adminUsers, categories, media, posts, productMedia, products, siteSettings } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { detectImageType, displayFilename, imageSizeError, mediaKeyFromPublicUrl, mediaObjectKey, readRasterSize } from './files';
-import type { MediaItem } from './types';
+import { clampMediaPage, MEDIA_PAGE_SIZE, type MediaLibraryQuery } from './library';
+import type { MediaItem, MediaUse } from './types';
 import { collectMediaUses } from './uses';
 
 export async function listMedia(db: AppDb): Promise<MediaItem[]> {
@@ -14,6 +15,7 @@ export async function listMedia(db: AppDb): Promise<MediaItem[]> {
       r2Key: media.r2Key,
       filename: media.filename,
       altText: media.altText,
+      mimeType: media.mimeType,
       width: media.width,
       height: media.height,
       sizeBytes: media.sizeBytes,
@@ -21,20 +23,35 @@ export async function listMedia(db: AppDb): Promise<MediaItem[]> {
     })
     .from(media)
     .orderBy(desc(media.createdAt), desc(media.id));
-  return rows.map((row) => ({
+  return rows.map(toMediaItem);
+}
+
+function toMediaItem(row: {
+  id: number;
+  r2Key: string;
+  filename: string;
+  altText: string;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
+  sizeBytes: number;
+  createdAt: number;
+}): MediaItem {
+  return {
     id: row.id,
     url: routes.media(row.r2Key),
     alt: row.altText,
     filename: row.filename,
+    mimeType: row.mimeType,
     width: row.width,
     height: row.height,
     sizeBytes: row.sizeBytes,
     createdAt: row.createdAt,
-  }));
+  };
 }
 
 export async function listMediaUses(db: AppDb) {
-  const [library, postRows, productRows, albumRows, settings, avatars] = await Promise.all([
+  const [library, postRows, productRows, albumRows, settings, avatars, categoryRows] = await Promise.all([
     db.select({ id: media.id, key: media.r2Key }).from(media),
     db.select({ id: posts.id, title: posts.title, coverMediaId: posts.coverMediaId, contentJson: posts.contentJson }).from(posts),
     db.select({ id: products.id, name: products.name, coverMediaId: products.coverMediaId }).from(products),
@@ -50,6 +67,7 @@ export async function listMediaUses(db: AppDb) {
       .select({ mediaId: adminUsers.avatarMediaId, userId: adminUsers.id, name: adminUsers.displayName })
       .from(adminUsers)
       .where(isNotNull(adminUsers.avatarMediaId)),
+    db.select({ id: categories.id, name: categories.name, description: categories.description }).from(categories),
   ]);
   const setting = (key: string) => settings.find((row) => row.key === key)?.value ?? '';
   return collectMediaUses({
@@ -61,7 +79,66 @@ export async function listMediaUses(db: AppDb) {
     faviconId: setting('favicon_media_id'),
     ogImageId: setting('og_media_id'),
     avatars,
+    categories: categoryRows,
   });
+}
+
+export async function queryMediaLibrary(db: AppDb, query: MediaLibraryQuery): Promise<{
+  items: MediaItem[];
+  uses: Record<string, MediaUse[]>;
+  total: number;
+  page: number;
+  pageSize: number;
+}> {
+  const pageSize = MEDIA_PAGE_SIZE;
+  const allUses = await listMediaUses(db);
+  const usedIds = Object.keys(allUses).map(Number).filter((id) => id > 0);
+  if (query.usage === 'used' && usedIds.length === 0) {
+    return { items: [], uses: {}, total: 0, page: 1, pageSize };
+  }
+  const filters: SQL[] = [];
+  const needle = query.q.replace(/[%_]/g, '');
+  if (needle) {
+    const term = `%${needle}%`;
+    const match = or(like(media.filename, term), like(media.altText, term));
+    if (match) filters.push(match);
+  }
+  if (query.usage === 'used') filters.push(inArray(media.id, usedIds));
+  if (query.usage === 'unused' && usedIds.length > 0) filters.push(notInArray(media.id, usedIds));
+  const where = filters.length > 0 ? and(...filters) : undefined;
+  const totalRows = await db.select({ value: count() }).from(media).where(where);
+  const total = totalRows[0]?.value ?? 0;
+  const page = clampMediaPage(query.page, total, pageSize);
+  const order =
+    query.sort === 'name'
+      ? [asc(media.filename), asc(media.id)]
+      : query.sort === 'size'
+        ? [desc(media.sizeBytes), desc(media.id)]
+        : [desc(media.createdAt), desc(media.id)];
+  const rows = await db
+    .select({
+      id: media.id,
+      r2Key: media.r2Key,
+      filename: media.filename,
+      altText: media.altText,
+      mimeType: media.mimeType,
+      width: media.width,
+      height: media.height,
+      sizeBytes: media.sizeBytes,
+      createdAt: media.createdAt,
+    })
+    .from(media)
+    .where(where)
+    .orderBy(...order)
+    .limit(pageSize)
+    .offset((page - 1) * pageSize);
+  const items = rows.map(toMediaItem);
+  const uses: Record<string, MediaUse[]> = {};
+  for (const item of items) {
+    const list = allUses[String(item.id)];
+    if (list) uses[String(item.id)] = list;
+  }
+  return { items, uses, total, page, pageSize };
 }
 
 const HEADER_BYTES = 4096;
@@ -257,19 +334,22 @@ export async function deleteMedia(
 
 async function mediaInUse(db: AppDb, id: number, key: string): Promise<string | null> {
   const idText = String(id);
-  const [coverPost, coverProduct, album, content, settings] = await Promise.all([
+  const marker = `%/media/${key}%`;
+  const [coverPost, coverProduct, album, content, settings, avatar, category] = await Promise.all([
     db.select({ id: posts.id }).from(posts).where(eq(posts.coverMediaId, id)).limit(1),
     db.select({ id: products.id }).from(products).where(eq(products.coverMediaId, id)).limit(1),
     db.select({ productId: productMedia.productId }).from(productMedia).where(eq(productMedia.mediaId, id)).limit(1),
-    db.select({ id: posts.id }).from(posts).where(like(posts.contentJson, `%${key}%`)).limit(1),
+    db.select({ id: posts.id }).from(posts).where(like(posts.contentJson, marker)).limit(1),
     db
       .select({ value: siteSettings.value })
       .from(siteSettings)
       .where(or(eq(siteSettings.key, 'logo_media_id'), eq(siteSettings.key, 'favicon_media_id'), eq(siteSettings.key, 'og_media_id'))),
+    db.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.avatarMediaId, id)).limit(1),
+    db.select({ id: categories.id }).from(categories).where(like(categories.description, marker)).limit(1),
   ]);
   const usedInSettings = settings.some((row) => row.value === idText);
-  if (coverPost[0] || coverProduct[0] || album[0] || content[0] || usedInSettings) {
-    return 'Ảnh đang được dùng trong bài viết, sản phẩm hoặc cài đặt.';
+  if (coverPost[0] || coverProduct[0] || album[0] || content[0] || usedInSettings || avatar[0] || category[0]) {
+    return 'Ảnh đang được dùng, chưa xóa được.';
   }
   return null;
 }

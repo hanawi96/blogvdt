@@ -40,4 +40,18 @@ describe('nơi dùng ảnh', () => {
     });
     expect(uses['5']).toEqual([{ href: '/admin/users/2', label: 'An' }]);
   });
+
+  it('nhận ảnh gắn trong mô tả danh mục', () => {
+    const uses = collectMediaUses({
+      media: [{ id: 6, key: '2026/10/dm.webp' }],
+      posts: [],
+      products: [],
+      album: [],
+      logoId: '',
+      faviconId: '',
+      ogImageId: '',
+      categories: [{ id: 1, name: 'Cách chọn vòng', description: 'Xem /media/2026/10/dm.webp' }],
+    });
+    expect(uses['6']).toEqual([{ href: '/admin/categories', label: 'Cách chọn vòng' }]);
+  });
 });

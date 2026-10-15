@@ -1,7 +1,8 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { mutationError } from '../../features/auth/session';
-import { listMedia, listMediaUses, parseUpload, saveMedia, updateMediaAlt } from '../../features/media/media';
+import { parseMediaLibraryQuery } from '../../features/media/library';
+import { parseUpload, queryMediaLibrary, saveMedia, updateMediaAlt } from '../../features/media/media';
 import MediaPicker from '../../components/admin/MediaPicker.svelte';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding, getMediaBucket } from '../../lib/cloudflare/env';
@@ -12,12 +13,10 @@ if (!session) return Astro.redirect(routes.adminLogin);
 
 const db = createDb(getDbBinding());
 const wantsJson = Astro.request.headers.get('accept')?.includes('application/json') ?? false;
+const libraryQuery = parseMediaLibraryQuery(Astro.url.searchParams);
 
 if (Astro.request.method === 'GET' && wantsJson) {
-  const items = await listMedia(db);
-  return new Response(JSON.stringify(items), {
-    headers: { 'content-type': 'application/json' },
-  });
+  return json(await queryMediaLibrary(db, libraryQuery));
 }
 
 let formError = '';
@@ -58,6 +57,7 @@ if (Astro.request.method === 'POST') {
           url: saved.url,
           alt: parsed.altText,
           filename: parsed.filename,
+          mimeType: parsed.mimeType,
           width: parsed.width,
           height: parsed.height,
           sizeBytes: parsed.bytes.byteLength,
@@ -70,19 +70,30 @@ if (Astro.request.method === 'POST') {
   }
 }
 
-const items = await listMedia(db);
-const uses = await listMediaUses(db);
+const library = await queryMediaLibrary(db, libraryQuery);
 const saved = Astro.url.searchParams.get('saved') === '1';
 const errorCode = Astro.url.searchParams.get('error');
 const deleteError = errorCode === 'in-use' ? 'Ảnh đang được dùng, chưa xóa được.' : errorCode === 'missing' ? 'Không tìm thấy ảnh.' : '';
 
 function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 }
 ---
 
 <AdminLayout title="Thư viện ảnh">
   {(formError || deleteError) && <p class="error-text mb-4" role="alert">{formError || deleteError}</p>}
   {saved && <p class="mb-4 text-primary-strong" role="status">Đã lưu ảnh.</p>}
-  <MediaPicker client:load csrf={session.csrfToken} {items} {uses} manage />
+  <MediaPicker
+    client:load
+    csrf={session.csrfToken}
+    items={library.items}
+    uses={library.uses}
+    total={library.total}
+    page={library.page}
+    pageSize={library.pageSize}
+    libraryQuery={libraryQuery.q}
+    libraryUsage={libraryQuery.usage}
+    librarySort={libraryQuery.sort}
+    manage
+  />
 </AdminLayout>

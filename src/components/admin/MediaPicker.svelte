@@ -18,6 +18,12 @@
     hideTrigger = false,
     open = $bindable(false),
     onPick,
+    total = 0,
+    page = 1,
+    pageSize = 24,
+    libraryQuery = '',
+    libraryUsage = 'all' as 'all' | 'used' | 'unused',
+    librarySort = 'newest' as 'newest' | 'name' | 'size',
   }: {
     csrf: string;
     items: MediaItem[];
@@ -31,9 +37,27 @@
     hideTrigger?: boolean;
     open?: boolean;
     onPick?: (item: MediaItem) => void;
+    total?: number;
+    page?: number;
+    pageSize?: number;
+    libraryQuery?: string;
+    libraryUsage?: 'all' | 'used' | 'unused';
+    librarySort?: 'newest' | 'name' | 'size';
   } = $props();
 
   let library = $state<MediaItem[]>(untrack(() => items.map((item) => ({ ...item }))));
+  let useMap = $state<Record<string, MediaUse[]>>(untrack(() => ({ ...uses })));
+  let libraryTotal = $state(untrack(() => total));
+  let libraryPage = $state(untrack(() => page));
+  let listQuery = $state(untrack(() => libraryQuery));
+  let listUsage = $state(untrack(() => libraryUsage));
+  let listSort = $state(untrack(() => librarySort));
+  let loading = $state(false);
+  let loadError = $state('');
+  let progress = $state('');
+  let altDraft = $state('');
+  let altStatus = $state('');
+  let filterTimer = 0;
   let chosen = $state<string[]>(untrack(() => selected.filter(Boolean)));
   let draft = $state<string[]>([]);
   let showing = $state(false);
@@ -53,10 +77,12 @@
   const dialogOpen = $derived(manage ? false : hideTrigger ? open : showing);
   const preview = $derived(library.find((item) => item.id === previewId) ?? null);
   const visible = $derived.by(() => {
+    if (manage) return library;
     const needle = query.trim().toLowerCase();
     if (!needle) return library;
     return library.filter((item) => `${item.filename} ${item.alt}`.toLowerCase().includes(needle));
   });
+  const pageCount = $derived(Math.max(1, Math.ceil(libraryTotal / Math.max(1, pageSize))));
   const chosenItems = $derived(chosen.map((id) => library.find((item) => String(item.id) === id)).filter((item): item is MediaItem => !!item));
 
   onMount(() => {
@@ -88,7 +114,47 @@
   });
 
   function usesOf(item: MediaItem): MediaUse[] {
-    return uses[String(item.id)] ?? [];
+    return useMap[String(item.id)] ?? [];
+  }
+
+  function rememberPreview(itemsOnPage: MediaItem[]) {
+    const current = itemsOnPage.find((item) => item.id === previewId);
+    const next = current ?? itemsOnPage[0] ?? null;
+    previewId = next?.id ?? null;
+    altDraft = next?.alt ?? '';
+    altStatus = '';
+  }
+
+  if (manage) rememberPreview(library);
+
+  function scheduleLibrary() {
+    window.clearTimeout(filterTimer);
+    filterTimer = window.setTimeout(() => void loadPage(1), 300);
+  }
+
+  async function loadPage(nextPage: number) {
+    loading = true;
+    loadError = '';
+    const url = new URL(routes.adminMedia, window.location.origin);
+    if (listQuery.trim()) url.searchParams.set('q', listQuery.trim());
+    if (listUsage !== 'all') url.searchParams.set('usage', listUsage);
+    if (listSort !== 'newest') url.searchParams.set('sort', listSort);
+    if (nextPage > 1) url.searchParams.set('page', String(nextPage));
+    try {
+      const response = await fetch(url, { headers: { accept: 'application/json' } });
+      if (!response.ok) throw new Error('Không tải được thư viện.');
+      const payload = (await response.json()) as { items: MediaItem[]; uses: Record<string, MediaUse[]>; total: number; page: number };
+      library = payload.items;
+      useMap = payload.uses ?? {};
+      libraryTotal = payload.total;
+      libraryPage = payload.page;
+      rememberPreview(payload.items);
+      window.history.replaceState(null, '', `${url.pathname}${url.search}`);
+    } catch (error) {
+      loadError = error instanceof Error ? error.message : 'Không tải được thư viện.';
+    } finally {
+      loading = false;
+    }
   }
 
   function marked(id: number): boolean {
@@ -118,6 +184,10 @@
 
   function chooseTile(item: MediaItem) {
     previewId = item.id;
+    if (manage) {
+      altDraft = item.alt;
+      altStatus = '';
+    }
     if (manage) return;
     const id = String(item.id);
     if (!multiple) {
@@ -164,14 +234,15 @@
   }
 
   async function send(file: File) {
-    message = '';
-    busy = true;
-    try {
-      const item = await uploadMedia(csrf, file);
-      previewId = item.id;
-      const id = String(item.id);
-      if (manage) return;
-      if (!dialogOpen) {
+    const item = await uploadMedia(csrf, file);
+    previewId = item.id;
+    altDraft = item.alt;
+    const id = String(item.id);
+    if (manage) {
+      libraryTotal += 1;
+      return;
+    }
+    if (!dialogOpen) {
         if (multiple) {
           if (!chosen.includes(id) && chosen.length < max) chosen = [id, ...chosen];
         } else {
@@ -183,25 +254,42 @@
       }
       if (!multiple) draft = [id];
       if (multiple && !draft.includes(id) && draft.length < max) draft = [id, ...draft];
-    } catch (error) {
-      message = error instanceof Error ? error.message : 'Không lưu được ảnh.';
+  }
+
+  async function sendFiles(files: File[]) {
+    if (files.length === 0 || busy) return;
+    message = '';
+    busy = true;
+    const errors: string[] = [];
+    try {
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        if (!file) continue;
+        progress = files.length > 1 ? `Đang tải ${index + 1}/${files.length}` : 'Đang tải...';
+        try {
+          await send(file);
+        } catch (error) {
+          errors.push(`${file.name}: ${error instanceof Error ? error.message : 'Không lưu được ảnh.'}`);
+        }
+      }
     } finally {
+      progress = '';
       busy = false;
+      message = errors.join(' ');
     }
   }
 
   function onPickFile(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
-    const file = input.files?.[0];
+    const files = [...(input.files ?? [])];
     input.value = '';
-    if (file) void send(file);
+    void sendFiles(files);
   }
 
   function onDrop(event: DragEvent) {
     event.preventDefault();
     hot = false;
-    const file = event.dataTransfer?.files[0];
-    if (file) void send(file);
+    void sendFiles([...(event.dataTransfer?.files ?? [])]);
   }
 
   async function copyPath(url: string) {
@@ -245,6 +333,7 @@
 
   async function saveTileAlt(item: MediaItem, value: string) {
     const next = value.slice(0, 200);
+    altStatus = 'Đang lưu...';
     const body = new FormData();
     body.set('csrf', csrf);
     body.set('intent', 'alt');
@@ -257,10 +346,11 @@
     });
     if (!response.ok) {
       const payload = (await response.json()) as { error?: string };
-      message = payload.error ?? 'Không lưu được mô tả ảnh.';
+      altStatus = payload.error ?? 'Không lưu được mô tả ảnh.';
       return;
     }
     library = library.map((entry) => (entry.id === item.id ? { ...entry, alt: next } : entry));
+    altStatus = 'Đã lưu mô tả.';
     window.dispatchEvent(new CustomEvent('media-alt', { detail: { id: item.id, alt: next } }));
   }
 
@@ -288,6 +378,13 @@
     return `${pixels} · ${formatBytes(item.sizeBytes)} · ${formatDateTime(item.createdAt)}`;
   }
 
+  function formatMime(mime: string): string {
+    if (mime === 'image/jpeg') return 'JPEG';
+    if (mime === 'image/png') return 'PNG';
+    if (mime === 'image/webp') return 'WebP';
+    return mime || 'Không rõ';
+  }
+
   function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -296,13 +393,45 @@
 </script>
 
 {#if manage}
-  <div class="media-page">
-    {@render toolbar()}
+  <div
+    class="media-page"
+    class:is-dropping={hot}
+    ondragover={(event) => {
+      event.preventDefault();
+      hot = true;
+    }}
+    ondragleave={() => (hot = false)}
+    ondrop={onDrop}
+  >
+    <div class="media-library-bar">
+      <input class="field" type="search" placeholder="Tìm theo tên hoặc mô tả" value={listQuery} oninput={(event) => { listQuery = (event.currentTarget as HTMLInputElement).value; scheduleLibrary(); }} />
+      <select class="field" value={listUsage} onchange={(event) => { listUsage = (event.currentTarget as HTMLSelectElement).value as typeof listUsage; void loadPage(1); }}>
+        <option value="all">Tất cả</option>
+        <option value="used">Đang dùng</option>
+        <option value="unused">Chưa dùng</option>
+      </select>
+      <select class="field" value={listSort} onchange={(event) => { listSort = (event.currentTarget as HTMLSelectElement).value as typeof listSort; void loadPage(1); }}>
+        <option value="newest">Mới nhất</option>
+        <option value="name">Tên</option>
+        <option value="size">Dung lượng</option>
+      </select>
+      <button class="btn btn-primary" type="button" disabled={busy} onclick={() => fileInput?.click()}>Tải ảnh lên</button>
+    </div>
+    <input class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple bind:this={fileInput} onchange={onPickFile} />
+    {#if progress}<p class="media-meta" role="status">{progress}</p>{/if}
     {#if message}<p class="error-text" role="alert">{message}</p>{/if}
-    <div class="media-layout">
+    {#if loadError}<p class="error-text" role="alert">{loadError}</p>{/if}
+    <div class="media-layout" aria-busy={loading}>
       {@render grid(true)}
       {@render previewPane()}
     </div>
+    {#if pageCount > 1}
+      <div class="media-pages">
+        <button class="btn" type="button" disabled={libraryPage <= 1 || loading} onclick={() => void loadPage(libraryPage - 1)}>Trước</button>
+        <span>Trang {libraryPage}/{pageCount}</span>
+        <button class="btn" type="button" disabled={libraryPage >= pageCount || loading} onclick={() => void loadPage(libraryPage + 1)}>Sau</button>
+      </div>
+    {/if}
   </div>
 {:else}
   <div class="media-field">
@@ -402,10 +531,10 @@
       else fileInput?.click();
     }}
   >
-    <p>{busy ? 'Đang tải...' : after ? 'Kéo ảnh vào đây, hoặc mở thư viện' : 'Kéo ảnh vào đây, hoặc chọn tệp'}</p>
+    <p>{progress || (busy ? 'Đang tải...' : after ? 'Kéo ảnh vào đây, hoặc mở thư viện' : 'Kéo ảnh vào đây, hoặc chọn tệp')}</p>
     <p class="media-meta">JPEG, PNG hoặc WebP, tối đa 2 MB</p>
   </div>
-  <input class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" bind:this={fileInput} onchange={onPickFile} />
+  <input class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple bind:this={fileInput} onchange={onPickFile} />
 {/snippet}
 
 {#snippet previewPane()}
@@ -416,20 +545,30 @@
       <p class="media-meta">{meta(preview)}</p>
       <button class="btn" type="button" onclick={() => preview && void copyPath(preview.url)}>{copied === preview.url ? 'Đã copy' : 'Copy đường dẫn'}</button>
       {#if manage}
+        <dl class="media-facts">
+          <div><dt>Định dạng</dt><dd>{formatMime(preview.mimeType)}</dd></div>
+          <div><dt>Kích thước</dt><dd>{preview.width && preview.height ? `${preview.width} × ${preview.height}` : 'Chưa có'}</dd></div>
+          <div><dt>Dung lượng</dt><dd>{formatBytes(preview.sizeBytes)}</dd></div>
+          <div><dt>Tải lên</dt><dd>{formatDateTime(preview.createdAt)}</dd></div>
+          <div><dt>URL</dt><dd>{preview.url}</dd></div>
+        </dl>
         <label class="mt-3 block">
-          <span class="mb-1 block font-semibold">Mô tả ảnh</span>
-          <input class="field" maxlength="200" value={preview.alt} onchange={(event) => { const input = event.currentTarget as HTMLInputElement; if (preview) void saveTileAlt(preview, input.value); }} />
+          <span class="mb-1 block font-semibold">ALT mặc định</span>
+          <input class="field" maxlength="200" value={altDraft} oninput={(event) => { altDraft = (event.currentTarget as HTMLInputElement).value; altStatus = ''; }} onchange={() => { if (preview) void saveTileAlt(preview, altDraft); }} />
         </label>
+        {#if altStatus}<p class="media-meta" role="status">{altStatus}</p>{/if}
+        <p class="mt-3 font-semibold">Nơi sử dụng</p>
         {#if usesOf(preview).length > 0}
-          <p class="mt-3 font-semibold">Đang dùng ở</p>
           <ul class="media-uses">
             {#each usesOf(preview) as place (place.href + place.label)}
               <li><a href={place.href}>{place.label}</a></li>
             {/each}
           </ul>
+          <p class="media-meta">Ảnh đang được dùng, không xóa được.</p>
         {:else}
-          <button class="btn btn-accent mt-3" type="button" onclick={() => preview && void removeItem(preview)}>Xóa</button>
+          <p class="media-meta">Chưa được dùng.</p>
         {/if}
+        <button class="btn btn-accent mt-3" type="button" disabled={usesOf(preview).length > 0} onclick={() => preview && void removeItem(preview)}>Xóa ảnh</button>
       {/if}
     {:else}
       <p class="media-meta">Chọn một ảnh để xem trước.</p>
@@ -438,19 +577,21 @@
 {/snippet}
 
 {#snippet grid(showUses: boolean)}
-  {#if visible.length === 0}
-    <p class="media-meta">{library.length === 0 ? 'Chưa có ảnh.' : 'Không thấy ảnh phù hợp.'}</p>
+  {#if loading && visible.length === 0}
+    <p class="media-meta">Đang tải thư viện...</p>
+  {:else if visible.length === 0}
+    <p class="media-meta">{manage && (listQuery || listUsage !== 'all') ? 'Không thấy ảnh phù hợp.' : library.length === 0 ? 'Chưa có ảnh.' : 'Không thấy ảnh phù hợp.'}</p>
   {:else}
     <ul class="media-grid">
       {#each visible as item (item.id)}
         <li>
           <button class="media-tile" type="button" aria-pressed={marked(item.id) || previewId === item.id} onclick={() => chooseTile(item)}>
-            <img src={item.url} alt={item.alt || item.filename} width={item.width ?? undefined} height={item.height ?? undefined} loading="lazy" />
+            <img src={item.url} alt="" width={item.width ?? undefined} height={item.height ?? undefined} loading="lazy" />
             <span>{item.filename}</span>
+            {#if showUses}
+              <span class="media-use-flag" data-used={usesOf(item).length > 0 ? 'yes' : 'no'}>{usesOf(item).length > 0 ? 'Đang dùng' : 'Chưa dùng'}</span>
+            {/if}
           </button>
-          {#if showUses && usesOf(item).length > 0}
-            <p class="media-meta">Đang dùng · {usesOf(item).length}</p>
-          {/if}
         </li>
       {/each}
     </ul>
