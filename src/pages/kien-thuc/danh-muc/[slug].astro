@@ -12,7 +12,7 @@ import { createDb } from '../../../lib/db/client';
 import { findRedirect } from '../../../lib/db/redirects';
 import { getDbBinding } from '../../../lib/cloudflare/env';
 import { buildMeta } from '../../../lib/seo/meta';
-import { PUBLIC_PAGE_CACHE, PRIVATE_PAGE_CACHE } from '../../../lib/seo/cache';
+import { blogReadStatus, PUBLIC_PAGE_CACHE, PRIVATE_PAGE_CACHE } from '../../../lib/seo/cache';
 import { routes } from '../../../lib/routes';
 
 const slug = Astro.params.slug ?? '';
@@ -23,11 +23,14 @@ if (loaded.redirectTo) {
   response.headers.set('Cache-Control', PUBLIC_PAGE_CACHE);
   return response;
 }
-const missing = loaded.site && !loaded.category;
-const outOfRange = loaded.category && loaded.total > 0 && page > loaded.pageCount;
-if (missing || outOfRange) Astro.response.status = 404;
-if (loaded.category && !outOfRange) Astro.response.headers.set('Cache-Control', PUBLIC_PAGE_CACHE);
-else Astro.response.headers.set('Cache-Control', PRIVATE_PAGE_CACHE);
+const missing = Boolean(loaded.site) && !loaded.category;
+const outOfRange = Boolean(loaded.category) && loaded.total > 0 && page > loaded.pageCount;
+const status = blogReadStatus({ hasSite: Boolean(loaded.site), failed: loaded.failed, notFound: missing || outOfRange });
+if (status !== 200) {
+  Astro.response.status = status;
+  Astro.response.headers.set('X-Robots-Tag', 'noindex');
+}
+Astro.response.headers.set('Cache-Control', status === 200 ? PUBLIC_PAGE_CACHE : PRIVATE_PAGE_CACHE);
 
 const path = page > 1 ? `${routes.knowledgeCategory(slug)}?page=${page}` : routes.knowledgeCategory(slug);
 const pageMeta = loaded.category

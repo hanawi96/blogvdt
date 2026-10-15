@@ -13,6 +13,7 @@ import type { AppDb } from '../../lib/db/client';
 import { slugRedirectQueries } from '../../lib/db/redirects';
 import { categories, posts } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { REVISION_CONFLICT, staleRevision } from './form';
 import { shouldStorePostRedirect } from './redirects';
 import { slugify } from './slug';
 import type { PostStatus } from './status';
@@ -123,7 +124,7 @@ export async function createPost(
   input: PostInput,
   now = Date.now(),
   actor?: ActivityActor,
-): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+): Promise<{ ok: true; id: number; updatedAt: number } | { ok: false; error: string }> {
   const slugError = await slugAvailable(db, input.slug, null);
   if (slugError) return { ok: false, error: slugError };
   const action = input.status === 'published' ? 'post.publish' : 'post.create';
@@ -151,7 +152,7 @@ export async function createPost(
   const inserted = await db.select({ id: posts.id }).from(posts).where(eq(posts.slug, input.slug)).limit(1);
   const id = inserted[0]?.id;
   if (!id) return { ok: false, error: 'Không lưu được bài viết.' };
-  return { ok: true, id };
+  return { ok: true, id, updatedAt: now };
 }
 
 export async function updatePost(
@@ -160,19 +161,22 @@ export async function updatePost(
   input: PostInput,
   now = Date.now(),
   actor?: ActivityActor,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+  expectedUpdatedAt: number | null = null,
+): Promise<{ ok: true; updatedAt: number } | { ok: false; error: string; conflict?: boolean }> {
   const current = await getPost(db, id);
   if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
   const action = postLogAction(current.status, input.status, postChanged(current, input));
-  if (!action) return { ok: true };
+  if (!action) return { ok: true, updatedAt: current.updatedAt };
+  if (staleRevision(current.updatedAt, expectedUpdatedAt)) return { ok: false, error: REVISION_CONFLICT, conflict: true };
   const slugError = await slugAvailable(db, input.slug, id);
   if (slugError) return { ok: false, error: slugError };
   const values = postValues(input, now, current.publishedAt);
   const redirect = shouldStorePostRedirect(current, input.slug)
     ? slugRedirectQueries(db, routes.knowledge(current.slug), routes.knowledge(input.slug), now)
     : [];
-  await commitWrites(db, [
-    db.update(posts).set(values).where(eq(posts.id, id)).returning({ id: posts.id }),
+  const match = expectedUpdatedAt === null ? eq(posts.id, id) : and(eq(posts.id, id), eq(posts.updatedAt, expectedUpdatedAt));
+  const results = await commitWrites(db, [
+    db.update(posts).set(values).where(match).returning({ id: posts.id }),
     ...(actor
       ? [
           activityWrite(
@@ -192,7 +196,12 @@ export async function updatePost(
       : []),
     ...redirect,
   ]);
-  return { ok: true };
+  if (!changedRows(results[0])) {
+    const again = await getPost(db, id);
+    if (again && staleRevision(again.updatedAt, expectedUpdatedAt)) return { ok: false, error: REVISION_CONFLICT, conflict: true };
+    return { ok: false, error: 'Không lưu được bài viết.' };
+  }
+  return { ok: true, updatedAt: now };
 }
 
 // Chỉ ghi khi dòng vẫn là nháp. Lệnh tự lưu đến muộn không được kéo bài đã xuất bản về nháp.
@@ -202,12 +211,14 @@ export async function saveDraftPost(
   input: PostInput,
   now = Date.now(),
   actor?: ActivityActor,
-): Promise<{ ok: true; skipped: boolean } | { ok: false; error: string }> {
+  expectedUpdatedAt: number | null = null,
+): Promise<{ ok: true; skipped: boolean; updatedAt: number } | { ok: false; error: string; conflict?: boolean }> {
   const current = await getPost(db, id);
   if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
-  if (current.status !== 'draft') return { ok: true, skipped: true };
+  if (current.status !== 'draft') return { ok: true, skipped: true, updatedAt: current.updatedAt };
   const draft = { ...input, status: 'draft' as const };
-  if (!postChanged(current, draft)) return { ok: true, skipped: false };
+  if (!postChanged(current, draft)) return { ok: true, skipped: false, updatedAt: current.updatedAt };
+  if (staleRevision(current.updatedAt, expectedUpdatedAt)) return { ok: false, error: REVISION_CONFLICT, conflict: true };
   const slugError = await slugAvailable(db, input.slug, id);
   if (slugError) return { ok: false, error: slugError };
   const values = postValues(draft, now, current.publishedAt);
@@ -224,13 +235,22 @@ export async function saveDraftPost(
     createdAt: now,
   };
   const autosaveLog = actor ? await autosaveLogWrite(db, entry, id) : null;
+  const match =
+    expectedUpdatedAt === null
+      ? and(eq(posts.id, id), eq(posts.status, 'draft'))
+      : and(eq(posts.id, id), eq(posts.status, 'draft'), eq(posts.updatedAt, expectedUpdatedAt));
   const results = await commitWrites(db, [
-    db.update(posts).set(values).where(and(eq(posts.id, id), eq(posts.status, 'draft'))).returning({ id: posts.id }),
+    db.update(posts).set(values).where(match).returning({ id: posts.id }),
     ...(autosaveLog ? [autosaveLog.query] : []),
     ...redirect,
   ]);
-  if (!changedRows(results[0])) return { ok: true, skipped: true };
-  return { ok: true, skipped: false };
+  if (!changedRows(results[0])) {
+    const again = await getPost(db, id);
+    if (!again || again.status !== 'draft') return { ok: true, skipped: true, updatedAt: again?.updatedAt ?? current.updatedAt };
+    if (staleRevision(again.updatedAt, expectedUpdatedAt)) return { ok: false, error: REVISION_CONFLICT, conflict: true };
+    return { ok: true, skipped: true, updatedAt: again.updatedAt };
+  }
+  return { ok: true, skipped: false, updatedAt: now };
 }
 
 export async function duplicatePost(

@@ -877,14 +877,23 @@
   }
   .post-toolbar {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
     margin-bottom: 0.75rem;
   }
   .post-toolbar .field {
-    width: min(100%, 28rem);
+    width: auto;
+    flex: 1 1 12rem;
+    min-width: min(100%, 11rem);
+    max-width: 28rem;
+  }
+  .post-toolbar input[type='date'] {
+    flex-basis: 10.5rem;
+    max-width: 12rem;
   }
   .product-toolbar {
     flex-wrap: wrap;
-    gap: 0.5rem;
   }
   .product-toolbar input.field {
     flex: 1 1 16rem;

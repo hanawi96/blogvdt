@@ -3,7 +3,7 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import PostForm from '../../../components/admin/PostForm.astro';
 import { mutationError } from '../../../features/auth/session';
 import { listCategories } from '../../../features/posts/categories';
-import { autosaveResponse, excerptFieldValue, firstFieldError, isAutosave, parsePostForm } from '../../../features/posts/form';
+import { autosaveResponse, excerptFieldValue, expectedRevision, firstFieldError, isAutosave, parsePostForm } from '../../../features/posts/form';
 import { activityActor } from '../../../features/activity/log';
 import { getPost, saveDraftPost, updatePost } from '../../../features/posts/posts';
 import { listMedia } from '../../../features/media/media';
@@ -44,32 +44,36 @@ let values = {
 };
 let errors: FieldErrors = {};
 let formError = '';
+let revision = post.updatedAt;
 const saved = Astro.url.searchParams.get('saved') === '1';
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const autosave = isAutosave(form);
+  const expected = expectedRevision(form);
   const blocked = mutationError(Astro.request, session, form);
   if (blocked) {
     if (autosave) return autosaveResponse({ ok: false, error: blocked }, 403);
     Astro.response.status = 403;
     formError = blocked;
+    if (expected !== null) revision = expected;
   } else {
     const parsed = parsePostForm(form);
     if (autosave) {
       if (!parsed.ok) return autosaveResponse({ ok: false, error: firstFieldError(parsed.errors) }, 422);
       const actor = await activityActor(db, session.userId);
-      const saved = await saveDraftPost(db, id, { ...parsed.input, status: 'draft' }, Date.now(), actor);
-      if (!saved.ok) return autosaveResponse({ ok: false, error: saved.error }, 422);
-      return autosaveResponse({ ok: true, id, skipped: saved.skipped });
+      const saved = await saveDraftPost(db, id, { ...parsed.input, status: 'draft' }, Date.now(), actor, expected);
+      if (!saved.ok) return autosaveResponse({ ok: false, error: saved.error, conflict: saved.conflict }, saved.conflict ? 409 : 422);
+      return autosaveResponse({ ok: true, id, skipped: saved.skipped, updatedAt: saved.updatedAt });
     }
     values = valuesFrom(form, values.contentJson);
+    if (expected !== null) revision = expected;
     if (!parsed.ok) {
       Astro.response.status = 422;
       errors = parsed.errors;
     } else {
       const actor = await activityActor(db, session.userId);
-      const updated = await updatePost(db, id, parsed.input, Date.now(), actor);
+      const updated = await updatePost(db, id, parsed.input, Date.now(), actor, expected);
       if (!updated.ok) {
         Astro.response.status = 422;
         formError = updated.error;
@@ -108,10 +112,11 @@ function valuesFrom(form: FormData, fallbackContent: string) {
     {errors}
     {formError}
     {saved}
-    meta={{ createdAt: post.createdAt, updatedAt: post.updatedAt, publishedAt: post.publishedAt }}
+    meta={{ createdAt: post.createdAt, updatedAt: revision, publishedAt: post.publishedAt }}
     {categories}
     {media}
     site={seoSite}
     postId={id}
+    livePublished={post.status === 'published'}
   />
 </AdminLayout>

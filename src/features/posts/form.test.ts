@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { excerptFieldValue, parsePostForm } from './form';
+import { excerptFieldValue, expectedRevision, parsePostForm, staleRevision } from './form';
 
 function draftForm(excerpt: string, text = 'Đoạn mở đầu của bài viết.') {
   const form = new FormData();
@@ -45,5 +45,23 @@ describe('tóm tắt bài viết', () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.input.excerpt).toBe('Đoạn mở đầu của bài viết.');
+  });
+});
+
+describe('phiên bản lưu bài', () => {
+  it('bỏ qua khi form chưa có mốc cập nhật', () => {
+    const form = draftForm('');
+    expect(expectedRevision(form)).toBeNull();
+    expect(staleRevision(10, null)).toBe(false);
+  });
+
+  it('khớp đúng mốc và từ chối mốc cũ hoặc sai', () => {
+    const form = draftForm('');
+    form.set('updatedAt', '1700000000000');
+    expect(expectedRevision(form)).toBe(1700000000000);
+    expect(staleRevision(1700000000000, 1700000000000)).toBe(false);
+    expect(staleRevision(1700000000001, 1700000000000)).toBe(true);
+    form.set('updatedAt', '1.5');
+    expect(expectedRevision(form)).toBeNull();
   });
 });

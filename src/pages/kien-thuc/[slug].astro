@@ -18,7 +18,7 @@ import { findRedirect } from '../../lib/db/redirects';
 import { getDbBinding } from '../../lib/cloudflare/env';
 import { formatDateTime } from '../../lib/datetime';
 import { blogPostingSchema, breadcrumbSchema, buildMeta, jsonLd, toAbsoluteUrl } from '../../lib/seo/meta';
-import { PRIVATE_PAGE_CACHE, PUBLIC_PAGE_CACHE } from '../../lib/seo/cache';
+import { blogReadStatus, PRIVATE_PAGE_CACHE, PUBLIC_PAGE_CACHE } from '../../lib/seo/cache';
 import { routes } from '../../lib/routes';
 
 const slug = Astro.params.slug ?? '';
@@ -28,13 +28,12 @@ if (loaded.redirectTo) {
   response.headers.set('Cache-Control', PUBLIC_PAGE_CACHE);
   return response;
 }
-if (!loaded.post) {
-  Astro.response.status = loaded.site ? 404 : 503;
-  Astro.response.headers.set('Cache-Control', PRIVATE_PAGE_CACHE);
+const status = blogReadStatus({ hasSite: Boolean(loaded.site), failed: loaded.failed, notFound: !loaded.post });
+if (status !== 200) {
+  Astro.response.status = status;
   Astro.response.headers.set('X-Robots-Tag', 'noindex');
-} else {
-  Astro.response.headers.set('Cache-Control', PUBLIC_PAGE_CACHE);
 }
+Astro.response.headers.set('Cache-Control', status === 200 ? PUBLIC_PAGE_CACHE : PRIVATE_PAGE_CACHE);
 
 const published = loaded.post?.publishedAt ? new Date(loaded.post.publishedAt).toISOString() : undefined;
 const modified = loaded.post ? new Date(loaded.post.updatedAt).toISOString() : undefined;
@@ -175,7 +174,13 @@ async function loadPost() {
             </ol>
           </nav>
         )}
-        <article class="post-body mt-8" set:html={loaded.html} />
+        {
+          loaded.html ? (
+            <article class="post-body mt-8" set:html={loaded.html} />
+          ) : (
+            <p class="post-body mt-8">Bài này chưa có nội dung để hiển thị.</p>
+          )
+        }
         <div class="mt-10 flex flex-wrap gap-3">
           <a class="btn btn-primary" href={routes.products}>Xem sản phẩm</a>
           <a class="btn btn-accent" href={routes.checkout}>Đặt hàng</a>

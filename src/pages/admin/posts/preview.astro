@@ -13,6 +13,7 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import PublicLayout from '../../../layouts/PublicLayout.astro';
 import { getDbBinding } from '../../../lib/cloudflare/env';
 import { createDb } from '../../../lib/db/client';
+import { formatDateTime } from '../../../lib/datetime';
 import { routes } from '../../../lib/routes';
 
 const session = Astro.locals.adminSession;
@@ -30,6 +31,8 @@ const db = createDb(getDbBinding());
 const form = savedPreview ? null : await Astro.request.formData();
 const blocked = form ? mutationError(Astro.request, session, form) : '';
 let message = blocked ?? '';
+let publishedAt: number | null = null;
+let updatedAt: number | null = null;
 let article: {
   title: string;
   description: string;
@@ -43,40 +46,51 @@ if (savedPreview) {
   if (!post) {
     message = 'Không tìm thấy bài viết.';
   } else {
-    const sanitized = sanitizePostContent(post.contentJson);
-    const content = sanitized.ok ? (JSON.parse(sanitized.json) as JSONContent) : null;
-    const cover = post.coverMediaId ? await getMediaFile(db, post.coverMediaId) : null;
-    const imageSizes = content ? await mediaDimensionsByUrl(db, collectMediaSrcs(content)) : new Map();
-    article = {
-      title: post.title,
-      description: post.metaDescription || post.excerpt || post.title,
-      html: content ? renderPostHtml(content, imageSizes) : '',
-      headings: content ? collectHeadings(content) : [],
-      cover: cover ? { url: cover.url, alt: cover.alt || post.title, width: cover.width, height: cover.height } : null,
-    };
+    publishedAt = post.publishedAt;
+    updatedAt = post.updatedAt;
+    article = await articleFrom(post.title, post.metaDescription || post.excerpt || post.title, post.contentJson, post.coverMediaId);
   }
-  Astro.response.headers.set('Cache-Control', 'no-store');
-  Astro.response.headers.set('X-Robots-Tag', 'noindex');
 } else if (blocked) {
   Astro.response.status = 403;
 } else if (form) {
+  const postedId = Number(form.get('postId') ?? '');
+  if (Number.isInteger(postedId) && postedId > 0) {
+    const saved = await getPost(db, postedId);
+    if (saved) {
+      publishedAt = saved.publishedAt;
+      updatedAt = saved.updatedAt;
+    }
+  }
   form.set('status', 'draft');
   const parsed = parsePostForm(form);
   if (!parsed.ok) {
     Astro.response.status = 422;
     message = firstFieldError(parsed.errors);
   } else {
-    const content = JSON.parse(parsed.input.contentJson) as JSONContent;
-    const cover = parsed.input.coverMediaId ? await getMediaFile(db, parsed.input.coverMediaId) : null;
-    const imageSizes = await mediaDimensionsByUrl(db, collectMediaSrcs(content));
-    article = {
-      title: parsed.input.title,
-      description: parsed.input.metaDescription || parsed.input.excerpt || parsed.input.title,
-      html: renderPostHtml(content, imageSizes),
-      headings: collectHeadings(content),
-      cover,
-    };
+    article = await articleFrom(
+      parsed.input.title,
+      parsed.input.metaDescription || parsed.input.excerpt || parsed.input.title,
+      parsed.input.contentJson,
+      parsed.input.coverMediaId,
+    );
   }
+}
+
+Astro.response.headers.set('Cache-Control', 'no-store');
+Astro.response.headers.set('X-Robots-Tag', 'noindex');
+
+async function articleFrom(title: string, description: string, contentJson: string, coverMediaId: number | null) {
+  const sanitized = sanitizePostContent(contentJson);
+  const content = sanitized.ok ? (JSON.parse(sanitized.json) as JSONContent) : null;
+  const cover = coverMediaId ? await getMediaFile(db, coverMediaId) : null;
+  const imageSizes = content ? await mediaDimensionsByUrl(db, collectMediaSrcs(content)) : new Map();
+  return {
+    title,
+    description,
+    html: content ? renderPostHtml(content, imageSizes) : '',
+    headings: content ? collectHeadings(content) : [],
+    cover: cover ? { url: cover.url, alt: cover.alt || title, width: cover.width, height: cover.height } : null,
+  };
 }
 
 const site = article ? await getPublicSite(db) : null;
@@ -94,8 +108,25 @@ const site = article ? await getPublicSite(db) : null;
     >
       <p class="preview-banner">Bản xem trước. Trang này không được lưu và không được lập chỉ mục.</p>
       <main class="mx-auto max-w-3xl px-4 py-10">
-        <h1 class="text-4xl font-semibold tracking-tight text-balance">{article.title}</h1>
-        <p class="mt-4 text-sm text-muted">Xem trước · chưa ghi ra trang công khai</p>
+        <nav aria-label="Đường dẫn">
+          <ol class="flex flex-wrap gap-2 text-sm text-muted">
+            <li><a href={routes.home}>Trang chủ</a></li>
+            <li class="flex gap-2">
+              <span aria-hidden="true">/</span>
+              <a href={routes.knowledgeList}>Kiến thức</a>
+            </li>
+            <li class="flex gap-2">
+              <span aria-hidden="true">/</span>
+              <span>{article.title}</span>
+            </li>
+          </ol>
+        </nav>
+        <h1 class="mt-4 text-4xl font-semibold tracking-tight text-balance">{article.title}</h1>
+        <p class="mt-4 text-sm text-muted">
+          {publishedAt && <span>Đăng {formatDateTime(publishedAt)}</span>}
+          {updatedAt && <span> · Sửa {formatDateTime(updatedAt)}</span>}
+          {!publishedAt && !updatedAt && <span>Xem trước · chưa ghi ra trang công khai</span>}
+        </p>
         {
           article.cover && (
             <img

@@ -55,7 +55,7 @@ if (Astro.request.method === 'POST') {
       const actor = await activityActor(db, session.userId);
       const saved = await createPost(db, { ...parsed.input, status: 'draft' }, Date.now(), actor);
       if (!saved.ok) return autosaveResponse({ ok: false, error: saved.error }, 422);
-      return autosaveResponse({ ok: true, id: saved.id, skipped: false });
+      return autosaveResponse({ ok: true, id: saved.id, skipped: false, updatedAt: saved.updatedAt });
     }
     values = valuesFrom(form);
     if (!parsed.ok) {

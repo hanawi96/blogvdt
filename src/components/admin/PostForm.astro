@@ -48,9 +48,10 @@ interface Props {
   saved?: boolean;
   meta?: Meta;
   deleteAction?: string;
+  livePublished?: boolean;
 }
 
-const { csrf, action, values, errors, formError, categories, media, site, postId, saved = false, meta, deleteAction } = Astro.props;
+const { csrf, action, values, errors, formError, categories, media, site, postId, saved = false, meta, deleteAction, livePublished = false } = Astro.props;
 const publishLabel = values.status === 'published' ? 'Cập nhật' : 'Xuất bản';
 const saveStatus = formError ? 'Lưu thất bại' : saved ? 'Đã lưu' : '';
 const previewTitle = values.seoTitle || values.title || 'Tiêu đề bài viết';
@@ -61,16 +62,19 @@ const descriptionLengthNote = lengthNote(values.metaDescription.length, SEO_DESC
 const autosave = values.status === 'draft' ? 'on' : 'off';
 ---
 
-<form class="post-write" method="post" action={action} data-busy data-post-form data-autosave={autosave} data-site-host={site.host} data-post-id={postId ?? ''}>
+<form class="post-write" method="post" action={action} data-busy data-post-form data-autosave={autosave} data-live-published={livePublished ? '1' : '0'} data-site-host={site.host} data-post-id={postId ?? ''}>
   <input type="hidden" name="csrf" value={csrf} />
+  <input type="hidden" name="updatedAt" value={meta ? String(meta.updatedAt) : ''} />
+  {postId ? <input type="hidden" name="postId" value={String(postId)} /> : null}
   <button class="sr-only" type="submit" tabindex="-1" data-keep-label="true">Lưu trạng thái hiện tại</button>
   <div class="post-bar">
     <a class="btn btn-compact" href={routes.adminPosts}>Danh sách</a>
     <p class="post-save" role="status" data-save-status>{saveStatus}</p>
     <div class="post-bar-actions">
       <button class="btn btn-compact" id="preview-post" type="submit" formmethod="post" formaction={routes.adminPostPreview} formtarget="_blank" data-keep-label="true">Xem trước</button>
-      <button class="btn btn-compact" id="save-draft" type="submit" data-keep-label="true">Lưu nháp</button>
+      <button class="btn btn-compact" id="save-draft" type="submit" data-keep-label="true" hidden={values.status === 'published'}>Lưu nháp</button>
       <button class="btn btn-compact btn-primary" id="save-publish" type="submit" data-keep-label="true">{publishLabel}</button>
+      <button class="btn btn-compact" id="unpublish-post" type="submit" data-keep-label="true" hidden={values.status !== 'published'}>Gỡ xuất bản</button>
     </div>
   </div>
   {formError && <p class="error-text" role="alert">{formError}</p>}
@@ -205,9 +209,15 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
   const status = document.getElementById('post-status');
   const publish = document.getElementById('save-publish');
   const draft = document.getElementById('save-draft');
-  function publishLabel() {
-    if (!(status instanceof HTMLSelectElement) || !(publish instanceof HTMLButtonElement)) return;
-    publish.textContent = status.value === 'published' ? 'Cập nhật' : 'Xuất bản';
+  const unpublish = document.getElementById('unpublish-post');
+  const unpublishConfirm = 'Gỡ bài này khỏi trang công khai? Nội dung vẫn được giữ để sửa và xuất bản lại.';
+
+  function syncActions() {
+    if (!(status instanceof HTMLSelectElement)) return;
+    const published = status.value === 'published';
+    if (publish instanceof HTMLButtonElement) publish.textContent = published ? 'Cập nhật' : 'Xuất bản';
+    if (draft instanceof HTMLButtonElement) draft.hidden = published;
+    if (unpublish instanceof HTMLButtonElement) unpublish.hidden = !published;
   }
 
   draft?.addEventListener('click', () => {
@@ -216,7 +226,17 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
   publish?.addEventListener('click', () => {
     if (status instanceof HTMLSelectElement) status.value = 'published';
   });
-  status?.addEventListener('change', publishLabel);
+  unpublish?.addEventListener('click', (event) => {
+    if (!(form instanceof HTMLFormElement) || !(status instanceof HTMLSelectElement)) return;
+    if (form.dataset.confirmedUnpublish === '1') return;
+    event.preventDefault();
+    if (!window.confirm(unpublishConfirm)) return;
+    status.value = 'draft';
+    form.dataset.confirmedUnpublish = '1';
+    if (event.currentTarget instanceof HTMLButtonElement) form.requestSubmit(event.currentTarget);
+  });
+  status?.addEventListener('change', syncActions);
+  syncActions();
 
   const snapshotKeys = ['title', 'slug', 'categoryId', 'coverMediaId', 'contentJson', 'seoTitle', 'metaDescription', 'excerpt'];
   let timer = 0;
@@ -234,15 +254,28 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
     if (line) line.textContent = text;
   }
 
-  function readAutosave(value: unknown): { ok: boolean; error: string; id: number | null; skipped: boolean } {
-    if (!value || typeof value !== 'object') return { ok: false, error: '', id: null, skipped: false };
+  function readAutosave(value: unknown): {
+    ok: boolean;
+    error: string;
+    id: number | null;
+    skipped: boolean;
+    updatedAt: number | null;
+  } {
+    if (!value || typeof value !== 'object') return { ok: false, error: '', id: null, skipped: false, updatedAt: null };
     const record = value as Record<string, unknown>;
     return {
       ok: record.ok === true,
       error: typeof record.error === 'string' ? record.error : '',
       id: typeof record.id === 'number' ? record.id : null,
       skipped: record.skipped === true,
+      updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : null,
     };
+  }
+
+  function rememberRevision(updatedAt: number | null) {
+    if (updatedAt === null || !(form instanceof HTMLFormElement)) return;
+    const field = form.querySelector('input[name="updatedAt"]');
+    if (field instanceof HTMLInputElement) field.value = String(updatedAt);
   }
 
   function enqueue(job: () => Promise<void>) {
@@ -281,6 +314,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
         statusLine('Bài đã xuất bản, không tự lưu đè.');
         return;
       }
+      rememberRevision(body.updatedAt);
       lastSnapshot = current;
       if (body.id !== null) {
         form.dataset.postId = String(body.id);
@@ -298,6 +332,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
   }
 
   function schedule() {
+    if (snapshot() !== lastSnapshot) statusLine('Chưa lưu');
     if (!(form instanceof HTMLFormElement) || form.dataset.autosave !== 'on') return;
     window.clearTimeout(timer);
     timer = window.setTimeout(() => {
@@ -310,10 +345,34 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
   form?.addEventListener('post-input', schedule);
   lastSnapshot = snapshot();
 
+  window.addEventListener('beforeunload', (event) => {
+    if (!(form instanceof HTMLFormElement) || form.dataset.leaving === '1') return;
+    if (snapshot() === lastSnapshot) return;
+    event.preventDefault();
+  });
+
   form?.addEventListener('submit', (event) => {
     if (!(form instanceof HTMLFormElement) || !(event instanceof SubmitEvent)) return;
     if (event.submitter instanceof HTMLButtonElement && event.submitter.id === 'preview-post') return;
+    if (
+      form.dataset.livePublished === '1' &&
+      status instanceof HTMLSelectElement &&
+      status.value === 'draft' &&
+      form.dataset.confirmedUnpublish !== '1'
+    ) {
+      event.preventDefault();
+      if (!window.confirm(unpublishConfirm)) return;
+      form.dataset.confirmedUnpublish = '1';
+      if (event.submitter instanceof HTMLButtonElement) form.requestSubmit(event.submitter);
+      else form.requestSubmit();
+      return;
+    }
+    if (form.dataset.leaving === '1') {
+      event.preventDefault();
+      return;
+    }
     if (form.dataset.autosave !== 'on' || form.dataset.saving === 'manual') {
+      form.dataset.leaving = '1';
       statusLine('Đang lưu');
       return;
     }
@@ -335,7 +394,9 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
         return;
       }
       statusLine('Đang lưu');
-      // A submit cancelled in this same turn makes requestSubmit a no-op when the draft flush sent nothing.
+      form.querySelectorAll('button[type="submit"]').forEach((button) => {
+        if (button instanceof HTMLButtonElement) button.disabled = false;
+      });
       await new Promise((resolve) => window.setTimeout(resolve, 0));
       if (!(form instanceof HTMLFormElement) || form.dataset.saving !== 'manual') return;
       if (submitter instanceof HTMLButtonElement) form.requestSubmit(submitter);

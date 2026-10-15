@@ -95,6 +95,7 @@ function current(href: string): boolean {
         if (!(form instanceof HTMLFormElement)) return;
         form.addEventListener('submit', (event) => {
           if (event.defaultPrevented) return;
+          if (form.dataset.autosave === 'on' && form.dataset.saving !== 'manual') return;
           const submitter = event.submitter;
           if (submitter instanceof HTMLButtonElement && submitter.formTarget === '_blank') return;
           form.querySelectorAll('button[type="submit"]').forEach((button) => {

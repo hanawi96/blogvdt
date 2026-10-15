@@ -67,12 +67,27 @@ export function excerptFieldValue(stored: string, contentJson: string): string {
   return stored === cleaned.excerpt ? '' : stored;
 }
 
+export const REVISION_CONFLICT = 'Bài đã được lưu ở phiên khác. Tải lại trang trước khi ghi tiếp.';
+
 export function isAutosave(form: FormData): boolean {
   return form.get('autosave') === '1';
 }
 
+export function expectedRevision(form: FormData): number | null {
+  const raw = form.get('updatedAt');
+  if (typeof raw !== 'string' || raw === '') return null;
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+export function staleRevision(currentUpdatedAt: number, expected: number | null): boolean {
+  return expected !== null && currentUpdatedAt !== expected;
+}
+
 export function autosaveResponse(
-  body: { ok: true; id: number; skipped: boolean } | { ok: false; error: string },
+  body:
+    | { ok: true; id: number; skipped: boolean; updatedAt: number }
+    | { ok: false; error: string; conflict?: boolean },
   status = 200,
 ): Response {
   return new Response(JSON.stringify(body), {

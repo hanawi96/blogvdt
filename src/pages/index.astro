@@ -9,11 +9,16 @@ import { createDb } from '../lib/db/client';
 import { getDbBinding } from '../lib/cloudflare/env';
 import PublicLayout from '../layouts/PublicLayout.astro';
 import { buildMeta } from '../lib/seo/meta';
+import { blogReadStatus, PRIVATE_PAGE_CACHE, PUBLIC_PAGE_CACHE } from '../lib/seo/cache';
 import { routes } from '../lib/routes';
 
 const loaded = await loadHome();
-if (loaded.site) Astro.response.headers.set('Cache-Control', 'public, max-age=60');
-else Astro.response.headers.set('Cache-Control', 'no-store');
+const status = blogReadStatus({ hasSite: Boolean(loaded.site), failed: loaded.failed });
+if (status !== 200) {
+  Astro.response.status = status;
+  Astro.response.headers.set('X-Robots-Tag', 'noindex');
+}
+Astro.response.headers.set('Cache-Control', status === 200 ? PUBLIC_PAGE_CACHE : PRIVATE_PAGE_CACHE);
 
 const meta = buildMeta(Astro.url.origin, {
   title: loaded.site?.defaultSeoTitle ?? 'Chưa sẵn sàng',
