@@ -894,7 +894,8 @@
     margin-top: 1rem;
   }
   .retire-dialog,
-  .confirm-dialog {
+  .confirm-dialog,
+  .category-dialog {
     width: min(32rem, calc(100% - 2rem));
     max-height: calc(100vh - 2rem);
     max-height: calc(100dvh - 2rem);
@@ -910,12 +911,17 @@
   .confirm-dialog {
     width: min(26rem, calc(100% - 2rem));
   }
+  .category-dialog {
+    width: min(36rem, calc(100% - 2rem));
+  }
   .retire-dialog::backdrop,
-  .confirm-dialog::backdrop {
+  .confirm-dialog::backdrop,
+  .category-dialog::backdrop {
     background: color-mix(in srgb, var(--color-ink) 45%, transparent);
   }
   .retire-dialog .category-actions,
-  .confirm-dialog .category-actions {
+  .confirm-dialog .category-actions,
+  .category-dialog .category-actions {
     justify-content: flex-end;
     margin-top: 1.25rem;
   }
@@ -1051,8 +1057,13 @@
   }
   .category-order {
     display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
+    align-items: center;
+    gap: 0.35rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .category-order span {
+    min-width: 1.25rem;
+    text-align: center;
   }
   .category-order button {
     display: grid;
@@ -1078,72 +1089,26 @@
     font-size: 0.8125rem;
   }
   .category-cover {
-    width: 3.25rem;
-    height: 3.25rem;
+    width: 2.5rem;
+    height: 2.5rem;
     flex: none;
     overflow: hidden;
     border: 1px solid var(--color-line);
     border-radius: var(--radius-sm);
     background: var(--color-canvas);
   }
-  .catalog-list-head {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-  }
-  .catalog-list-mark {
-    display: grid;
-    place-items: center;
-    width: 2.4rem;
-    height: 2.4rem;
-    flex: none;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--color-primary) 14%, white);
-    color: var(--color-primary-strong);
-  }
-  .catalog-list-head h2 {
-    font-size: 1.05rem;
+  .category-delete {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: var(--color-accent);
     font-weight: 600;
+    cursor: pointer;
   }
-  .catalog-list-head p {
-    margin-top: 0.15rem;
+  .category-delete:disabled {
     color: var(--color-muted);
-    font-size: 0.875rem;
-  }
-  .catalog-search {
-    position: relative;
-    margin-bottom: 0.85rem;
-  }
-  .catalog-search svg {
-    position: absolute;
-    top: 50%;
-    left: 0.8rem;
-    color: var(--color-muted);
-    transform: translateY(-50%);
-    pointer-events: none;
-  }
-  .catalog-search input {
-    padding-left: 2.35rem;
-  }
-  .catalog-rows {
-    display: flex;
-    flex-direction: column;
-    gap: 0.65rem;
-  }
-  .catalog-card {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem 1rem;
-    border-radius: var(--radius-md);
-    background: var(--color-surface);
-    padding: 0.7rem 0.8rem;
-  }
-  .catalog-card.is-current {
-    border-color: var(--color-primary);
-    background: color-mix(in srgb, var(--color-primary) 7%, white);
+    opacity: 0.6;
+    cursor: not-allowed;
   }
   .catalog-slug {
     display: flex;
@@ -1186,11 +1151,6 @@
     background: var(--color-canvas);
     color: var(--color-muted);
     font-weight: 500;
-  }
-  .catalog-action {
-    min-height: 2.15rem;
-    gap: 0.35rem;
-    padding-inline: 0.75rem;
   }
   .catalog-bar {
     display: flex;
@@ -1291,15 +1251,12 @@
     height: 100%;
     object-fit: cover;
   }
-  .category-panel .media-picked img {
+  .category-dialog .media-picked img {
     max-height: 8rem;
   }
   @media (min-width: 800px) {
     .category-layout {
       grid-template-columns: minmax(16rem, 3fr) minmax(0, 7fr);
-    }
-    .category-layout.is-catalog {
-      grid-template-columns: minmax(16rem, 1fr) minmax(0, 2fr);
     }
     .category-panel:first-child {
       position: sticky;
@@ -1800,6 +1757,7 @@
   [data-product-list][aria-busy='true'],
   [data-order-list][aria-busy='true'],
   [data-user-list][aria-busy='true'],
+  [data-category-list][aria-busy='true'],
   [data-activity-list][aria-busy='true'] {
     opacity: 0.55;
   }
@@ -1826,7 +1784,8 @@
     }
     .product-table td[data-label]::before,
     .order-table td[data-label]::before,
-    [data-post-list] td[data-label]::before {
+    [data-post-list] td[data-label]::before,
+    [data-category-list] td[data-label]::before {
       content: attr(data-label);
       display: block;
       color: var(--color-muted);

@@ -141,7 +141,12 @@ function pageHref(next: { page?: number }): string {
                       <td>
                         <div class="post-actions">
                           <a href={routes.adminProduct(product.id)}>Sửa</a>
-                          {active && <a href={routes.product(product.slug)} target="_blank" rel="noopener">Xem sản phẩm</a>}
+                          {active && (
+                            <>
+                              <span class="post-actions-sep" aria-hidden="true">|</span>
+                              <a href={routes.product(product.slug)} target="_blank" rel="noopener">Xem sản phẩm</a>
+                            </>
+                          )}
                           <details class="row-menu">
                             <summary aria-label={`Thao tác khác: ${product.name}`}>⋯</summary>
                             <div>

@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm';
-import { adminUsers, sessions } from '../../lib/db/schema';
+import { adminUsers, media, sessions } from '../../lib/db/schema';
 import type { AppDb } from '../../lib/db/client';
 import { isSameOrigin } from '../../lib/http';
+import { routes } from '../../lib/routes';
 import { isAdminRole, type AdminRole } from './access';
 
 export const SESSION_COOKIE = 'admin_session';
@@ -23,6 +24,7 @@ export type AdminSession = {
   role: AdminRole;
   csrfToken: string;
   displayName: string;
+  avatarUrl: string | null;
 };
 
 export async function createSession(db: AppDb, userId: number, role: AdminRole, now = Date.now()): Promise<AdminSession> {
@@ -35,8 +37,21 @@ export async function createSession(db: AppDb, userId: number, role: AdminRole, 
     expiresAt: now + SESSION_MS,
     createdAt: now,
   });
-  const names = await db.select({ displayName: adminUsers.displayName }).from(adminUsers).where(eq(adminUsers.id, userId)).limit(1);
-  return { sessionId, userId, role, csrfToken, displayName: names[0]?.displayName ?? '' };
+  const users = await db
+    .select({ displayName: adminUsers.displayName, avatarKey: media.r2Key })
+    .from(adminUsers)
+    .leftJoin(media, eq(adminUsers.avatarMediaId, media.id))
+    .where(eq(adminUsers.id, userId))
+    .limit(1);
+  const user = users[0];
+  return {
+    sessionId,
+    userId,
+    role,
+    csrfToken,
+    displayName: user?.displayName ?? '',
+    avatarUrl: user?.avatarKey ? routes.media(user.avatarKey) : null,
+  };
 }
 
 export async function readSession(db: AppDb, sessionId: string | undefined, now = Date.now()): Promise<AdminSession | null> {
@@ -50,9 +65,11 @@ export async function readSession(db: AppDb, sessionId: string | undefined, now 
       role: adminUsers.role,
       status: adminUsers.status,
       displayName: adminUsers.displayName,
+      avatarKey: media.r2Key,
     })
     .from(sessions)
     .innerJoin(adminUsers, eq(adminUsers.id, sessions.adminUserId))
+    .leftJoin(media, eq(adminUsers.avatarMediaId, media.id))
     .where(eq(sessions.id, sessionId))
     .limit(1);
   const row = rows[0];
@@ -60,7 +77,14 @@ export async function readSession(db: AppDb, sessionId: string | undefined, now 
     if (row) await db.delete(sessions).where(eq(sessions.id, sessionId));
     return null;
   }
-  return { sessionId: row.sessionId, userId: row.userId, role: row.role, csrfToken: row.csrfToken, displayName: row.displayName };
+  return {
+    sessionId: row.sessionId,
+    userId: row.userId,
+    role: row.role,
+    csrfToken: row.csrfToken,
+    displayName: row.displayName,
+    avatarUrl: row.avatarKey ? routes.media(row.avatarKey) : null,
+  };
 }
 
 export async function destroySession(db: AppDb, sessionId: string): Promise<void> {

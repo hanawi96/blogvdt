@@ -1,6 +1,5 @@
 ---
-import MediaPicker from '../../components/admin/MediaPicker.svelte';
-import SlugField from '../../components/admin/SlugField.svelte';
+import ProductCategoryFields from '../../components/admin/ProductCategoryFields.svelte';
 import { activityActor } from '../../features/activity/log';
 import { mutationError } from '../../features/auth/session';
 import {
@@ -27,6 +26,7 @@ if (session.role !== 'admin') {
 const db = createDb(getDbBinding());
 const query = categoryListQuery(Astro.url.searchParams.get('q') ?? '');
 let formError = '';
+let saveFailed = false;
 let editingId = '';
 let name = '';
 let slug = '';
@@ -63,6 +63,7 @@ if (Astro.request.method === 'POST') {
     if (!saved.ok) {
       Astro.response.status = 422;
       formError = saved.error;
+      saveFailed = true;
     } else {
       return Astro.redirect(listHref('saved'), 303);
     }
@@ -81,11 +82,26 @@ if (Astro.request.method !== 'POST' && editing) {
   description = editing.description;
   coverMediaId = editing.coverMediaId ? String(editing.coverMediaId) : '';
 }
+const dialogOpen = saveFailed || (Astro.request.method !== 'POST' && Boolean(editing));
 const slugError = formError.startsWith('Slug') ? formError : '';
 const nameError = formError.startsWith('Nhập tên') || formError.startsWith('Tên') ? formError : '';
 const descriptionError = formError.startsWith('Mô tả') ? formError : '';
 const coverError = formError.startsWith('Ảnh') ? formError : '';
 const bannerError = slugError || nameError || descriptionError || coverError ? '' : formError;
+const fieldErrors = {
+  form: dialogOpen ? bannerError : '',
+  name: nameError,
+  slug: slugError,
+  description: descriptionError,
+  cover: coverError,
+};
+const drafts = categories.map((category) => ({
+  id: category.id,
+  name: category.name,
+  slug: category.slug,
+  description: category.description,
+  coverMediaId: category.coverMediaId ? String(category.coverMediaId) : '',
+}));
 const noticeText =
   notice === 'saved' ? 'Đã lưu danh mục.' : notice === 'deleted' ? 'Đã xóa danh mục.' : notice === 'moved' ? 'Đã đổi thứ tự.' : '';
 const searching = query.length > 0;
@@ -108,106 +124,41 @@ function productCountLabel(count: number): string {
 ---
 
 <AdminLayout title="Danh mục sản phẩm">
+  <p slot="lead">{searching ? `${categories.length} danh mục khớp` : `${categories.length} danh mục`}</p>
+  <button slot="action" class="btn btn-primary" type="button" data-category-new>Thêm danh mục</button>
   {noticeText && !formError && <p class="mb-4 text-primary-strong" role="status">{noticeText}</p>}
   {Astro.url.searchParams.get('error') === 'used' && !formError && <p class="error-text mb-4" role="alert">Danh mục đang có sản phẩm, chưa xóa được.</p>}
-  {bannerError && <p class="error-text mb-4" role="alert">{bannerError}</p>}
-  <div class="category-layout is-catalog">
-    <form class="category-panel" method="post" data-busy>
-      <h2 class="category-panel-title">{editingId ? 'Sửa danh mục' : 'Thêm danh mục'}</h2>
-      <input type="hidden" name="csrf" value={session.csrfToken} />
-      <input type="hidden" name="intent" value="save" />
-      {editingId && <input type="hidden" name="id" value={editingId} />}
-      <SlugField
-        client:load
-        label="Tên"
-        field="name"
-        title={name}
-        {slug}
-        titleError={nameError}
-        {slugError}
-        nameMax={120}
-        slugPattern={'[a-z0-9]+(?:-[a-z0-9]+)*'}
-      />
-      <p class="seo-hint">Slug tự tạo từ tên khi thêm mới. Sửa tên danh mục cũ không đổi slug.</p>
-      <label class="mt-4 block">
-        <span class="mb-1 block font-semibold">Mô tả ngắn</span>
-        <textarea class="field min-h-24" name="description" maxlength="300">{description}</textarea>
-        {descriptionError && <span class="error-text">{descriptionError}</span>}
-      </label>
-      <fieldset class="mt-4">
-        <legend class="mb-1 font-semibold">Ảnh danh mục</legend>
-        <MediaPicker client:load csrf={session.csrfToken} items={mediaItems} name="coverMediaId" selected={coverMediaId ? [coverMediaId] : []} />
-        {coverError && <span class="error-text">{coverError}</span>}
-      </fieldset>
-      <div class="category-actions">
-        <button class="btn btn-primary" type="submit">{editingId ? 'Cập nhật' : 'Thêm danh mục'}</button>
-        {editingId && <a class="btn" href={listHref()}>Hủy</a>}
-      </div>
-    </form>
-    <section class="category-panel catalog-list">
-      <header class="catalog-list-head">
-        <span class="catalog-list-mark" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
-            <path d="M7 7h.01"></path>
-          </svg>
-        </span>
-        <div>
-          <h2>Danh sách danh mục sản phẩm</h2>
-          <p>Quản lý nhóm mẫu vòng để hiển thị bộ lọc trên trang sản phẩm</p>
-        </div>
-      </header>
-      <form class="catalog-search" method="get" data-category-search>
-        <label class="sr-only" for="category-query">Tìm danh mục</label>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-          <circle cx="11" cy="11" r="7"></circle>
-          <path d="M20 20l-3.5-3.5"></path>
-        </svg>
-        <input id="category-query" class="field" name="q" value={query} placeholder="Tìm danh mục..." maxlength="80" />
-      </form>
-      {
-        categories.length === 0 ? (
-          <p class="text-muted">{searching ? 'Không có danh mục khớp.' : 'Chưa có danh mục sản phẩm.'}</p>
-        ) : (
-          <ul class="catalog-rows">
-            {categories.map((category, index) => {
-              const inUse = category.productCount > 0;
-              const atStart = index === 0;
-              const atEnd = index === categories.length - 1;
-              return (
-                <li class:list={['catalog-card', editingId === String(category.id) && 'is-current']}>
-                  <div class="category-main">
-                    <div class="category-order">
-                      <form method="post" data-busy>
-                        <input type="hidden" name="csrf" value={session.csrfToken} />
-                        <input type="hidden" name="intent" value="move" />
-                        <input type="hidden" name="direction" value="up" />
-                        <input type="hidden" name="id" value={category.id} />
-                        <button type="submit" aria-label={`Đưa “${category.name}” lên`} disabled={searching || atStart} data-keep-label="true">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 14l6-6 6 6"></path></svg>
-                        </button>
-                      </form>
-                      <form method="post" data-busy>
-                        <input type="hidden" name="csrf" value={session.csrfToken} />
-                        <input type="hidden" name="intent" value="move" />
-                        <input type="hidden" name="direction" value="down" />
-                        <input type="hidden" name="id" value={category.id} />
-                        <button type="submit" aria-label={`Đưa “${category.name}” xuống`} disabled={searching || atEnd} data-keep-label="true">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 10l6 6 6-6"></path></svg>
-                        </button>
-                      </form>
-                    </div>
-                    <div class="category-cover">
-                      {
-                        category.coverKey ? (
-                          <img src={routes.media(category.coverKey)} alt="" width="52" height="52" loading="lazy" />
-                        ) : null
-                      }
-                    </div>
-                    <div class="catalog-copy-block">
-                      <p class="category-name">{category.name}</p>
+  {bannerError && !dialogOpen && <p class="error-text mb-4" role="alert">{bannerError}</p>}
+  <form class="post-toolbar" method="get" data-category-search>
+    <label class="sr-only" for="category-query">Tìm danh mục</label>
+    <input id="category-query" class="field" name="q" value={query} placeholder="Tên hoặc slug" maxlength="80" />
+  </form>
+  <div data-category-list>
+    {
+      categories.length === 0 ? (
+        <p class="post-empty">{searching ? 'Không có danh mục khớp.' : 'Chưa có danh mục sản phẩm.'}</p>
+      ) : (
+        <table class="post-table">
+          <thead>
+            <tr>
+              <th>Danh mục</th>
+              <th>Sản phẩm</th>
+              <th>Thứ tự</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            {categories.map((category, index) => (
+              <tr>
+                <td data-label="Danh mục">
+                  <div class="user-cell">
+                    <span class="category-cover">
+                      {category.coverKey && <img src={routes.media(category.coverKey)} alt="" width="40" height="40" loading="lazy" />}
+                    </span>
+                    <div class="min-w-0">
+                      <a class="post-title" href={listHref(undefined, category.id)} data-category-edit={category.id}>{category.name}</a>
                       <p class="catalog-slug">
-                        <span>{category.slug}</span>
+                        <span class="truncate">{category.slug}</span>
                         <button type="button" class="catalog-copy" data-copy-slug={category.slug} aria-label={`Sao chép slug ${category.slug}`}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                             <rect x="9" y="9" width="13" height="13" rx="2"></rect>
@@ -215,39 +166,132 @@ function productCountLabel(count: number): string {
                           </svg>
                         </button>
                       </p>
-                      <p class="category-meta">{searching ? productCountLabel(category.productCount) : `Thứ tự ${index + 1} · ${productCountLabel(category.productCount)}`}</p>
                     </div>
                   </div>
-                  <div class="catalog-card-actions">
-                    <a class:list={['catalog-count', !inUse && 'is-empty']} href={productAdminQuery({ category: category.id })}>
-                      {productCountLabel(category.productCount)}
-                    </a>
-                    <a class="btn catalog-action" href={listHref(undefined, category.id)}>Sửa</a>
-                    {
-                      inUse ? (
-                        <button class="btn btn-accent catalog-action" type="button" disabled title="Danh mục đang có sản phẩm, chưa xóa được.">Xóa</button>
-                      ) : (
-                        <form method="post" data-busy onsubmit={`return confirm(${JSON.stringify(productCategoryDeleteWarning())})`}>
-                          <input type="hidden" name="csrf" value={session.csrfToken} />
-                          <input type="hidden" name="intent" value="delete" />
-                          <input type="hidden" name="id" value={category.id} />
-                          <button class="btn btn-accent catalog-action" type="submit" data-keep-label="true">Xóa</button>
-                        </form>
-                      )
-                    }
+                </td>
+                <td data-label="Sản phẩm">
+                  <a class:list={['catalog-count', category.productCount === 0 && 'is-empty']} href={productAdminQuery({ category: category.id })}>
+                    {productCountLabel(category.productCount)}
+                  </a>
+                </td>
+                <td data-label="Thứ tự">
+                  <div class="category-order">
+                    <form method="post" data-busy>
+                      <input type="hidden" name="csrf" value={session.csrfToken} />
+                      <input type="hidden" name="intent" value="move" />
+                      <input type="hidden" name="direction" value="up" />
+                      <input type="hidden" name="id" value={category.id} />
+                      <button type="submit" aria-label={`Đưa “${category.name}” lên`} disabled={searching || index === 0} data-keep-label="true">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 14l6-6 6 6"></path></svg>
+                      </button>
+                    </form>
+                    <span>{searching ? '—' : index + 1}</span>
+                    <form method="post" data-busy>
+                      <input type="hidden" name="csrf" value={session.csrfToken} />
+                      <input type="hidden" name="intent" value="move" />
+                      <input type="hidden" name="direction" value="down" />
+                      <input type="hidden" name="id" value={category.id} />
+                      <button type="submit" aria-label={`Đưa “${category.name}” xuống`} disabled={searching || index === categories.length - 1} data-keep-label="true">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 10l6 6 6-6"></path></svg>
+                      </button>
+                    </form>
                   </div>
-                </li>
-              );
-            })}
-          </ul>
-        )
-      }
-    </section>
+                </td>
+                <td data-label="Thao tác">
+                  <div class="post-actions">
+                    <a href={listHref(undefined, category.id)} data-category-edit={category.id}>Sửa</a>
+                    <span class="post-actions-sep" aria-hidden="true">|</span>
+                    {category.productCount > 0 ? (
+                      <button class="category-delete" type="button" disabled title="Danh mục đang có sản phẩm, chưa xóa được.">Xóa</button>
+                    ) : (
+                      <form
+                        method="post"
+                        data-busy
+                        data-confirm-title={productCategoryDeleteWarning()}
+                        data-confirm={`“${category.name}” sẽ bị xóa. Thao tác này không hoàn tác.`}
+                        data-confirm-ok="Xóa"
+                        data-confirm-tone="danger"
+                      >
+                        <input type="hidden" name="csrf" value={session.csrfToken} />
+                        <input type="hidden" name="intent" value="delete" />
+                        <input type="hidden" name="id" value={category.id} />
+                        <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                      </form>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )
+    }
   </div>
+
+  <dialog
+    class="category-dialog"
+    aria-labelledby="category-dialog-title"
+    data-category-dialog
+    data-open={dialogOpen ? 'true' : undefined}
+    data-categories={JSON.stringify(drafts)}
+  >
+    <form method="post" data-busy>
+      <input type="hidden" name="csrf" value={session.csrfToken} />
+      <input type="hidden" name="intent" value="save" />
+      <ProductCategoryFields
+        client:load
+        csrf={session.csrfToken}
+        items={mediaItems}
+        initial={{ id: editingId ? Number(editingId) : null, name, slug, description, coverMediaId }}
+        errors={fieldErrors}
+      />
+    </form>
+  </dialog>
 </AdminLayout>
 
 <script>
+  const dialog = document.querySelector('[data-category-dialog]');
+  if (dialog instanceof HTMLDialogElement) {
+    const modal = dialog;
+    type CategoryDraft = { id: number | null; name: string; slug: string; description: string; coverMediaId: string };
+    const drafts: CategoryDraft[] = JSON.parse(modal.dataset.categories ?? '[]');
+    const open = (draft: CategoryDraft) => {
+      window.dispatchEvent(new CustomEvent('product-category-form', { detail: draft }));
+      modal.showModal();
+    };
+    document.querySelector('[data-category-new]')?.addEventListener('click', () => {
+      open({ id: null, name: '', slug: '', description: '', coverMediaId: '' });
+    });
+    document.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const link = event.target instanceof Element ? event.target.closest('a[data-category-edit]') : null;
+      if (!(link instanceof HTMLAnchorElement)) return;
+      const draft = drafts.find((item) => String(item.id) === link.dataset.categoryEdit);
+      if (!draft) return;
+      event.preventDefault();
+      open(draft);
+    });
+    modal.addEventListener('click', (event) => {
+      if (event.target instanceof Element && event.target.closest('[data-category-close]')) {
+        modal.close();
+        return;
+      }
+      if (event.target !== modal) return;
+      const box = modal.getBoundingClientRect();
+      const inside = event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
+      if (!inside) modal.close();
+    });
+    modal.addEventListener('close', () => {
+      const url = new URL(location.href);
+      if (!url.searchParams.has('edit')) return;
+      url.searchParams.delete('edit');
+      history.replaceState(null, '', url);
+    });
+    if (modal.dataset.open === 'true') modal.showModal();
+  }
+
   const form = document.querySelector('[data-category-search]');
+  const list = document.querySelector('[data-category-list]');
   if (form instanceof HTMLFormElement) {
     const input = form.querySelector('input[name="q"]');
     let timer = 0;
@@ -255,9 +299,10 @@ function productCountLabel(count: number): string {
       const data = new FormData(form);
       const value = data.get('q');
       const term = typeof value === 'string' ? value.trim() : '';
-      const url = new URL(term ? `/admin/product-categories?q=${encodeURIComponent(term)}` : '/admin/product-categories', location.origin);
-      if (url.pathname + url.search === location.pathname + location.search) return;
-      location.assign(url);
+      const next = term ? `/admin/product-categories?q=${encodeURIComponent(term)}` : '/admin/product-categories';
+      if (next === location.pathname + location.search) return;
+      list?.setAttribute('aria-busy', 'true');
+      location.assign(next);
     };
     if (input instanceof HTMLInputElement) {
       input.addEventListener('input', () => {
@@ -292,7 +337,7 @@ function productCountLabel(count: number): string {
       area.setAttribute('readonly', '');
       area.style.position = 'fixed';
       area.style.left = '-999px';
-      document.body.append(area);
+      document.body.appendChild(area);
       area.select();
       const copied = document.execCommand('copy');
       area.remove();

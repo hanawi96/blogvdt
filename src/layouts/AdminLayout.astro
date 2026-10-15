@@ -73,7 +73,11 @@ function current(href: string): boolean {
                 aria-controls="account-menu"
                 aria-haspopup="menu"
               >
-                <span class="user-avatar" aria-hidden="true">{userInitials(session.displayName)}</span>
+                {session.avatarUrl ? (
+                  <img class="user-avatar" src={session.avatarUrl} alt="" width="40" height="40" />
+                ) : (
+                  <span class="user-avatar" aria-hidden="true">{userInitials(session.displayName)}</span>
+                )}
                 <span class="admin-account-meta">
                   <span class="admin-account-label">{session.displayName.trim() || 'Tài khoản'}</span>
                   <span class="admin-account-role">{ROLE_LABELS[session.role]}</span>
