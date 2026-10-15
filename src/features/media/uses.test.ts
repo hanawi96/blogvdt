@@ -26,4 +26,18 @@ describe('nơi dùng ảnh', () => {
       { href: '/admin/settings', label: 'Logo' },
     ]);
   });
+
+  it('ghi ảnh đại diện của tài khoản', () => {
+    const uses = collectMediaUses({
+      media: [],
+      posts: [],
+      products: [],
+      album: [],
+      logoId: '',
+      faviconId: '',
+      ogImageId: '',
+      avatars: [{ mediaId: 5, userId: 2, name: 'An' }],
+    });
+    expect(uses['5']).toEqual([{ href: '/admin/users/2', label: 'An' }]);
+  });
 });

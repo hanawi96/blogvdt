@@ -1,7 +1,7 @@
-import { desc, eq, inArray, like, or } from 'drizzle-orm';
+import { desc, eq, inArray, isNotNull, like, or } from 'drizzle-orm';
 import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
-import { media, posts, productMedia, products, siteSettings } from '../../lib/db/schema';
+import { adminUsers, media, posts, productMedia, products, siteSettings } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { detectImageType, displayFilename, imageSizeError, mediaKeyFromPublicUrl, mediaObjectKey, readRasterSize } from './files';
 import type { MediaItem } from './types';
@@ -34,7 +34,7 @@ export async function listMedia(db: AppDb): Promise<MediaItem[]> {
 }
 
 export async function listMediaUses(db: AppDb) {
-  const [library, postRows, productRows, albumRows, settings] = await Promise.all([
+  const [library, postRows, productRows, albumRows, settings, avatars] = await Promise.all([
     db.select({ id: media.id, key: media.r2Key }).from(media),
     db.select({ id: posts.id, title: posts.title, coverMediaId: posts.coverMediaId, contentJson: posts.contentJson }).from(posts),
     db.select({ id: products.id, name: products.name, coverMediaId: products.coverMediaId }).from(products),
@@ -46,6 +46,10 @@ export async function listMediaUses(db: AppDb) {
       .select({ key: siteSettings.key, value: siteSettings.value })
       .from(siteSettings)
       .where(or(eq(siteSettings.key, 'logo_media_id'), eq(siteSettings.key, 'favicon_media_id'), eq(siteSettings.key, 'og_media_id'))),
+    db
+      .select({ mediaId: adminUsers.avatarMediaId, userId: adminUsers.id, name: adminUsers.displayName })
+      .from(adminUsers)
+      .where(isNotNull(adminUsers.avatarMediaId)),
   ]);
   const setting = (key: string) => settings.find((row) => row.key === key)?.value ?? '';
   return collectMediaUses({
@@ -56,6 +60,7 @@ export async function listMediaUses(db: AppDb) {
     logoId: setting('logo_media_id'),
     faviconId: setting('favicon_media_id'),
     ogImageId: setting('og_media_id'),
+    avatars,
   });
 }
 

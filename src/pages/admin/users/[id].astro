@@ -1,9 +1,11 @@
 ---
+import MediaPicker from '../../../components/admin/MediaPicker.svelte';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { isAdminRole, isAdminStatus, STATUS_LABELS } from '../../../features/auth/access';
 import { activityActor } from '../../../features/activity/log';
 import { mutationError, SESSION_COOKIE } from '../../../features/auth/session';
-import { getUser, issuePasswordReset, revokeUserSessions, updateUser } from '../../../features/auth/users';
+import { getUser, issuePasswordReset, PROFILE_LINKS, readUserProfile, revokeUserSessions, updateUser, type UserProfile } from '../../../features/auth/users';
+import { listMedia } from '../../../features/media/media';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
 import { formatDateTime } from '../../../lib/datetime';
@@ -24,6 +26,15 @@ let displayName = user.displayName;
 let email = user.email ?? '';
 let role: string = user.role;
 let status: string = user.status;
+let profile: UserProfile = {
+  avatarMediaId: user.avatarMediaId,
+  bio: user.bio,
+  facebookUrl: user.facebookUrl,
+  zaloUrl: user.zaloUrl,
+  instagramUrl: user.instagramUrl,
+  tiktokUrl: user.tiktokUrl,
+  websiteUrl: user.websiteUrl,
+};
 let formError = '';
 let saved = '';
 let link = '';
@@ -56,11 +67,16 @@ if (Astro.request.method === 'POST') {
     email = String(form.get('email') ?? '');
     role = String(form.get('role') ?? '');
     status = String(form.get('status') ?? '');
-    if (!isAdminRole(role) || !isAdminStatus(status)) {
+    const parsed = readUserProfile(form);
+    profile = parsed.profile;
+    if (parsed.avatarInvalid) {
+      Astro.response.status = 422;
+      formError = 'Ảnh không hợp lệ.';
+    } else if (!isAdminRole(role) || !isAdminStatus(status)) {
       Astro.response.status = 422;
       formError = 'Vai trò hoặc trạng thái không hợp lệ.';
     } else {
-      const updated = await updateUser(db, id, { displayName, email, role, status }, Date.now(), await activityActor(db, session.userId));
+      const updated = await updateUser(db, id, { displayName, email, role, status, ...profile }, Date.now(), await activityActor(db, session.userId));
       if (!updated.ok) {
         Astro.response.status = 422;
         formError = updated.error;
@@ -79,6 +95,7 @@ if (Astro.request.method === 'POST') {
 }
 
 const current = (await getUser(db, id)) ?? user;
+const library = await listMedia(db);
 const statusChoices = current.status === 'invited' ? (['invited', 'disabled'] as const) : (['active', 'disabled'] as const);
 ---
 
@@ -91,7 +108,24 @@ const statusChoices = current.status === 'invited' ? (['invited', 'disabled'] as
     <form method="post" data-busy>
       <input type="hidden" name="csrf" value={session.csrfToken} />
       <input type="hidden" name="intent" value="profile" />
-      <label class="block">
+      <h2 class="text-lg font-semibold">Hồ sơ</h2>
+      <div class="mt-4">
+        <MediaPicker client:load csrf={session.csrfToken} items={library} name="avatarMediaId" selected={profile.avatarMediaId ? [String(profile.avatarMediaId)] : []} />
+      </div>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Giới thiệu</span>
+        <textarea class="field" name="bio" maxlength="500" rows="4">{profile.bio}</textarea>
+      </label>
+      <div class="profile-links mt-4">
+        {PROFILE_LINKS.map(([key, label]) => (
+          <label class:list={['block', key === 'websiteUrl' && 'is-wide']}>
+            <span class="mb-1 block font-semibold">{label}</span>
+            <input class="field" type="url" name={key} maxlength="300" value={profile[key]} placeholder="https://" />
+          </label>
+        ))}
+      </div>
+      <h2 class="mt-8 text-lg font-semibold">Tài khoản</h2>
+      <label class="mt-4 block">
         <span class="mb-1 block font-semibold">Họ tên</span>
         <input class="field" name="displayName" required maxlength="80" value={displayName} />
       </label>

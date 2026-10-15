@@ -1,7 +1,7 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { isAdminRole, isAdminStatus, ROLE_LABELS, STATUS_LABELS } from '../../../features/auth/access';
-import { listUsers, type UserListFilters } from '../../../features/auth/users';
+import { listUsers, userInitials, type UserListFilters } from '../../../features/auth/users';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
 import { formatDateTime } from '../../../lib/datetime';
@@ -83,16 +83,25 @@ function pageHref(page: number): string {
               <tbody>
                 {result.rows.map((user) => (
                   <tr>
-                    <td>
-                      <a class="post-title" href={routes.adminUser(user.id)}>{user.displayName || user.username}</a>
-                      <p class="text-sm text-muted">{user.email || user.username}</p>
+                    <td data-label="Người dùng">
+                      <div class="user-cell">
+                        {user.avatarUrl ? (
+                          <img class="user-avatar" src={user.avatarUrl} alt="" width="40" height="40" />
+                        ) : (
+                          <span class="user-avatar" aria-hidden="true">{userInitials(user.displayName || user.username)}</span>
+                        )}
+                        <div class="min-w-0">
+                          <a class="post-title" href={routes.adminUser(user.id)}>{user.displayName || user.username}</a>
+                          <p class="truncate text-sm text-muted">{user.email || user.username}</p>
+                        </div>
+                      </div>
                     </td>
-                    <td data-label="Vai trò">{ROLE_LABELS[user.role]}</td>
+                    <td data-label="Vai trò"><span class="user-role" data-role={user.role}>{ROLE_LABELS[user.role]}</span></td>
                     <td data-label="Trạng thái">
-                      <span class="post-status" data-status={user.status === 'active' ? 'active' : user.status}>{STATUS_LABELS[user.status]}</span>
+                      <span class="post-status" data-status={user.status}>{STATUS_LABELS[user.status]}</span>
                     </td>
                     <td data-label="Đăng nhập cuối">{user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'Chưa đăng nhập'}</td>
-                    <td><a href={routes.adminUser(user.id)}>Sửa</a></td>
+                    <td data-label="Thao tác"><a class="font-semibold underline" href={routes.adminUser(user.id)}>Sửa</a></td>
                   </tr>
                 ))}
               </tbody>

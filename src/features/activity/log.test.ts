@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeUserChange } from '../auth/users';
+import { describeUserChange, EMPTY_PROFILE } from '../auth/users';
 import {
   ACTIVITY_PAGE_SIZE,
   AUTOSAVE_LOG_WINDOW_MS,
@@ -50,7 +50,7 @@ describe('nhật ký', () => {
   });
 
   it('bỏ qua thay đổi tài khoản không có khác biệt và mô tả khóa quyền', () => {
-    const current = { displayName: 'An', email: 'an@example.com', role: 'editor' as const, status: 'active' as const };
+    const current = { displayName: 'An', email: 'an@example.com', role: 'editor' as const, status: 'active' as const, ...EMPTY_PROFILE };
     expect(describeUserChange(current, { ...current, email: 'an@example.com' })).toBeNull();
     expect(describeUserChange(current, { ...current, status: 'disabled' })?.action).toBe('user.disable');
     expect(describeUserChange(current, { ...current, role: 'admin' })?.summary).toMatch(/Quản trị/);

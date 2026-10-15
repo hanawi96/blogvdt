@@ -8,6 +8,13 @@ export const adminUsers = sqliteTable(
     username: text('username').notNull().unique(),
     displayName: text('display_name').notNull().default(''),
     email: text('email').unique(),
+    avatarMediaId: integer('avatar_media_id'),
+    bio: text('bio').notNull().default(''),
+    facebookUrl: text('facebook_url'),
+    zaloUrl: text('zalo_url'),
+    instagramUrl: text('instagram_url'),
+    tiktokUrl: text('tiktok_url'),
+    websiteUrl: text('website_url'),
     role: text('role').notNull().default('admin'),
     status: text('status').notNull().default('active'),
     // pbkdf2-sha256$<số vòng>$<salt base64>$<hash base64>. Web Crypto, 100000 vòng.

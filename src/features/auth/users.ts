@@ -1,7 +1,9 @@
 import { and, count, desc, eq, like, ne, or, sql } from 'drizzle-orm';
 import { activityText, activityWrite, actorLabel, commitWrites, type ActivityActor } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
-import { adminUsers, passwordResets, sessions } from '../../lib/db/schema';
+import { adminUsers, media, passwordResets, sessions } from '../../lib/db/schema';
+import { isHttpUrl } from '../../lib/http';
+import { routes } from '../../lib/routes';
 import {
   isAdminRole,
   isAdminStatus,
@@ -15,6 +17,38 @@ import { hashToken, randomToken } from './session';
 
 export const USER_PAGE_SIZE = 20;
 export const RESET_MS = 24 * 60 * 60 * 1000;
+export const BIO_MAX = 500;
+export const PROFILE_URL_MAX = 300;
+
+export const PROFILE_LINKS = [
+  ['facebookUrl', 'Facebook'],
+  ['zaloUrl', 'Zalo'],
+  ['instagramUrl', 'Instagram'],
+  ['tiktokUrl', 'TikTok'],
+  ['websiteUrl', 'Website'],
+] as const;
+
+export type ProfileLinkKey = (typeof PROFILE_LINKS)[number][0];
+
+export type UserProfile = {
+  avatarMediaId: number | null;
+  bio: string;
+  facebookUrl: string;
+  zaloUrl: string;
+  instagramUrl: string;
+  tiktokUrl: string;
+  websiteUrl: string;
+};
+
+export const EMPTY_PROFILE: UserProfile = {
+  avatarMediaId: null,
+  bio: '',
+  facebookUrl: '',
+  zaloUrl: '',
+  instagramUrl: '',
+  tiktokUrl: '',
+  websiteUrl: '',
+};
 
 export type UserListFilters = {
   query: string;
@@ -32,7 +66,8 @@ export type ManagedUser = {
   status: AdminStatus;
   lastLoginAt: number | null;
   createdAt: number;
-};
+  avatarUrl: string | null;
+} & UserProfile;
 
 export function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -49,6 +84,46 @@ export function displayNameError(name: string): string | null {
   if (!trimmed) return 'Nhập họ tên.';
   if (trimmed.length > 80) return 'Họ tên quá dài.';
   return null;
+}
+
+export function userInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? '') : '';
+  const letters = `${first}${last}`.toLocaleUpperCase('vi');
+  return letters || '?';
+}
+
+export function profileError(profile: UserProfile): string | null {
+  if (profile.bio.trim().length > BIO_MAX) return 'Giới thiệu quá dài.';
+  for (const [key, label] of PROFILE_LINKS) {
+    const value = profile[key].trim();
+    if (!value) continue;
+    if (value.length > PROFILE_URL_MAX || !isHttpUrl(value)) return `${label} cần bắt đầu bằng http hoặc https.`;
+  }
+  return null;
+}
+
+export function readUserProfile(form: FormData): { profile: UserProfile; avatarInvalid: boolean } {
+  const raw = form.get('avatarMediaId');
+  let avatarMediaId: number | null = null;
+  let avatarInvalid = false;
+  if (typeof raw === 'string' && raw !== '') {
+    if (/^[1-9]\d*$/.test(raw)) avatarMediaId = Number(raw);
+    else avatarInvalid = true;
+  }
+  return {
+    avatarInvalid,
+    profile: {
+      avatarMediaId,
+      bio: String(form.get('bio') ?? ''),
+      facebookUrl: String(form.get('facebookUrl') ?? ''),
+      zaloUrl: String(form.get('zaloUrl') ?? ''),
+      instagramUrl: String(form.get('instagramUrl') ?? ''),
+      tiktokUrl: String(form.get('tiktokUrl') ?? ''),
+      websiteUrl: String(form.get('websiteUrl') ?? ''),
+    },
+  };
 }
 
 function searchTerm(query: string): string | null {
@@ -71,17 +146,9 @@ export async function listUsers(db: AppDb, filters: UserListFilters) {
   const pageCount = Math.max(1, Math.ceil(total / USER_PAGE_SIZE));
   const current = Math.min(page, pageCount);
   const rows = await db
-    .select({
-      id: adminUsers.id,
-      username: adminUsers.username,
-      displayName: adminUsers.displayName,
-      email: adminUsers.email,
-      role: adminUsers.role,
-      status: adminUsers.status,
-      lastLoginAt: adminUsers.lastLoginAt,
-      createdAt: adminUsers.createdAt,
-    })
+    .select(userColumns)
     .from(adminUsers)
+    .leftJoin(media, eq(adminUsers.avatarMediaId, media.id))
     .where(where)
     .orderBy(desc(adminUsers.createdAt), desc(adminUsers.id))
     .limit(USER_PAGE_SIZE)
@@ -101,17 +168,9 @@ export async function listUsers(db: AppDb, filters: UserListFilters) {
 
 export async function getUser(db: AppDb, id: number): Promise<ManagedUser | null> {
   const rows = await db
-    .select({
-      id: adminUsers.id,
-      username: adminUsers.username,
-      displayName: adminUsers.displayName,
-      email: adminUsers.email,
-      role: adminUsers.role,
-      status: adminUsers.status,
-      lastLoginAt: adminUsers.lastLoginAt,
-      createdAt: adminUsers.createdAt,
-    })
+    .select(userColumns)
     .from(adminUsers)
+    .leftJoin(media, eq(adminUsers.avatarMediaId, media.id))
     .where(eq(adminUsers.id, id))
     .limit(1);
   return rows[0] ? parseUser(rows[0]) : null;
@@ -123,13 +182,14 @@ export function nextUserStatus(current: AdminStatus, requested: AdminStatus): Ad
 }
 
 export function describeUserChange(
-  current: { displayName: string; email: string | null; role: AdminRole; status: AdminStatus },
-  input: { displayName: string; email: string; role: AdminRole; status: AdminStatus },
+  current: { displayName: string; email: string | null; role: AdminRole; status: AdminStatus } & UserProfile,
+  input: { displayName: string; email: string; role: AdminRole; status: AdminStatus } & UserProfile,
 ): { action: 'user.update' | 'user.disable'; summary: string } | null {
   const name = input.displayName.trim();
   const email = normalizeEmail(input.email);
   const status = nextUserStatus(current.status, input.status);
-  if (current.displayName === name && current.email === email && current.role === input.role && current.status === status) return null;
+  const accountSame = current.displayName === name && current.email === email && current.role === input.role && current.status === status;
+  if (accountSame && sameProfile(current, input)) return null;
   const label = activityText(name, 80);
   if (status === 'disabled' && current.status !== 'disabled') return { action: 'user.disable', summary: `Đã khóa tài khoản ${label}.` };
   if (current.role !== input.role) return { action: 'user.update', summary: `Đã đổi vai trò ${label} thành ${ROLE_LABELS[input.role]}.` };
@@ -193,7 +253,7 @@ export async function createUser(
 export async function updateUser(
   db: AppDb,
   id: number,
-  input: { displayName: string; email: string; role: AdminRole; status: AdminStatus },
+  input: { displayName: string; email: string; role: AdminRole; status: AdminStatus } & UserProfile,
   now = Date.now(),
   actor?: ActivityActor,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -205,6 +265,12 @@ export async function updateUser(
   if (nameError) return { ok: false, error: nameError };
   const invalidEmail = emailError(email);
   if (invalidEmail) return { ok: false, error: invalidEmail };
+  const invalidProfile = profileError(input);
+  if (invalidProfile) return { ok: false, error: invalidProfile };
+  if (input.avatarMediaId !== null) {
+    const avatar = await db.select({ id: media.id }).from(media).where(eq(media.id, input.avatarMediaId)).limit(1);
+    if (!avatar[0]) return { ok: false, error: 'Ảnh không còn trong thư viện.' };
+  }
   if (email !== current.email) {
     const taken = await findIdentity(db, email, id);
     if (taken) return { ok: false, error: 'Email đã được dùng.' };
@@ -235,6 +301,13 @@ export async function updateUser(
         username: current.username === current.email ? email : current.username,
         role: input.role,
         status: nextStatus,
+        avatarMediaId: input.avatarMediaId,
+        bio: input.bio.trim(),
+        facebookUrl: storedUrl(input.facebookUrl),
+        zaloUrl: storedUrl(input.zaloUrl),
+        instagramUrl: storedUrl(input.instagramUrl),
+        tiktokUrl: storedUrl(input.tiktokUrl),
+        websiteUrl: storedUrl(input.websiteUrl),
         updatedAt: now,
       })
       .where(eq(adminUsers.id, id)),
@@ -414,6 +487,25 @@ async function findIdentity(db: AppDb, email: string, exceptId?: number) {
   return row;
 }
 
+const userColumns = {
+  id: adminUsers.id,
+  username: adminUsers.username,
+  displayName: adminUsers.displayName,
+  email: adminUsers.email,
+  role: adminUsers.role,
+  status: adminUsers.status,
+  lastLoginAt: adminUsers.lastLoginAt,
+  createdAt: adminUsers.createdAt,
+  avatarMediaId: adminUsers.avatarMediaId,
+  avatarKey: media.r2Key,
+  bio: adminUsers.bio,
+  facebookUrl: adminUsers.facebookUrl,
+  zaloUrl: adminUsers.zaloUrl,
+  instagramUrl: adminUsers.instagramUrl,
+  tiktokUrl: adminUsers.tiktokUrl,
+  websiteUrl: adminUsers.websiteUrl,
+};
+
 function parseUser(row: {
   id: number;
   username: string;
@@ -423,7 +515,45 @@ function parseUser(row: {
   status: string;
   lastLoginAt: number | null;
   createdAt: number;
+  avatarMediaId: number | null;
+  avatarKey: string | null;
+  bio: string;
+  facebookUrl: string | null;
+  zaloUrl: string | null;
+  instagramUrl: string | null;
+  tiktokUrl: string | null;
+  websiteUrl: string | null;
 }): ManagedUser | null {
   if (!isAdminRole(row.role) || !isAdminStatus(row.status)) return null;
-  return { ...row, role: row.role, status: row.status };
+  return {
+    id: row.id,
+    username: row.username,
+    displayName: row.displayName,
+    email: row.email,
+    role: row.role,
+    status: row.status,
+    lastLoginAt: row.lastLoginAt,
+    createdAt: row.createdAt,
+    avatarMediaId: row.avatarMediaId,
+    avatarUrl: row.avatarKey ? routes.media(row.avatarKey) : null,
+    bio: row.bio,
+    facebookUrl: row.facebookUrl ?? '',
+    zaloUrl: row.zaloUrl ?? '',
+    instagramUrl: row.instagramUrl ?? '',
+    tiktokUrl: row.tiktokUrl ?? '',
+    websiteUrl: row.websiteUrl ?? '',
+  };
+}
+
+function storedUrl(value: string): string | null {
+  const text = value.trim();
+  return text || null;
+}
+
+function sameProfile(current: UserProfile, input: UserProfile): boolean {
+  return (
+    current.avatarMediaId === input.avatarMediaId &&
+    current.bio.trim() === input.bio.trim() &&
+    PROFILE_LINKS.every(([key]) => current[key].trim() === input[key].trim())
+  );
 }

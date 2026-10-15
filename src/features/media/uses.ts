@@ -14,6 +14,7 @@ export function collectMediaUses(input: {
   logoId: string;
   faviconId: string;
   ogImageId: string;
+  avatars?: { mediaId: number | null; userId: number; name: string }[];
 }): Record<string, MediaUse[]> {
   const uses = new Map<number, MediaUse[]>();
   const add = (id: number | null, use: MediaUse) => {
@@ -40,6 +41,9 @@ export function collectMediaUses(input: {
   add(Number(input.logoId), { href: routes.adminSettings, label: 'Logo' });
   add(Number(input.faviconId), { href: routes.adminSettings, label: 'Favicon' });
   add(Number(input.ogImageId), { href: routes.adminSettings, label: 'Ảnh chia sẻ' });
+  for (const avatar of input.avatars ?? []) {
+    add(avatar.mediaId, { href: routes.adminUser(avatar.userId), label: avatar.name || `Tài khoản #${avatar.userId}` });
+  }
 
   return Object.fromEntries([...uses].map(([id, list]) => [String(id), list]));
 }
