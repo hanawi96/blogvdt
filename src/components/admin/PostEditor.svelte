@@ -27,9 +27,15 @@
   let linkIssue = $state<PostLinkIssue | null>(null);
   let linkNote = $state('');
   let linkError = $state('');
+  let linkText = $state('');
+  let linkNeedsText = $state(false);
+  let linkHasMark = $state(false);
+  let linkOpen = $state(false);
+  let linkDialog: HTMLDialogElement | undefined = $state();
+  let linkUrlEl: HTMLInputElement | undefined = $state();
   let linkTimer = 0;
   let issueTimer = 0;
-  let menu = $state<'heading' | 'link' | null>(null);
+  let menu = $state<'heading' | null>(null);
   let libraryOpen = $state(false);
   let imageAlt = $state('');
   let imageCaption = $state('');
@@ -133,21 +139,48 @@
     });
   }
 
-  function toggleLink() {
-    if (menu === 'link') {
-      menu = null;
-      return;
-    }
-    const href = editor?.getAttributes('link').href;
+  function openLink() {
+    if (!editor || !linkDialog) return;
+    menu = null;
+    const href = editor.getAttributes('link').href;
     linkUrl = typeof href === 'string' ? href : '';
     linkQuery = '';
     linkHits = [];
     linkNote = '';
     linkError = '';
     linkIssue = null;
-    menu = 'link';
+    linkText = '';
+    linkHasMark = editor.isActive('link');
+    // Không bôi đen chữ thì setLink không có gì để gắn; khi đó chèn chữ mới mang liên kết.
+    linkNeedsText = editor.state.selection.empty && !linkHasMark;
+    linkOpen = true;
+    linkDialog.showModal();
+    void tick().then(() => linkUrlEl?.select());
     void loadSuggestions();
     queueFieldCheck();
+  }
+
+  function closeLink() {
+    linkDialog?.close();
+  }
+
+  function onLinkClosed() {
+    linkOpen = false;
+    window.clearTimeout(linkTimer);
+    window.clearTimeout(issueTimer);
+    editor?.commands.focus();
+  }
+
+  function onLinkBackdrop(event: MouseEvent) {
+    if (!linkDialog || event.target !== linkDialog) return;
+    const box = linkDialog.getBoundingClientRect();
+    const outside = event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+    if (outside) closeLink();
+  }
+
+  function removeLink() {
+    editor?.chain().focus().extendMarkRange('link').unsetLink().run();
+    closeLink();
   }
 
   function queueLinkSearch(value: string) {
@@ -188,7 +221,7 @@
     }
   }
 
-  function applyLink(next = linkUrl) {
+  function applyLink(next = linkUrl, title = '') {
     if (!editor) return;
     const href = next.trim();
     if (!isPostHref(href)) {
@@ -196,12 +229,17 @@
       return;
     }
     linkUrl = href;
-    editor.chain().focus().extendMarkRange('link').setLink({ href }).run();
-    menu = null;
+    if (linkNeedsText) {
+      const text = linkText.trim() || title || href;
+      editor.chain().focus().insertContent({ type: 'text', text, marks: [{ type: 'link', attrs: { href } }] }).run();
+    } else {
+      editor.chain().focus().extendMarkRange('link').setLink({ href }).run();
+    }
+    closeLink();
   }
 
-  function choosePost(path: string) {
-    applyLink(path);
+  function choosePost(hit: { title: string; path: string }) {
+    applyLink(hit.path, hit.title);
   }
 
   function formValue(name: string): string {
@@ -222,7 +260,7 @@
     if (exclude) url.searchParams.set('exclude', exclude);
     try {
       const response = await fetch(url, { headers: { accept: 'application/json' } });
-      if (!response.ok || menu !== 'link') return;
+      if (!response.ok || !linkOpen) return;
       const body = (await response.json()) as { suggestions?: unknown };
       const rows = Array.isArray(body.suggestions) ? body.suggestions : [];
       suggestions = rows.flatMap((entry) => {
@@ -243,7 +281,7 @@
 
   async function checkField() {
     const path = postPathFromHref(linkUrl);
-    if (!path || menu !== 'link') {
+    if (!path || !linkOpen) {
       linkIssue = null;
       return;
     }
@@ -272,10 +310,18 @@
     }
   }
 
+  // Modal nằm trong form bài viết: Enter phải bị chặn để không submit cả bài.
   function onLinkKey(event: KeyboardEvent) {
     if (event.key !== 'Enter') return;
     event.preventDefault();
     applyLink();
+  }
+
+  function onSearchKey(event: KeyboardEvent) {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    const first = linkHits[0];
+    if (first) choosePost(first);
   }
 
   function toggleLibrary() {
@@ -383,69 +429,7 @@
       <span class="editor-sep"></span>
       <button class="tool" type="button" title="Đậm" aria-pressed={active('bold')} onclick={() => run((current) => current.chain().focus().toggleBold().run())}>{@render toolIcon('bold')}</button>
       <button class="tool" type="button" title="Nghiêng" aria-pressed={active('italic')} onclick={() => run((current) => current.chain().focus().toggleItalic().run())}>{@render toolIcon('italic')}</button>
-      <div class="relative">
-        <button class="tool" type="button" title="Liên kết" aria-pressed={active('link')} aria-expanded={menu === 'link'} onclick={toggleLink}>{@render toolIcon('link')}</button>
-        {#if menu === 'link'}
-          <div class="editor-menu editor-link" role="dialog" aria-label="Liên kết">
-            <label>
-              <span class="sr-only">Địa chỉ liên kết</span>
-              <input class="field" type="text" placeholder="https:// hoặc /kien-thuc/..." bind:value={linkUrl} oninput={queueFieldCheck} onkeydown={onLinkKey} />
-            </label>
-            <label>
-              <span class="editor-link-label">Tìm bài đã xuất bản</span>
-              <input class="field" type="search" placeholder="Nhập tiêu đề" value={linkQuery} oninput={(event) => queueLinkSearch(event.currentTarget.value)} />
-            </label>
-            {#if linkHits.length > 0}
-              <ul class="editor-link-list">
-                {#each linkHits as hit (hit.path)}
-                  <li>
-                    <button type="button" onclick={() => choosePost(hit.path)}>
-                      {hit.title}
-                      <span>{hit.path}</span>
-                    </button>
-                  </li>
-                {/each}
-              </ul>
-            {:else if linkNote}
-              <p class="editor-link-label">{linkNote}</p>
-            {/if}
-            {#if suggestions.length > 0}
-              <p class="editor-link-label">Gợi ý. Bấm để gắn, không tự chèn.</p>
-              <ul class="editor-link-list">
-                {#each suggestions as hit (hit.path)}
-                  <li>
-                    <button type="button" onclick={() => choosePost(hit.path)}>
-                      {hit.title}
-                      <span>{hit.path}</span>
-                    </button>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-            {#if linkIssue}
-              <p class="editor-link-label">
-                {#if linkIssue.kind === 'redirect' && linkIssue.official}
-                  Đường dẫn cũ. URL chính là {linkIssue.official}.
-                {:else if linkIssue.kind === 'unpublished'}
-                  Bài này chưa xuất bản hoặc đã gỡ.
-                {:else if linkIssue.kind === 'self'}
-                  Đường dẫn này là chính bài đang viết.
-                {:else}
-                  Không có bài tương ứng.
-                {/if}
-              </p>
-              {#if linkIssue.kind === 'redirect' && linkIssue.official}
-                <button class="btn" type="button" onclick={() => applyLink(linkIssue?.official ?? '')}>Gắn URL chính thức</button>
-              {/if}
-            {/if}
-            {#if linkError}<p class="error-text">{linkError}</p>{/if}
-            <div class="flex gap-2">
-              <button class="btn btn-primary" type="button" onclick={applyLink}>Gắn</button>
-              <button class="btn" type="button" onclick={() => run((current) => current.chain().focus().unsetLink().run())}>Bỏ</button>
-            </div>
-          </div>
-        {/if}
-      </div>
+      <button class="tool" type="button" title="Liên kết" aria-pressed={active('link')} aria-haspopup="dialog" aria-expanded={linkOpen} onclick={openLink}>{@render toolIcon('link')}</button>
       <span class="editor-sep"></span>
       <button class="tool" type="button" title="Ảnh" aria-pressed={libraryOpen} onclick={toggleLibrary}>{@render toolIcon('image')}</button>
       <button class="tool" type="button" title="Bảng" onclick={() => run((current) => current.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run())}>{@render toolIcon('table')}</button>
@@ -468,4 +452,70 @@
   <input type="hidden" name="contentJson" value={json} />
   {#if contentError}<p class="error-text mt-2">{contentError}</p>{/if}
   <MediaPicker {csrf} items={media} hideTrigger bind:open={libraryOpen} onPick={insertImage} />
+  <dialog class="category-dialog link-dialog" aria-labelledby="link-dialog-title" bind:this={linkDialog} onclose={onLinkClosed} onclick={onLinkBackdrop}>
+    <h2 id="link-dialog-title" class="text-lg font-semibold">{linkHasMark ? 'Sửa liên kết' : 'Chèn liên kết'}</h2>
+    <label class="mt-4 block">
+      <span class="mb-1 block font-semibold">Địa chỉ liên kết</span>
+      <input class="field" type="text" placeholder="https://… hoặc /kien-thuc/…" bind:this={linkUrlEl} bind:value={linkUrl} oninput={() => { linkError = ''; queueFieldCheck(); }} onkeydown={onLinkKey} />
+    </label>
+    {#if linkIssue}
+      <p class="seo-hint">
+        {#if linkIssue.kind === 'redirect' && linkIssue.official}
+          Đường dẫn cũ. URL chính là {linkIssue.official}.
+          <button class="link-dialog-inline" type="button" onclick={() => applyLink(linkIssue?.official ?? '')}>Gắn URL chính thức</button>
+        {:else if linkIssue.kind === 'unpublished'}
+          Bài này chưa xuất bản hoặc đã gỡ.
+        {:else if linkIssue.kind === 'self'}
+          Đường dẫn này là chính bài đang viết.
+        {:else}
+          Không có bài tương ứng.
+        {/if}
+      </p>
+    {/if}
+    {#if linkError}<p class="error-text mt-1" role="alert">{linkError}</p>{/if}
+    {#if linkNeedsText}
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Chữ hiển thị</span>
+        <input class="field" type="text" maxlength="200" placeholder="Để trống sẽ dùng tiêu đề bài hoặc địa chỉ" bind:value={linkText} onkeydown={onLinkKey} />
+      </label>
+    {/if}
+    <label class="mt-4 block">
+      <span class="mb-1 block font-semibold">Hoặc tìm bài đã xuất bản</span>
+      <input class="field" type="search" placeholder="Nhập ít nhất 2 ký tự của tiêu đề" value={linkQuery} oninput={(event) => queueLinkSearch(event.currentTarget.value)} onkeydown={onSearchKey} />
+    </label>
+    {#if linkHits.length > 0}
+      <ul class="editor-link-list" aria-label="Kết quả tìm bài">
+        {#each linkHits as hit (hit.path)}
+          <li>
+            <button type="button" onclick={() => choosePost(hit)}>
+              {hit.title}
+              <span>{hit.path}</span>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    {:else if linkNote}
+      <p class="seo-hint">{linkNote}</p>
+    {/if}
+    {#if suggestions.length > 0 && linkHits.length === 0}
+      <p class="link-dialog-section">Gợi ý bài liên quan. Bấm để gắn, không tự chèn.</p>
+      <ul class="editor-link-list" aria-label="Gợi ý bài liên quan">
+        {#each suggestions as hit (hit.path)}
+          <li>
+            <button type="button" onclick={() => choosePost(hit)}>
+              {hit.title}
+              <span>{hit.path}</span>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+    <div class="category-actions">
+      {#if linkHasMark}
+        <button class="btn link-dialog-remove" type="button" onclick={removeLink}>Gỡ liên kết</button>
+      {/if}
+      <button class="btn" type="button" onclick={closeLink}>Hủy</button>
+      <button class="btn btn-primary" type="button" onclick={() => applyLink()}>{linkHasMark ? 'Cập nhật' : 'Gắn liên kết'}</button>
+    </div>
+  </dialog>
 </div>

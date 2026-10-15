@@ -205,23 +205,14 @@
   .editor-menu > button[aria-checked='true'] {
     background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface));
   }
-  .editor-link {
-    display: grid;
-    gap: 0.5rem;
-    min-width: 18rem;
-    padding: 0.65rem;
-  }
-  .editor-link-label {
-    display: block;
-    margin-bottom: 0.25rem;
-    color: var(--color-muted);
-    font-size: 0.75rem;
-  }
   .editor-link-list {
-    max-height: 11rem;
-    margin: 0;
+    max-height: 14rem;
+    margin: 0.5rem 0 0;
     overflow: auto;
-    padding: 0;
+    overscroll-behavior: contain;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    padding: 0.25rem;
     list-style: none;
   }
   .editor-link-list button {
@@ -230,9 +221,33 @@
     border: 0;
     border-radius: var(--radius-sm);
     background: transparent;
-    padding: 0.35rem 0.2rem;
+    padding: 0.5rem 0.6rem;
     text-align: left;
     color: var(--color-ink);
+    cursor: pointer;
+  }
+  .editor-link-list button:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+  .link-dialog-section {
+    margin-top: 1rem;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+  }
+  .link-dialog-inline {
+    margin-left: 0.35rem;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: var(--color-primary-strong);
+    font-weight: 600;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .link-dialog-remove {
+    margin-right: auto;
+    color: var(--color-accent);
   }
   .editor-link-list button:hover {
     background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface));
