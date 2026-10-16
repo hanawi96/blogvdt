@@ -269,7 +269,11 @@ function current(href: string): boolean {
           if (event.defaultPrevented) return;
           if (form.dataset.autosave === 'on' && form.dataset.saving !== 'manual') return;
           const submitter = event.submitter;
-          if (submitter instanceof HTMLButtonElement && submitter.formTarget === '_blank') return;
+          // Submit sang tab/iframe khác: không khóa form trang hiện tại.
+          if (submitter instanceof HTMLButtonElement) {
+            const target = submitter.formTarget || form.getAttribute('target') || '';
+            if (target === '_blank' || (target !== '' && target !== '_self')) return;
+          }
           form.querySelectorAll('button[type="submit"]').forEach((button) => {
             if (button instanceof HTMLButtonElement) button.disabled = true;
           });

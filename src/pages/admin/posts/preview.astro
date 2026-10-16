@@ -38,6 +38,7 @@ if (Astro.request.method !== 'POST' && !savedPreview) {
 
 const db = createDb(getDbBinding());
 const form = savedPreview ? null : await Astro.request.formData();
+const embed = form?.get('embed') === '1' || Astro.url.searchParams.get('embed') === '1';
 const blocked = form ? mutationError(Astro.request, session, form) : '';
 let message = blocked ?? '';
 let publishedAt: number | null = null;
@@ -136,9 +137,10 @@ const site = article ? await getPublicSite(db) : null;
       robots="noindex,nofollow"
       siteName={site?.siteName || 'Xem trước'}
       faviconUrl={site?.faviconUrl || '/favicon.svg'}
-      chrome={site}
+      chrome={embed ? null : site}
+      embed={embed}
     >
-      <p class="preview-banner">Bản xem trước. Trang này không được lưu và không được lập chỉ mục.</p>
+      <p class="preview-banner">{embed ? 'Bản xem trước' : 'Bản xem trước. Trang này không được lưu và không được lập chỉ mục.'}</p>
       <main class="post-page">
         <div class="post-page-glow" aria-hidden="true"></div>
         <div class="post-page-shell">

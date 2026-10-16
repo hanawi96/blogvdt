@@ -22,6 +22,8 @@ interface Props {
   jsonLd?: string[];
   faviconUrl?: string;
   chrome?: PublicSite | null;
+  /** Bỏ header/footer — dùng trong iframe xem trước CMS. */
+  embed?: boolean;
 }
 
 const {
@@ -40,7 +42,9 @@ const {
   jsonLd = [],
   faviconUrl = '/favicon.svg',
   chrome = null,
+  embed = false,
 } = Astro.props;
+const showChrome = Boolean(chrome) && !embed;
 const robotsContent = Astro.locals.allowIndex === false ? 'noindex,nofollow' : robots;
 const shareOrigin = shareOriginFrom(canonical, Astro.url.origin);
 const share = shareMetadata({
@@ -111,12 +115,12 @@ async function reachableShareImage(
     {jsonLd.map((entry) => <script type="application/ld+json" set:html={entry} />)}
     <link rel="icon" href={faviconUrl} />
   </head>
-  <body class="bg-canvas font-sans text-ink antialiased">
+  <body class:list={['bg-canvas font-sans text-ink antialiased', embed && 'preview-embed']}>
     <a class="skip-link" href="#noi-dung">Tới nội dung</a>
-    {chrome && <SiteHeader site={chrome} />}
+    {showChrome && chrome && <SiteHeader site={chrome} />}
     <div id="noi-dung">
       <slot />
     </div>
-    {chrome && <SiteFooter site={chrome} />}
+    {showChrome && chrome && <SiteFooter site={chrome} />}
   </body>
 </html>

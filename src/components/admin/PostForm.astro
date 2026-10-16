@@ -106,13 +106,32 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
         aria-pressed="false"
         title="Ẩn cột phụ để tập trung viết"
       >Chỉ viết</button>
-      <button class="btn btn-compact" id="preview-post" type="submit" formmethod="post" formaction={routes.adminPostPreview} formtarget="_blank" data-keep-label="true">Xem trước</button>
+      <button
+        class="btn btn-compact"
+        id="preview-post"
+        type="button"
+        data-preview-toggle
+        aria-pressed="false"
+        title="Xem trước cạnh trình soạn thảo"
+      >Xem trước</button>
+      <button
+        class="sr-only"
+        id="preview-submit"
+        type="submit"
+        formmethod="post"
+        formaction={routes.adminPostPreview}
+        formtarget="post-preview-frame"
+        tabindex="-1"
+        data-keep-label="true"
+      >Làm mới xem trước</button>
       <button class="btn btn-compact" id="save-draft" type="submit" data-keep-label="true" hidden={values.status === 'published'}>Lưu nháp</button>
       <button class="btn btn-compact btn-primary" id="save-publish" type="submit" data-keep-label="true">{publishLabel}</button>
       <button class="btn btn-compact" id="unpublish-post" type="submit" data-keep-label="true" data-retire="unpublish" data-retire-form="post-form" hidden={values.status !== 'published'}>Gỡ xuất bản</button>
     </div>
   </div>
   {formError && <p class="error-text" role="alert">{formError}</p>}
+  <input type="hidden" name="embed" value="1" disabled data-preview-embed />
+  <div class="post-workspace">
   <div class="post-columns">
     <div class="post-main">
       <div class="post-canvas">
@@ -263,6 +282,19 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
         )
       }
     </aside>
+  </div>
+  <aside class="post-preview-pane" data-preview-pane hidden>
+    <div class="post-preview-head">
+      <p class="post-preview-title">Xem trước</p>
+      <p class="post-preview-status" data-preview-status aria-live="polite"></p>
+      <div class="post-preview-actions">
+        <button class="btn btn-compact" type="button" data-preview-refresh>Làm mới</button>
+        <button class="btn btn-compact" type="button" data-preview-blank title="Mở tab mới">Tab mới</button>
+        <button class="btn btn-compact" type="button" data-preview-close>Đóng</button>
+      </div>
+    </div>
+    <iframe name="post-preview-frame" title="Xem trước bài viết" data-preview-frame></iframe>
+  </aside>
   </div>
 </form>
 {
@@ -497,6 +529,78 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
     if (prose instanceof HTMLElement) prose.focus();
   });
 
+  const previewBtn = document.getElementById('preview-post');
+  const previewSubmit = document.getElementById('preview-submit');
+  const previewPane = form?.querySelector('[data-preview-pane]');
+  const previewFrame = form?.querySelector('[data-preview-frame]');
+  const previewStatus = form?.querySelector('[data-preview-status]');
+  const previewEmbed = form?.querySelector('[data-preview-embed]');
+  let previewOpen = false;
+
+  function setPreviewStatus(text) {
+    if (previewStatus instanceof HTMLElement) previewStatus.textContent = text;
+  }
+
+  function refreshPreview() {
+    if (!(form instanceof HTMLFormElement) || !(previewSubmit instanceof HTMLButtonElement)) return;
+    if (previewEmbed instanceof HTMLInputElement) previewEmbed.disabled = false;
+    setPreviewStatus('Đang tải…');
+    form.requestSubmit(previewSubmit);
+  }
+
+  function openPreview(refresh) {
+    if (!(form instanceof HTMLFormElement)) return;
+    previewOpen = true;
+    form.classList.add('is-preview');
+    if (previewPane instanceof HTMLElement) previewPane.hidden = false;
+    if (previewBtn instanceof HTMLButtonElement) {
+      previewBtn.setAttribute('aria-pressed', 'true');
+      previewBtn.textContent = 'Làm mới';
+      previewBtn.title = 'Làm mới bản xem trước';
+    }
+    syncToolbarTop();
+    if (refresh) refreshPreview();
+  }
+
+  function closePreview() {
+    if (!(form instanceof HTMLFormElement)) return;
+    previewOpen = false;
+    form.classList.remove('is-preview');
+    if (previewPane instanceof HTMLElement) previewPane.hidden = true;
+    if (previewEmbed instanceof HTMLInputElement) previewEmbed.disabled = true;
+    if (previewFrame instanceof HTMLIFrameElement) previewFrame.src = 'about:blank';
+    if (previewBtn instanceof HTMLButtonElement) {
+      previewBtn.setAttribute('aria-pressed', 'false');
+      previewBtn.textContent = 'Xem trước';
+      previewBtn.title = 'Xem trước cạnh trình soạn thảo';
+    }
+    setPreviewStatus('');
+    syncToolbarTop();
+  }
+
+  previewBtn?.addEventListener('click', () => {
+    if (previewOpen) refreshPreview();
+    else openPreview(true);
+  });
+  form?.querySelector('[data-preview-refresh]')?.addEventListener('click', () => refreshPreview());
+  form?.querySelector('[data-preview-close]')?.addEventListener('click', () => closePreview());
+  form?.querySelector('[data-preview-blank]')?.addEventListener('click', () => {
+    if (!(form instanceof HTMLFormElement) || !(previewSubmit instanceof HTMLButtonElement)) return;
+    if (previewEmbed instanceof HTMLInputElement) previewEmbed.disabled = true;
+    previewSubmit.setAttribute('formtarget', '_blank');
+    form.requestSubmit(previewSubmit);
+    previewSubmit.setAttribute('formtarget', 'post-preview-frame');
+    if (previewOpen && previewEmbed instanceof HTMLInputElement) previewEmbed.disabled = false;
+  });
+  previewFrame?.addEventListener('load', () => {
+    if (previewOpen) setPreviewStatus('');
+  });
+  window.addEventListener('keydown', (event) => {
+    if (!(event instanceof KeyboardEvent) || event.key !== 'Escape' || !previewOpen) return;
+    if (document.querySelector('dialog[open]')) return;
+    closePreview();
+  });
+
   function quickSave(event) {
     if (!(event instanceof KeyboardEvent) || !(form instanceof HTMLFormElement)) return;
     if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
@@ -526,7 +630,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
 
   form?.addEventListener('submit', (event) => {
     if (!(form instanceof HTMLFormElement) || !(event instanceof SubmitEvent)) return;
-    if (event.submitter instanceof HTMLButtonElement && event.submitter.id === 'preview-post') return;
+    if (event.submitter instanceof HTMLButtonElement && (event.submitter.id === 'preview-post' || event.submitter.id === 'preview-submit')) return;
     if (
       form.dataset.livePublished === '1' &&
       status instanceof HTMLSelectElement &&
