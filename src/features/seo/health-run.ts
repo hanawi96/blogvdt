@@ -17,17 +17,21 @@ import {
   HEALTH_PAGE_SIZE,
   assessPost,
   collectContentImages,
+  healthCodeBreakdown,
   healthFigures,
+  healthScore,
   inboundIssues,
   isHealthPhase,
   pageWindow,
   shouldContinue,
   siteHealthIssues,
+  type HealthCodeStat,
   type HealthCover,
   type HealthDraft,
   type HealthFilters,
   type HealthImage,
   type HealthPhase,
+  type HealthScore,
   type HealthSeverity,
 } from './health';
 
@@ -40,6 +44,7 @@ type HealthRun = {
   phase: HealthPhase;
   cursor: number;
   linksTruncated: boolean;
+  publishedTotal: number;
 };
 
 type MetaRow = {
@@ -64,7 +69,7 @@ type RunPatch = {
 };
 
 export type HealthSnapshot = {
-  run: { id: number; phase: HealthPhase; startedAt: number; finishedAt: number | null } | null;
+  run: { id: number; phase: HealthPhase; startedAt: number; finishedAt: number | null; publishedTotal: number } | null;
   published: number;
   verified: number;
   unchecked: number;
@@ -73,6 +78,9 @@ export type HealthSnapshot = {
   stalePosts: { id: number; title: string }[];
   errors: number;
   warnings: number;
+  breakdown: HealthCodeStat[];
+  cleanPosts: number;
+  score: HealthScore;
   issues: { id: number; postId: number | null; postTitle: string; severity: HealthSeverity; code: string; detail: string }[];
   total: number;
   page: number;
@@ -81,7 +89,9 @@ export type HealthSnapshot = {
   figures: ReturnType<typeof healthFigures>;
 };
 
-const HEAD_CAP = 16;
+// Số lần HEAD R2 tối đa cho cả một request kiểm tra (nhiều lô). R2 là dịch vụ Cloudflare nên HEAD tính vào
+// hạn subrequest nội bộ (1000), không phải hạn external (50); 120 đủ rộng cho một lượt mà vẫn cách xa ngưỡng.
+const HEAD_CAP = 120;
 
 export async function advanceHealthRun(
   db: AppDb,
@@ -91,15 +101,16 @@ export async function advanceHealthRun(
   let current: HealthRun | null = null;
   if (input.mode === 'start') {
     const previous = await latestRun(db);
+    const publishedTotal = await countPosts(db, livePublished());
     const inserted = await db
       .insert(seoHealthRuns)
-      .values({ startedAt: input.now, finishedAt: null, phase: 'posts', cursor: 0, linksTruncated: 0 })
+      .values({ startedAt: input.now, finishedAt: null, phase: 'posts', cursor: 0, linksTruncated: 0, publishedTotal })
       .returning({ id: seoHealthRuns.id });
     const id = inserted[0]?.id;
     if (!id) throw new Error('seo_health_run_missing');
     createdId = id;
     if (previous && previous.phase !== 'done') await deleteRun(db, previous.id);
-    current = { id, startedAt: input.now, finishedAt: null, phase: 'posts', cursor: 0, linksTruncated: false };
+    current = { id, startedAt: input.now, finishedAt: null, phase: 'posts', cursor: 0, linksTruncated: false, publishedTotal };
   } else {
     current = await latestRun(db);
     if (!current) return { finished: false, steps: 0 };
@@ -107,6 +118,8 @@ export async function advanceHealthRun(
   }
 
   let context: ScanContext | null = null;
+  // Cache + hạn HEAD dùng chung cho cả request: ảnh lặp giữa các lô không tốn thêm HEAD, hạn không bị reset mỗi lô.
+  const fileState = headCache(input.bucket);
   const started = Date.now();
   let steps = 0;
   try {
@@ -116,6 +129,7 @@ export async function advanceHealthRun(
         origin: input.origin,
         now: input.now,
         bucket: input.bucket,
+        fileState,
         context: async () => {
           if (!context) context = await loadScanContext(db);
           return context;
@@ -165,16 +179,25 @@ export async function loadHealth(db: AppDb, filters: HealthFilters): Promise<Hea
     filters.code ? eq(seoHealthIssues.code, filters.code) : undefined,
     filters.postId ? eq(seoHealthIssues.postId, filters.postId) : undefined,
   );
-  const [totals, totalRows, unchecked, stale, verified] = await Promise.all([
+  const [totals, codeRows, totalRows, unchecked, stale, verified, verifiedWithIssues] = await Promise.all([
     db.select({ severity: seoHealthIssues.severity, value: count() }).from(seoHealthIssues).where(visible).groupBy(seoHealthIssues.severity),
+    db
+      .select({ code: seoHealthIssues.code, severity: seoHealthIssues.severity, value: count() })
+      .from(seoHealthIssues)
+      .where(visible)
+      .groupBy(seoHealthIssues.code, seoHealthIssues.severity),
     db.select({ value: count() }).from(seoHealthIssues).where(listWhere),
     countPosts(db, and(livePublished(), missingRun(run.id))),
     countPosts(db, and(livePublished(), gt(posts.updatedAt, run.startedAt), inThisRun(run.id))),
     countPosts(db, and(livePublished(), lte(posts.updatedAt, run.startedAt), inThisRun(run.id))),
+    countPosts(db, and(livePublished(), lte(posts.updatedAt, run.startedAt), inThisRun(run.id), hasIssue(run.id))),
   ]);
   const errors = totals.find((item) => item.severity === 'error')?.value ?? 0;
   const warnings = totals.find((item) => item.severity === 'warning')?.value ?? 0;
   const total = totalRows[0]?.value ?? 0;
+  const breakdown = healthCodeBreakdown(codeRows);
+  const cleanPosts = Math.max(0, verified - verifiedWithIssues);
+  const score = healthScore({ phase: run.phase, publishedTotal: run.publishedTotal, published, cleanPosts });
   const window = pageWindow(total, filters.page, HEALTH_PAGE_SIZE);
   const [issueRows, uncheckedPosts, stalePosts, optionRows] = await Promise.all([
     db
@@ -213,7 +236,7 @@ export async function loadHealth(db: AppDb, filters: HealthFilters): Promise<Hea
   ]);
 
   return {
-    run: { id: run.id, phase: run.phase, startedAt: run.startedAt, finishedAt: run.finishedAt },
+    run: { id: run.id, phase: run.phase, startedAt: run.startedAt, finishedAt: run.finishedAt, publishedTotal: run.publishedTotal },
     published,
     verified,
     unchecked,
@@ -222,6 +245,9 @@ export async function loadHealth(db: AppDb, filters: HealthFilters): Promise<Hea
     stalePosts,
     errors,
     warnings,
+    breakdown,
+    cleanPosts,
+    score,
     issues: issueRows.map((issue) => ({
       id: issue.id,
       postId: issue.postId,
@@ -238,21 +264,23 @@ export async function loadHealth(db: AppDb, filters: HealthFilters): Promise<Hea
   };
 }
 
-async function runStep(
-  db: AppDb,
-  run: HealthRun,
-  input: { origin: string; now: number; bucket: HealthBucket | null; context: () => Promise<ScanContext> },
-): Promise<HealthRun> {
+type FileStateReader = (key: string) => Promise<{ state: 'present' | 'missing' | 'unchecked'; failed: boolean }>;
+
+type StepInput = {
+  origin: string;
+  now: number;
+  bucket: HealthBucket | null;
+  fileState: FileStateReader;
+  context: () => Promise<ScanContext>;
+};
+
+async function runStep(db: AppDb, run: HealthRun, input: StepInput): Promise<HealthRun> {
   if (run.phase === 'posts') return scanPosts(db, run, input);
   if (run.phase === 'links') return scanLinks(db, run);
   return scanInbound(db, run, input.now);
 }
 
-async function scanPosts(
-  db: AppDb,
-  run: HealthRun,
-  input: { origin: string; now: number; bucket: HealthBucket | null; context: () => Promise<ScanContext> },
-): Promise<HealthRun> {
+async function scanPosts(db: AppDb, run: HealthRun, input: StepInput): Promise<HealthRun> {
   const rows = await db
     .select({
       id: posts.id,
@@ -292,7 +320,7 @@ async function scanPosts(
     const found = await db.select({ key: media.r2Key }).from(media).where(inArray(media.r2Key, [...keys]));
     for (const item of found) known.add(item.key);
   }
-  const fileState = headCache(input.bucket);
+  const fileState = input.fileState;
   const issues: HealthDraft[] = [];
   if (run.cursor === 0) issues.push(...siteHealthIssues({ origin: input.origin, filesReady: Boolean(input.bucket) }));
   for (const item of prepared) {
@@ -507,6 +535,7 @@ async function latestRun(db: AppDb): Promise<HealthRun | null> {
     phase: row.phase,
     cursor: row.cursor,
     linksTruncated: row.linksTruncated === 1,
+    publishedTotal: row.publishedTotal,
   };
 }
 
@@ -535,6 +564,9 @@ function emptySnapshot(published: number, uncheckedPosts: { id: number; title: s
     stalePosts: [],
     errors: 0,
     warnings: 0,
+    breakdown: [],
+    cleanPosts: 0,
+    score: healthScore({ phase: null, publishedTotal: 0, published, cleanPosts: 0 }),
     issues: [],
     total: 0,
     page: 1,
@@ -550,6 +582,10 @@ function missingRun(runId: number): SQL {
 
 function inThisRun(runId: number): SQL {
   return sql`exists (select 1 from seo_health_posts where seo_health_posts.run_id = ${runId} and seo_health_posts.post_id = ${posts.id})`;
+}
+
+function hasIssue(runId: number): SQL {
+  return sql`exists (select 1 from seo_health_issues where seo_health_issues.run_id = ${runId} and seo_health_issues.post_id = ${posts.id})`;
 }
 
 async function countPosts(db: AppDb, where: SQL | undefined): Promise<number> {

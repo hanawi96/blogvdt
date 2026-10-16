@@ -114,8 +114,8 @@ const bannerError = slugError || nameError ? '' : formError;
 <AdminLayout title="Thẻ">
   {saved && !formError && <p class="mb-4 text-primary-strong" role="status">Đã lưu thẻ.</p>}
   {bannerError && <p class="error-text mb-4" role="alert">{bannerError}</p>}
-  <div class="category-layout">
-    <form class="category-panel" method="post" data-busy>
+  <div class="tag-manage">
+    <form class="category-panel tag-form" method="post" data-busy>
       <h2 class="category-panel-title">{editingId ? 'Sửa thẻ' : 'Thêm thẻ'}</h2>
       <input type="hidden" name="csrf" value={session.csrfToken} />
       <input type="hidden" name="intent" value="save" />
@@ -128,7 +128,7 @@ const bannerError = slugError || nameError ? '' : formError;
       </label>
       <fieldset class="mt-4">
         <legend class="mb-1 block font-semibold">Trạng thái SEO</legend>
-        <div class="category-presets" role="radiogroup" aria-label="Trạng thái SEO">
+        <div class="category-presets tag-seo-presets" role="radiogroup" aria-label="Trạng thái SEO">
           <label class="category-preset">
             <input type="radio" name="robots" value="noindex" checked={robots !== 'index'} />
             <span>Noindex, follow</span>
@@ -177,7 +177,7 @@ const bannerError = slugError || nameError ? '' : formError;
         {editingId && <a class="btn" href={routes.adminTags}>Hủy</a>}
       </div>
     </form>
-    <section class="category-panel">
+    <section class="category-panel tag-list-panel">
       <div class="category-list-head">
         <h2 class="category-panel-title">Danh sách</h2>
         <form method="get" class="tag-search" role="search">
@@ -187,40 +187,57 @@ const bannerError = slugError || nameError ? '' : formError;
       </div>
       {
         tagRows.length === 0 ? (
-          <p class="text-muted">{query.trim() ? 'Không có thẻ khớp tìm kiếm.' : 'Chưa có thẻ.'}</p>
+          <p class="post-empty">{query.trim() ? 'Không có thẻ khớp tìm kiếm.' : 'Chưa có thẻ.'}</p>
         ) : (
-          <ul>
-            {tagRows.map((tag) => (
-              <li class:list={['category-row', editingId === String(tag.id) && 'category-row-current']}>
-                <div>
-                  <p class="font-semibold">{tag.name}</p>
-                  <p class="text-sm text-muted">{routes.tag(tag.slug)}</p>
-                  <p class="text-sm text-muted">
-                    {tag.postCount === 0 ? 'Chưa có bài' : tag.postCount === 1 ? '1 bài' : `${tag.postCount} bài`}
-                    <span aria-hidden="true"> · </span>
-                    {tag.robots === 'index' ? 'Index' : 'Noindex'}
-                  </p>
-                </div>
-                <div class="post-actions">
-                  <a href={`${routes.adminTags}?edit=${tag.id}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}`}>Sửa</a>
-                  <span class="post-actions-sep" aria-hidden="true">|</span>
-                  <form
-                    method="post"
-                    data-busy
-                    data-confirm-title={`Xóa “${tag.name}”?`}
-                    data-confirm={tagDeleteWarning(tag.postCount)}
-                    data-confirm-ok="Xóa"
-                    data-confirm-tone="danger"
-                  >
-                    <input type="hidden" name="csrf" value={session.csrfToken} />
-                    <input type="hidden" name="intent" value="delete" />
-                    <input type="hidden" name="id" value={tag.id} />
-                    <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
-                  </form>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div data-tag-list>
+            <table class="post-table">
+              <thead>
+                <tr>
+                  <th>Thẻ</th>
+                  <th>Số bài</th>
+                  <th>SEO</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tagRows.map((tag) => (
+                  <tr class:list={[editingId === String(tag.id) && 'is-current']}>
+                    <td data-label="Thẻ">
+                      <div class="min-w-0">
+                        <a class="post-title" href={`${routes.adminTags}?edit=${tag.id}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}`}>{tag.name}</a>
+                        <p class="truncate text-sm text-muted">{routes.tag(tag.slug)}</p>
+                      </div>
+                    </td>
+                    <td data-label="Số bài">{tag.postCount === 0 ? 'Chưa có bài' : tag.postCount === 1 ? '1 bài' : `${tag.postCount} bài`}</td>
+                    <td data-label="SEO">
+                      <span class:list={['tag-seo', tag.robots === 'index' ? 'is-index' : 'is-noindex']}>
+                        {tag.robots === 'index' ? 'Index' : 'Noindex'}
+                      </span>
+                    </td>
+                    <td data-label="Thao tác">
+                      <div class="post-actions">
+                        <a href={`${routes.adminTags}?edit=${tag.id}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}`}>Sửa</a>
+                        <span class="post-actions-sep" aria-hidden="true">|</span>
+                        <form
+                          method="post"
+                          data-busy
+                          data-confirm-title={`Xóa “${tag.name}”?`}
+                          data-confirm={tagDeleteWarning(tag.postCount)}
+                          data-confirm-ok="Xóa"
+                          data-confirm-tone="danger"
+                        >
+                          <input type="hidden" name="csrf" value={session.csrfToken} />
+                          <input type="hidden" name="intent" value="delete" />
+                          <input type="hidden" name="id" value={tag.id} />
+                          <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )
       }
     </section>

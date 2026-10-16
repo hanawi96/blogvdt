@@ -329,6 +329,7 @@ export const seoHealthRuns = sqliteTable(
     phase: text('phase').notNull().default('posts'),
     cursor: integer('cursor').notNull().default(0),
     linksTruncated: integer('links_truncated').notNull().default(0),
+    publishedTotal: integer('published_total').notNull().default(0),
   },
   (table) => [check('seo_health_runs_phase_check', sql`${table.phase} in ('posts', 'links', 'inbound', 'done')`)],
 );

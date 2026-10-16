@@ -4,6 +4,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { categories, media, posts } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { blockMoveState, moveBlock } from './image-move';
 import { livePublished } from './visibility';
 
 export const POST_CARDS_NODE = 'postCards';
@@ -210,6 +211,7 @@ export const PostCards = Node.create({
       const paint = () => {
         const ids = normalizePostCardIds(node.attrs.ids);
         const labels = normalizePostCardLabels(node.attrs.labels, ids.length);
+        const move = blockMoveState(editor, getPos);
         const rows =
           ids.length === 0
             ? `<p class="editor-post-cards-empty">Chưa chọn bài viết.</p>`
@@ -219,7 +221,17 @@ export const PostCards = Node.create({
                   return `<li><span class="editor-post-cards-title">${escapeText(title)}</span></li>`;
                 })
                 .join('')}</ul>`;
-        root.innerHTML = `<div class="editor-post-cards-head"><p class="editor-post-cards-label">Đọc tiếp cho mẹ</p><div class="editor-post-cards-actions"><button type="button" data-edit>Sửa</button><button type="button" data-remove>Xóa</button></div></div>${rows}`;
+        root.innerHTML = `<div class="editor-post-cards-head"><p class="editor-post-cards-label">Đọc tiếp cho mẹ</p><div class="editor-post-cards-actions"><button type="button" data-move-up title="Đưa khối lên trên"${move.up ? '' : ' disabled'}>Lên</button><button type="button" data-move-down title="Đưa khối xuống dưới"${move.down ? '' : ' disabled'}>Xuống</button><button type="button" data-edit>Sửa</button><button type="button" data-remove>Xóa</button></div></div>${rows}`;
+        root.querySelector('[data-move-up]')?.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          moveBlock(editor, getPos, -1, [POST_CARDS_NODE]);
+        });
+        root.querySelector('[data-move-down]')?.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          moveBlock(editor, getPos, 1, [POST_CARDS_NODE]);
+        });
         root.querySelector('[data-edit]')?.addEventListener('click', (event) => {
           event.preventDefault();
           event.stopPropagation();

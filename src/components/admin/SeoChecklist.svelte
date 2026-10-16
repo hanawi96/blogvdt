@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { collectPostPaths, type PostLinkIssue } from '../../features/posts/links';
-  import { checkPostSeo, slugCheckState, type SeoCheck, type SeoCheckState } from '../../features/posts/seo-check';
+  import { checkPostSeo, orderSeoChecks, slugCheckState, summarizeSeoChecks, type SeoCheck, type SeoCheckState } from '../../features/posts/seo-check';
   import { routes } from '../../lib/routes';
 
   let {
@@ -12,6 +12,8 @@
   }: { siteName: string; host: string; publishedAt?: number | null; corpus?: { titles: string[]; descriptions: string[] } } = $props();
 
   let items = $state<SeoCheck[]>([]);
+  const sortedItems = $derived(orderSeoChecks(items));
+  const summary = $derived(summarizeSeoChecks(items));
   let slugTaken = $state<boolean | null>(null);
   let linkIssues = $state<PostLinkIssue[]>([]);
   let linkTruncated = $state(false);
@@ -180,8 +182,13 @@
 <section class="post-card seo-checks">
   <h2 class="post-card-title">Kiểm tra SEO</h2>
   <p class="seo-hint">Gợi ý khi đang viết. Không phải điểm xếp hạng, và không chặn lưu nháp.</p>
+  <p class="seo-check-summary" role="status" aria-live="polite">
+    {#if summary.error > 0}<span class="seo-check-sum" data-state="error">{summary.error} cần sửa</span>{/if}
+    {#if summary.improve > 0}<span class="seo-check-sum" data-state="improve">{summary.improve} nên cải thiện</span>{/if}
+    <span class="seo-check-sum" data-state="pass">{summary.pass} đạt</span>
+  </p>
   <ul>
-    {#each items as item (item.id)}
+    {#each sortedItems as item (item.id)}
       <li>
         {#if item.target && (item.state === 'error' || item.state === 'improve')}
           <button type="button" onclick={() => focusTarget(item.target)}>

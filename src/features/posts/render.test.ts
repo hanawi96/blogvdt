@@ -38,8 +38,10 @@ describe('render HTML bài viết', () => {
     });
     expect(html).toContain('<h2 id="cach-nhin-to">Cách nhìn &lt;tơ&gt;</h2>');
     expect(html).not.toContain('javascript:');
-    expect(html).toContain('href="https://example.com/bai"');
+    expect(html).toContain('href="https://example.com/bai" target="_blank" rel="nofollow noopener noreferrer"');
     expect(html).toContain('href="/kien-thuc/bai-noi-bo"');
+    // Link nội bộ không mở tab mới.
+    expect(html).not.toContain('href="/kien-thuc/bai-noi-bo" target');
     expect(html).toContain('src="/media/2026/10/a.png"');
     expect(html).not.toContain('width=');
     expect(html).toContain('<figcaption>Chú thích &lt;x&gt;</figcaption>');

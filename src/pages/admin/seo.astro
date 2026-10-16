@@ -72,12 +72,10 @@ const note = loadError
     });
 const inProgress = Boolean(snapshot?.run && snapshot.run.phase !== 'done');
 const filtered = Boolean(filters.severity || filters.code || filters.postId);
-const cards = [
-  ['Lỗi nghiêm trọng', figures.errors],
-  ['Cảnh báo', figures.warnings],
-  ['Đã xác minh', figures.verified],
-  ['Chưa xác minh', figures.pending],
-];
+const hasRun = Boolean(snapshot?.run);
+const score = snapshot?.score ?? null;
+const breakdown = snapshot?.breakdown ?? [];
+const scoreTone = score ? (score.score >= 90 ? 'good' : score.score >= 70 ? 'warn' : 'bad') : 'warn';
 
 function pageHref(page: number): string {
   const params = new URLSearchParams();
@@ -87,6 +85,15 @@ function pageHref(page: number): string {
   if (page > 1) params.set('page', String(page));
   const text = params.toString();
   return text ? `${routes.adminSeo}?${text}` : routes.adminSeo;
+}
+
+// Link lọc nhanh theo loại lỗi: giữ bài đang chọn, bỏ severity và trang để xem toàn bộ loại đó.
+function codeHref(code: string): string {
+  if (filters.code === code) return filters.postId ? `${routes.adminSeo}?post=${filters.postId}` : routes.adminSeo;
+  const params = new URLSearchParams();
+  params.set('code', code);
+  if (filters.postId) params.set('post', String(filters.postId));
+  return `${routes.adminSeo}?${params.toString()}`;
 }
 
 function codeLabel(code: string): string {
@@ -110,16 +117,65 @@ function codeLabel(code: string): string {
     }
   </form>
   {formError && <p class="error-text" role="alert">{formError}</p>}
-  <ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-    {
-      cards.map(([label, value]) => (
-        <li class="rounded-md border border-line bg-surface p-4">
-          <p class="text-sm text-muted">{label}</p>
-          <p class="mt-1 text-2xl font-semibold">{value}</p>
-        </li>
-      ))
-    }
-  </ul>
+  {
+    !loadError && (
+      <section class="health-overview" aria-label="Tổng quan sức khỏe">
+        <div class="health-score" data-tone={scoreTone}>
+          <p class="health-score-value">{hasRun && score ? `${score.score}%` : '—'}</p>
+          <p class="health-score-label">Điểm sức khỏe</p>
+          {hasRun && score && (
+            <div class="health-meter" role="img" aria-label={`Đạt ${score.score} phần trăm`}>
+              <span style={`width:${score.score}%`}></span>
+            </div>
+          )}
+        </div>
+        <ul class="health-stats">
+          <li>
+            <span class="health-stat-value">{hasRun && score ? `${score.cleanPosts}/${score.denominator}` : '—'}</span>
+            <span class="health-stat-label">Bài sạch lỗi</span>
+          </li>
+          <li data-kind="error">
+            <span class="health-stat-value">{figures.errors}</span>
+            <span class="health-stat-label">Lỗi nghiêm trọng</span>
+          </li>
+          <li data-kind="warning">
+            <span class="health-stat-value">{figures.warnings}</span>
+            <span class="health-stat-label">Cảnh báo</span>
+          </li>
+          <li>
+            <span class="health-stat-value">{figures.pending}</span>
+            <span class="health-stat-label">Chưa xác minh</span>
+          </li>
+        </ul>
+      </section>
+    )
+  }
+  {
+    hasRun && breakdown.length > 0 && (
+      <section class="health-codes" aria-label="Lỗi theo loại">
+        <h2 class="text-lg font-semibold">Theo loại lỗi</h2>
+        <ul class="health-code-grid">
+          {breakdown.map((stat) => (
+            <li>
+              <a
+                class="health-code"
+                href={codeHref(stat.code)}
+                aria-pressed={filters.code === stat.code}
+                data-active={filters.code === stat.code}
+              >
+                <span class="health-code-label">{stat.label}</span>
+                <span class="health-code-counts">
+                  {stat.errors > 0 && <span class="health-chip" data-kind="error">{stat.errors} lỗi</span>}
+                  {stat.warnings > 0 && <span class="health-chip" data-kind="warning">{stat.warnings} cảnh báo</span>}
+                </span>
+              </a>
+            </li>
+          ))}
+        </ul>
+        {filters.code && <a class="health-code-clear" href={filters.postId ? `${routes.adminSeo}?post=${filters.postId}` : routes.adminSeo}>Bỏ lọc loại lỗi</a>}
+      </section>
+    )
+  }
   {
     snapshot?.run && (
       <form class="post-toolbar mt-6" method="get">

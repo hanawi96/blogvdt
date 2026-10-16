@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkPostSeo, lengthNote, metaDuplicateNote, SEO_TITLE_RANGE } from './seo-check';
+import { checkPostSeo, lengthNote, metaDuplicateNote, orderSeoChecks, summarizeSeoChecks, SEO_TITLE_RANGE, type SeoCheck } from './seo-check';
 
 const base = {
   title: 'Nên hỏi gì khi đặt vòng cho bé',
@@ -22,6 +22,8 @@ const base = {
           },
         ],
       },
+      // Đoạn đủ dài để vượt ngưỡng MIN_CONTENT_WORDS, giữ các mục chính ở trạng thái pass.
+      { type: 'paragraph', content: [{ type: 'text', text: Array.from({ length: 160 }, () => 'từ').join(' ') }] },
       { type: 'image', attrs: { src: '/media/2026/10/a.webp', alt: 'Vòng tơ' } },
     ],
   }),
@@ -92,6 +94,30 @@ describe('kiểm tra SEO', () => {
     expect(byId.links?.state).toBe('pass');
     expect(byId.links?.detail).toContain('Chưa có liên kết');
     expect(byId.inbound?.state).toBe('na');
+  });
+
+  it('bài có chữ nhưng quá ngắn thì mục Nội dung ở mức cải thiện', () => {
+    const checks = checkPostSeo({
+      ...base,
+      contentJson: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'vài từ ngắn thôi' }] }] }),
+    });
+    const content = checks.find((check) => check.id === 'content');
+    expect(content?.state).toBe('improve');
+    expect(content?.detail).toContain('hơi ngắn');
+  });
+
+  it('sắp xếp đưa mục cần sửa/cải thiện lên trước và đếm tổng quan đúng', () => {
+    const sample: SeoCheck[] = [
+      { id: 'a', label: '', detail: '', state: 'pass', target: '' },
+      { id: 'b', label: '', detail: '', state: 'error', target: '' },
+      { id: 'c', label: '', detail: '', state: 'na', target: '' },
+      { id: 'd', label: '', detail: '', state: 'improve', target: '' },
+      { id: 'e', label: '', detail: '', state: 'pass', target: '' },
+    ];
+    expect(orderSeoChecks(sample).map((c) => c.id)).toEqual(['b', 'd', 'a', 'e', 'c']);
+    expect(summarizeSeoChecks(sample)).toEqual({ error: 1, improve: 1, pass: 2, na: 1 });
+    // Không đột biến mảng gốc.
+    expect(sample.map((c) => c.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 
   it('đếm độ dài chỉ cảnh báo, không biến chuỗi rỗng thành cảnh báo', () => {

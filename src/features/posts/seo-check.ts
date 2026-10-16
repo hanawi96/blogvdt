@@ -1,9 +1,13 @@
 import { plainMetaText, type MetaCorpus } from '../../lib/seo/meta';
+import { headingStructureIssues, type HeadingIssueCode } from './heading-audit';
 import { isInternalHref, type PostLinkIssue } from './links';
+import { countWords } from './reading-stats';
 import { SLUG_PATTERN } from './slug';
 
 export const SEO_TITLE_RANGE = { min: 30, max: 60 };
 export const SEO_DESC_RANGE = { min: 70, max: 160 };
+/** Dưới mức này coi là bài mỏng, gợi ý viết thêm (không chặn). */
+export const MIN_CONTENT_WORDS = 150;
 
 export type SeoCheckState = 'pass' | 'improve' | 'error' | 'na';
 export type SlugCheck = 'empty' | 'invalid' | 'checking' | 'taken' | 'free';
@@ -52,6 +56,24 @@ export function lengthNote(length: number, min: number, max: number): string {
   return '';
 }
 
+export type SeoCheckSummary = { error: number; improve: number; pass: number; na: number };
+
+const STATE_ORDER: Record<SeoCheckState, number> = { error: 0, improve: 1, pass: 2, na: 3 };
+
+/** Đưa mục cần sửa/cải thiện lên trên, giữ thứ tự gốc trong cùng mức. Không đột biến mảng vào. */
+export function orderSeoChecks(checks: readonly SeoCheck[]): SeoCheck[] {
+  return checks
+    .map((check, index) => ({ check, index }))
+    .sort((a, b) => STATE_ORDER[a.check.state] - STATE_ORDER[b.check.state] || a.index - b.index)
+    .map((entry) => entry.check);
+}
+
+export function summarizeSeoChecks(checks: readonly SeoCheck[]): SeoCheckSummary {
+  const summary: SeoCheckSummary = { error: 0, improve: 0, pass: 0, na: 0 };
+  for (const check of checks) summary[check.state] += 1;
+  return summary;
+}
+
 export function checkPostSeo(input: SeoCheckInput): SeoCheck[] {
   const content = readContent(input.contentJson, input.host);
   const title = input.title.trim();
@@ -89,8 +111,12 @@ function slugItem(slugCheck: SlugCheck): SeoCheck {
 
 function contentItem(content: ContentFacts | null): SeoCheck {
   if (!content) return item('content', 'Nội dung', 'Nội dung bài viết không đọc được.', 'error', '.ProseMirror');
-  if (content.text.trim().length === 0) return item('content', 'Nội dung', 'Bài chưa có nội dung.', 'error', '.ProseMirror');
-  return item('content', 'Nội dung', 'Đã có nội dung.', 'pass', '');
+  const words = countWords(content.text);
+  if (words === 0) return item('content', 'Nội dung', 'Bài chưa có nội dung.', 'error', '.ProseMirror');
+  if (words < MIN_CONTENT_WORDS) {
+    return item('content', 'Nội dung', `Bài hơi ngắn (${words} từ). Nên viết thêm để đủ sâu cho SEO.`, 'improve', '.ProseMirror');
+  }
+  return item('content', 'Nội dung', `Đã có nội dung (${words} từ).`, 'pass', '');
 }
 
 function seoTitleItem(title: string, seoTitle: string, headline: string): SeoCheck {
@@ -153,12 +179,18 @@ function imageItem(content: ContentFacts | null, hasCover: boolean, coverAlt: st
   return item('alt', 'Mô tả ảnh', 'Ảnh đã có mô tả.', 'pass', '');
 }
 
+const HEADING_CHECK_MESSAGES: Record<HeadingIssueCode, string> = {
+  'empty-heading': 'Có tiêu đề trống.',
+  'jump-before-h2': 'Tiêu đề 3 nên đứng sau một tiêu đề 2.',
+  'long-without-h2': 'Bài dài nên chia bằng tiêu đề 2.',
+};
+
 function headingItem(content: ContentFacts | null): SeoCheck {
   if (!content || content.text.trim().length === 0) {
     return item('headings', 'Tiêu đề trong bài', 'Chưa có nội dung để kiểm tra.', 'na', '');
   }
-  const issue = headingIssue(content);
-  if (issue) return item('headings', 'Tiêu đề trong bài', issue, 'improve', '.ProseMirror');
+  const issues = headingStructureIssues(content.headings, countWords(content.text));
+  if (issues.length > 0) return item('headings', 'Tiêu đề trong bài', HEADING_CHECK_MESSAGES[issues[0]!], 'improve', '.ProseMirror');
   return item('headings', 'Tiêu đề trong bài', 'Cấu trúc tiêu đề ổn.', 'pass', '');
 }
 
@@ -198,15 +230,6 @@ function authorItem(siteName: string, publishedAt: number | null): SeoCheck {
   if (!siteName) return item('author', 'Tác giả và ngày đăng', 'Website chưa có tên để làm tác giả.', 'improve', '');
   if (publishedAt) return item('author', 'Tác giả và ngày đăng', 'Có tên website và ngày xuất bản.', 'pass', '');
   return item('author', 'Tác giả và ngày đăng', 'Tên website là tác giả. Ngày đăng có khi xuất bản.', 'pass', '');
-}
-
-function headingIssue(content: ContentFacts): string | null {
-  if (content.headings.some((heading) => heading.text.length === 0)) return 'Có tiêu đề trống.';
-  const firstH2 = content.headings.findIndex((heading) => heading.level === 2);
-  const firstH3 = content.headings.findIndex((heading) => heading.level === 3);
-  if (firstH3 !== -1 && (firstH2 === -1 || firstH3 < firstH2)) return 'Tiêu đề 3 nên đứng sau một tiêu đề 2.';
-  if (content.text.trim().length >= 400 && firstH2 === -1) return 'Bài dài nên chia bằng tiêu đề 2.';
-  return null;
 }
 
 type ContentFacts = {

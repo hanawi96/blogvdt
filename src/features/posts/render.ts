@@ -1,7 +1,7 @@
 import type { JSONContent } from '@tiptap/core';
 import { escapeHTMLAttribute, renderToHTMLString, serializeChildrenToHTMLString } from '@tiptap/static-renderer';
 import { renderCalloutHtml } from './callout';
-import { isPostHref } from './links';
+import { isExternalHref, isPostHref } from './links';
 import { isMediaSrc } from './content';
 import { postExtensions } from './extensions';
 import { collectHeadings } from './headings';
@@ -60,7 +60,8 @@ export function renderPostHtml(
           const href = typeof mark.attrs.href === 'string' ? mark.attrs.href : '';
           const inner = serializeChildrenToHTMLString(children);
           if (!isPostHref(href)) return inner;
-          return `<a href="${escapeHTMLAttribute(href)}">${inner}</a>`;
+          const external = isExternalHref(href) ? ' target="_blank" rel="nofollow noopener noreferrer"' : '';
+          return `<a href="${escapeHTMLAttribute(href)}"${external}>${inner}</a>`;
         },
       },
     },

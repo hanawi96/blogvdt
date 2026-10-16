@@ -5,6 +5,7 @@ import type { AppDb } from '../../lib/db/client';
 import { media, orderItems, orders, products } from '../../lib/db/schema';
 import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
+import { blockMoveState, moveBlock } from './image-move';
 
 export const PRODUCT_CARDS_NODE = 'productCards';
 export const PRODUCT_CARDS_MAX = 3;
@@ -289,6 +290,7 @@ export const ProductCards = Node.create({
         const ids = normalizeProductCardIds(node.attrs.ids);
         const labels = normalizeProductCardLabels(node.attrs.labels, ids.length);
         const covers = normalizeProductCardCovers(node.attrs.covers, ids.length);
+        const move = blockMoveState(editor, getPos);
         root.dataset.count = String(ids.length);
         const rows =
           ids.length === 0
@@ -303,7 +305,17 @@ export const ProductCards = Node.create({
                   return `<li>${thumb}<span class="editor-product-cards-title">${escapeText(name)}</span></li>`;
                 })
                 .join('')}</ul>`;
-        root.innerHTML = `<div class="editor-product-cards-head"><p class="editor-product-cards-label">Đề xuất cho bé</p><div class="editor-product-cards-actions"><button type="button" data-edit>Sửa</button><button type="button" data-remove>Xóa</button></div></div>${rows}`;
+        root.innerHTML = `<div class="editor-product-cards-head"><p class="editor-product-cards-label">Đề xuất cho bé</p><div class="editor-product-cards-actions"><button type="button" data-move-up title="Đưa khối lên trên"${move.up ? '' : ' disabled'}>Lên</button><button type="button" data-move-down title="Đưa khối xuống dưới"${move.down ? '' : ' disabled'}>Xuống</button><button type="button" data-edit>Sửa</button><button type="button" data-remove>Xóa</button></div></div>${rows}`;
+        root.querySelector('[data-move-up]')?.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          moveBlock(editor, getPos, -1, [PRODUCT_CARDS_NODE]);
+        });
+        root.querySelector('[data-move-down]')?.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          moveBlock(editor, getPos, 1, [PRODUCT_CARDS_NODE]);
+        });
         root.querySelector('[data-edit]')?.addEventListener('click', (event) => {
           event.preventDefault();
           event.stopPropagation();

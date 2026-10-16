@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import { Editor, type JSONContent } from '@tiptap/core';
+  import { Placeholder } from '@tiptap/extensions';
   import { CALLOUT_LABELS, CALLOUT_VARIANTS, normalizeCalloutVariant, type CalloutVariant } from '../../features/posts/callout';
   import { isMediaSrc } from '../../features/posts/content';
   import { editorHotkeyCheatSheet, editorHotkeyTip, editorModLabel } from '../../features/posts/editor-hotkeys';
@@ -8,6 +9,8 @@
   import { canMoveSelectedImage, moveSelectedImage } from '../../features/posts/image-move';
   import { isPostHref, postPathFromHref, type InternalLinkHit, type PostLinkIssue } from '../../features/posts/links';
   import { normalizePostCardIds, normalizePostCardLabels, POST_CARDS_MAX, type PostCardRef } from '../../features/posts/post-cards';
+  import { auditHeadings } from '../../features/posts/heading-audit';
+  import { readingStatsLabel } from '../../features/posts/reading-stats';
   import {
     normalizeProductCardCovers,
     normalizeProductCardIds,
@@ -101,6 +104,16 @@
     items: [] as SlashCommand[],
   };
 
+  // Phụ thuộc `revision` (tăng mỗi onUpdate) để Svelte tính lại; getText() duyệt doc 1 lần.
+  const readingLabel = $derived.by(() => {
+    revision;
+    return editor ? readingStatsLabel(editor.getText()) : '0 từ';
+  });
+  const headingWarnings = $derived.by(() => {
+    revision;
+    return editor ? auditHeadings(editor.getJSON()).warnings : [];
+  });
+
   function syncImage(current: Editor) {
     if (!current.isActive('image')) return;
     const attrs = current.getAttributes('image') as { alt?: unknown; caption?: unknown };
@@ -123,7 +136,13 @@
     const instance = new Editor({
       element: host,
       content,
-      extensions: postExtensions(),
+      extensions: [
+        ...postExtensions(),
+        Placeholder.configure({
+          placeholder: 'Bắt đầu viết, gõ / để chèn…',
+          showOnlyCurrent: false,
+        }),
+      ],
       onUpdate: ({ editor: current }) => {
         json = JSON.stringify(current.getJSON());
         revision += 1;
@@ -1103,6 +1122,10 @@
       <path d="M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8" />
     {:else if name === 'italic'}
       <path d="M19 4h-9M14 20H5M15 4 9 20" />
+    {:else if name === 'clear'}
+      <path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2" />
+      <path d="M10 4 8 20M14 20h-6" />
+      <path d="m16 13 5 5M21 13l-5 5" />
     {:else if name === 'link'}
       <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
       <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
@@ -1182,6 +1205,7 @@
         <span class="editor-sep"></span>
         <button class="tool" type="button" title={tip('Đậm', 'B')} aria-pressed={active('bold')} onclick={() => run((current) => current.chain().focus().toggleBold().run())}>{@render toolIcon('bold')}</button>
         <button class="tool" type="button" title={tip('Nghiêng', 'I')} aria-pressed={active('italic')} onclick={() => run((current) => current.chain().focus().toggleItalic().run())}>{@render toolIcon('italic')}</button>
+        <button class="tool" type="button" title="Xóa định dạng" onclick={() => run((current) => current.chain().focus().clearNodes().unsetAllMarks().run())}>{@render toolIcon('clear')}</button>
         <button class="tool" type="button" title="Liên kết" aria-pressed={active('link')} aria-haspopup="dialog" aria-expanded={linkOpen} onclick={openLink}>{@render toolIcon('link')}</button>
         <span class="editor-sep"></span>
         <button class="tool" type="button" title="Ảnh" aria-pressed={libraryOpen} onclick={toggleLibrary}>{@render toolIcon('image')}</button>
@@ -1214,7 +1238,17 @@
           {/if}
         </div>
       </div>
-      <p class="editor-hotkeys" aria-hidden="true">{hotkeyHint}</p>
+      <div class="editor-meta">
+        <p class="editor-hotkeys" aria-hidden="true">{hotkeyHint}</p>
+        <p class="editor-reading" role="status" aria-live="polite">{readingLabel}</p>
+      </div>
+      {#if headingWarnings.length > 0}
+        <ul class="editor-heading-audit" role="status" aria-live="polite">
+          {#each headingWarnings as warning (warning)}
+            <li>{warning}</li>
+          {/each}
+        </ul>
+      {/if}
       {#if tableSelected()}
         <div class="editor-table" role="toolbar" aria-label="Chỉnh bảng">
           <button class="tool" type="button" title="Thêm cột trước" disabled={!tableCan('addColumnBefore')} onclick={() => runTable('addColumnBefore')}>{@render toolIcon('colBefore')}</button>

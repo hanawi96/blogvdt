@@ -263,6 +263,37 @@ export function healthFigures(input: {
   };
 }
 
+export type HealthCodeStat = { code: HealthCode; label: string; errors: number; warnings: number; total: number };
+
+// Gom lỗi theo loại để xem nhanh "site đang hỏng ở đâu". Chỉ giữ loại có ít nhất một lỗi, đẩy loại nhiều lỗi nghiêm trọng lên trên.
+export function healthCodeBreakdown(rows: ReadonlyArray<{ code: string; severity: string; value: number }>): HealthCodeStat[] {
+  const byCode = new Map<HealthCode, { errors: number; warnings: number }>();
+  for (const row of rows) {
+    if (!isHealthCode(row.code)) continue;
+    const entry = byCode.get(row.code) ?? { errors: 0, warnings: 0 };
+    if (row.severity === 'error') entry.errors += row.value;
+    else if (row.severity === 'warning') entry.warnings += row.value;
+    byCode.set(row.code, entry);
+  }
+  return HEALTH_CODES.flatMap((code) => {
+    const entry = byCode.get(code);
+    if (!entry || entry.errors + entry.warnings === 0) return [];
+    return [{ code, label: HEALTH_CODE_LABELS[code], errors: entry.errors, warnings: entry.warnings, total: entry.errors + entry.warnings }];
+  }).sort((a, b) => b.errors - a.errors || b.total - a.total);
+}
+
+export type HealthScore = { score: number; cleanPosts: number; denominator: number; ready: boolean };
+
+// Điểm sức khỏe = tỉ lệ bài đã xác minh mà không dính lỗi/cảnh báo, trên tổng bài xuất bản chốt lúc bắt đầu run.
+// publishedTotal là mẫu số ổn định; run cũ chưa có cột này (=0) thì lùi về số published hiện tại.
+export function healthScore(input: { phase: HealthPhase | null; publishedTotal: number; published: number; cleanPosts: number }): HealthScore {
+  const denominator = input.publishedTotal > 0 ? input.publishedTotal : input.published;
+  const cleanPosts = Math.max(0, Math.min(input.cleanPosts, denominator));
+  const ready = input.phase === 'done';
+  if (denominator === 0) return { score: 100, cleanPosts: 0, denominator: 0, ready };
+  return { score: Math.round((cleanPosts / denominator) * 100), cleanPosts, denominator, ready };
+}
+
 export function healthNote(input: {
   failed: boolean;
   phase: HealthPhase | null;

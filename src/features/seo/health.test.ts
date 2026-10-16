@@ -7,8 +7,10 @@ import {
   HEALTH_RUN_ERROR,
   assessPost,
   collectContentImages,
+  healthCodeBreakdown,
   healthFigures,
   healthNote,
+  healthScore,
   inboundIssues,
   pageWindow,
   readHealthFilters,
@@ -195,5 +197,45 @@ describe('phân trang, lô và mất kết nối', () => {
     expect(
       healthNote({ failed: false, phase: 'done', whenLabel: '15/10/2026 14:00', published: 4, verified: 3, unchecked: 1, stale: 1 }),
     ).toMatch(/cần xác minh lại/);
+  });
+});
+
+describe('gom lỗi theo loại và điểm sức khỏe', () => {
+  it('breakdown chỉ giữ loại có lỗi, gộp đúng severity và đẩy loại nhiều lỗi nghiêm trọng lên trên', () => {
+    const stats = healthCodeBreakdown([
+      { code: 'title', severity: 'error', value: 2 },
+      { code: 'title', severity: 'warning', value: 1 },
+      { code: 'image', severity: 'error', value: 5 },
+      { code: 'description', severity: 'warning', value: 3 },
+      { code: 'khong-hop-le', severity: 'error', value: 9 },
+    ]);
+    expect(stats.map((item) => item.code)).toEqual(['image', 'title', 'description']);
+    expect(stats[0]).toMatchObject({ code: 'image', errors: 5, warnings: 0, total: 5 });
+    expect(stats[1]).toMatchObject({ code: 'title', errors: 2, warnings: 1, total: 3, label: 'SEO title' });
+  });
+
+  it('điểm sức khỏe dùng mẫu số chốt lúc run, giới hạn 0–100 và báo ready theo phase done', () => {
+    expect(healthScore({ phase: 'done', publishedTotal: 10, published: 12, cleanPosts: 8 })).toEqual({
+      score: 80,
+      cleanPosts: 8,
+      denominator: 10,
+      ready: true,
+    });
+    // run cũ chưa có publishedTotal thì lùi về published hiện tại
+    expect(healthScore({ phase: 'done', publishedTotal: 0, published: 4, cleanPosts: 4 }).score).toBe(100);
+    // chưa có bài xuất bản: coi như khỏe, không chia cho 0
+    expect(healthScore({ phase: 'done', publishedTotal: 0, published: 0, cleanPosts: 0 })).toEqual({
+      score: 100,
+      cleanPosts: 0,
+      denominator: 0,
+      ready: true,
+    });
+    // cleanPosts không vượt mẫu số, chưa done thì ready=false
+    expect(healthScore({ phase: 'posts', publishedTotal: 5, published: 5, cleanPosts: 99 })).toEqual({
+      score: 100,
+      cleanPosts: 5,
+      denominator: 5,
+      ready: false,
+    });
   });
 });

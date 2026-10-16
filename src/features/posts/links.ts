@@ -42,6 +42,14 @@ export function isPostHref(value: string): boolean {
   return isHttpUrl(value) || isInternalPostPath(value);
 }
 
+/** Link ra ngoài: URL http(s) tuyệt đối không trỏ về path nội bộ. Link nội bộ lưu dạng path `/...`. */
+export function isExternalHref(value: string): boolean {
+  const raw = value.trim();
+  if (!raw.includes('://')) return false;
+  if (!isHttpUrl(raw)) return false;
+  return !isInternalPostPath(raw);
+}
+
 export type InternalLinkKind = 'post' | 'product' | 'catalog';
 
 export type InternalLinkHit = { title: string; path: string; kind: InternalLinkKind };

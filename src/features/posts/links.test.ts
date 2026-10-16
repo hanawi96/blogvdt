@@ -3,6 +3,7 @@ import {
   catalogLinkMatch,
   classifyPostLinks,
   collectPostPaths,
+  isExternalHref,
   isInternalPostPath,
   isPostHref,
   postLinkCounts,
@@ -24,6 +25,15 @@ describe('liên kết nội bộ', () => {
       kind: 'catalog',
     });
     expect(catalogLinkMatch('xyz')).toBeNull();
+  });
+
+  it('nhận diện link ra ngoài so với link nội bộ', () => {
+    expect(isExternalHref('https://example.com/bai')).toBe(true);
+    expect(isExternalHref('http://vi.wikipedia.org/wiki/To_tam')).toBe(true);
+    expect(isExternalHref('/kien-thuc/bai-moi')).toBe(false);
+    expect(isExternalHref('/mau-vong-dau-tam')).toBe(false);
+    expect(isExternalHref('https://vongdautam.vn/kien-thuc/bai-moi')).toBe(false);
+    expect(isExternalHref('javascript:alert(1)')).toBe(false);
   });
 
   it('lấy đường dẫn chính thức từ href tương đối hoặc tuyệt đối', () => {

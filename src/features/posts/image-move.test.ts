@@ -2,7 +2,7 @@ import { getSchema } from '@tiptap/core';
 import { EditorState, NodeSelection } from '@tiptap/pm/state';
 import { describe, expect, it } from 'vitest';
 import { postExtensions } from './extensions';
-import { canMoveSelectedImage, moveSelectedImageTr } from './image-move';
+import { canMoveSelectedBlock, canMoveSelectedImage, moveSelectedBlockTr, moveSelectedImageTr } from './image-move';
 
 const schema = getSchema(postExtensions());
 
@@ -66,5 +66,34 @@ describe('moveSelectedImage', () => {
     expect(canMoveSelectedImage(state, -1)).toBe(false);
     expect(moveSelectedImageTr(state, -1)).toBeNull();
     expect(canMoveSelectedImage(state, 1)).toBe(true);
+  });
+});
+
+describe('moveSelectedBlock cho khối đề xuất', () => {
+  it('đổi chỗ productCards với đoạn liền kề và giữ attrs ids', () => {
+    const doc = schema.node('doc', null, [
+      schema.node('paragraph', null, [schema.text('A')]),
+      schema.node('productCards', { ids: [7, 9], labels: ['x', 'y'], covers: ['', ''] }),
+      schema.node('paragraph', null, [schema.text('B')]),
+    ]);
+    let cardsPos = -1;
+    doc.descendants((node, pos) => {
+      if (node.type.name === 'productCards') {
+        cardsPos = pos;
+        return false;
+      }
+    });
+    let state = EditorState.create({ schema, doc, selection: NodeSelection.create(doc, cardsPos) });
+
+    // Không áp dụng được cho tên node ngoài danh sách cho phép.
+    expect(canMoveSelectedBlock(state, -1, ['image'])).toBe(false);
+    expect(canMoveSelectedBlock(state, -1, ['productCards'])).toBe(true);
+
+    const up = moveSelectedBlockTr(state, -1, ['productCards']);
+    expect(up).not.toBeNull();
+    state = state.apply(up!);
+    expect(state.doc.child(0).type.name).toBe('productCards');
+    expect(state.doc.child(0).attrs.ids).toEqual([7, 9]);
+    expect(state.selection instanceof NodeSelection).toBe(true);
   });
 });
