@@ -82,7 +82,7 @@ export type ActivityEntry = {
 export type PostComparable = {
   title: string;
   slug: string;
-  categoryId: number | null;
+  categoryIds: number[];
   coverMediaId: number | null;
   contentJson: string;
   excerpt: string;
@@ -112,7 +112,7 @@ export function postChanged(current: PostComparable, next: PostComparable): bool
   return (
     current.title !== next.title ||
     current.slug !== next.slug ||
-    current.categoryId !== next.categoryId ||
+    !sameIds(current.categoryIds, next.categoryIds) ||
     current.coverMediaId !== next.coverMediaId ||
     current.contentJson !== next.contentJson ||
     current.excerpt !== next.excerpt ||
@@ -120,6 +120,13 @@ export function postChanged(current: PostComparable, next: PostComparable): bool
     (current.metaDescription ?? '') !== (next.metaDescription ?? '') ||
     current.status !== next.status
   );
+}
+
+function sameIds(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false;
+  const left = [...a].sort((x, y) => x - y);
+  const right = [...b].sort((x, y) => x - y);
+  return left.every((id, index) => id === right[index]);
 }
 
 export function postLogAction(previousStatus: string, nextStatus: string, changed: boolean): ActivityAction | null {

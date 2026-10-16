@@ -22,8 +22,10 @@
     type SlashCommand,
     type SlashCommandId,
   } from '../../features/posts/slash-menu';
+  import { firstClipboardImage, isLoneHref } from '../../features/posts/paste';
   import { routes } from '../../lib/routes';
   import MediaPicker from './MediaPicker.svelte';
+  import { uploadMedia } from './upload-media';
   import type { MediaItem } from '../../features/media/types';
 
   const modKey = editorModLabel();
@@ -87,6 +89,8 @@
   let slashItems = $state<SlashCommand[]>([]);
   let slashIndex = $state(0);
   let slashPos = $state({ top: 0, left: 0 });
+  let pasteNote = $state('');
+  let pasteBusy = false;
   /** Ref đồng bộ cho handleKeyDown — tránh recreate Editor. */
   const slashGate = {
     open: false,
@@ -144,12 +148,21 @@
           return pasted.body.innerHTML;
         },
         handlePaste(_view, event) {
-          const files = event.clipboardData?.files;
-          const html = event.clipboardData?.getData('text/html') ?? '';
-          const text = event.clipboardData?.getData('text/plain') ?? '';
-          if (!files?.length || html || text) return false;
-          event.preventDefault();
-          return true;
+          const data = event.clipboardData;
+          if (!data) return false;
+          const image = firstClipboardImage(data.files);
+          if (image) {
+            event.preventDefault();
+            void pasteImageFile(image);
+            return true;
+          }
+          const text = data.getData('text/plain');
+          if (isLoneHref(text)) {
+            event.preventDefault();
+            pasteHref(text.trim());
+            return true;
+          }
+          return false;
         },
         handleKeyDown(_view, event) {
           if (!slashGate.open) return false;
@@ -564,7 +577,8 @@
     const url = new URL(routes.adminPosts, location.origin);
     url.searchParams.set('suggest', '1');
     url.searchParams.set('title', formValue('title').slice(0, 120));
-    const category = formValue('categoryId');
+    const categoryField = document.querySelector<HTMLInputElement>('form[data-post-form] input[name="categoryIds"]:checked');
+    const category = categoryField?.value ?? '';
     if (category) url.searchParams.set('category', category);
     const exclude = formValue('postId');
     if (exclude) url.searchParams.set('exclude', exclude);
@@ -1022,11 +1036,40 @@
       .chain()
       .focus()
       .insertContent([
-        { type: 'image', attrs: { src: item.url, alt: item.alt } },
+        { type: 'image', attrs: { src: item.url, alt: item.alt || item.filename } },
         { type: 'paragraph' },
       ])
       .run();
     libraryOpen = false;
+  }
+
+  function pasteHref(href: string) {
+    if (!editor || !isPostHref(href)) return;
+    pasteNote = '';
+    if (editor.state.selection.empty) {
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: 'text', text: href, marks: [{ type: 'link', attrs: { href } }] })
+        .run();
+      return;
+    }
+    editor.chain().focus().extendMarkRange('link').setLink({ href }).run();
+  }
+
+  async function pasteImageFile(file: File) {
+    if (!editor || pasteBusy) return;
+    pasteBusy = true;
+    pasteNote = 'Đang tải ảnh…';
+    try {
+      const item = await uploadMedia(csrf, file);
+      insertImage(item);
+      pasteNote = '';
+    } catch {
+      pasteNote = 'Không dán được ảnh. Thử lại hoặc chọn từ thư viện.';
+    } finally {
+      pasteBusy = false;
+    }
   }
 
   function parseContent(value: string): JSONContent {
@@ -1111,7 +1154,7 @@
 {/snippet}
 
 <div class="editor mt-4">
-  <p class="mb-2 font-semibold">Nội dung</p>
+  {#if pasteNote}<p class="seo-hint mb-2" role="status">{pasteNote}</p>{/if}
   <div class="editor-shell">
     <span class="editor-toolbar-pin" aria-hidden="true" bind:this={toolbarPinEl}></span>
     <div class="editor-sticky" bind:this={stickyEl}>

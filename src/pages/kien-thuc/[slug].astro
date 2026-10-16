@@ -107,7 +107,7 @@ async function loadPost() {
       content ? layoutContentImages(db, bucket, collectMediaSrcs(content)) : Promise.resolve({ sizes: new Map(), missing: new Set<string>() }),
       listPublishedPostCardsByIds(db, embedIds),
       listActiveProductCardsByIds(db, productEmbedIds),
-      listRelatedPosts(db, { id: found.id, categoryId: found.categoryId }),
+      listRelatedPosts(db, { id: found.id, categoryIds: found.categories.map((item) => item.id) }),
       listFeaturedProducts(db, 3),
       getPublicPostAuthor(db, found.authorId),
     ]);
@@ -180,8 +180,12 @@ async function loadPost() {
           </nav>
 
           <header class="post-hero">
-            {loaded.post.categoryName && loaded.post.categorySlug && (
-              <a class="post-kicker" href={routes.knowledgeCategory(loaded.post.categorySlug)}>{loaded.post.categoryName}</a>
+            {loaded.post.categories.length > 0 && (
+              <p class="post-kickers">
+                {loaded.post.categories.map((category) => (
+                  <a class="post-kicker" href={routes.knowledgeCategory(category.slug)}>{category.name}</a>
+                ))}
+              </p>
             )}
             <h1 class="post-headline">{loaded.post.title}</h1>
             <p class="post-byline">

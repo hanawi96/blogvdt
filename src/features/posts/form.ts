@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { fieldErrors, type FieldErrors } from '../../lib/validation/errors';
 import { sanitizePostContent } from './content';
+import { parseCategoryIds } from './post-categories';
 import type { PostInput } from './posts';
 import { SLUG_PATTERN } from './slug';
 import { isPostStatus } from './status';
@@ -13,7 +14,6 @@ const postFields = z.object({
     .min(1, 'Nhập slug.')
     .max(180, 'Slug quá dài.')
     .regex(SLUG_PATTERN, 'Slug chỉ gồm chữ thường, số và dấu gạch.'),
-  categoryId: z.string(),
   coverMediaId: z.string(),
   contentJson: z.string(),
   seoTitle: z.string().trim().max(180, 'SEO title quá dài.'),
@@ -26,7 +26,6 @@ export function parsePostForm(form: FormData): { ok: true; input: PostInput } | 
   const parsed = postFields.safeParse({
     title: formValue(form, 'title'),
     slug: formValue(form, 'slug'),
-    categoryId: formValue(form, 'categoryId'),
     coverMediaId: formValue(form, 'coverMediaId'),
     contentJson: formValue(form, 'contentJson'),
     seoTitle: formValue(form, 'seoTitle'),
@@ -36,8 +35,8 @@ export function parsePostForm(form: FormData): { ok: true; input: PostInput } | 
   });
   if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
   if (!isPostStatus(parsed.data.status)) return { ok: false, errors: { status: 'Trạng thái không hợp lệ.' } };
-  const categoryId = optionalId(parsed.data.categoryId);
-  if (parsed.data.categoryId && categoryId === null) return { ok: false, errors: { categoryId: 'Danh mục không hợp lệ.' } };
+  const categories = parseCategoryIds(form);
+  if (!categories.ok) return { ok: false, errors: { categoryIds: categories.error } };
   const coverMediaId = optionalId(parsed.data.coverMediaId);
   if (parsed.data.coverMediaId && coverMediaId === null) return { ok: false, errors: { coverMediaId: 'Ảnh đại diện không hợp lệ.' } };
   const content = sanitizePostContent(parsed.data.contentJson || '{"type":"doc","content":[]}');
@@ -50,7 +49,7 @@ export function parsePostForm(form: FormData): { ok: true; input: PostInput } | 
     input: {
       title: parsed.data.title,
       slug: parsed.data.slug,
-      categoryId,
+      categoryIds: categories.ids,
       coverMediaId,
       contentJson: content.json,
       excerpt: parsed.data.excerpt || content.excerpt,

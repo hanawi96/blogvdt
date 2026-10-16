@@ -119,6 +119,23 @@ export const posts = sqliteTable(
   ],
 );
 
+/** Nhiều danh mục / bài. `posts.category_id` giữ danh mục chính (id nhỏ nhất) để join nhanh. */
+export const postCategories = sqliteTable(
+  'post_categories',
+  {
+    postId: integer('post_id')
+      .notNull()
+      .references(() => posts.id, { onDelete: 'cascade' }),
+    categoryId: integer('category_id')
+      .notNull()
+      .references(() => categories.id, { onDelete: 'cascade' }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.postId, table.categoryId] }),
+    index('post_categories_category_idx').on(table.categoryId),
+  ],
+);
+
 export const productCategories = sqliteTable('product_categories', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),

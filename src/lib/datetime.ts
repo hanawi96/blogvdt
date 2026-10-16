@@ -20,3 +20,16 @@ export function formatDateTime(timestamp: number): string {
     timeStyle: 'short',
   }).format(new Date(timestamp));
 }
+
+/** Giờ:phút VN — dạng cố định `HH:mm` cho indicator autosave. */
+export function formatTimeHm(timestamp: number): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(timestamp));
+  const hour = parts.find((part) => part.type === 'hour')?.value ?? '00';
+  const minute = parts.find((part) => part.type === 'minute')?.value ?? '00';
+  return `${hour}:${minute}`;
+}

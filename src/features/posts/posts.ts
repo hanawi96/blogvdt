@@ -19,6 +19,12 @@ import { routes } from '../../lib/routes';
 import { prepareRetirement, retirementRequired } from '../redirects/manage';
 import type { UrlRetirement } from '../redirects/rules';
 import { REVISION_CONFLICT, staleRevision } from './form';
+import {
+  listPostCategoryIds,
+  primaryCategoryId,
+  replacePostCategoryWrites,
+  resolveCategoryIds,
+} from './post-categories';
 import { redirectOccupiesSlug, shouldStorePostRedirect } from './redirects';
 import { slugify } from './slug';
 import type { PostStatus } from './status';
@@ -64,7 +70,7 @@ export function copyTitle(title: string): string {
 export type PostInput = {
   title: string;
   slug: string;
-  categoryId: number | null;
+  categoryIds: number[];
   coverMediaId: number | null;
   contentJson: string;
   excerpt: string;
@@ -170,11 +176,14 @@ export async function createPost(
   now = Date.now(),
   actor?: ActivityActor,
 ): Promise<{ ok: true; id: number; updatedAt: number } | { ok: false; error: string }> {
-  const slugError = await slugAvailable(db, input.slug, null, null);
+  const categoriesOk = await resolveCategoryIds(db, input.categoryIds);
+  if (!categoriesOk.ok) return categoriesOk;
+  const payload = { ...input, categoryIds: categoriesOk.ids };
+  const slugError = await slugAvailable(db, payload.slug, null, null);
   if (slugError) return { ok: false, error: slugError };
-  const action = input.status === 'published' ? 'post.publish' : 'post.create';
+  const action = payload.status === 'published' ? 'post.publish' : 'post.create';
   await commitWrites(db, [
-    db.insert(posts).values({ ...postValues(input, now), authorId: actor?.id ?? null, createdAt: now }),
+    db.insert(posts).values({ ...postValues(payload, now), authorId: actor?.id ?? null, createdAt: now }),
     ...(actor
       ? [
           activityWrite(
@@ -185,7 +194,7 @@ export async function createPost(
               action,
               objectType: 'post',
               objectId: null,
-              summary: postSummary(action, input.title),
+              summary: postSummary(action, payload.title),
               createdAt: now,
               useLastInsertId: true,
             },
@@ -194,9 +203,12 @@ export async function createPost(
         ]
       : []),
   ]);
-  const inserted = await db.select({ id: posts.id }).from(posts).where(eq(posts.slug, input.slug)).limit(1);
+  const inserted = await db.select({ id: posts.id }).from(posts).where(eq(posts.slug, payload.slug)).limit(1);
   const id = inserted[0]?.id;
   if (!id) return { ok: false, error: 'Không lưu được bài viết.' };
+  if (payload.categoryIds.length > 0) {
+    await commitWrites(db, replacePostCategoryWrites(db, id, payload.categoryIds));
+  }
   return { ok: true, id, updatedAt: now };
 }
 
@@ -212,17 +224,26 @@ export async function updatePost(
   const current = await getPost(db, id);
   if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
   if (current.deletedAt != null) return { ok: false, error: 'Bài đang ở thùng rác. Hãy khôi phục trước khi sửa.' };
-  const action = postLogAction(current.status, input.status, postChanged(current, input));
+  const categoriesOk = await resolveCategoryIds(db, input.categoryIds);
+  if (!categoriesOk.ok) return categoriesOk;
+  const payload = { ...input, categoryIds: categoriesOk.ids };
+  const currentCats = await listPostCategoryIds(db, id);
+  const action = postLogAction(
+    current.status,
+    payload.status,
+    postChanged({ ...current, categoryIds: currentCats }, payload),
+  );
   if (!action) return { ok: true, updatedAt: current.updatedAt };
   if (staleRevision(current.updatedAt, expectedUpdatedAt)) return { ok: false, error: REVISION_CONFLICT, conflict: true };
-  const slugError = await slugAvailable(db, input.slug, id, current.slug);
+  const slugError = await slugAvailable(db, payload.slug, id, current.slug);
   if (slugError) return { ok: false, error: slugError };
-  const values = postValues(input, now, current.publishedAt);
-  const pathWrites = await postPathWrites(db, current, input, now, actor, retirement);
+  const values = postValues(payload, now, current.publishedAt);
+  const pathWrites = await postPathWrites(db, current, payload, now, actor, retirement);
   if (!pathWrites.ok) return pathWrites;
   const match = and(eq(posts.id, id), isNull(posts.deletedAt), expectedUpdatedAt === null ? undefined : eq(posts.updatedAt, expectedUpdatedAt));
   const results = await commitWrites(db, [
     db.update(posts).set(values).where(match).returning({ id: posts.id }),
+    ...replacePostCategoryWrites(db, id, payload.categoryIds),
     ...(actor
       ? [
           activityWrite(
@@ -233,7 +254,7 @@ export async function updatePost(
               action,
               objectType: 'post',
               objectId: String(id),
-              summary: postSummary(action, input.title),
+              summary: postSummary(action, payload.title),
               createdAt: now,
             },
             true,
@@ -263,10 +284,15 @@ export async function saveDraftPost(
   if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
   if (current.deletedAt != null) return { ok: false, error: 'Bài đang ở thùng rác. Hãy khôi phục trước khi sửa.' };
   if (current.status !== 'draft') return { ok: true, skipped: true, updatedAt: current.updatedAt };
-  const draft = { ...input, status: 'draft' as const };
-  if (!postChanged(current, draft)) return { ok: true, skipped: false, updatedAt: current.updatedAt };
+  const categoriesOk = await resolveCategoryIds(db, input.categoryIds);
+  if (!categoriesOk.ok) return categoriesOk;
+  const draft = { ...input, categoryIds: categoriesOk.ids, status: 'draft' as const };
+  const currentCats = await listPostCategoryIds(db, id);
+  if (!postChanged({ ...current, categoryIds: currentCats }, draft)) {
+    return { ok: true, skipped: false, updatedAt: current.updatedAt };
+  }
   if (staleRevision(current.updatedAt, expectedUpdatedAt)) return { ok: false, error: REVISION_CONFLICT, conflict: true };
-  const slugError = await slugAvailable(db, input.slug, id, current.slug);
+  const slugError = await slugAvailable(db, draft.slug, id, current.slug);
   if (slugError) return { ok: false, error: slugError };
   const values = postValues(draft, now, current.publishedAt);
   const entry = {
@@ -275,7 +301,7 @@ export async function saveDraftPost(
     action: 'post.update' as const,
     objectType: 'post' as const,
     objectId: String(id),
-    summary: postSummary('post.update', input.title),
+    summary: postSummary('post.update', draft.title),
     createdAt: now,
   };
   const autosaveLog = actor ? await autosaveLogWrite(db, entry, id) : null;
@@ -287,6 +313,7 @@ export async function saveDraftPost(
   );
   const results = await commitWrites(db, [
     db.update(posts).set(values).where(match).returning({ id: posts.id }),
+    ...replacePostCategoryWrites(db, id, draft.categoryIds),
     ...(autosaveLog ? [autosaveLog.query] : []),
   ]);
   if (!changedRows(results[0])) {
@@ -309,12 +336,13 @@ export async function duplicatePost(
   if (current.deletedAt != null) return { ok: false, error: 'Bài đang ở thùng rác. Hãy khôi phục trước khi sao chép.' };
   const slug = await unusedCopySlug(db, current.slug);
   if (!slug) return { ok: false, error: 'Không tạo được đường dẫn cho bản sao.' };
+  const categoryIds = await listPostCategoryIds(db, id);
   return createPost(
     db,
     {
       title: copyTitle(current.title),
       slug,
-      categoryId: current.categoryId,
+      categoryIds,
       coverMediaId: current.coverMediaId,
       contentJson: current.contentJson,
       excerpt: current.excerpt,
@@ -343,23 +371,31 @@ export async function setPostCategory(
   actor?: ActivityActor,
   now = Date.now(),
 ): Promise<{ ok: true; categoryName: string | null } | { ok: false; status: 404 | 409 | 422; error: string }> {
-  const [postRows, categoryRows] = await Promise.all([
-    db.select({ title: posts.title, categoryId: posts.categoryId, deletedAt: posts.deletedAt }).from(posts).where(eq(posts.id, id)).limit(1),
-    categoryId === null ? Promise.resolve([]) : db.select({ name: categories.name }).from(categories).where(eq(categories.id, categoryId)).limit(1),
+  const categoryIds = categoryId === null ? [] : [categoryId];
+  const [postRows, resolved, currentCats] = await Promise.all([
+    db.select({ title: posts.title, deletedAt: posts.deletedAt }).from(posts).where(eq(posts.id, id)).limit(1),
+    resolveCategoryIds(db, categoryIds),
+    listPostCategoryIds(db, id),
   ]);
   const post = postRows[0];
   if (!post) return { ok: false, status: 404, error: 'Không tìm thấy bài viết.' };
   if (post.deletedAt != null) return { ok: false, status: 409, error: 'Bài đang ở thùng rác.' };
-  const category = categoryRows[0];
-  if (categoryId !== null && !category) return { ok: false, status: 422, error: 'Danh mục không còn tồn tại.' };
-  const categoryName = category?.name ?? null;
-  if (post.categoryId === categoryId) return { ok: true, categoryName };
+  if (!resolved.ok) return { ok: false, status: 422, error: resolved.error };
+  const nextIds = resolved.ids;
+  const categoryName =
+    nextIds.length === 0
+      ? null
+      : ((await db.select({ name: categories.name }).from(categories).where(eq(categories.id, nextIds[0]!)).limit(1))[0]?.name ?? null);
+  if (sameSorted(currentCats, nextIds) && primaryCategoryId(currentCats) === primaryCategoryId(nextIds)) {
+    return { ok: true, categoryName };
+  }
   const results = await commitWrites(db, [
     db
       .update(posts)
-      .set({ categoryId, updatedAt: now })
+      .set({ categoryId: primaryCategoryId(nextIds), updatedAt: now })
       .where(and(eq(posts.id, id), isNull(posts.deletedAt)))
       .returning({ id: posts.id }),
+    ...replacePostCategoryWrites(db, id, nextIds),
     ...(actor
       ? [
           activityWrite(
@@ -380,6 +416,13 @@ export async function setPostCategory(
   ]);
   if (!changedRows(results[0])) return { ok: false, status: 409, error: 'Không đổi được danh mục.' };
   return { ok: true, categoryName };
+}
+
+function sameSorted(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false;
+  const left = [...a].sort((x, y) => x - y);
+  const right = [...b].sort((x, y) => x - y);
+  return left.every((id, index) => id === right[index]);
 }
 
 export async function trashPost(
@@ -529,7 +572,7 @@ function postValues(input: PostInput, now: number, previousPublishedAt: number |
   return {
     title: input.title,
     slug: input.slug,
-    categoryId: input.categoryId,
+    categoryId: primaryCategoryId(input.categoryIds),
     coverMediaId: input.coverMediaId,
     contentJson: input.contentJson,
     excerpt: input.excerpt,

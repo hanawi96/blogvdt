@@ -2,7 +2,7 @@ import { asc, count, eq } from 'drizzle-orm';
 import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
 import { slugRedirectQueries } from '../../lib/db/redirects';
-import { categories, posts } from '../../lib/db/schema';
+import { categories, postCategories, posts } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { slugify } from './slug';
 
@@ -15,10 +15,10 @@ export async function listCategories(db: AppDb) {
       description: categories.description,
       seoTitle: categories.seoTitle,
       metaDescription: categories.metaDescription,
-      postCount: count(posts.id),
+      postCount: count(postCategories.postId),
     })
     .from(categories)
-    .leftJoin(posts, eq(posts.categoryId, categories.id))
+    .leftJoin(postCategories, eq(postCategories.categoryId, categories.id))
     .groupBy(categories.id, categories.name, categories.slug, categories.description, categories.seoTitle, categories.metaDescription)
     .orderBy(asc(categories.name));
 }

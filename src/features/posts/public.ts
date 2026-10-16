@@ -1,7 +1,8 @@
-import { and, asc, count, desc, eq, ne } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
-import { categories, media, posts } from '../../lib/db/schema';
+import { categories, media, postCategories, posts } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { listPostCategories } from './post-categories';
 import { SLUG_PATTERN } from './slug';
 import { livePublished } from './visibility';
 
@@ -29,7 +30,13 @@ export type PublicPostCard = {
 };
 
 export async function listPublishedPosts(db: AppDb, filters: { page: number; categoryId?: number }) {
-  const live = filters.categoryId ? and(livePublished(), eq(posts.categoryId, filters.categoryId)) : livePublished();
+  const inCategory = filters.categoryId
+    ? inArray(
+        posts.id,
+        db.select({ postId: postCategories.postId }).from(postCategories).where(eq(postCategories.categoryId, filters.categoryId)),
+      )
+    : undefined;
+  const live = and(livePublished(), inCategory);
   const page = Math.max(1, filters.page);
   const totalRows = await db.select({ value: count() }).from(posts).where(live);
   const total = totalRows[0]?.value ?? 0;
@@ -114,17 +121,29 @@ export async function getPostBySlug(db: AppDb, slug: string) {
     .limit(1);
   const row = rows[0];
   if (!row) return null;
+  const postCats = await listPostCategories(db, row.id);
   return {
     ...row,
+    categories: postCats,
+    categoryName: postCats[0]?.name ?? row.categoryName,
+    categorySlug: postCats[0]?.slug ?? row.categorySlug,
     coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
     coverAlt: row.coverAlt ?? '',
   };
 }
 
-export async function listRelatedPosts(db: AppDb, input: { id: number; categoryId: number | null }) {
-  const where = input.categoryId
-    ? and(livePublished(), eq(posts.categoryId, input.categoryId), ne(posts.id, input.id))
-    : and(livePublished(), ne(posts.id, input.id));
+export async function listRelatedPosts(db: AppDb, input: { id: number; categoryIds: number[] }) {
+  const relatedFilter =
+    input.categoryIds.length > 0
+      ? inArray(
+          posts.id,
+          db
+            .select({ postId: postCategories.postId })
+            .from(postCategories)
+            .where(and(inArray(postCategories.categoryId, input.categoryIds), ne(postCategories.postId, input.id))),
+        )
+      : undefined;
+  const where = and(livePublished(), ne(posts.id, input.id), relatedFilter);
   const rows = await db
     .select({
       id: posts.id,

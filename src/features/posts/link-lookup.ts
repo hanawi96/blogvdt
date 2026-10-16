@@ -1,6 +1,6 @@
-import { and, desc, eq, inArray, isNull, like, ne, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, like, ne, notInArray, or } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
-import { posts, redirects } from '../../lib/db/schema';
+import { postCategories, posts, redirects } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import {
   catalogLinkMatch,
@@ -77,19 +77,23 @@ export async function suggestPosts(
   const published = and(livePublished(), excluded);
   const columns = { title: posts.title, slug: posts.slug };
   const order = [desc(posts.publishedAt), desc(posts.id)] as const;
+  const inCategory =
+    input.categoryId === null
+      ? null
+      : db.select({ postId: postCategories.postId }).from(postCategories).where(eq(postCategories.categoryId, input.categoryId));
   const [same, others] = await Promise.all([
-    input.categoryId
+    inCategory
       ? db
           .select(columns)
           .from(posts)
-          .where(and(published, eq(posts.categoryId, input.categoryId)))
+          .where(and(published, inArray(posts.id, inCategory)))
           .orderBy(...order)
           .limit(8)
       : Promise.resolve([]),
     db
       .select(columns)
       .from(posts)
-      .where(input.categoryId ? and(published, or(ne(posts.categoryId, input.categoryId), isNull(posts.categoryId))) : published)
+      .where(inCategory ? and(published, notInArray(posts.id, inCategory)) : published)
       .orderBy(...order)
       .limit(8),
   ]);

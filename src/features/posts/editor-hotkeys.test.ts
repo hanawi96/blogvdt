@@ -9,6 +9,7 @@ describe('editorHotkeyTip', () => {
 
   it('cheat sheet một dòng', () => {
     expect(editorHotkeyCheatSheet('Ctrl')).toContain('Ctrl+B đậm');
+    expect(editorHotkeyCheatSheet('Ctrl')).toContain('Ctrl+S lưu');
     expect(editorHotkeyCheatSheet('Ctrl')).toContain('/ lệnh nhanh');
   });
 });

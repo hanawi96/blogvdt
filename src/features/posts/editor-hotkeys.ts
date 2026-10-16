@@ -11,5 +11,5 @@ export function editorHotkeyTip(label: string, chord: string, mod = editorModLab
 
 /** Một dòng gợi ý dưới toolbar — chỉ phím hay dùng khi viết dài. */
 export function editorHotkeyCheatSheet(mod = editorModLabel()): string {
-  return `${mod}+B đậm · ${mod}+I nghiêng · ${mod}+Z hoàn tác · / lệnh nhanh`;
+  return `${mod}+B đậm · ${mod}+S lưu · ${mod}+\\ chỉ viết · / lệnh nhanh`;
 }

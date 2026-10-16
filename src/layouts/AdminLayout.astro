@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css';
+import AdminNavIcon from '../components/admin/AdminNavIcon.astro';
 import ConfirmDialog from '../components/admin/ConfirmDialog.astro';
 import { ROLE_LABELS } from '../features/auth/access';
 import { userInitials } from '../features/auth/users';
@@ -9,33 +10,48 @@ interface Props {
   title: string;
 }
 
+type NavIcon =
+  | 'overview'
+  | 'posts'
+  | 'categories'
+  | 'products'
+  | 'productCategories'
+  | 'orders'
+  | 'customers'
+  | 'media'
+  | 'seo'
+  | 'redirects'
+  | 'users'
+  | 'activity'
+  | 'settings';
+
 const { title } = Astro.props;
 const session = Astro.locals.adminSession;
 const path = Astro.url.pathname;
 const isAdmin = session?.role === 'admin';
-const items = [
-  [routes.admin, 'Tổng quan'],
-  [routes.adminPosts, 'Bài viết'],
-  [routes.adminCategories, 'Danh mục'],
+const items: { href: string; label: string; icon: NavIcon }[] = [
+  { href: routes.admin, label: 'Tổng quan', icon: 'overview' },
+  { href: routes.adminPosts, label: 'Bài viết', icon: 'posts' },
+  { href: routes.adminCategories, label: 'Danh mục', icon: 'categories' },
   ...(isAdmin
     ? [
-        [routes.adminProducts, 'Sản phẩm'],
-        [routes.adminProductCategories, 'Danh mục SP'],
-        [routes.adminOrders, 'Đơn hàng'],
-        [routes.adminCustomers, 'Khách hàng'],
+        { href: routes.adminProducts, label: 'Sản phẩm', icon: 'products' as const },
+        { href: routes.adminProductCategories, label: 'Danh mục SP', icon: 'productCategories' as const },
+        { href: routes.adminOrders, label: 'Đơn hàng', icon: 'orders' as const },
+        { href: routes.adminCustomers, label: 'Khách hàng', icon: 'customers' as const },
       ]
     : []),
-  [routes.adminMedia, 'Thư viện ảnh'],
+  { href: routes.adminMedia, label: 'Thư viện ảnh', icon: 'media' },
   ...(isAdmin
     ? [
-        [routes.adminSeo, 'Kiểm tra SEO'],
-        [routes.adminRedirects, 'Chuyển hướng'],
-        [routes.adminUsers, 'Người dùng'],
-        [routes.adminActivity, 'Nhật ký'],
-        [routes.adminSettings, 'Cài đặt'],
+        { href: routes.adminSeo, label: 'Kiểm tra SEO', icon: 'seo' as const },
+        { href: routes.adminRedirects, label: 'Chuyển hướng', icon: 'redirects' as const },
+        { href: routes.adminUsers, label: 'Người dùng', icon: 'users' as const },
+        { href: routes.adminActivity, label: 'Nhật ký', icon: 'activity' as const },
+        { href: routes.adminSettings, label: 'Cài đặt', icon: 'settings' as const },
       ]
     : []),
-] as const;
+];
 
 function current(href: string): boolean {
   if (href === routes.admin) return path === href;
@@ -56,7 +72,18 @@ function current(href: string): boolean {
     <a class="skip-link" href="#noi-dung">Tới nội dung</a>
     {
       session ? (
-        <div class="min-h-screen md:grid md:grid-cols-[15rem_1fr]">
+        <div class="admin-shell min-h-screen md:grid" data-admin-shell>
+          <script is:inline>
+            (() => {
+              try {
+                if (localStorage.getItem('admin-nav-collapsed') === '1') {
+                  document.currentScript?.parentElement?.classList.add('is-nav-collapsed');
+                }
+              } catch {
+                /* private mode */
+              }
+            })();
+          </script>
           <aside class="admin-side">
             <div class="admin-side-head">
               <button
@@ -72,15 +99,31 @@ function current(href: string): boolean {
                 </svg>
               </button>
               <p class="admin-brand">Quản trị</p>
+              <button
+                class="admin-nav-collapse"
+                type="button"
+                data-nav-collapse
+                aria-controls="admin-side-nav"
+                aria-expanded="true"
+                aria-label="Thu gọn menu"
+                title="Thu gọn menu"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M14.5 7 10 12l4.5 5M7 5v14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+                </svg>
+              </button>
             </div>
-            <nav class="admin-nav" aria-label="Quản trị">
-              {items.map(([href, label]) => (
+            <nav class="admin-nav" id="admin-side-nav" aria-label="Quản trị">
+              {items.map((item) => (
                 <a
-                  href={href}
-                  aria-current={current(href) ? 'page' : undefined}
-                  class:list={[current(href) && 'is-current']}
+                  href={item.href}
+                  title={item.label}
+                  aria-label={item.label}
+                  aria-current={current(item.href) ? 'page' : undefined}
+                  class:list={[current(item.href) && 'is-current']}
                 >
-                  {label}
+                  <AdminNavIcon name={item.icon} />
+                  <span class="admin-nav-label">{item.label}</span>
                 </a>
               ))}
             </nav>
@@ -93,6 +136,7 @@ function current(href: string): boolean {
                 aria-controls="account-menu"
                 aria-haspopup="menu"
                 aria-label={`Tài khoản: ${session.displayName.trim() || 'Tài khoản'} (${ROLE_LABELS[session.role]})`}
+                title={session.displayName.trim() || 'Tài khoản'}
               >
                 {session.avatarUrl ? (
                   <img class="user-avatar" src={session.avatarUrl} alt="" width="40" height="40" />
@@ -126,13 +170,14 @@ function current(href: string): boolean {
               </button>
             </div>
             <nav class="admin-drawer-nav" aria-label="Menu quản trị">
-              {items.map(([href, label]) => (
+              {items.map((item) => (
                 <a
-                  href={href}
-                  aria-current={current(href) ? 'page' : undefined}
-                  class:list={[current(href) && 'is-current']}
+                  href={item.href}
+                  aria-current={current(item.href) ? 'page' : undefined}
+                  class:list={[current(item.href) && 'is-current']}
                 >
-                  {label}
+                  <AdminNavIcon name={item.icon} />
+                  <span class="admin-nav-label">{item.label}</span>
                 </a>
               ))}
             </nav>
@@ -176,6 +221,27 @@ function current(href: string): boolean {
         // Drawer modal chỉ dành cho màn hẹp; mở rộng cửa sổ thì đóng để trang không bị khóa sau backdrop.
         window.matchMedia('(width >= 48rem)').addEventListener('change', (event) => {
           if (event.matches && menu.open) menu.close();
+        });
+      }
+
+      const shell = document.querySelector('[data-admin-shell]');
+      const collapseBtn = document.querySelector('[data-nav-collapse]');
+      const NAV_COLLAPSE_KEY = 'admin-nav-collapsed';
+      if (shell instanceof HTMLElement && collapseBtn instanceof HTMLButtonElement) {
+        const syncCollapse = (collapsed) => {
+          shell.classList.toggle('is-nav-collapsed', collapsed);
+          collapseBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+          collapseBtn.setAttribute('aria-label', collapsed ? 'Mở rộng menu' : 'Thu gọn menu');
+          collapseBtn.title = collapsed ? 'Mở rộng menu' : 'Thu gọn menu';
+          try {
+            localStorage.setItem(NAV_COLLAPSE_KEY, collapsed ? '1' : '0');
+          } catch {
+            /* ignore */
+          }
+        };
+        syncCollapse(shell.classList.contains('is-nav-collapsed'));
+        collapseBtn.addEventListener('click', () => {
+          syncCollapse(!shell.classList.contains('is-nav-collapsed'));
         });
       }
       const account = document.querySelector('[data-account]');

@@ -17,7 +17,7 @@ import {
 const post: PostComparable = {
   title: 'Bài mẫu',
   slug: 'bai-mau',
-  categoryId: 1,
+  categoryIds: [1],
   coverMediaId: null,
   contentJson: '{"type":"doc"}',
   excerpt: 'Tóm tắt',

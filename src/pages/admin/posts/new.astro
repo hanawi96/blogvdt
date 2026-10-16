@@ -30,7 +30,7 @@ const corpus = mergeMetaCorpus(await listMetaCorpus(db, null), collectMetaCorpus
 const empty = {
   title: '',
   slug: '',
-  categoryId: '',
+  categoryIds: [] as string[],
   coverMediaId: '',
   contentJson: '{"type":"doc","content":[]}',
   seoTitle: '',
@@ -84,7 +84,7 @@ function valuesFrom(form: FormData) {
   return {
     title: read('title'),
     slug: read('slug'),
-    categoryId: read('categoryId'),
+    categoryIds: form.getAll('categoryIds').filter((value): value is string => typeof value === 'string'),
     coverMediaId: read('coverMediaId'),
     contentJson: read('contentJson') || empty.contentJson,
     seoTitle: read('seoTitle'),

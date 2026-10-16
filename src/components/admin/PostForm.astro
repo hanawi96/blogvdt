@@ -7,7 +7,7 @@ import SeoChecklist from './SeoChecklist.svelte';
 import SlugField from './SlugField.svelte';
 import { lengthNote, metaDuplicateNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
 import type { MetaCorpus } from '../../lib/seo/meta';
-import { formatDateTime } from '../../lib/datetime';
+import { formatDateTime, formatTimeHm } from '../../lib/datetime';
 import RetiredUrlDialog from './RetiredUrlDialog.astro';
 import { routes } from '../../lib/routes';
 import type { FieldErrors } from '../../lib/validation/errors';
@@ -15,7 +15,7 @@ import type { FieldErrors } from '../../lib/validation/errors';
 interface Values {
   title: string;
   slug: string;
-  categoryId: string;
+  categoryIds: string[];
   coverMediaId: string;
   contentJson: string;
   seoTitle: string;
@@ -58,7 +58,15 @@ interface Props {
 const { csrf, action, values, errors, formError, categories, media, site, postId, saved = false, meta, deleteAction, livePublished = false, corpus = { titles: [], descriptions: [] }, targets = [] } = Astro.props;
 const publishLabel = values.status === 'published' ? 'Cập nhật' : 'Xuất bản';
 const wasPublic = livePublished || meta?.publishedAt != null;
-const saveStatus = formError ? 'Lưu thất bại' : saved ? 'Đã lưu' : '';
+const selectedCategoryIds = new Set(values.categoryIds);
+const saveStatus = formError
+  ? 'Lưu thất bại'
+  : values.status === 'draft' && meta
+    ? `Đã lưu · ${formatTimeHm(meta.updatedAt)}`
+    : saved
+      ? 'Đã lưu'
+      : '';
+const saveState = formError ? 'error' : values.status === 'draft' && meta ? 'saved' : saved ? 'saved' : '';
 const previewTitle = values.seoTitle || values.title || 'Tiêu đề bài viết';
 const previewDescription = values.metaDescription || values.excerpt || 'Thêm mô tả SEO hoặc tóm tắt để xem trước đoạn này.';
 const previewSlug = values.slug || 'duong-dan';
@@ -69,6 +77,17 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
 ---
 
 <form id="post-form" class="post-write" method="post" action={action} data-busy data-post-form data-autosave={autosave} data-live-published={livePublished ? '1' : '0'} data-site-host={site.host} data-post-id={postId ?? ''}>
+  <script is:inline>
+    (() => {
+      try {
+        if (localStorage.getItem('post-write-focus') === '1') {
+          document.currentScript?.parentElement?.classList.add('is-focus');
+        }
+      } catch {
+        /* private mode */
+      }
+    })();
+  </script>
   <input type="hidden" name="csrf" value={csrf} />
   <input type="hidden" name="urlAction" value="" />
   <input type="hidden" name="urlTarget" value="" />
@@ -77,8 +96,16 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
   <button class="sr-only" type="submit" tabindex="-1" data-keep-label="true">Lưu trạng thái hiện tại</button>
   <div class="post-bar">
     <a class="btn btn-compact" href={routes.adminPosts}>Danh sách</a>
-    <p class="post-save" role="status" data-save-status>{saveStatus}</p>
+    <p class="post-save" role="status" aria-live="polite" data-save-status data-state={saveState || undefined}>{saveStatus}</p>
     <div class="post-bar-actions">
+      <button
+        class="btn btn-compact"
+        id="focus-write"
+        type="button"
+        data-focus-write
+        aria-pressed="false"
+        title="Ẩn cột phụ để tập trung viết"
+      >Chỉ viết</button>
       <button class="btn btn-compact" id="preview-post" type="submit" formmethod="post" formaction={routes.adminPostPreview} formtarget="_blank" data-keep-label="true">Xem trước</button>
       <button class="btn btn-compact" id="save-draft" type="submit" data-keep-label="true" hidden={values.status === 'published'}>Lưu nháp</button>
       <button class="btn btn-compact btn-primary" id="save-publish" type="submit" data-keep-label="true">{publishLabel}</button>
@@ -88,12 +115,24 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
   {formError && <p class="error-text" role="alert">{formError}</p>}
   <div class="post-columns">
     <div class="post-main">
-      <label class="block">
-        <span class="mb-1 block font-semibold">Tiêu đề</span>
-        <input id="post-title" class="field field-title" name="title" required maxlength="180" value={values.title} />
-        {errors.title && <span class="error-text">{errors.title}</span>}
-      </label>
-      <PostEditor client:load {csrf} {media} contentJson={values.contentJson} contentError={errors.contentJson ?? ''} />
+      <div class="post-canvas">
+        <div class="post-title-block">
+          <label class="sr-only" for="post-title">Tiêu đề</label>
+          <input
+            id="post-title"
+            class="post-title-input"
+            name="title"
+            required
+            maxlength="180"
+            value={values.title}
+            placeholder="Tiêu đề bài viết…"
+            autocomplete="off"
+            autofocus={!values.title}
+          />
+          {errors.title && <span class="error-text post-title-error">{errors.title}</span>}
+        </div>
+        <PostEditor client:load {csrf} {media} contentJson={values.contentJson} contentError={errors.contentJson ?? ''} />
+      </div>
       <label class="mt-6 block">
         <span class="mb-1 block font-semibold">Tóm tắt</span>
         <textarea class="field min-h-24" name="excerpt" maxlength="300" placeholder="Để trống sẽ lấy đoạn đầu của bài.">{values.excerpt}</textarea>
@@ -152,14 +191,26 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
       </section>
       <section class="post-card">
         <h2 class="post-card-title">Danh mục</h2>
-        <label class="mt-3 block">
-          <span class="sr-only">Danh mục</span>
-          <select class="field" name="categoryId">
-            <option value="">Không chọn</option>
-            {categories.map((category) => <option value={category.id} selected={values.categoryId === String(category.id)}>{category.name}</option>)}
-          </select>
-          {errors.categoryId && <span class="error-text">{errors.categoryId}</span>}
-        </label>
+        {categories.length === 0 ? (
+          <p class="mt-3 text-sm text-muted">Chưa có danh mục. Tạo trong mục Danh mục.</p>
+        ) : (
+          <div class="category-presets mt-3" role="group" aria-label="Chọn danh mục">
+            {categories.map((category) => (
+              <label class="category-preset">
+                <input
+                  type="checkbox"
+                  name="categoryIds"
+                  value={category.id}
+                  checked={selectedCategoryIds.has(String(category.id))}
+                />
+                <span>{category.name}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        {(errors.categoryIds || errors.categoryId) && (
+          <span class="error-text">{errors.categoryIds || errors.categoryId}</span>
+        )}
       </section>
       <section class="post-card">
         <h2 class="post-card-title">Ảnh đại diện</h2>
@@ -266,7 +317,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
   status?.addEventListener('change', syncActions);
   syncActions();
 
-  const snapshotKeys = ['title', 'slug', 'categoryId', 'coverMediaId', 'contentJson', 'seoTitle', 'metaDescription', 'excerpt'];
+  const snapshotKeys = ['title', 'slug', 'coverMediaId', 'contentJson', 'seoTitle', 'metaDescription', 'excerpt'];
   let timer = 0;
   let lastSnapshot = '';
   let chain = Promise.resolve();
@@ -274,12 +325,36 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
   function snapshot() {
     if (!(form instanceof HTMLFormElement)) return '';
     const data = new FormData(form);
-    return snapshotKeys.map((key) => String(data.get(key) ?? '')).join('\u0001');
+    const cats = data.getAll('categoryIds').map(String).sort().join(',');
+    return [...snapshotKeys.map((key) => String(data.get(key) ?? '')), cats].join('\u0001');
   }
 
-  function statusLine(text: string) {
+  function formatSavedAt(ms) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date(ms));
+    const hour = parts.find((part) => part.type === 'hour')?.value ?? '00';
+    const minute = parts.find((part) => part.type === 'minute')?.value ?? '00';
+    return `${hour}:${minute}`;
+  }
+
+  /** @param {'dirty'|'saving'|'saved'|'error'|'blocked'} state */
+  function statusLine(state, detail) {
     const line = form?.querySelector('[data-save-status]');
-    if (line) line.textContent = text;
+    if (!(line instanceof HTMLElement)) return;
+    let text = '';
+    if (state === 'saving') text = 'Đang lưu…';
+    else if (state === 'dirty') text = 'Chưa lưu';
+    else if (state === 'saved') {
+      const at = typeof detail === 'number' ? detail : Date.now();
+      text = `Đã lưu · ${formatSavedAt(at)}`;
+    } else if (state === 'blocked') text = typeof detail === 'string' && detail ? detail : 'Bài đã xuất bản, không tự lưu đè.';
+    else text = typeof detail === 'string' && detail ? detail : 'Lưu thất bại';
+    line.textContent = text;
+    line.dataset.state = state === 'blocked' ? 'error' : state;
   }
 
   function readAutosave(value: unknown): {
@@ -325,7 +400,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
     if (!title || !slug) return;
     data.set('autosave', '1');
     data.set('status', 'draft');
-    statusLine('Đang lưu');
+    statusLine('saving');
     try {
       const response = await fetch(form.action, {
         method: 'POST',
@@ -334,12 +409,12 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
       });
       const body = readAutosave(await response.json());
       if (!response.ok || !body.ok) {
-        statusLine(body.error || 'Lưu thất bại');
+        statusLine('error', body.error || 'Lưu thất bại');
         return;
       }
       if (body.skipped) {
         form.dataset.autosave = 'off';
-        statusLine('Bài đã xuất bản, không tự lưu đè.');
+        statusLine('blocked');
         return;
       }
       rememberRevision(body.updatedAt);
@@ -352,15 +427,18 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
           history.replaceState(null, '', form.action);
         }
       }
-      statusLine(snapshot() === current ? 'Đã lưu' : 'Đang lưu');
-      if (snapshot() !== current) void enqueue(saveDraft);
+      if (snapshot() === current) statusLine('saved', body.updatedAt ?? Date.now());
+      else {
+        statusLine('saving');
+        void enqueue(saveDraft);
+      }
     } catch {
-      statusLine('Lưu thất bại');
+      statusLine('error');
     }
   }
 
   function schedule() {
-    if (snapshot() !== lastSnapshot) statusLine('Chưa lưu');
+    if (snapshot() !== lastSnapshot) statusLine('dirty');
     if (!(form instanceof HTMLFormElement) || form.dataset.autosave !== 'on') return;
     window.clearTimeout(timer);
     timer = window.setTimeout(() => {
@@ -387,6 +465,59 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
   form?.addEventListener('post-editor-ready', acceptEditorBaseline);
   lastSnapshot = snapshot();
 
+  const FOCUS_KEY = 'post-write-focus';
+  const focusBtn = document.getElementById('focus-write');
+  function syncFocusUi(on) {
+    if (!(form instanceof HTMLFormElement)) return;
+    form.classList.toggle('is-focus', on);
+    if (focusBtn instanceof HTMLButtonElement) {
+      focusBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      focusBtn.textContent = on ? 'Hiện đủ' : 'Chỉ viết';
+      focusBtn.title = on ? 'Hiện lại cột phụ và SEO' : 'Ẩn cột phụ để tập trung viết';
+    }
+    syncToolbarTop();
+  }
+  syncFocusUi(form instanceof HTMLFormElement && form.classList.contains('is-focus'));
+  focusBtn?.addEventListener('click', () => {
+    if (!(form instanceof HTMLFormElement)) return;
+    const next = !form.classList.contains('is-focus');
+    syncFocusUi(next);
+    try {
+      localStorage.setItem(FOCUS_KEY, next ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  });
+
+  const titleInput = document.getElementById('post-title');
+  titleInput?.addEventListener('keydown', (event) => {
+    if (!(event instanceof KeyboardEvent) || event.key !== 'Enter') return;
+    event.preventDefault();
+    const prose = form?.querySelector('.ProseMirror');
+    if (prose instanceof HTMLElement) prose.focus();
+  });
+
+  function quickSave(event) {
+    if (!(event instanceof KeyboardEvent) || !(form instanceof HTMLFormElement)) return;
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+    if (event.key === '\\') {
+      event.preventDefault();
+      focusBtn?.click();
+      return;
+    }
+    if (event.key !== 's' && event.key !== 'S') return;
+    if (document.querySelector('dialog[open]')) return;
+    event.preventDefault();
+    window.clearTimeout(timer);
+    if (form.dataset.autosave === 'on') {
+      void enqueue(saveDraft);
+      return;
+    }
+    if (publish instanceof HTMLButtonElement) form.requestSubmit(publish);
+    else if (draft instanceof HTMLButtonElement && !draft.hidden) form.requestSubmit(draft);
+  }
+  window.addEventListener('keydown', quickSave);
+
   window.addEventListener('beforeunload', (event) => {
     if (!(form instanceof HTMLFormElement) || form.dataset.leaving === '1') return;
     if (snapshot() === lastSnapshot) return;
@@ -412,7 +543,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
     }
     if (form.dataset.autosave !== 'on' || form.dataset.saving === 'manual') {
       form.dataset.leaving = '1';
-      statusLine('Đang lưu');
+      statusLine('saving');
       return;
     }
     event.preventDefault();
@@ -432,7 +563,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
         form.dataset.autosave = 'on';
         return;
       }
-      statusLine('Đang lưu');
+      statusLine('saving');
       form.querySelectorAll('button[type="submit"]').forEach((button) => {
         if (button instanceof HTMLButtonElement) button.disabled = false;
       });

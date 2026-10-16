@@ -5,6 +5,7 @@ import { mutationError } from '../../../features/auth/session';
 import { listCategories } from '../../../features/posts/categories';
 import { autosaveResponse, excerptFieldValue, expectedRevision, firstFieldError, isAutosave, parsePostForm } from '../../../features/posts/form';
 import { activityActor } from '../../../features/activity/log';
+import { listPostCategoryIds } from '../../../features/posts/post-categories';
 import { getPost, listMetaCorpus, saveDraftPost, updatePost } from '../../../features/posts/posts';
 import { listRedirectPostTargets } from '../../../features/redirects/manage';
 import { readRetirement } from '../../../features/redirects/rules';
@@ -44,10 +45,11 @@ const seoSite = {
 };
 const media = inTrash ? [] : await listMedia(db);
 const targets = inTrash ? [] : await listRedirectPostTargets(db, post.slug);
+const savedCategoryIds = inTrash ? [] : await listPostCategoryIds(db, id);
 let values = {
   title: post.title,
   slug: post.slug,
-  categoryId: post.categoryId ? String(post.categoryId) : '',
+  categoryIds: savedCategoryIds.map(String),
   coverMediaId: post.coverMediaId ? String(post.coverMediaId) : '',
   contentJson: post.contentJson,
   seoTitle: post.seoTitle ?? '',
@@ -106,7 +108,7 @@ function valuesFrom(form: FormData, fallbackContent: string) {
   return {
     title: read('title'),
     slug: read('slug'),
-    categoryId: read('categoryId'),
+    categoryIds: form.getAll('categoryIds').filter((value): value is string => typeof value === 'string'),
     coverMediaId: read('coverMediaId'),
     contentJson: read('contentJson') || fallbackContent,
     seoTitle: read('seoTitle'),

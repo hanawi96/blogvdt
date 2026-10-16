@@ -5,7 +5,6 @@ function draftForm(excerpt: string, text = 'Đoạn mở đầu của bài viế
   const form = new FormData();
   form.set('title', 'Bài');
   form.set('slug', 'bai');
-  form.set('categoryId', '');
   form.set('coverMediaId', '');
   form.set(
     'contentJson',
