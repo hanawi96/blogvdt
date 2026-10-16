@@ -6,11 +6,13 @@ describe('sitemap', () => {
   it('ghi loc trùng canonical và bỏ đường dẫn không hợp lệ', () => {
     const xml = sitemapXml('https://vongdautam.vn/', [
       { path: '/kien-thuc/bai', lastmod: '2026-10-14T00:00:00.000Z' },
+      { path: '/tag/vong-dau-tam', lastmod: '2026-10-15T00:00:00.000Z' },
       { path: '/kien-thuc/ky-tu', lastmod: 'a<b>&"c\'' },
       { path: '/kien-thuc?utm_source=zalo' },
       { path: '/kien-thuc/../admin' },
     ]);
     expect(xml).toContain(`<loc>${canonicalUrl('https://vongdautam.vn', '/kien-thuc/bai')}</loc>`);
+    expect(xml).toContain(`<loc>${canonicalUrl('https://vongdautam.vn', '/tag/vong-dau-tam')}</loc>`);
     expect(xml).toContain('<loc>https://vongdautam.vn/kien-thuc</loc>');
     expect(xml).toContain('<lastmod>2026-10-14T00:00:00.000Z</lastmod>');
     expect(xml).toContain('<lastmod>a&lt;b&gt;&amp;&quot;c&apos;</lastmod>');

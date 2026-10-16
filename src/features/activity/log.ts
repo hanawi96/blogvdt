@@ -20,6 +20,9 @@ export const ACTIVITY_ACTIONS = [
   'category.create',
   'category.update',
   'category.delete',
+  'tag.create',
+  'tag.update',
+  'tag.delete',
   'product_category.create',
   'product_category.update',
   'product_category.delete',
@@ -49,6 +52,9 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'category.create': 'Tạo danh mục',
   'category.update': 'Sửa danh mục',
   'category.delete': 'Xóa danh mục',
+  'tag.create': 'Tạo thẻ',
+  'tag.update': 'Sửa thẻ',
+  'tag.delete': 'Xóa thẻ',
   'product_category.create': 'Tạo danh mục sản phẩm',
   'product_category.update': 'Sửa danh mục sản phẩm',
   'product_category.delete': 'Xóa danh mục sản phẩm',
@@ -64,7 +70,7 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'redirect.delete': 'Xóa chuyển hướng',
 };
 
-export type ActivityObject = 'post' | 'category' | 'product_category' | 'user' | 'media' | 'settings' | 'redirect';
+export type ActivityObject = 'post' | 'category' | 'tag' | 'product_category' | 'user' | 'media' | 'settings' | 'redirect';
 
 export type ActivityActor = { id: number; name: string };
 
@@ -83,6 +89,7 @@ export type PostComparable = {
   title: string;
   slug: string;
   categoryIds: number[];
+  tagIds: number[];
   coverMediaId: number | null;
   contentJson: string;
   excerpt: string;
@@ -113,6 +120,7 @@ export function postChanged(current: PostComparable, next: PostComparable): bool
     current.title !== next.title ||
     current.slug !== next.slug ||
     !sameIds(current.categoryIds, next.categoryIds) ||
+    !sameIds(current.tagIds, next.tagIds) ||
     current.coverMediaId !== next.coverMediaId ||
     current.contentJson !== next.contentJson ||
     current.excerpt !== next.excerpt ||

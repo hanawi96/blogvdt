@@ -236,15 +236,16 @@ function current(href: string): boolean {
       const link = document.createElement('a');
       link.href = item.href;
       link.textContent = item.label;
-      li.append(link);
+      li.appendChild(link);
       if (item.meta) {
         const meta = document.createElement('span');
         meta.textContent = item.meta;
-        li.append(meta);
+        li.appendChild(meta);
       }
-      list.append(li);
+      list.appendChild(li);
     }
-    section.append(heading, list);
+    section.appendChild(heading);
+    section.appendChild(list);
     return section;
   }
 
@@ -283,10 +284,10 @@ function current(href: string): boolean {
       if (searchStatus instanceof HTMLElement) searchStatus.hidden = true;
       searchGroups.replaceChildren();
       if (posts.length) {
-        searchGroups.append(renderGroup('Bài viết', posts.map((post) => ({ label: post.title, href: post.href }))));
+        searchGroups.appendChild(renderGroup('Bài viết', posts.map((post) => ({ label: post.title, href: post.href }))));
       }
       if (products.length) {
-        searchGroups.append(
+        searchGroups.appendChild(
           renderGroup(
             'Mẫu vòng',
             products.map((product) => ({

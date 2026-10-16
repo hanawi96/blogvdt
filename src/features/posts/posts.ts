@@ -25,6 +25,7 @@ import {
   replacePostCategoryWrites,
   resolveCategoryIds,
 } from './post-categories';
+import { listPostTagIds, replacePostTagWrites, resolveTagIds } from './post-tags';
 import { redirectOccupiesSlug, shouldStorePostRedirect } from './redirects';
 import { slugify } from './slug';
 import type { PostStatus } from './status';
@@ -71,6 +72,7 @@ export type PostInput = {
   title: string;
   slug: string;
   categoryIds: number[];
+  tagIds: number[];
   coverMediaId: number | null;
   contentJson: string;
   excerpt: string;
@@ -176,9 +178,9 @@ export async function createPost(
   now = Date.now(),
   actor?: ActivityActor,
 ): Promise<{ ok: true; id: number; updatedAt: number } | { ok: false; error: string }> {
-  const categoriesOk = await resolveCategoryIds(db, input.categoryIds);
-  if (!categoriesOk.ok) return categoriesOk;
-  const payload = { ...input, categoryIds: categoriesOk.ids };
+  const links = await resolvePostLinks(db, input);
+  if (!links.ok) return links;
+  const payload = { ...input, categoryIds: links.categoryIds, tagIds: links.tagIds };
   const slugError = await slugAvailable(db, payload.slug, null, null);
   if (slugError) return { ok: false, error: slugError };
   const action = payload.status === 'published' ? 'post.publish' : 'post.create';
@@ -206,9 +208,11 @@ export async function createPost(
   const inserted = await db.select({ id: posts.id }).from(posts).where(eq(posts.slug, payload.slug)).limit(1);
   const id = inserted[0]?.id;
   if (!id) return { ok: false, error: 'Không lưu được bài viết.' };
-  if (payload.categoryIds.length > 0) {
-    await commitWrites(db, replacePostCategoryWrites(db, id, payload.categoryIds));
-  }
+  const linkWrites = [
+    ...(payload.categoryIds.length > 0 ? replacePostCategoryWrites(db, id, payload.categoryIds) : []),
+    ...(payload.tagIds.length > 0 ? replacePostTagWrites(db, id, payload.tagIds) : []),
+  ];
+  if (linkWrites.length > 0) await commitWrites(db, linkWrites);
   return { ok: true, id, updatedAt: now };
 }
 
@@ -224,14 +228,14 @@ export async function updatePost(
   const current = await getPost(db, id);
   if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
   if (current.deletedAt != null) return { ok: false, error: 'Bài đang ở thùng rác. Hãy khôi phục trước khi sửa.' };
-  const categoriesOk = await resolveCategoryIds(db, input.categoryIds);
-  if (!categoriesOk.ok) return categoriesOk;
-  const payload = { ...input, categoryIds: categoriesOk.ids };
-  const currentCats = await listPostCategoryIds(db, id);
+  const links = await resolvePostLinks(db, input);
+  if (!links.ok) return links;
+  const payload = { ...input, categoryIds: links.categoryIds, tagIds: links.tagIds };
+  const [currentCats, currentTags] = await Promise.all([listPostCategoryIds(db, id), listPostTagIds(db, id)]);
   const action = postLogAction(
     current.status,
     payload.status,
-    postChanged({ ...current, categoryIds: currentCats }, payload),
+    postChanged({ ...current, categoryIds: currentCats, tagIds: currentTags }, payload),
   );
   if (!action) return { ok: true, updatedAt: current.updatedAt };
   if (staleRevision(current.updatedAt, expectedUpdatedAt)) return { ok: false, error: REVISION_CONFLICT, conflict: true };
@@ -244,6 +248,7 @@ export async function updatePost(
   const results = await commitWrites(db, [
     db.update(posts).set(values).where(match).returning({ id: posts.id }),
     ...replacePostCategoryWrites(db, id, payload.categoryIds),
+    ...replacePostTagWrites(db, id, payload.tagIds),
     ...(actor
       ? [
           activityWrite(
@@ -284,11 +289,11 @@ export async function saveDraftPost(
   if (!current) return { ok: false, error: 'Không tìm thấy bài viết.' };
   if (current.deletedAt != null) return { ok: false, error: 'Bài đang ở thùng rác. Hãy khôi phục trước khi sửa.' };
   if (current.status !== 'draft') return { ok: true, skipped: true, updatedAt: current.updatedAt };
-  const categoriesOk = await resolveCategoryIds(db, input.categoryIds);
-  if (!categoriesOk.ok) return categoriesOk;
-  const draft = { ...input, categoryIds: categoriesOk.ids, status: 'draft' as const };
-  const currentCats = await listPostCategoryIds(db, id);
-  if (!postChanged({ ...current, categoryIds: currentCats }, draft)) {
+  const links = await resolvePostLinks(db, input);
+  if (!links.ok) return links;
+  const draft = { ...input, categoryIds: links.categoryIds, tagIds: links.tagIds, status: 'draft' as const };
+  const [currentCats, currentTags] = await Promise.all([listPostCategoryIds(db, id), listPostTagIds(db, id)]);
+  if (!postChanged({ ...current, categoryIds: currentCats, tagIds: currentTags }, draft)) {
     return { ok: true, skipped: false, updatedAt: current.updatedAt };
   }
   if (staleRevision(current.updatedAt, expectedUpdatedAt)) return { ok: false, error: REVISION_CONFLICT, conflict: true };
@@ -314,6 +319,7 @@ export async function saveDraftPost(
   const results = await commitWrites(db, [
     db.update(posts).set(values).where(match).returning({ id: posts.id }),
     ...replacePostCategoryWrites(db, id, draft.categoryIds),
+    ...replacePostTagWrites(db, id, draft.tagIds),
     ...(autosaveLog ? [autosaveLog.query] : []),
   ]);
   if (!changedRows(results[0])) {
@@ -336,13 +342,14 @@ export async function duplicatePost(
   if (current.deletedAt != null) return { ok: false, error: 'Bài đang ở thùng rác. Hãy khôi phục trước khi sao chép.' };
   const slug = await unusedCopySlug(db, current.slug);
   if (!slug) return { ok: false, error: 'Không tạo được đường dẫn cho bản sao.' };
-  const categoryIds = await listPostCategoryIds(db, id);
+  const [categoryIds, tagIds] = await Promise.all([listPostCategoryIds(db, id), listPostTagIds(db, id)]);
   return createPost(
     db,
     {
       title: copyTitle(current.title),
       slug,
       categoryIds,
+      tagIds,
       coverMediaId: current.coverMediaId,
       contentJson: current.contentJson,
       excerpt: current.excerpt,
@@ -353,6 +360,19 @@ export async function duplicatePost(
     now,
     actor,
   );
+}
+
+async function resolvePostLinks(
+  db: AppDb,
+  input: Pick<PostInput, 'categoryIds' | 'tagIds'>,
+): Promise<{ ok: true; categoryIds: number[]; tagIds: number[] } | { ok: false; error: string }> {
+  const [categoriesOk, tagsOk] = await Promise.all([
+    resolveCategoryIds(db, input.categoryIds),
+    resolveTagIds(db, input.tagIds),
+  ]);
+  if (!categoriesOk.ok) return categoriesOk;
+  if (!tagsOk.ok) return tagsOk;
+  return { ok: true, categoryIds: categoriesOk.ids, tagIds: tagsOk.ids };
 }
 
 async function unusedCopySlug(db: AppDb, base: string): Promise<string | null> {

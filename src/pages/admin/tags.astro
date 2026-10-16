@@ -1,0 +1,228 @@
+---
+import SearchPreview from '../../components/admin/SearchPreview.astro';
+import SlugField from '../../components/admin/SlugField.svelte';
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { activityActor } from '../../features/activity/log';
+import { mutationError } from '../../features/auth/session';
+import { lengthNote, metaDuplicateNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
+import { listMetaCorpus } from '../../features/posts/posts';
+import { deleteTag, getTagById, listTags, saveTag, tagDeleteWarning } from '../../features/posts/tags';
+import { getPublicSite } from '../../features/settings/settings';
+import { createDb } from '../../lib/db/client';
+import { getDbBinding } from '../../lib/cloudflare/env';
+import { collectMetaCorpus, mergeMetaCorpus, siteListCorpus } from '../../lib/seo/meta';
+import { routes } from '../../lib/routes';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+
+const db = createDb(getDbBinding());
+const wantsJson = Astro.request.headers.get('accept')?.includes('application/json') ?? false;
+const jsonHeaders = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: jsonHeaders });
+}
+
+let formError = '';
+let editingId = '';
+let name = '';
+let slug = '';
+let description = '';
+let seoTitle = '';
+let metaDescription = '';
+let robots = 'noindex';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const blocked = mutationError(Astro.request, session, form);
+  if (blocked) {
+    Astro.response.status = 403;
+    if (wantsJson) return json({ ok: false, error: blocked }, 403);
+    formError = blocked;
+  } else {
+    const intent = String(form.get('intent') ?? 'save');
+    const idValue = Number(form.get('id'));
+    const id = Number.isInteger(idValue) && idValue > 0 ? idValue : undefined;
+    const actor = await activityActor(db, session.userId);
+    if (intent === 'delete' && id) {
+      if (wantsJson) return json({ ok: false, error: 'Không xóa thẻ từ trình soạn bài.' }, 405);
+      await deleteTag(db, id, actor);
+      return Astro.redirect(routes.adminTags, 303);
+    }
+    name = String(form.get('name') ?? '');
+    slug = String(form.get('slug') ?? '');
+    description = String(form.get('description') ?? '');
+    seoTitle = String(form.get('seoTitle') ?? '');
+    metaDescription = String(form.get('metaDescription') ?? '');
+    robots = String(form.get('robots') ?? 'noindex');
+    editingId = id ? String(id) : '';
+    const saved = await saveTag(db, { id, name, slug, description, seoTitle, metaDescription, robots }, Date.now(), actor);
+    if (!saved.ok) {
+      Astro.response.status = 422;
+      if (wantsJson) return json({ ok: false, error: saved.error }, 422);
+      formError = saved.error;
+    } else if (wantsJson) {
+      const row = await getTagById(db, saved.id);
+      return json({ ok: true, tag: { id: saved.id, name: row?.name ?? name, slug: row?.slug ?? '' } }, id ? 200 : 201);
+    } else {
+      return Astro.redirect(`${routes.adminTags}?saved=1`, 303);
+    }
+  }
+}
+
+const query = Astro.url.searchParams.get('q') ?? '';
+const [tagRows, allTags] = await Promise.all([
+  listTags(db, { query }),
+  // Corpus SEO luôn lấy đủ thẻ — không phụ thuộc ô tìm kiếm danh sách.
+  query.trim() ? listTags(db) : Promise.resolve(null),
+]);
+const corpusTags = allTags ?? tagRows;
+const saved = Astro.url.searchParams.get('saved') === '1';
+const editId = Number(Astro.url.searchParams.get('edit') ?? '');
+let editing = tagRows.find((tag) => tag.id === editId) ?? null;
+if (Astro.request.method !== 'POST' && editId > 0 && !editing) {
+  const row = await getTagById(db, editId);
+  if (row) {
+    editing = { ...row, postCount: 0 };
+  }
+}
+if (Astro.request.method !== 'POST' && editing) {
+  editingId = String(editing.id);
+  name = editing.name;
+  slug = editing.slug;
+  description = editing.description ?? '';
+  seoTitle = editing.seoTitle ?? '';
+  metaDescription = editing.metaDescription ?? '';
+  robots = editing.robots === 'index' ? 'index' : 'noindex';
+}
+const site = await getPublicSite(db);
+const excludeTag = editingId ? Number(editingId) : null;
+const corpus = mergeMetaCorpus(
+  collectMetaCorpus(corpusTags.filter((tag) => tag.id !== excludeTag)),
+  await listMetaCorpus(db, null),
+  siteListCorpus(),
+);
+const titleLengthNote = lengthNote(seoTitle.length, SEO_TITLE_RANGE.min, SEO_TITLE_RANGE.max);
+const descriptionLengthNote = lengthNote(metaDescription.length, SEO_DESC_RANGE.min, SEO_DESC_RANGE.max);
+const duplicateNote = metaDuplicateNote(seoTitle || name, metaDescription || description, corpus);
+const slugError = formError.startsWith('Slug') ? formError : '';
+const nameError = formError.startsWith('Nhập tên') || formError.startsWith('Tên') ? formError : '';
+const bannerError = slugError || nameError ? '' : formError;
+---
+
+<AdminLayout title="Thẻ">
+  {saved && !formError && <p class="mb-4 text-primary-strong" role="status">Đã lưu thẻ.</p>}
+  {bannerError && <p class="error-text mb-4" role="alert">{bannerError}</p>}
+  <div class="category-layout">
+    <form class="category-panel" method="post" data-busy>
+      <h2 class="category-panel-title">{editingId ? 'Sửa thẻ' : 'Thêm thẻ'}</h2>
+      <input type="hidden" name="csrf" value={session.csrfToken} />
+      <input type="hidden" name="intent" value="save" />
+      {editingId && <input type="hidden" name="id" value={editingId} />}
+      <SlugField client:load label="Tên thẻ" field="name" title={name} {slug} titleError={nameError} {slugError} nameMax={80} />
+      <p class="seo-hint">Slug tự tạo từ tên tiếng Việt cho đến khi bạn sửa ô này.</p>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Mô tả ngắn</span>
+        <textarea class="field min-h-24" name="description" maxlength="300">{description}</textarea>
+      </label>
+      <fieldset class="mt-4">
+        <legend class="mb-1 block font-semibold">Trạng thái SEO</legend>
+        <div class="category-presets" role="radiogroup" aria-label="Trạng thái SEO">
+          <label class="category-preset">
+            <input type="radio" name="robots" value="noindex" checked={robots !== 'index'} />
+            <span>Noindex, follow</span>
+          </label>
+          <label class="category-preset">
+            <input type="radio" name="robots" value="index" checked={robots === 'index'} />
+            <span>Index, follow</span>
+          </label>
+        </div>
+        <p class="seo-hint">Mặc định noindex. Bật index khi trang thẻ đã có nội dung hữu ích.</p>
+      </fieldset>
+      <div class="mt-4">
+        <SearchPreview
+          site={{ name: site?.siteName || 'Website', host: Astro.url.host, markUrl: site?.faviconUrl || site?.logoUrl || '' }}
+          title={seoTitle || name || 'Tên thẻ'}
+          description={metaDescription || description || 'Thêm mô tả SEO hoặc mô tả thẻ để xem trước đoạn này.'}
+          slug={slug || 'the'}
+          emptyDescription={!metaDescription && !description}
+          fallbackTitleName="name"
+          fallbackDescriptionName="description"
+          pathPrefix="tag"
+          corpus={corpus}
+        />
+      </div>
+      <label class="mt-4 block">
+        <span class="seo-label">
+          <span>SEO Title</span>
+          <span data-seo-title-count>{seoTitle.length} ký tự</span>
+        </span>
+        <input class="field" name="seoTitle" maxlength="180" value={seoTitle} />
+        <span class="seo-hint">Để trống thì dùng tên thẻ.</span>
+        <span class="seo-hint" data-seo-title-note>{titleLengthNote}</span>
+      </label>
+      <label class="mt-4 block">
+        <span class="seo-label">
+          <span>Meta Description</span>
+          <span data-seo-desc-count>{metaDescription.length} ký tự</span>
+        </span>
+        <textarea class="field min-h-24" name="metaDescription" maxlength="300">{metaDescription}</textarea>
+        <span class="seo-hint">Để trống thì dùng mô tả thẻ. Nên khoảng 70–160 ký tự.</span>
+        <span class="seo-hint" data-seo-desc-note>{descriptionLengthNote}</span>
+        <span class="seo-hint" data-seo-duplicate-note>{duplicateNote}</span>
+      </label>
+      <div class="category-actions">
+        <button class="btn btn-primary" type="submit">{editingId ? 'Cập nhật' : 'Thêm thẻ'}</button>
+        {editingId && <a class="btn" href={routes.adminTags}>Hủy</a>}
+      </div>
+    </form>
+    <section class="category-panel">
+      <div class="category-list-head">
+        <h2 class="category-panel-title">Danh sách</h2>
+        <form method="get" class="tag-search" role="search">
+          <label class="sr-only" for="tag-q">Tìm thẻ</label>
+          <input id="tag-q" class="field" type="search" name="q" value={query} placeholder="Tìm tên hoặc slug…" maxlength="80" />
+        </form>
+      </div>
+      {
+        tagRows.length === 0 ? (
+          <p class="text-muted">{query.trim() ? 'Không có thẻ khớp tìm kiếm.' : 'Chưa có thẻ.'}</p>
+        ) : (
+          <ul>
+            {tagRows.map((tag) => (
+              <li class:list={['category-row', editingId === String(tag.id) && 'category-row-current']}>
+                <div>
+                  <p class="font-semibold">{tag.name}</p>
+                  <p class="text-sm text-muted">{routes.tag(tag.slug)}</p>
+                  <p class="text-sm text-muted">
+                    {tag.postCount === 0 ? 'Chưa có bài' : tag.postCount === 1 ? '1 bài' : `${tag.postCount} bài`}
+                    <span aria-hidden="true"> · </span>
+                    {tag.robots === 'index' ? 'Index' : 'Noindex'}
+                  </p>
+                </div>
+                <div class="post-actions">
+                  <a href={`${routes.adminTags}?edit=${tag.id}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}`}>Sửa</a>
+                  <span class="post-actions-sep" aria-hidden="true">|</span>
+                  <form
+                    method="post"
+                    data-busy
+                    data-confirm-title={`Xóa “${tag.name}”?`}
+                    data-confirm={tagDeleteWarning(tag.postCount)}
+                    data-confirm-ok="Xóa"
+                    data-confirm-tone="danger"
+                  >
+                    <input type="hidden" name="csrf" value={session.csrfToken} />
+                    <input type="hidden" name="intent" value="delete" />
+                    <input type="hidden" name="id" value={tag.id} />
+                    <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                  </form>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    </section>
+  </div>
+</AdminLayout>

@@ -1,6 +1,7 @@
 ---
 import MediaPicker from './MediaPicker.svelte';
 import PostEditor from './PostEditor.svelte';
+import TagField from './TagField.svelte';
 import type { MediaItem } from '../../features/media/types';
 import SearchPreview from './SearchPreview.astro';
 import SeoChecklist from './SeoChecklist.svelte';
@@ -16,6 +17,7 @@ interface Values {
   title: string;
   slug: string;
   categoryIds: string[];
+  tagIds: string[];
   coverMediaId: string;
   contentJson: string;
   seoTitle: string;
@@ -44,6 +46,8 @@ interface Props {
   errors: FieldErrors;
   formError: string;
   categories: { id: number; name: string }[];
+  tags?: { id: number; name: string }[];
+  selectedTags?: { id: number; name: string }[];
   media: MediaItem[];
   site: SeoSite;
   postId?: number;
@@ -55,10 +59,17 @@ interface Props {
   targets?: { title: string; path: string }[];
 }
 
-const { csrf, action, values, errors, formError, categories, media, site, postId, saved = false, meta, deleteAction, livePublished = false, corpus = { titles: [], descriptions: [] }, targets = [] } = Astro.props;
+const { csrf, action, values, errors, formError, categories, tags = [], selectedTags = [], media, site, postId, saved = false, meta, deleteAction, livePublished = false, corpus = { titles: [], descriptions: [] }, targets = [] } = Astro.props;
 const publishLabel = values.status === 'published' ? 'Cập nhật' : 'Xuất bản';
 const wasPublic = livePublished || meta?.publishedAt != null;
 const selectedCategoryIds = new Set(values.categoryIds);
+const tagOptions = tags;
+const tagCatalog = new Map<number, { id: number; name: string }>();
+for (const tag of [...tags, ...selectedTags]) tagCatalog.set(tag.id, { id: tag.id, name: tag.name });
+const initialSelectedTags = values.tagIds.flatMap((id) => {
+  const hit = tagCatalog.get(Number(id));
+  return hit ? [hit] : [];
+});
 const saveStatus = formError
   ? 'Lưu thất bại'
   : values.status === 'draft' && meta
@@ -232,6 +243,11 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
         )}
       </section>
       <section class="post-card">
+        <h2 class="post-card-title">Thẻ</h2>
+        <TagField client:load {csrf} options={tagOptions} selected={initialSelectedTags} />
+        {errors.tagIds && <span class="error-text">{errors.tagIds}</span>}
+      </section>
+      <section class="post-card">
         <h2 class="post-card-title">Ảnh đại diện</h2>
         <MediaPicker client:load {csrf} items={media} name="coverMediaId" selected={values.coverMediaId ? [values.coverMediaId] : []} editAlt />
         {errors.coverMediaId && <span class="error-text">{errors.coverMediaId}</span>}
@@ -358,10 +374,11 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
     if (!(form instanceof HTMLFormElement)) return '';
     const data = new FormData(form);
     const cats = data.getAll('categoryIds').map(String).sort().join(',');
-    return [...snapshotKeys.map((key) => String(data.get(key) ?? '')), cats].join('\u0001');
+    const tags = data.getAll('tagIds').map(String).sort().join(',');
+    return [...snapshotKeys.map((key) => String(data.get(key) ?? '')), cats, tags].join('\u0001');
   }
 
-  function formatSavedAt(ms) {
+  function formatSavedAt(ms: number) {
     const parts = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Asia/Ho_Chi_Minh',
       hour: '2-digit',
@@ -373,8 +390,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
     return `${hour}:${minute}`;
   }
 
-  /** @param {'dirty'|'saving'|'saved'|'error'|'blocked'} state */
-  function statusLine(state, detail) {
+  function statusLine(state: 'dirty' | 'saving' | 'saved' | 'error' | 'blocked', detail?: number | string) {
     const line = form?.querySelector('[data-save-status]');
     if (!(line instanceof HTMLElement)) return;
     let text = '';
@@ -499,7 +515,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
 
   const FOCUS_KEY = 'post-write-focus';
   const focusBtn = document.getElementById('focus-write');
-  function syncFocusUi(on) {
+  function syncFocusUi(on: boolean) {
     if (!(form instanceof HTMLFormElement)) return;
     form.classList.toggle('is-focus', on);
     if (focusBtn instanceof HTMLButtonElement) {
@@ -537,7 +553,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
   const previewEmbed = form?.querySelector('[data-preview-embed]');
   let previewOpen = false;
 
-  function setPreviewStatus(text) {
+  function setPreviewStatus(text: string) {
     if (previewStatus instanceof HTMLElement) previewStatus.textContent = text;
   }
 
@@ -548,7 +564,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
     form.requestSubmit(previewSubmit);
   }
 
-  function openPreview(refresh) {
+  function openPreview(refresh: boolean) {
     if (!(form instanceof HTMLFormElement)) return;
     previewOpen = true;
     form.classList.add('is-preview');
@@ -601,7 +617,7 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
     closePreview();
   });
 
-  function quickSave(event) {
+  function quickSave(event: Event) {
     if (!(event instanceof KeyboardEvent) || !(form instanceof HTMLFormElement)) return;
     if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
     if (event.key === '\\') {

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { fieldErrors, type FieldErrors } from '../../lib/validation/errors';
 import { sanitizePostContent } from './content';
 import { parseCategoryIds } from './post-categories';
+import { parseTagIds } from './post-tags';
 import type { PostInput } from './posts';
 import { SLUG_PATTERN } from './slug';
 import { isPostStatus } from './status';
@@ -37,6 +38,8 @@ export function parsePostForm(form: FormData): { ok: true; input: PostInput } | 
   if (!isPostStatus(parsed.data.status)) return { ok: false, errors: { status: 'Trạng thái không hợp lệ.' } };
   const categories = parseCategoryIds(form);
   if (!categories.ok) return { ok: false, errors: { categoryIds: categories.error } };
+  const tagIds = parseTagIds(form);
+  if (!tagIds.ok) return { ok: false, errors: { tagIds: tagIds.error } };
   const coverMediaId = optionalId(parsed.data.coverMediaId);
   if (parsed.data.coverMediaId && coverMediaId === null) return { ok: false, errors: { coverMediaId: 'Ảnh đại diện không hợp lệ.' } };
   const content = sanitizePostContent(parsed.data.contentJson || '{"type":"doc","content":[]}');
@@ -50,6 +53,7 @@ export function parsePostForm(form: FormData): { ok: true; input: PostInput } | 
       title: parsed.data.title,
       slug: parsed.data.slug,
       categoryIds: categories.ids,
+      tagIds: tagIds.ids,
       coverMediaId,
       contentJson: content.json,
       excerpt: parsed.data.excerpt || content.excerpt,

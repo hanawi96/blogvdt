@@ -67,6 +67,18 @@ export function categoryPageMeta(
   return { title: documentTitle(headline, siteName, page), description };
 }
 
+export function tagPageMeta(
+  tag: { name: string; description: string | null; seoTitle: string | null; metaDescription: string | null },
+  siteName: string,
+  page = 1,
+): { title: string; description: string } {
+  const name = plainMetaText(tag.name);
+  const headline = plainMetaText(tag.seoTitle) || name;
+  const description =
+    plainMetaText(tag.metaDescription) || plainMetaText(tag.description) || (name ? `Bài viết gắn thẻ ${name}.` : 'Bài viết theo thẻ.');
+  return { title: documentTitle(headline, siteName, page), description };
+}
+
 export function policyPageMeta(policy: { title: string; description: string }, siteName: string): { title: string; description: string } {
   return { title: documentTitle(policy.title, siteName), description: plainMetaText(policy.description) };
 }
@@ -150,17 +162,17 @@ export function blogPostingSchema(input: {
   modifiedTime?: string;
   siteName: string;
   authorUrl?: string | null;
+  author?: { name?: string | null; url?: string | null; image?: string | null } | null;
   logo?: string | null;
 }): Record<string, unknown> | null {
   const headline = input.headline.trim();
   const canonical = httpUrl(input.canonical);
   const name = input.siteName.trim();
   if (!headline || !canonical || !name) return null;
-  const author: Record<string, unknown> = { '@type': 'Organization', name };
-  const authorUrl = httpUrl(input.authorUrl);
-  if (authorUrl) author.url = authorUrl;
+  const siteUrl = httpUrl(input.authorUrl);
+  const author = authorNode(input.author, input.authorUrl, name);
   const publisher: Record<string, unknown> = { '@type': 'Organization', name };
-  if (authorUrl) publisher.url = authorUrl;
+  if (siteUrl) publisher.url = siteUrl;
   const logo = httpUrl(input.logo);
   if (logo) publisher.logo = { '@type': 'ImageObject', url: logo };
   const schema: Record<string, unknown> = {
@@ -237,6 +249,26 @@ export function jsonLd(data: Record<string, unknown>): string {
     .replace(/>/g, '\\u003e')
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029');
+}
+
+function authorNode(
+  author: { name?: string | null; url?: string | null; image?: string | null } | null | undefined,
+  fallbackUrl: string | null | undefined,
+  siteName: string,
+): Record<string, unknown> {
+  const personName = plainMetaText(author?.name);
+  if (personName) {
+    const node: Record<string, unknown> = { '@type': 'Person', name: personName };
+    const url = httpUrl(author?.url);
+    if (url) node.url = url;
+    const image = httpUrl(author?.image);
+    if (image) node.image = image;
+    return node;
+  }
+  const node: Record<string, unknown> = { '@type': 'Organization', name: siteName };
+  const url = httpUrl(fallbackUrl);
+  if (url) node.url = url;
+  return node;
 }
 
 function schemaImage(image: { url: string; width?: number | null; height?: number | null } | null | undefined): Record<string, unknown> | null {

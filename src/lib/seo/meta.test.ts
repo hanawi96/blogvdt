@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blogPostingSchema, breadcrumbSchema, buildMeta, canonicalUrl, categoryPageMeta, documentTitle, homePageMeta, jsonLd, knowledgeListMeta, KNOWLEDGE_LIST_DESCRIPTION, plainMetaText, postPageMeta, productSchema, shareImageUrl, shareMetadata, shareOriginFrom, siteOrigin } from './meta';
+import { blogPostingSchema, breadcrumbSchema, buildMeta, canonicalUrl, categoryPageMeta, documentTitle, homePageMeta, jsonLd, knowledgeListMeta, KNOWLEDGE_LIST_DESCRIPTION, plainMetaText, postPageMeta, productSchema, shareImageUrl, shareMetadata, shareOriginFrom, siteOrigin, tagPageMeta } from './meta';
 
 describe('SEO', () => {
   it('ghép canonical từ origin và đường dẫn', () => {
@@ -55,6 +55,23 @@ describe('SEO', () => {
     });
     expect(pictured?.image).toEqual({ '@type': 'ImageObject', url: 'http://localhost:4321/media/a.png', width: 800, height: 600 });
     expect(pictured).not.toHaveProperty('dateModified');
+    const authored = blogPostingSchema({
+      headline: 'Bài',
+      description: 'Mô tả',
+      canonical: 'http://localhost:4321/kien-thuc/bai',
+      siteName: 'Vòng Dâu Tằm',
+      authorUrl: 'http://localhost:4321/',
+      author: { name: 'Nguyễn An', url: 'https://facebook.com/an', image: 'https://cdn.test/a.png' },
+    });
+    expect(authored?.author).toEqual({ '@type': 'Person', name: 'Nguyễn An', url: 'https://facebook.com/an', image: 'https://cdn.test/a.png' });
+    const authoredNoLinks = blogPostingSchema({
+      headline: 'Bài',
+      description: 'Mô tả',
+      canonical: 'http://localhost:4321/kien-thuc/bai',
+      siteName: 'Vòng Dâu Tằm',
+      author: { name: 'Nguyễn An', url: 'javascript:alert(1)', image: null },
+    });
+    expect(authoredNoLinks?.author).toEqual({ '@type': 'Person', name: 'Nguyễn An' });
     expect(blogPostingSchema({
       headline: 'Bài',
       description: 'Mô tả',
@@ -155,6 +172,16 @@ describe('title và description', () => {
       description: 'Mô tả tìm kiếm.',
     });
     expect(categoryPageMeta({ name: 'Góc chia sẻ', description: null, seoTitle: null, metaDescription: null }, 'Vòng dâu').description).toBe('Bài viết trong danh mục Góc chia sẻ.');
+  });
+
+  it('thẻ trống SEO thì dùng tên và mô tả mặc định', () => {
+    expect(tagPageMeta({ name: 'Vòng dâu tằm', description: null, seoTitle: null, metaDescription: null }, 'Vòng dâu').description).toBe(
+      'Bài viết gắn thẻ Vòng dâu tằm.',
+    );
+    expect(tagPageMeta({ name: 'Vòng', description: 'Gợi ý chọn.', seoTitle: '', metaDescription: '  ' }, 'Vòng dâu')).toEqual({
+      title: 'Vòng | Vòng dâu',
+      description: 'Gợi ý chọn.',
+    });
   });
 
   it('metadata chia sẻ dùng canonical và ảnh cùng host', () => {

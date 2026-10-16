@@ -1,8 +1,9 @@
 import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
-import { categories, media, postCategories, posts } from '../../lib/db/schema';
+import { categories, media, postCategories, posts, postTags, tags } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { listPostCategories } from './post-categories';
+import { listPostTags } from './post-tags';
 import { SLUG_PATTERN } from './slug';
 import { livePublished } from './visibility';
 
@@ -29,14 +30,20 @@ export type PublicPostCard = {
   coverHeight: number | null;
 };
 
-export async function listPublishedPosts(db: AppDb, filters: { page: number; categoryId?: number }) {
+export async function listPublishedPosts(db: AppDb, filters: { page: number; categoryId?: number; tagId?: number }) {
   const inCategory = filters.categoryId
     ? inArray(
         posts.id,
         db.select({ postId: postCategories.postId }).from(postCategories).where(eq(postCategories.categoryId, filters.categoryId)),
       )
     : undefined;
-  const live = and(livePublished(), inCategory);
+  const inTag = filters.tagId
+    ? inArray(
+        posts.id,
+        db.select({ postId: postTags.postId }).from(postTags).where(eq(postTags.tagId, filters.tagId)),
+      )
+    : undefined;
+  const live = and(livePublished(), inCategory, inTag);
   const page = Math.max(1, filters.page);
   const totalRows = await db.select({ value: count() }).from(posts).where(live);
   const total = totalRows[0]?.value ?? 0;
@@ -121,15 +128,43 @@ export async function getPostBySlug(db: AppDb, slug: string) {
     .limit(1);
   const row = rows[0];
   if (!row) return null;
-  const postCats = await listPostCategories(db, row.id);
+  const [postCats, postTagRows] = await Promise.all([listPostCategories(db, row.id), listPostTags(db, row.id)]);
   return {
     ...row,
     categories: postCats,
+    tags: postTagRows,
     categoryName: postCats[0]?.name ?? row.categoryName,
     categorySlug: postCats[0]?.slug ?? row.categorySlug,
     coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
     coverAlt: row.coverAlt ?? '',
   };
+}
+
+/** Tag công khai: chỉ khi còn ≥1 bài đã xuất bản. */
+export async function getPublicTagBySlug(db: AppDb, slug: string) {
+  const rows = await db
+    .select({
+      id: tags.id,
+      name: tags.name,
+      slug: tags.slug,
+      description: tags.description,
+      seoTitle: tags.seoTitle,
+      metaDescription: tags.metaDescription,
+      robots: tags.robots,
+      updatedAt: tags.updatedAt,
+    })
+    .from(tags)
+    .where(eq(tags.slug, slug))
+    .limit(1);
+  const tag = rows[0];
+  if (!tag) return null;
+  const published = await db
+    .select({ value: count() })
+    .from(postTags)
+    .innerJoin(posts, and(eq(posts.id, postTags.postId), livePublished()))
+    .where(eq(postTags.tagId, tag.id));
+  if ((published[0]?.value ?? 0) < 1) return null;
+  return tag;
 }
 
 export async function listRelatedPosts(db: AppDb, input: { id: number; categoryIds: number[] }) {
@@ -181,6 +216,27 @@ export async function listSitemapCategories(db: AppDb) {
     .select({ slug: categories.slug, updatedAt: categories.updatedAt })
     .from(categories)
     .orderBy(asc(categories.name));
+  return rows.filter((row) => SLUG_PATTERN.test(row.slug));
+}
+
+/** Chỉ thẻ robots=index còn ≥1 bài đã xuất bản — khớp trang `/tag/{slug}` indexable. */
+export async function listSitemapTags(db: AppDb) {
+  const rows = await db
+    .select({ slug: tags.slug, updatedAt: tags.updatedAt })
+    .from(tags)
+    .where(
+      and(
+        eq(tags.robots, 'index'),
+        inArray(
+          tags.id,
+          db
+            .select({ tagId: postTags.tagId })
+            .from(postTags)
+            .innerJoin(posts, and(eq(posts.id, postTags.postId), livePublished())),
+        ),
+      ),
+    )
+    .orderBy(asc(tags.name));
   return rows.filter((row) => SLUG_PATTERN.test(row.slug));
 }
 

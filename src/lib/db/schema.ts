@@ -79,6 +79,23 @@ export const categories = sqliteTable('categories', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+/** Thẻ bài viết. `robots`: index | noindex (mặc định noindex). */
+export const tags = sqliteTable(
+  'tags',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull().unique(),
+    slug: text('slug').notNull().unique(),
+    description: text('description'),
+    seoTitle: text('seo_title'),
+    metaDescription: text('meta_description'),
+    robots: text('robots').notNull().default('noindex'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [check('tags_robots_check', sql`${table.robots} in ('index', 'noindex')`)],
+);
+
 export const media = sqliteTable('media', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   r2Key: text('r2_key').notNull().unique(),
@@ -134,6 +151,20 @@ export const postCategories = sqliteTable(
     primaryKey({ columns: [table.postId, table.categoryId] }),
     index('post_categories_category_idx').on(table.categoryId),
   ],
+);
+
+/** Nhiều thẻ / bài. Xóa tag chỉ cascade liên kết, không xóa bài. */
+export const postTags = sqliteTable(
+  'post_tags',
+  {
+    postId: integer('post_id')
+      .notNull()
+      .references(() => posts.id, { onDelete: 'cascade' }),
+    tagId: integer('tag_id')
+      .notNull()
+      .references(() => tags.id, { onDelete: 'cascade' }),
+  },
+  (table) => [primaryKey({ columns: [table.postId, table.tagId] }), index('post_tags_tag_idx').on(table.tagId)],
 );
 
 export const productCategories = sqliteTable('product_categories', {

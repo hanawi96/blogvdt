@@ -1090,6 +1090,44 @@
     font-size: 0.9rem;
     text-align: center;
   }
+  .post-tags {
+    margin-top: 1.75rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--color-line);
+  }
+  .post-tags-label {
+    margin: 0 0 0.65rem;
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .post-tags ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .post-tags a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.85rem;
+    border: 1px solid var(--color-line);
+    border-radius: 999px;
+    background: var(--color-surface);
+    padding: 0.2rem 0.7rem;
+    color: var(--color-ink);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .post-tags a:hover {
+    border-color: color-mix(in oklab, var(--color-primary) 40%, var(--color-line));
+    color: var(--color-primary-strong);
+  }
   .preview-banner {
     background: var(--color-primary);
     color: var(--color-surface);
@@ -2245,6 +2283,26 @@
     background: var(--color-surface);
     padding: 1rem;
   }
+  .category-list-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+  .category-list-head .category-panel-title {
+    margin: 0;
+  }
+  .tag-search {
+    flex: 1 1 12rem;
+    max-width: 18rem;
+  }
+  .tag-search .field {
+    min-height: 2.25rem;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.875rem;
+  }
   .category-panel-title {
     margin-bottom: 0.9rem;
     font-size: 1rem;
@@ -3233,6 +3291,93 @@
   .category-preset:has(input:focus-visible) span {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
+  }
+  .tag-field {
+    display: grid;
+    gap: 0.55rem;
+    margin-top: 0.75rem;
+  }
+  .tag-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .tag-chips li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    max-width: 100%;
+    border: 1px solid color-mix(in oklab, var(--color-primary) 35%, var(--color-line));
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--color-primary) 10%, var(--color-surface));
+    padding: 0.2rem 0.3rem 0.2rem 0.65rem;
+    color: var(--color-primary-strong);
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .tag-chips li span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tag-chips button {
+    display: inline-grid;
+    width: 1.35rem;
+    height: 1.35rem;
+    flex: none;
+    place-items: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .tag-chips button:hover {
+    background: color-mix(in oklab, var(--color-primary) 18%, var(--color-surface));
+  }
+  .tag-combobox {
+    position: relative;
+  }
+  .tag-suggestions {
+    position: absolute;
+    z-index: 12;
+    top: calc(100% + 0.25rem);
+    right: 0;
+    left: 0;
+    max-height: 14rem;
+    overflow: auto;
+    margin: 0;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    padding: 0.25rem;
+    list-style: none;
+    box-shadow: 0 10px 24px -16px color-mix(in srgb, var(--color-ink) 45%, transparent);
+  }
+  .tag-suggestions button {
+    display: block;
+    width: 100%;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    padding: 0.45rem 0.55rem;
+    color: var(--color-ink);
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+  .tag-suggestions button:hover,
+  .tag-suggestions button:focus-visible {
+    background: color-mix(in oklab, var(--color-primary) 10%, var(--color-surface));
+    outline: none;
+  }
+  .tag-suggestions .tag-create {
+    color: var(--color-primary-strong);
   }
   .product-presets {
     margin-bottom: 1rem;

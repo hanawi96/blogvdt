@@ -3,12 +3,14 @@ import { canAccessPath, roleChangeError } from './access';
 import { displayNameError, emailError } from './users';
 
 describe('quyền CMS', () => {
-  it('biên tập chỉ vào bài, danh mục, ảnh và tài khoản', () => {
+  it('biên tập chỉ vào bài, danh mục, thẻ, ảnh và tài khoản', () => {
     expect(canAccessPath('editor', '/admin')).toBe(true);
     expect(canAccessPath('editor', '/admin/posts')).toBe(true);
     expect(canAccessPath('editor', '/admin/posts/4')).toBe(true);
     expect(canAccessPath('editor', '/admin/posts/preview')).toBe(true);
     expect(canAccessPath('editor', '/admin/categories')).toBe(true);
+    expect(canAccessPath('editor', '/admin/tags')).toBe(true);
+    expect(canAccessPath('editor', '/admin/tags/search')).toBe(true);
     expect(canAccessPath('editor', '/admin/media/3/delete')).toBe(true);
     expect(canAccessPath('editor', '/admin/account')).toBe(true);
     expect(canAccessPath('editor', '/admin/users')).toBe(false);

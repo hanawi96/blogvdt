@@ -15,7 +15,7 @@ export const STATUS_LABELS: Record<AdminStatus, string> = {
   disabled: 'Đã khóa',
 };
 
-const EDITOR_PREFIXES = ['/admin/posts', '/admin/categories', '/admin/media', '/admin/account'] as const;
+const EDITOR_PREFIXES = ['/admin/posts', '/admin/categories', '/admin/tags', '/admin/media', '/admin/account'] as const;
 
 export function isAdminRole(value: string): value is AdminRole {
   return value === 'admin' || value === 'editor';

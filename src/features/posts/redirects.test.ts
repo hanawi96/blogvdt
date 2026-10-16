@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { categorySlug, knowledgeSlug, publicRedirectTarget, redirectOccupiesSlug, shouldStorePostRedirect } from './redirects';
+import { categorySlug, knowledgeSlug, publicRedirectTarget, redirectOccupiesSlug, shouldStorePostRedirect, tagSlug } from './redirects';
 
 describe('redirect bài viết', () => {
   it('chỉ lưu redirect khi slug đổi và URL cũ từng hoặc đang public', () => {
@@ -19,6 +19,9 @@ describe('redirect bài viết', () => {
     expect(knowledgeSlug('/kien-thuc/danh-muc/chon-vong')).toBeNull();
     expect(categorySlug('/kien-thuc/danh-muc/chon-vong')).toBe('chon-vong');
     expect(categorySlug('/kien-thuc/bai-moi')).toBeNull();
+    expect(tagSlug('/tag/vong-dau-tam')).toBe('vong-dau-tam');
+    expect(tagSlug('/tag/Bad_Slug')).toBeNull();
+    expect(tagSlug('/kien-thuc/vong-dau-tam')).toBeNull();
   });
 
   it('không lấy slug đang là đường cũ của bài khác, nhưng lấy lại đường cũ của chính bài này', () => {

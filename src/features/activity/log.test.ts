@@ -18,6 +18,7 @@ const post: PostComparable = {
   title: 'Bài mẫu',
   slug: 'bai-mau',
   categoryIds: [1],
+  tagIds: [],
   coverMediaId: null,
   contentJson: '{"type":"doc"}',
   excerpt: 'Tóm tắt',

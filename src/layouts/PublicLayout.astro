@@ -19,6 +19,7 @@ interface Props {
   siteName?: string;
   publishedTime?: string;
   modifiedTime?: string;
+  author?: string | null;
   jsonLd?: string[];
   faviconUrl?: string;
   chrome?: PublicSite | null;
@@ -39,6 +40,7 @@ const {
   siteName = title,
   publishedTime,
   modifiedTime,
+  author = null,
   jsonLd = [],
   faviconUrl = '/favicon.svg',
   chrome = null,
@@ -91,6 +93,7 @@ async function reachableShareImage(
     <meta name="viewport" content="width=device-width" />
     <title>{share.title}</title>
     <meta name="description" content={share.description} />
+    {author && plainMetaText(author) && <meta name="author" content={plainMetaText(author)} />}
     <meta name="robots" content={robotsContent} />
     {share.url && <link rel="canonical" href={share.url} />}
     <meta property="og:title" content={share.title} />

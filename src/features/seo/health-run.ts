@@ -3,7 +3,7 @@ import type { BatchItem } from 'drizzle-orm/batch';
 import { runBatch } from '../../lib/db/batch';
 import type { AppDb } from '../../lib/db/client';
 import { listRedirectPaths } from '../../lib/db/redirects';
-import { categories, media, posts, seoHealthIssues, seoHealthLinks, seoHealthPosts, seoHealthRuns } from '../../lib/db/schema';
+import { categories, media, posts, seoHealthIssues, seoHealthLinks, seoHealthPosts, seoHealthRuns, tags } from '../../lib/db/schema';
 import { collectMetaCorpus, mergeMetaCorpus, siteListCorpus, type MetaCorpus } from '../../lib/seo/meta';
 import { routes } from '../../lib/routes';
 import { mediaKeyFromPublicUrl } from '../media/files';
@@ -418,7 +418,7 @@ function headCache(bucket: HealthBucket | null): (key: string) => Promise<{ stat
 }
 
 async function loadScanContext(db: AppDb): Promise<ScanContext> {
-  const [metaRows, categoryRows, redirectPaths] = await Promise.all([
+  const [metaRows, categoryRows, tagRows, redirectPaths] = await Promise.all([
     db
       .select({
         id: posts.id,
@@ -436,9 +436,22 @@ async function loadScanContext(db: AppDb): Promise<ScanContext> {
         description: categories.description,
       })
       .from(categories),
+    db
+      .select({
+        name: tags.name,
+        seoTitle: tags.seoTitle,
+        metaDescription: tags.metaDescription,
+        description: tags.description,
+      })
+      .from(tags)
+      .where(eq(tags.robots, 'index')),
     listRedirectPaths(db),
   ]);
-  return { metaRows, categoryCorpus: collectMetaCorpus(categoryRows), blocked: new Set(redirectPaths) };
+  return {
+    metaRows,
+    categoryCorpus: mergeMetaCorpus(collectMetaCorpus(categoryRows), collectMetaCorpus(tagRows)),
+    blocked: new Set(redirectPaths),
+  };
 }
 
 async function commit(db: AppDb, runId: number, work: { issues?: HealthDraft[]; posts?: number[]; links?: string[]; patch: RunPatch }): Promise<void> {

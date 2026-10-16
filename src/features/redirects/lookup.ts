@@ -2,7 +2,8 @@ import { and, eq } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { findRedirect } from '../../lib/db/redirects';
 import { categories, posts, products } from '../../lib/db/schema';
-import { categorySlug, knowledgeSlug } from '../posts/redirects';
+import { getPublicTagBySlug } from '../posts/public';
+import { categorySlug, knowledgeSlug, tagSlug } from '../posts/redirects';
 import { livePublished } from '../posts/visibility';
 import { isStaticPublicPath, isSystemPath, productSlug, redirectOutcome, skipsRedirectLookup, type PublicRedirect } from './rules';
 
@@ -22,6 +23,10 @@ export async function publicPathExists(db: AppDb, path: string): Promise<boolean
   if (category) {
     const rows = await db.select({ id: categories.id }).from(categories).where(eq(categories.slug, category)).limit(1);
     return Boolean(rows[0]);
+  }
+  const tag = tagSlug(path);
+  if (tag) {
+    return Boolean(await getPublicTagBySlug(db, tag));
   }
   const product = productSlug(path);
   if (product) {

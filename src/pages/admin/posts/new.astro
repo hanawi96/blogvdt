@@ -6,6 +6,7 @@ import { listCategories } from '../../../features/posts/categories';
 import { autosaveResponse, firstFieldError, isAutosave, parsePostForm } from '../../../features/posts/form';
 import { activityActor } from '../../../features/activity/log';
 import { createPost, listMetaCorpus } from '../../../features/posts/posts';
+import { listTagOptions } from '../../../features/posts/tags';
 import { listMedia } from '../../../features/media/media';
 import { getPublicSite } from '../../../features/settings/settings';
 import { createDb } from '../../../lib/db/client';
@@ -18,7 +19,7 @@ const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
 
 const db = createDb(getDbBinding());
-const categories = await listCategories(db);
+const [categories, tags] = await Promise.all([listCategories(db), listTagOptions(db)]);
 const site = await getPublicSite(db);
 const seoSite = {
   name: site?.siteName || 'Website',
@@ -26,11 +27,17 @@ const seoSite = {
   markUrl: site?.faviconUrl || site?.logoUrl || '',
 };
 const media = await listMedia(db);
-const corpus = mergeMetaCorpus(await listMetaCorpus(db, null), collectMetaCorpus(categories), siteListCorpus());
+const corpus = mergeMetaCorpus(
+  await listMetaCorpus(db, null),
+  collectMetaCorpus(categories),
+  collectMetaCorpus(tags),
+  siteListCorpus(),
+);
 const empty = {
   title: '',
   slug: '',
   categoryIds: [] as string[],
+  tagIds: [] as string[],
   coverMediaId: '',
   contentJson: '{"type":"doc","content":[]}',
   seoTitle: '',
@@ -85,6 +92,7 @@ function valuesFrom(form: FormData) {
     title: read('title'),
     slug: read('slug'),
     categoryIds: form.getAll('categoryIds').filter((value): value is string => typeof value === 'string'),
+    tagIds: form.getAll('tagIds').filter((value): value is string => typeof value === 'string'),
     coverMediaId: read('coverMediaId'),
     contentJson: read('contentJson') || empty.contentJson,
     seoTitle: read('seoTitle'),
@@ -96,5 +104,5 @@ function valuesFrom(form: FormData) {
 ---
 
 <AdminLayout title="Viết bài">
-  <PostForm csrf={session.csrfToken} action={routes.adminPostNew} {values} {errors} {formError} {categories} {media} site={seoSite} corpus={corpus} />
+  <PostForm csrf={session.csrfToken} action={routes.adminPostNew} {values} {errors} {formError} {categories} {tags} {media} site={seoSite} corpus={corpus} />
 </AdminLayout>

@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { POLICIES } from '../features/content/policies';
-import { listSitemapCategories, listSitemapPosts } from '../features/posts/public';
+import { listSitemapCategories, listSitemapPosts, listSitemapTags } from '../features/posts/public';
 import { listSitemapProducts } from '../features/products/public';
 import { createDb } from '../lib/db/client';
 import { listRedirectPaths } from '../lib/db/redirects';
@@ -12,9 +12,10 @@ import { sitemapLastmod, sitemapXml, type SitemapEntry } from '../lib/seo/sitema
 export const GET: APIRoute = async ({ url }) => {
   try {
     const db = createDb(getDbBinding());
-    const [posts, categories, productPages, redirectPaths] = await Promise.all([
+    const [posts, categories, tagPages, productPages, redirectPaths] = await Promise.all([
       listSitemapPosts(db),
       listSitemapCategories(db),
+      listSitemapTags(db),
       listSitemapProducts(db),
       listRedirectPaths(db),
     ]);
@@ -25,6 +26,7 @@ export const GET: APIRoute = async ({ url }) => {
       { path: routes.knowledgeList, lastmod: contentLastmod },
       { path: routes.catalog },
       ...categories.map((category) => ({ path: routes.knowledgeCategory(category.slug), lastmod: sitemapLastmod(category.updatedAt) })),
+      ...tagPages.map((tag) => ({ path: routes.tag(tag.slug), lastmod: sitemapLastmod(tag.updatedAt) })),
       ...posts.map((post) => ({ path: routes.knowledge(post.slug), lastmod: sitemapLastmod(post.updatedAt) })),
       ...productPages.map((product) => ({ path: routes.product(product.slug), lastmod: sitemapLastmod(product.updatedAt) })),
       ...POLICIES.map((policy) => ({ path: routes.policy(policy.slug) })),

@@ -14,6 +14,7 @@ type NavIcon =
   | 'overview'
   | 'posts'
   | 'categories'
+  | 'tags'
   | 'products'
   | 'productCategories'
   | 'orders'
@@ -33,6 +34,7 @@ const items: { href: string; label: string; icon: NavIcon }[] = [
   { href: routes.admin, label: 'Tổng quan', icon: 'overview' },
   { href: routes.adminPosts, label: 'Bài viết', icon: 'posts' },
   { href: routes.adminCategories, label: 'Danh mục', icon: 'categories' },
+  { href: routes.adminTags, label: 'Thẻ', icon: 'tags' },
   ...(isAdmin
     ? [
         { href: routes.adminProducts, label: 'Sản phẩm', icon: 'products' as const },
@@ -228,7 +230,7 @@ function current(href: string): boolean {
       const collapseBtn = document.querySelector('[data-nav-collapse]');
       const NAV_COLLAPSE_KEY = 'admin-nav-collapsed';
       if (shell instanceof HTMLElement && collapseBtn instanceof HTMLButtonElement) {
-        const syncCollapse = (collapsed) => {
+        const syncCollapse = (collapsed: boolean) => {
           shell.classList.toggle('is-nav-collapsed', collapsed);
           collapseBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
           collapseBtn.setAttribute('aria-label', collapsed ? 'Mở rộng menu' : 'Thu gọn menu');

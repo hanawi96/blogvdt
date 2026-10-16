@@ -6,7 +6,9 @@ import { listCategories } from '../../../features/posts/categories';
 import { autosaveResponse, excerptFieldValue, expectedRevision, firstFieldError, isAutosave, parsePostForm } from '../../../features/posts/form';
 import { activityActor } from '../../../features/activity/log';
 import { listPostCategoryIds } from '../../../features/posts/post-categories';
+import { listPostTags } from '../../../features/posts/post-tags';
 import { getPost, listMetaCorpus, saveDraftPost, updatePost } from '../../../features/posts/posts';
+import { listTagOptions } from '../../../features/posts/tags';
 import { listRedirectPostTargets } from '../../../features/redirects/manage';
 import { readRetirement } from '../../../features/redirects/rules';
 import { listMedia } from '../../../features/media/media';
@@ -34,9 +36,6 @@ if (inTrash && Astro.request.method === 'POST') {
 }
 
 const categories = inTrash ? [] : await listCategories(db);
-const corpus = inTrash
-  ? { titles: [], descriptions: [] }
-  : mergeMetaCorpus(await listMetaCorpus(db, id), collectMetaCorpus(categories), siteListCorpus());
 const site = inTrash ? null : await getPublicSite(db);
 const seoSite = {
   name: site?.siteName || 'Website',
@@ -45,11 +44,17 @@ const seoSite = {
 };
 const media = inTrash ? [] : await listMedia(db);
 const targets = inTrash ? [] : await listRedirectPostTargets(db, post.slug);
-const savedCategoryIds = inTrash ? [] : await listPostCategoryIds(db, id);
+const [savedCategoryIds, tags, selectedTags] = inTrash
+  ? [[], [] as { id: number; name: string }[], [] as { id: number; name: string; slug: string }[]]
+  : await Promise.all([listPostCategoryIds(db, id), listTagOptions(db), listPostTags(db, id)]);
+const corpus = inTrash
+  ? { titles: [], descriptions: [] }
+  : mergeMetaCorpus(await listMetaCorpus(db, id), collectMetaCorpus(categories), collectMetaCorpus(tags), siteListCorpus());
 let values = {
   title: post.title,
   slug: post.slug,
   categoryIds: savedCategoryIds.map(String),
+  tagIds: selectedTags.map((tag) => String(tag.id)),
   coverMediaId: post.coverMediaId ? String(post.coverMediaId) : '',
   contentJson: post.contentJson,
   seoTitle: post.seoTitle ?? '',
@@ -109,6 +114,7 @@ function valuesFrom(form: FormData, fallbackContent: string) {
     title: read('title'),
     slug: read('slug'),
     categoryIds: form.getAll('categoryIds').filter((value): value is string => typeof value === 'string'),
+    tagIds: form.getAll('tagIds').filter((value): value is string => typeof value === 'string'),
     coverMediaId: read('coverMediaId'),
     contentJson: read('contentJson') || fallbackContent,
     seoTitle: read('seoTitle'),
@@ -145,6 +151,8 @@ function valuesFrom(form: FormData, fallbackContent: string) {
         {saved}
         meta={{ createdAt: post.createdAt, updatedAt: revision, publishedAt: post.publishedAt }}
         {categories}
+        {tags}
+        selectedTags={selectedTags.map((tag) => ({ id: tag.id, name: tag.name }))}
         {media}
         site={seoSite}
         postId={id}

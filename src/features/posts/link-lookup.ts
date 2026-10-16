@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, like, ne, notInArray, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, like, ne, notInArray, or } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { postCategories, posts, redirects } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';

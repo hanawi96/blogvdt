@@ -26,6 +26,8 @@ npm run dev
 
 Mở http://localhost:4321 . Trang chủ hiện tên **Vòng Dâu Tằm** lấy từ D1. Bài đã xuất bản nằm ở http://localhost:4321/kien-thuc . Sản phẩm đang bán nằm ở http://localhost:4321/san-pham . Đặt hàng tại http://localhost:4321/dat-hang . Bài nháp và sản phẩm ngừng bán không có trên trang công khai.
 
+Thẻ bài viết: quản trị tại `/admin/tags` (sau `npm run db:migrate:local`). Trang công khai `/tag/{slug}` chỉ hiện khi thẻ còn ≥1 bài đã xuất bản; mặc định `noindex`, bật index trong CMS khi cần đưa vào sitemap.
+
 Chạy lại `npm run db:seed:local` sẽ xóa dữ liệu demo local rồi chèn lại. Lệnh seed từ chối `--remote`.
 
 ## Kiểm tra
