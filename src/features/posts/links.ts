@@ -1,9 +1,30 @@
 import { isHttpUrl } from '../../lib/http';
+import { routes } from '../../lib/routes';
 
-const INTERNAL_PATH = /^\/(?:kien-thuc|san-pham)\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const INTERNAL_SLUG_PATH = /^\/(?:kien-thuc|san-pham)\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const INTERNAL_FIXED_PATHS = new Set([routes.catalog]);
 
+/** Chuẩn hóa path nội bộ (bỏ query/hash, slash cuối). */
+export function normalizeSitePath(value: string): string {
+  const raw = value.trim();
+  if (!raw) return '';
+  let pathname = raw;
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      pathname = new URL(raw).pathname;
+    } catch {
+      return '';
+    }
+  } else if (!raw.startsWith('/')) {
+    return '';
+  }
+  return (pathname.split(/[?#]/, 1)[0] ?? '').replace(/\/+$/, '') || '/';
+}
+
+/** Path nội bộ được gắn link: bài, sản phẩm, trang mẫu vòng. */
 export function isInternalPostPath(value: string): boolean {
-  return INTERNAL_PATH.test(value);
+  const path = normalizeSitePath(value);
+  return INTERNAL_SLUG_PATH.test(path) || INTERNAL_FIXED_PATHS.has(path);
 }
 
 export function isInternalHref(value: string, host = ''): boolean {
@@ -19,6 +40,23 @@ export function isInternalHref(value: string, host = ''): boolean {
 
 export function isPostHref(value: string): boolean {
   return isHttpUrl(value) || isInternalPostPath(value);
+}
+
+export type InternalLinkKind = 'post' | 'product' | 'catalog';
+
+export type InternalLinkHit = { title: string; path: string; kind: InternalLinkKind };
+
+/** Catalog hiện khi từ khóa gần với tên trang mẫu vòng. */
+export function catalogLinkMatch(query: string): InternalLinkHit | null {
+  const term = query.replace(/[%_]/g, '').trim().toLowerCase();
+  if (term.length < 2) return null;
+  const haystacks = ['mau vong dau tam', 'mẫu vòng dâu tằm', 'mau-vong-dau-tam', 'catalog', 'mau vong', 'mẫu vòng'];
+  const folded = term.normalize('NFD').replace(/\p{M}/gu, '');
+  const ok = haystacks.some((label) => {
+    const flat = label.normalize('NFD').replace(/\p{M}/gu, '');
+    return flat.includes(folded) || folded.includes(flat);
+  });
+  return ok ? { title: 'Mẫu vòng dâu tằm', path: routes.catalog, kind: 'catalog' } : null;
 }
 
 const POST_PATH = /^\/kien-thuc\/([a-z0-9]+(?:-[a-z0-9]+)*)$/;

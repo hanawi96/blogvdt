@@ -1,5 +1,6 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { listTopSellingProducts, searchActiveProducts } from '../../../features/posts/product-cards';
 import { listProducts, productAdminQuery, productListSort, type ProductListSort } from '../../../features/products/products';
 import { isProductStatus, PRODUCT_STATUS_LABELS, type ProductStatus } from '../../../features/products/status';
 import { createDb } from '../../../lib/db/client';
@@ -10,6 +11,16 @@ import { routes } from '../../../lib/routes';
 
 if (!Astro.locals.adminSession) return Astro.redirect(routes.adminLogin);
 const csrfToken = Astro.locals.adminSession.csrfToken;
+
+const wantsJson = Astro.request.headers.get('accept')?.includes('application/json') ?? false;
+if (wantsJson) {
+  const db = createDb(getDbBinding());
+  const q = Astro.url.searchParams.get('q') ?? '';
+  const found = q.replace(/[%_]/g, '').trim().length >= 2 ? await searchActiveProducts(db, q) : await listTopSellingProducts(db, 5);
+  return new Response(JSON.stringify({ products: found, top: q.replace(/[%_]/g, '').trim().length < 2 }), {
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+  });
+}
 
 const query = Astro.url.searchParams.get('q') ?? '';
 const statusParam = Astro.url.searchParams.get('status') ?? '';

@@ -10,6 +10,7 @@ import { getPublicPostAuthor } from '../../features/posts/author';
 import { collectMediaSrcs, sanitizePostContent } from '../../features/posts/content';
 import { collectHeadings } from '../../features/posts/headings';
 import { collectPostCardIds, listPublishedPostCardsByIds } from '../../features/posts/post-cards';
+import { collectProductCardIds, listActiveProductCardsByIds } from '../../features/posts/product-cards';
 import { getPostBySlug, listRelatedPosts } from '../../features/posts/public';
 import { redirectHttpResponse } from '../../features/redirects/http';
 import { resolvePublicRedirect } from '../../features/redirects/lookup';
@@ -101,9 +102,11 @@ async function loadPost() {
     const sanitized = sanitizePostContent(measured.contentJson);
     const content = sanitized.ok ? (JSON.parse(sanitized.json) as JSONContent) : null;
     const embedIds = content ? collectPostCardIds(content) : [];
-    const [images, cardsById, related, products, author] = await Promise.all([
+    const productEmbedIds = content ? collectProductCardIds(content) : [];
+    const [images, cardsById, productCardsById, related, products, author] = await Promise.all([
       content ? layoutContentImages(db, bucket, collectMediaSrcs(content)) : Promise.resolve({ sizes: new Map(), missing: new Set<string>() }),
       listPublishedPostCardsByIds(db, embedIds),
+      listActiveProductCardsByIds(db, productEmbedIds),
       listRelatedPosts(db, { id: found.id, categoryId: found.categoryId }),
       listFeaturedProducts(db, 3),
       getPublicPostAuthor(db, found.authorId),
@@ -111,12 +114,20 @@ async function loadPost() {
     const measuredCards = new Map(
       (await applyCoverMeasure(bucket, [...cardsById.values()])).map((card) => [card.id, card] as const),
     );
+    const measuredProductCards = new Map(
+      (await applyCoverMeasure(bucket, [...productCardsById.values()])).map((card) => [card.id, card] as const),
+    );
     return {
       site,
       failed: false,
       post: measured,
       html: content
-        ? renderPostHtml(content, images.sizes, { skip: images.missing, eager: measured.coverUrl ? 0 : 1, cardsById: measuredCards })
+        ? renderPostHtml(content, images.sizes, {
+            skip: images.missing,
+            eager: measured.coverUrl ? 0 : 1,
+            cardsById: measuredCards,
+            productCardsById: measuredProductCards,
+          })
         : '',
       headings: content ? collectHeadings(content) : [],
       related: await applyCoverMeasure(bucket, related),

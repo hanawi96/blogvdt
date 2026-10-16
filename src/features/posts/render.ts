@@ -1,15 +1,22 @@
 import type { JSONContent } from '@tiptap/core';
 import { escapeHTMLAttribute, renderToHTMLString, serializeChildrenToHTMLString } from '@tiptap/static-renderer';
+import { renderCalloutHtml } from './callout';
 import { isPostHref } from './links';
 import { isMediaSrc } from './content';
 import { postExtensions } from './extensions';
 import { collectHeadings } from './headings';
 import { normalizePostCardIds, orderedPostCards, renderPostCardsHtml, type PostCardEmbed } from './post-cards';
+import { normalizeProductCardIds, orderedProductCards, renderProductCardsHtml, type ProductCardEmbed } from './product-cards';
 
 export function renderPostHtml(
   content: JSONContent,
   imageSizes: ReadonlyMap<string, { width: number; height: number }> = new Map(),
-  options: { skip?: ReadonlySet<string>; eager?: number; cardsById?: ReadonlyMap<number, PostCardEmbed> } = {},
+  options: {
+    skip?: ReadonlySet<string>;
+    eager?: number;
+    cardsById?: ReadonlyMap<number, PostCardEmbed>;
+    productCardsById?: ReadonlyMap<number, ProductCardEmbed>;
+  } = {},
 ): string {
   const ids = collectHeadings(content).map((item) => item.id);
   let headingIndex = 0;
@@ -42,6 +49,11 @@ export function renderPostHtml(
           if (!options.cardsById) return '';
           return renderPostCardsHtml(orderedPostCards(normalizePostCardIds(node.attrs.ids), options.cardsById));
         },
+        productCards: ({ node }) => {
+          if (!options.productCardsById) return '';
+          return renderProductCardsHtml(orderedProductCards(normalizeProductCardIds(node.attrs.ids), options.productCardsById));
+        },
+        callout: ({ node, children }) => renderCalloutHtml(node.attrs.variant, serializeChildrenToHTMLString(children)),
       },
       markMapping: {
         link: ({ mark, children }) => {

@@ -1,6 +1,6 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { hasInboundPostLink, inspectPostLinks, listPostLinkCounts, suggestPosts } from '../../../features/posts/link-lookup';
+import { hasInboundPostLink, inspectPostLinks, listPostLinkCounts, searchInternalLinks, suggestPosts } from '../../../features/posts/link-lookup';
 import { listPosts, searchPublishedPosts, slugIsTaken, type PostListSort } from '../../../features/posts/posts';
 import RetiredUrlDialog from '../../../components/admin/RetiredUrlDialog.astro';
 import { listPickerCategories, listRedirectPostTargets } from '../../../features/redirects/manage';
@@ -39,9 +39,15 @@ if (wantsJson) {
       categoryId: Number.isInteger(categoryRaw) && categoryRaw > 0 ? categoryRaw : null,
       excludeId: exclude,
     });
-    return new Response(JSON.stringify({ suggestions }), { headers: jsonHeaders });
+    const withCatalog = [{ title: 'Mẫu vòng dâu tằm', path: routes.catalog }, ...suggestions].slice(0, 8);
+    return new Response(JSON.stringify({ suggestions: withCatalog }), { headers: jsonHeaders });
   }
-  const found = await searchPublishedPosts(db, Astro.url.searchParams.get('q') ?? '', exclude);
+  const q = Astro.url.searchParams.get('q') ?? '';
+  if (Astro.url.searchParams.get('links') === '1') {
+    const links = await searchInternalLinks(db, q, exclude);
+    return new Response(JSON.stringify({ links }), { headers: jsonHeaders });
+  }
+  const found = await searchPublishedPosts(db, q, exclude);
   return new Response(JSON.stringify({ posts: found }), { headers: jsonHeaders });
 }
 

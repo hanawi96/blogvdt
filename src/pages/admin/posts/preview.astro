@@ -8,6 +8,7 @@ import { collectMediaSrcs, sanitizePostContent } from '../../../features/posts/c
 import { firstFieldError, parsePostForm } from '../../../features/posts/form';
 import { collectHeadings, type HeadingItem } from '../../../features/posts/headings';
 import { collectPostCardIds, listPublishedPostCardsByIds } from '../../../features/posts/post-cards';
+import { collectProductCardIds, listActiveProductCardsByIds } from '../../../features/posts/product-cards';
 import { getPost } from '../../../features/posts/posts';
 import { renderPostHtml } from '../../../features/posts/render';
 import { getPublicSite } from '../../../features/settings/settings';
@@ -98,16 +99,26 @@ async function articleFrom(title: string, description: string, contentJson: stri
     ? await applyCoverMeasure(bucket, [{ coverUrl: stored.url, coverWidth: stored.width, coverHeight: stored.height }])
     : [null];
   const embedIds = content ? collectPostCardIds(content) : [];
-  const [images, cardsById] = await Promise.all([
+  const productEmbedIds = content ? collectProductCardIds(content) : [];
+  const [images, cardsById, productCardsById] = await Promise.all([
     content ? layoutContentImages(db, bucket, collectMediaSrcs(content)) : Promise.resolve({ sizes: new Map(), missing: new Set<string>() }),
     listPublishedPostCardsByIds(db, embedIds),
+    listActiveProductCardsByIds(db, productEmbedIds),
   ]);
   const measuredCards = new Map((await applyCoverMeasure(bucket, [...cardsById.values()])).map((card) => [card.id, card] as const));
+  const measuredProductCards = new Map(
+    (await applyCoverMeasure(bucket, [...productCardsById.values()])).map((card) => [card.id, card] as const),
+  );
   return {
     title,
     description,
     html: content
-      ? renderPostHtml(content, images.sizes, { skip: images.missing, eager: measured?.coverUrl ? 0 : 1, cardsById: measuredCards })
+      ? renderPostHtml(content, images.sizes, {
+          skip: images.missing,
+          eager: measured?.coverUrl ? 0 : 1,
+          cardsById: measuredCards,
+          productCardsById: measuredProductCards,
+        })
       : '',
     headings: content ? collectHeadings(content) : [],
     cover: measured?.coverUrl ? { url: measured.coverUrl, alt: stored?.alt ?? '', width: measured.coverWidth, height: measured.coverHeight } : null,

@@ -116,13 +116,11 @@ export function renderPostCardsHtml(cards: PostCardEmbed[]): string {
       const thumb = card.coverUrl
         ? `<span class="post-cards-thumb"><img src="${escapeHTMLAttribute(card.coverUrl)}" alt="${escapeHTMLAttribute(card.coverAlt)}"${dimensionAttrs(card)} loading="lazy" decoding="async" /></span>`
         : `<span class="post-cards-thumb post-cards-thumb-empty" aria-hidden="true"></span>`;
-      const kicker = card.categoryName
-        ? `<span class="post-cards-kicker">${escapeHTMLAttribute(card.categoryName)}</span>`
-        : `<span class="post-cards-kicker">Kiến thức</span>`;
-      return `<li><a class="post-cards-item" href="${escapeHTMLAttribute(href)}">${thumb}<span class="post-cards-copy">${kicker}<span class="post-cards-title">${escapeHTMLAttribute(card.title)}</span></span></a></li>`;
+      const meta = escapeHTMLAttribute(card.categoryName?.trim() || 'Kiến thức');
+      return `<li><a class="post-cards-item" href="${escapeHTMLAttribute(href)}">${thumb}<span class="post-cards-copy"><span class="post-cards-title">${escapeHTMLAttribute(card.title)}</span><span class="post-cards-meta">${meta}</span></span></a></li>`;
     })
     .join('');
-  return `<aside class="post-cards" aria-label="Bài viết liên quan"><p class="post-cards-label">Đọc tiếp cho mẹ</p><ul class="post-cards-list">${items}</ul></aside>`;
+  return `<aside class="post-cards" data-count="${cards.length}" aria-label="Bài viết liên quan"><p class="post-cards-label">Đọc tiếp cho mẹ</p><ul class="post-cards-list">${items}</ul></aside>`;
 }
 
 function dimensionAttrs(card: PostCardEmbed): string {
@@ -218,7 +216,7 @@ export const PostCards = Node.create({
             : `<ul class="editor-post-cards-list">${ids
                 .map((id, index) => {
                   const title = labels[index] || `Bài #${id}`;
-                  return `<li><span class="editor-post-cards-index">${String(index + 1).padStart(2, '0')}</span><span class="editor-post-cards-title">${escapeText(title)}</span></li>`;
+                  return `<li><span class="editor-post-cards-title">${escapeText(title)}</span></li>`;
                 })
                 .join('')}</ul>`;
         root.innerHTML = `<div class="editor-post-cards-head"><p class="editor-post-cards-label">Đọc tiếp cho mẹ</p><div class="editor-post-cards-actions"><button type="button" data-edit>Sửa</button><button type="button" data-remove>Xóa</button></div></div>${rows}`;

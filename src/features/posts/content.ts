@@ -1,5 +1,12 @@
+import { CALLOUT_NODE, normalizeCalloutVariant } from './callout';
 import { isPostHref } from './links';
 import { normalizePostCardIds, normalizePostCardLabels, POST_CARDS_NODE } from './post-cards';
+import {
+  normalizeProductCardCovers,
+  normalizeProductCardIds,
+  normalizeProductCardLabels,
+  PRODUCT_CARDS_NODE,
+} from './product-cards';
 
 export const NODE_TYPES = new Set([
   'doc',
@@ -17,6 +24,8 @@ export const NODE_TYPES = new Set([
   'tableCell',
   'tableHeader',
   POST_CARDS_NODE,
+  PRODUCT_CARDS_NODE,
+  CALLOUT_NODE,
 ]);
 
 export const MARK_TYPES = new Set(['bold', 'italic', 'link']);
@@ -70,6 +79,28 @@ function cleanNode(value: unknown): Node | null {
     const ids = normalizePostCardIds(attrs?.ids);
     if (ids.length === 0) return null;
     node.attrs = { ids, labels: normalizePostCardLabels(attrs?.labels, ids.length) };
+    return node;
+  }
+
+  if (record.type === PRODUCT_CARDS_NODE) {
+    const attrs = record.attrs as { ids?: unknown; labels?: unknown; covers?: unknown } | undefined;
+    const ids = normalizeProductCardIds(attrs?.ids);
+    if (ids.length === 0) return null;
+    node.attrs = {
+      ids,
+      labels: normalizeProductCardLabels(attrs?.labels, ids.length),
+      covers: normalizeProductCardCovers(attrs?.covers, ids.length),
+    };
+    return node;
+  }
+
+  if (record.type === CALLOUT_NODE) {
+    const attrs = record.attrs as { variant?: unknown } | undefined;
+    node.attrs = { variant: normalizeCalloutVariant(attrs?.variant) };
+    const children = Array.isArray(record.content)
+      ? record.content.map(cleanNode).filter((child): child is Node => child !== null)
+      : [];
+    node.content = children.length > 0 ? children : [{ type: 'paragraph' }];
     return node;
   }
 

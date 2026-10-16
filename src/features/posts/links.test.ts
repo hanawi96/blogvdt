@@ -1,7 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { classifyPostLinks, collectPostPaths, postLinkCounts, postPathFromHref, rankLinkSuggestions } from './links';
+import {
+  catalogLinkMatch,
+  classifyPostLinks,
+  collectPostPaths,
+  isInternalPostPath,
+  isPostHref,
+  postLinkCounts,
+  postPathFromHref,
+  rankLinkSuggestions,
+} from './links';
 
 describe('liên kết nội bộ', () => {
+  it('cho phép path bài, sản phẩm và catalog', () => {
+    expect(isInternalPostPath('/kien-thuc/bai-moi')).toBe(true);
+    expect(isInternalPostPath('/san-pham/vong-tron')).toBe(true);
+    expect(isInternalPostPath('/mau-vong-dau-tam')).toBe(true);
+    expect(isInternalPostPath('/mau-vong-dau-tam/')).toBe(true);
+    expect(isPostHref('/san-pham/vong-tron')).toBe(true);
+    expect(isPostHref('/gio-hang')).toBe(false);
+    expect(catalogLinkMatch('mẫu vòng')).toEqual({
+      title: 'Mẫu vòng dâu tằm',
+      path: '/mau-vong-dau-tam',
+      kind: 'catalog',
+    });
+    expect(catalogLinkMatch('xyz')).toBeNull();
+  });
+
   it('lấy đường dẫn chính thức từ href tương đối hoặc tuyệt đối', () => {
     expect(postPathFromHref('/kien-thuc/bai-moi')).toBe('/kien-thuc/bai-moi');
     expect(postPathFromHref('https://vongdautam.vn/kien-thuc/bai-moi?utm=1')).toBe('/kien-thuc/bai-moi');

@@ -3,14 +3,18 @@ import type { AppDb } from '../../lib/db/client';
 import { posts, redirects } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import {
+  catalogLinkMatch,
   classifyPostLinks,
   collectPostPaths,
   postLinkCounts,
   postPathFromHref,
   rankLinkSuggestions,
+  type InternalLinkHit,
   type PostLinkCount,
   type PostLinkIssue,
 } from './links';
+import { searchActiveProducts } from './product-cards';
+import { searchPublishedPosts } from './posts';
 import { livePublished } from './visibility';
 
 export async function inspectPostLinks(db: AppDb, paths: string[], currentPath: string | null): Promise<PostLinkIssue[]> {
@@ -43,6 +47,26 @@ export async function inspectPostLinks(db: AppDb, paths: string[], currentPath: 
   }
   const redirectMap = new Map(redirectRows.map((row) => [row.fromPath, row.toPath]));
   return classifyPostLinks(unique, { currentPath: postPathFromHref(currentPath ?? ''), published, unpublished, redirects: redirectMap });
+}
+
+/** Tìm URL nội bộ để chèn link: bài đã XB + SP đang bán + trang catalog. */
+export async function searchInternalLinks(
+  db: AppDb,
+  query: string,
+  excludePostId: number | null = null,
+): Promise<InternalLinkHit[]> {
+  const term = query.replace(/[%_]/g, '').trim().slice(0, 80);
+  if (term.length < 2) return [];
+  const [postsFound, productsFound] = await Promise.all([
+    searchPublishedPosts(db, term, excludePostId),
+    searchActiveProducts(db, term),
+  ]);
+  const out: InternalLinkHit[] = [];
+  const catalog = catalogLinkMatch(term);
+  if (catalog) out.push(catalog);
+  for (const row of postsFound) out.push({ title: row.title, path: row.path, kind: 'post' });
+  for (const row of productsFound) out.push({ title: row.name, path: row.path, kind: 'product' });
+  return out.slice(0, 12);
 }
 
 export async function suggestPosts(
