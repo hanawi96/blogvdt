@@ -3151,6 +3151,10 @@
       gap: 0;
       padding-inline: 0.25rem;
     }
+    /* Sidebar thu gọn cắt overflow để cuộn nav; panel tài khoản bung ra cạnh phải nên phải cho nó thoát khỏi vùng cắt. */
+    .admin-shell.is-nav-collapsed .admin-side {
+      overflow: visible;
+    }
     .admin-shell.is-nav-collapsed .admin-account-panel {
       left: calc(100% + 0.35rem);
       right: auto;
@@ -4498,6 +4502,31 @@ body.site-nav-lock {
   }
   .health-code-clear:hover {
     color: var(--color-primary-strong);
+  }
+  @media (min-width: 760px) {
+    .health-table {
+      table-layout: fixed;
+    }
+    .health-table th,
+    .health-table td {
+      overflow-wrap: anywhere;
+    }
+    .health-table th:nth-child(1),
+    .health-table td:nth-child(1) {
+      width: 24%;
+    }
+    .health-table th:nth-child(2),
+    .health-table td:nth-child(2) {
+      width: 7rem;
+    }
+    .health-table th:nth-child(3),
+    .health-table td:nth-child(3) {
+      width: 9rem;
+    }
+    .health-table th:nth-child(5),
+    .health-table td:nth-child(5) {
+      width: 4.5rem;
+    }
   }
   @media (min-width: 640px) {
     .health-overview {
