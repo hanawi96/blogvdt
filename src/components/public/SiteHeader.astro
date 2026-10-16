@@ -22,45 +22,102 @@ function current(href: string): boolean {
 }
 ---
 
-<header class="border-b border-line bg-surface">
-  <div class="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-    <a href={routes.home} class="flex items-center gap-2 font-semibold">
+<header class="site-header">
+  <div class="site-header-bar">
+    <a href={routes.home} class="site-brand">
       {
         site.logoUrl ? (
-          <img src={site.logoUrl} alt={site.logoAlt} class="h-10 w-10 rounded-md object-cover" width="40" height="40" />
-        ) : null
+          <img src={site.logoUrl} alt="" class="site-brand-mark" width="40" height="40" />
+        ) : (
+          <span class="site-brand-fallback" aria-hidden="true">{site.siteName.slice(0, 1)}</span>
+        )
       }
-      <span>{site.siteName}</span>
+      <span class="site-brand-text">
+        <span class="site-brand-name">{site.siteName}</span>
+        <span class="site-brand-tag">Thủ công cho mẹ &amp; bé</span>
+      </span>
     </a>
-    <nav class="flex flex-wrap gap-1" aria-label="Chính">
+
+    <nav class="site-nav" id="site-nav" data-site-nav aria-label="Chính">
       {
         items.map(([href, label]) => (
-          <a
-            href={href}
-            aria-current={current(href) ? 'page' : undefined}
-            class:list={[
-              'rounded-md px-3 py-2',
-              current(href) ? 'bg-primary text-surface' : 'text-ink',
-            ]}
-          >
+          <a href={href} class="site-nav-link" aria-current={current(href) ? 'page' : undefined}>
             {label}
           </a>
         ))
       }
       <a
         href={routes.cart}
+        class="site-nav-link site-nav-cart-mobile"
+        data-cart-link-mobile
+        aria-label="Giỏ hàng"
+        aria-current={path === routes.cart ? 'page' : undefined}
+      >
+        Giỏ hàng
+        <span data-cart-count-mobile hidden></span>
+      </a>
+    </nav>
+
+    <div class="site-header-tools">
+      <button
+        class="site-search-toggle"
+        type="button"
+        data-site-search-toggle
+        aria-controls="site-search"
+        aria-expanded="false"
+        aria-label="Tìm kiếm"
+      >
+        <span class="site-search-icon" aria-hidden="true"></span>
+      </button>
+      <a
+        href={routes.cart}
+        class="site-cart"
         data-cart-link
         aria-label="Giỏ hàng"
         aria-current={path === routes.cart ? 'page' : undefined}
-        class:list={['rounded-md px-3 py-2', path === routes.cart ? 'bg-primary text-surface' : 'text-ink']}
       >
-        Giỏ<span data-cart-count hidden></span>
+        <span class="site-cart-label">Giỏ</span>
+        <span class="site-cart-badge" data-cart-count hidden></span>
       </a>
-    </nav>
+      <button
+        class="site-nav-toggle"
+        type="button"
+        data-site-nav-toggle
+        aria-controls="site-nav"
+        aria-expanded="false"
+        aria-label="Mở menu"
+      >
+        <span class="site-nav-toggle-bars" aria-hidden="true"></span>
+      </button>
+    </div>
   </div>
+  <div class="site-search" id="site-search" data-site-search hidden>
+    <form class="site-search-form" action={routes.search} method="get" role="search" data-site-search-form>
+      <label class="sr-only" for="site-search-q">Tìm bài viết hoặc mẫu vòng</label>
+      <input
+        id="site-search-q"
+        class="site-search-input"
+        type="search"
+        name="q"
+        maxlength="80"
+        placeholder="Tìm bài viết hoặc mẫu vòng…"
+        autocomplete="off"
+        enterkeyhint="search"
+        data-site-search-input
+      />
+      <button class="btn btn-primary btn-compact" type="submit">Tìm</button>
+    </form>
+    <div class="site-search-panel" data-site-search-panel hidden>
+      <p class="site-search-status" data-site-search-status hidden></p>
+      <div data-site-search-groups></div>
+      <a class="site-search-all" data-site-search-all hidden href={routes.search}>Xem tất cả kết quả</a>
+    </div>
+  </div>
+  <div class="site-header-scrim" data-site-nav-scrim hidden></div>
 </header>
 <script>
   import { CART_COOKIE, CART_MAX_AGE, addCartLine, cartCount, parseCart, serializeCart, type CartLine } from '../../features/cart/cart';
+  import { routes } from '../../lib/routes';
 
   function readCookie(): CartLine[] {
     const raw = document.cookie.split('; ').find((part) => part.startsWith(`${CART_COOKIE}=`));
@@ -75,13 +132,15 @@ function current(href: string): boolean {
 
   function paint(lines: CartLine[]) {
     const count = cartCount(lines);
-    const node = document.querySelector('[data-cart-count]');
-    const link = document.querySelector('[data-cart-link]');
-    if (node instanceof HTMLElement) {
+    const label = count > 0 ? `Giỏ hàng, ${count} chiếc` : 'Giỏ hàng';
+    document.querySelectorAll('[data-cart-count], [data-cart-count-mobile]').forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
       node.hidden = count < 1;
-      node.textContent = count > 0 ? ` ${count}` : '';
-    }
-    if (link instanceof HTMLAnchorElement) link.setAttribute('aria-label', count > 0 ? `Giỏ hàng, ${count} chiếc` : 'Giỏ hàng');
+      node.textContent = count > 0 ? String(count) : '';
+    });
+    document.querySelectorAll('[data-cart-link], [data-cart-link-mobile]').forEach((node) => {
+      if (node instanceof HTMLAnchorElement) node.setAttribute('aria-label', label);
+    });
   }
 
   function store(lines: CartLine[]) {
@@ -100,6 +159,185 @@ function current(href: string): boolean {
       button.textContent = button.dataset.label || previous;
     }, 1200);
   }
+
+  const nav = document.querySelector('[data-site-nav]');
+  const toggle = document.querySelector('[data-site-nav-toggle]');
+  const scrim = document.querySelector('[data-site-nav-scrim]');
+  const header = document.querySelector('.site-header');
+  const searchRoot = document.querySelector('[data-site-search]');
+  const searchToggle = document.querySelector('[data-site-search-toggle]');
+  const searchInput = document.querySelector('[data-site-search-input]');
+  const searchPanel = document.querySelector('[data-site-search-panel]');
+  const searchStatus = document.querySelector('[data-site-search-status]');
+  const searchGroups = document.querySelector('[data-site-search-groups]');
+  const searchAll = document.querySelector('[data-site-search-all]');
+  const suggestUrl = routes.searchSuggest;
+  const searchPage = routes.search;
+  let searchTimer = 0;
+  let searchSeq = 0;
+
+  function setNavOpen(open: boolean) {
+    if (!(nav instanceof HTMLElement) || !(toggle instanceof HTMLButtonElement)) return;
+    nav.classList.toggle('is-open', open);
+    header?.classList.toggle('is-nav-open', open);
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggle.setAttribute('aria-label', open ? 'Đóng menu' : 'Mở menu');
+    if (scrim instanceof HTMLElement) scrim.hidden = !open;
+    document.body.classList.toggle('site-nav-lock', open);
+  }
+
+  function setSearchOpen(open: boolean) {
+    if (!(searchRoot instanceof HTMLElement) || !(searchToggle instanceof HTMLButtonElement)) return;
+    searchRoot.hidden = !open;
+    header?.classList.toggle('is-search-open', open);
+    searchToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    searchToggle.setAttribute('aria-label', open ? 'Đóng tìm kiếm' : 'Tìm kiếm');
+    if (open) {
+      setNavOpen(false);
+      if (searchInput instanceof HTMLInputElement) {
+        searchInput.focus();
+        searchInput.select();
+      }
+    } else {
+      clearSuggest();
+    }
+  }
+
+  function clearSuggest() {
+    if (searchPanel instanceof HTMLElement) searchPanel.hidden = true;
+    if (searchStatus instanceof HTMLElement) {
+      searchStatus.hidden = true;
+      searchStatus.textContent = '';
+    }
+    if (searchGroups instanceof HTMLElement) searchGroups.replaceChildren();
+    if (searchAll instanceof HTMLAnchorElement) {
+      searchAll.hidden = true;
+      searchAll.href = searchPage;
+    }
+  }
+
+  function showStatus(text: string) {
+    if (!(searchPanel instanceof HTMLElement) || !(searchStatus instanceof HTMLElement)) return;
+    searchPanel.hidden = false;
+    searchStatus.hidden = false;
+    searchStatus.textContent = text;
+    if (searchGroups instanceof HTMLElement) searchGroups.replaceChildren();
+    if (searchAll instanceof HTMLAnchorElement) searchAll.hidden = true;
+  }
+
+  function renderGroup(title: string, items: { label: string; href: string; meta?: string }[]) {
+    const section = document.createElement('section');
+    section.className = 'site-search-group';
+    const heading = document.createElement('h2');
+    heading.textContent = title;
+    const list = document.createElement('ul');
+    for (const item of items) {
+      const li = document.createElement('li');
+      const link = document.createElement('a');
+      link.href = item.href;
+      link.textContent = item.label;
+      li.append(link);
+      if (item.meta) {
+        const meta = document.createElement('span');
+        meta.textContent = item.meta;
+        li.append(meta);
+      }
+      list.append(li);
+    }
+    section.append(heading, list);
+    return section;
+  }
+
+  async function runSuggest(term: string) {
+    const q = term.replace(/[%_]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (q.length < 2) {
+      clearSuggest();
+      return;
+    }
+    const seq = ++searchSeq;
+    showStatus('Đang tìm…');
+    try {
+      const res = await fetch(`${suggestUrl}?q=${encodeURIComponent(q)}`, { headers: { accept: 'application/json' } });
+      if (seq !== searchSeq) return;
+      if (!res.ok) {
+        showStatus('Không tìm được lúc này.');
+        return;
+      }
+      const data = (await res.json()) as {
+        posts?: { title: string; href: string }[];
+        products?: { name: string; href: string; price?: number }[];
+      };
+      if (seq !== searchSeq) return;
+      const posts = data.posts ?? [];
+      const products = data.products ?? [];
+      if (posts.length === 0 && products.length === 0) {
+        showStatus('Không có gợi ý. Enter để xem trang kết quả.');
+        if (searchAll instanceof HTMLAnchorElement) {
+          searchAll.hidden = false;
+          searchAll.href = `${searchPage}?q=${encodeURIComponent(q)}`;
+        }
+        return;
+      }
+      if (!(searchPanel instanceof HTMLElement) || !(searchGroups instanceof HTMLElement)) return;
+      searchPanel.hidden = false;
+      if (searchStatus instanceof HTMLElement) searchStatus.hidden = true;
+      searchGroups.replaceChildren();
+      if (posts.length) {
+        searchGroups.append(renderGroup('Bài viết', posts.map((post) => ({ label: post.title, href: post.href }))));
+      }
+      if (products.length) {
+        searchGroups.append(
+          renderGroup(
+            'Mẫu vòng',
+            products.map((product) => ({
+              label: product.name,
+              href: product.href,
+              meta: typeof product.price === 'number' ? `${product.price.toLocaleString('vi-VN')}₫` : undefined,
+            })),
+          ),
+        );
+      }
+      if (searchAll instanceof HTMLAnchorElement) {
+        searchAll.hidden = false;
+        searchAll.href = `${searchPage}?q=${encodeURIComponent(q)}`;
+      }
+    } catch {
+      if (seq !== searchSeq) return;
+      showStatus('Không tìm được lúc này.');
+    }
+  }
+
+  searchToggle?.addEventListener('click', () => {
+    if (!(searchToggle instanceof HTMLButtonElement)) return;
+    setSearchOpen(searchToggle.getAttribute('aria-expanded') !== 'true');
+  });
+  searchInput?.addEventListener('input', () => {
+    if (!(searchInput instanceof HTMLInputElement)) return;
+    window.clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(() => void runSuggest(searchInput.value), 280);
+  });
+
+  toggle?.addEventListener('click', () => {
+    if (!(toggle instanceof HTMLButtonElement)) return;
+    setSearchOpen(false);
+    setNavOpen(toggle.getAttribute('aria-expanded') !== 'true');
+  });
+  scrim?.addEventListener('click', () => {
+    setNavOpen(false);
+    setSearchOpen(false);
+  });
+  nav?.querySelectorAll('a').forEach((link) => {
+    link.addEventListener('click', () => setNavOpen(false));
+  });
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      setNavOpen(false);
+      setSearchOpen(false);
+    }
+  });
+  window.matchMedia('(min-width: 48rem)').addEventListener('change', (event) => {
+    if (event.matches) setNavOpen(false);
+  });
 
   paint(readCookie());
   document.querySelectorAll('form[data-cart-form]').forEach((node) => {

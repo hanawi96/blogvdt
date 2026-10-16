@@ -238,6 +238,16 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
   const publish = document.getElementById('save-publish');
   const draft = document.getElementById('save-draft');
   const unpublish = document.getElementById('unpublish-post');
+  const postBar = form?.querySelector('.post-bar');
+
+  function syncToolbarTop() {
+    if (!(form instanceof HTMLFormElement) || !(postBar instanceof HTMLElement)) return;
+    form.style.setProperty('--editor-toolbar-top', `${Math.ceil(postBar.getBoundingClientRect().height)}px`);
+  }
+  if (postBar instanceof HTMLElement && 'ResizeObserver' in window) {
+    new ResizeObserver(syncToolbarTop).observe(postBar);
+  }
+  syncToolbarTop();
 
   function syncActions() {
     if (!(status instanceof HTMLSelectElement)) return;
@@ -358,9 +368,23 @@ const autosave = values.status === 'draft' ? 'on' : 'off';
     }, 2500);
   }
 
+  function acceptEditorBaseline() {
+    if (!(form instanceof HTMLFormElement)) return;
+    window.clearTimeout(timer);
+    const data = new FormData(form);
+    const parts = lastSnapshot.split('\u0001');
+    const index = snapshotKeys.indexOf('contentJson');
+    if (index < 0) return;
+    // Chỉ nhận JSON sau hydrate; giữ dirty nếu user đã sửa field khác trước đó.
+    while (parts.length < snapshotKeys.length) parts.push('');
+    parts[index] = String(data.get('contentJson') ?? '');
+    lastSnapshot = parts.join('\u0001');
+  }
+
   form?.addEventListener('input', schedule);
   form?.addEventListener('change', schedule);
   form?.addEventListener('post-input', schedule);
+  form?.addEventListener('post-editor-ready', acceptEditorBaseline);
   lastSnapshot = snapshot();
 
   window.addEventListener('beforeunload', (event) => {

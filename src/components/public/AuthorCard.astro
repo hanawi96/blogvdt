@@ -1,0 +1,39 @@
+---
+import type { PublicPostAuthor } from '../../features/posts/author';
+
+interface Props {
+  author: PublicPostAuthor;
+}
+
+const { author } = Astro.props;
+---
+
+<aside class="post-author" aria-label="Giới thiệu tác giả">
+  <span class="post-author-bloom" aria-hidden="true"></span>
+  <div class="post-author-head">
+    {
+      author.avatarUrl ? (
+        <img class="post-author-avatar" src={author.avatarUrl} alt="" width="52" height="52" loading="lazy" decoding="async" />
+      ) : (
+        <span class="post-author-avatar post-author-avatar-fallback" aria-hidden="true">{author.initials}</span>
+      )
+    }
+    <div class="post-author-id">
+      <p class="post-author-role">{author.roleLabel}</p>
+      <p class="post-author-name">{author.name}</p>
+      <p class="post-author-verified">
+        <span class="post-author-check" aria-hidden="true"></span>
+        Đã kiểm duyệt nội dung
+      </p>
+    </div>
+  </div>
+  {author.bio && <p class="post-author-bio">{author.bio}</p>}
+  {
+    author.moreUrl && (
+      <a class="post-author-more" href={author.moreUrl} rel="noopener noreferrer" target="_blank">
+        Xem thêm thông tin
+        <span aria-hidden="true">›</span>
+      </a>
+    )
+  }
+</aside>

@@ -1,0 +1,132 @@
+---
+import DataError from '../../components/public/DataError.astro';
+import PostCard from '../../components/public/PostCard.astro';
+import ProductCard from '../../components/public/ProductCard.astro';
+import { applyCoverMeasure } from '../../features/media/media';
+import { normalizeSearchQuery, searchQueryReady } from '../../features/search/query';
+import { searchPublic } from '../../features/search/search';
+import { getPublicSite } from '../../features/settings/settings';
+import PublicLayout from '../../layouts/PublicLayout.astro';
+import { createDb } from '../../lib/db/client';
+import { getDbBinding, getSiteOrigin, optionalMediaBucket } from '../../lib/cloudflare/env';
+import { buildMeta, unavailableMeta } from '../../lib/seo/meta';
+import { FRESH_PAGE_CACHE, PRIVATE_PAGE_CACHE } from '../../lib/seo/cache';
+import { routes } from '../../lib/routes';
+
+const rawQ = Astro.url.searchParams.get('q');
+const q = normalizeSearchQuery(rawQ);
+const ready = searchQueryReady(q);
+const loaded = await loadSearch();
+if (!loaded.site || loaded.failed) {
+  Astro.response.status = 503;
+  Astro.response.headers.set('X-Robots-Tag', 'noindex');
+}
+Astro.response.headers.set('Cache-Control', loaded.site && !loaded.failed ? FRESH_PAGE_CACHE : PRIVATE_PAGE_CACHE);
+
+const pageMeta = !loaded.site
+  ? unavailableMeta()
+  : {
+      title: ready ? `Tìm “${q}”` : 'Tìm kiếm',
+      description: ready
+        ? `Kết quả tìm “${q}” trên ${loaded.site.siteName}: bài viết và mẫu vòng.`
+        : `Tìm bài viết kiến thức và mẫu vòng dâu tằm trên ${loaded.site.siteName}.`,
+    };
+const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
+  title: pageMeta.title,
+  description: pageMeta.description,
+  path: ready ? `${routes.search}?q=${encodeURIComponent(q)}` : routes.search,
+  siteName: loaded.site?.siteName,
+  robots: 'noindex,follow',
+});
+const empty = ready && loaded.posts.length === 0 && loaded.products.length === 0;
+
+async function loadSearch() {
+  try {
+    const db = createDb(getDbBinding());
+    const site = await getPublicSite(db);
+    if (!site) return { site: null, failed: false, posts: [], products: [] };
+    if (!ready) return { site, failed: false, posts: [], products: [] };
+    const found = await searchPublic(db, q);
+    const bucket = optionalMediaBucket();
+    const [posts, products] = await Promise.all([
+      applyCoverMeasure(bucket, found.posts),
+      applyCoverMeasure(bucket, found.products),
+    ]);
+    return { site, failed: false, posts, products };
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'search_public_failed', name: error instanceof Error ? error.name : 'unknown' }));
+    return { site: null, failed: true, posts: [], products: [] };
+  }
+}
+---
+
+<PublicLayout
+  title={meta.title}
+  description={meta.description}
+  robots={meta.robots}
+  siteName={meta.siteName}
+  faviconUrl={loaded.site?.faviconUrl || '/favicon.svg'}
+  chrome={loaded.site}
+>
+  {
+    !loaded.site ? (
+      <DataError failed={loaded.failed} />
+    ) : (
+      <main class="search-page">
+        <header class="search-page-head">
+          <h1>{ready ? `Kết quả cho “${q}”` : 'Tìm kiếm'}</h1>
+          <form class="search-page-form" action={routes.search} method="get" role="search">
+            <label class="sr-only" for="search-page-q">Từ khóa</label>
+            <input
+              id="search-page-q"
+              class="search-page-input"
+              type="search"
+              name="q"
+              value={q}
+              maxlength="80"
+              placeholder="Bài viết hoặc mẫu vòng…"
+              autocomplete="off"
+              enterkeyhint="search"
+            />
+            <button class="btn btn-primary" type="submit">Tìm</button>
+          </form>
+        </header>
+
+        {
+          !ready ? (
+            <p class="search-page-hint">Nhập ít nhất 2 ký tự để tìm bài viết và sản phẩm.</p>
+          ) : empty ? (
+            <p class="search-page-hint">Không có kết quả phù hợp. Thử từ ngắn hơn hoặc tên mẫu vòng.</p>
+          ) : (
+            <>
+              {
+                loaded.posts.length > 0 && (
+                  <section class="search-page-section" aria-labelledby="search-posts">
+                    <h2 id="search-posts">Bài viết</h2>
+                    <ul class="search-page-grid search-page-posts">
+                      {loaded.posts.map((post) => (
+                        <li><PostCard post={post} level="h3" /></li>
+                      ))}
+                    </ul>
+                  </section>
+                )
+              }
+              {
+                loaded.products.length > 0 && (
+                  <section class="search-page-section" aria-labelledby="search-products">
+                    <h2 id="search-products">Mẫu vòng</h2>
+                    <ul class="search-page-grid search-page-products">
+                      {loaded.products.map((product) => (
+                        <li><ProductCard product={product} /></li>
+                      ))}
+                    </ul>
+                  </section>
+                )
+              }
+            </>
+          )
+        }
+      </main>
+    )
+  }
+</PublicLayout>

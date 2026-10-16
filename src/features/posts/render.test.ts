@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderPostHtml } from './render';
+import type { PostCardEmbed } from './post-cards';
 
 describe('render HTML bài viết', () => {
   it('giữ chữ, heading có id, và bỏ liên kết lạ cùng ảnh ngoài thư viện', () => {
@@ -53,6 +54,37 @@ describe('render HTML bài viết', () => {
     expect(html).toContain('width="800"');
     expect(html).toContain('height="600"');
     expect(html).toContain('loading="lazy"');
+  });
+
+  it('render hộp bài liên quan theo id đã resolve', () => {
+    const cardsById = new Map<number, PostCardEmbed>([
+      [
+        5,
+        {
+          id: 5,
+          title: 'Chọn chỉ an toàn',
+          slug: 'chon-chi-an-toan',
+          excerpt: '',
+          categoryName: 'Cách chọn vòng',
+          coverUrl: null,
+          coverAlt: '',
+          coverWidth: null,
+          coverHeight: null,
+        },
+      ],
+    ]);
+    const html = renderPostHtml(
+      {
+        type: 'doc',
+        content: [{ type: 'postCards', attrs: { ids: [5, 99], labels: ['Chọn chỉ an toàn', 'Mất'] } }],
+      },
+      new Map(),
+      { cardsById },
+    );
+    expect(html).toContain('class="post-cards"');
+    expect(html).toContain('href="/kien-thuc/chon-chi-an-toan"');
+    expect(html).toContain('Chọn chỉ an toàn');
+    expect(html).not.toContain('Mất');
   });
 
   it('ảnh đầu không lazy khi bài không có ảnh đại diện, ảnh hỏng bị bỏ', () => {

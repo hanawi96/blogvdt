@@ -7,6 +7,7 @@ import { applyCoverMeasure, getMediaFile, layoutContentImages } from '../../../f
 import { collectMediaSrcs, sanitizePostContent } from '../../../features/posts/content';
 import { firstFieldError, parsePostForm } from '../../../features/posts/form';
 import { collectHeadings, type HeadingItem } from '../../../features/posts/headings';
+import { collectPostCardIds, listPublishedPostCardsByIds } from '../../../features/posts/post-cards';
 import { getPost } from '../../../features/posts/posts';
 import { renderPostHtml } from '../../../features/posts/render';
 import { getPublicSite } from '../../../features/settings/settings';
@@ -96,11 +97,18 @@ async function articleFrom(title: string, description: string, contentJson: stri
   const [measured] = stored
     ? await applyCoverMeasure(bucket, [{ coverUrl: stored.url, coverWidth: stored.width, coverHeight: stored.height }])
     : [null];
-  const images = content ? await layoutContentImages(db, bucket, collectMediaSrcs(content)) : { sizes: new Map(), missing: new Set<string>() };
+  const embedIds = content ? collectPostCardIds(content) : [];
+  const [images, cardsById] = await Promise.all([
+    content ? layoutContentImages(db, bucket, collectMediaSrcs(content)) : Promise.resolve({ sizes: new Map(), missing: new Set<string>() }),
+    listPublishedPostCardsByIds(db, embedIds),
+  ]);
+  const measuredCards = new Map((await applyCoverMeasure(bucket, [...cardsById.values()])).map((card) => [card.id, card] as const));
   return {
     title,
     description,
-    html: content ? renderPostHtml(content, images.sizes, { skip: images.missing, eager: measured?.coverUrl ? 0 : 1 }) : '',
+    html: content
+      ? renderPostHtml(content, images.sizes, { skip: images.missing, eager: measured?.coverUrl ? 0 : 1, cardsById: measuredCards })
+      : '',
     headings: content ? collectHeadings(content) : [],
     cover: measured?.coverUrl ? { url: measured.coverUrl, alt: stored?.alt ?? '', width: measured.coverWidth, height: measured.coverHeight } : null,
   };
@@ -120,55 +128,62 @@ const site = article ? await getPublicSite(db) : null;
       chrome={site}
     >
       <p class="preview-banner">Bản xem trước. Trang này không được lưu và không được lập chỉ mục.</p>
-      <main class="mx-auto max-w-3xl px-4 py-10">
-        <nav aria-label="Đường dẫn">
-          <ol class="flex flex-wrap gap-2 text-sm text-muted">
-            <li><a href={routes.home}>Trang chủ</a></li>
-            <li class="flex gap-2">
-              <span aria-hidden="true">/</span>
-              <a href={routes.knowledgeList}>Kiến thức</a>
-            </li>
-            <li class="flex gap-2">
-              <span aria-hidden="true">/</span>
-              <span>{article.title}</span>
-            </li>
-          </ol>
-        </nav>
-        <h1 class="mt-4 text-4xl font-semibold tracking-tight text-balance">{article.title}</h1>
-        <p class="mt-4 text-sm text-muted">
-          {publishedAt && <span>Đăng {formatDateTime(publishedAt)}</span>}
-          {updatedAt && <span> · Sửa {formatDateTime(updatedAt)}</span>}
-          {!publishedAt && !updatedAt && <span>Xem trước · chưa ghi ra trang công khai</span>}
-        </p>
-        {
-          article.cover && (
-            <img
-              class="mt-6 h-auto w-full rounded-lg"
-              src={article.cover.url}
-              alt={article.cover.alt}
-              width={article.cover.width ?? undefined}
-              height={article.cover.height ?? undefined}
-              fetchpriority="high"
-            />
-          )
-        }
-        {
-          article.headings.length > 0 && (
-            <nav class="mt-8 rounded-lg border border-line bg-surface p-4" aria-label="Mục lục">
-              <p class="font-semibold">Mục lục</p>
-              <ol class="mt-2 space-y-1">
-                {
-                  article.headings.map((heading) => (
-                    <li class:list={[heading.level === 3 && 'pl-4']}>
-                      <a href={`#${heading.id}`}>{heading.text}</a>
-                    </li>
-                  ))
-                }
-              </ol>
-            </nav>
-          )
-        }
-        <article class="post-body mt-8" set:html={article.html} />
+      <main class="post-page">
+        <div class="post-page-glow" aria-hidden="true"></div>
+        <div class="post-page-shell">
+          <nav class="post-crumb" aria-label="Đường dẫn">
+            <ol>
+              <li><a href={routes.home}>Trang chủ</a></li>
+              <li>
+                <span class="post-crumb-sep" aria-hidden="true">·</span>
+                <a href={routes.knowledgeList}>Kiến thức</a>
+              </li>
+              <li>
+                <span class="post-crumb-sep" aria-hidden="true">·</span>
+                <span aria-current="page">{article.title}</span>
+              </li>
+            </ol>
+          </nav>
+          <header class="post-hero">
+            <h1 class="post-headline">{article.title}</h1>
+            <p class="post-byline">
+              {publishedAt && <time>{formatDateTime(publishedAt)}</time>}
+              {publishedAt && updatedAt && <span class="post-byline-dot" aria-hidden="true"></span>}
+              {updatedAt && <span>Cập nhật {formatDateTime(updatedAt)}</span>}
+              {!publishedAt && !updatedAt && <span>Xem trước · chưa ghi ra trang công khai</span>}
+            </p>
+          </header>
+          {
+            article.cover && (
+              <figure class="post-cover">
+                <img
+                  src={article.cover.url}
+                  alt={article.cover.alt}
+                  width={article.cover.width ?? undefined}
+                  height={article.cover.height ?? undefined}
+                  fetchpriority="high"
+                />
+              </figure>
+            )
+          }
+          {
+            article.headings.length > 0 && (
+              <nav class="post-toc" aria-label="Mục lục">
+                <p class="post-toc-label">Trong bài này</p>
+                <ol>
+                  {
+                    article.headings.map((heading) => (
+                      <li class:list={[heading.level === 3 && 'post-toc-sub']}>
+                        <a href={`#${heading.id}`}>{heading.text}</a>
+                      </li>
+                    ))
+                  }
+                </ol>
+              </nav>
+            )
+          }
+          <article class="post-body" set:html={article.html} />
+        </div>
       </main>
     </PublicLayout>
   ) : (

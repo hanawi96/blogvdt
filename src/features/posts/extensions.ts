@@ -6,6 +6,7 @@ import { TableHeader } from '@tiptap/extension-table/header';
 import { TableRow } from '@tiptap/extension-table/row';
 import StarterKit from '@tiptap/starter-kit';
 import { isPostHref } from './links';
+import { PostCards } from './post-cards';
 
 // Editor và trang công khai phải dùng cùng schema. Mỗi lần gọi tạo instance mới
 // vì Tiptap không cho dùng lại extension đã gắn vào một editor.
@@ -38,5 +39,6 @@ export function postExtensions(): Extensions {
     TableRow,
     TableCell,
     TableHeader,
+    PostCards,
   ];
 }

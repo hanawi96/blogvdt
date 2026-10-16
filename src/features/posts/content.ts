@@ -1,4 +1,5 @@
 import { isPostHref } from './links';
+import { normalizePostCardIds, normalizePostCardLabels, POST_CARDS_NODE } from './post-cards';
 
 export const NODE_TYPES = new Set([
   'doc',
@@ -15,6 +16,7 @@ export const NODE_TYPES = new Set([
   'tableRow',
   'tableCell',
   'tableHeader',
+  POST_CARDS_NODE,
 ]);
 
 export const MARK_TYPES = new Set(['bold', 'italic', 'link']);
@@ -61,6 +63,14 @@ function cleanNode(value: unknown): Node | null {
     const caption = typeof attrs?.caption === 'string' ? attrs.caption.trim().slice(0, 200) : '';
     node.attrs = { src, alt: typeof attrs?.alt === 'string' ? attrs.alt.slice(0, 200) : '' };
     if (caption) node.attrs.caption = caption;
+  }
+
+  if (record.type === POST_CARDS_NODE) {
+    const attrs = record.attrs as { ids?: unknown; labels?: unknown } | undefined;
+    const ids = normalizePostCardIds(attrs?.ids);
+    if (ids.length === 0) return null;
+    node.attrs = { ids, labels: normalizePostCardLabels(attrs?.labels, ids.length) };
+    return node;
   }
 
   if (Array.isArray(record.content)) {

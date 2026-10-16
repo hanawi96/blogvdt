@@ -1,12 +1,15 @@
 ---
 import type { JSONContent } from '@tiptap/core';
+import AuthorCard from '../../components/public/AuthorCard.astro';
 import DataError from '../../components/public/DataError.astro';
 import NotFound from '../../components/public/NotFound.astro';
 import PostCard from '../../components/public/PostCard.astro';
 import ProductCard from '../../components/public/ProductCard.astro';
 import { listFeaturedProducts } from '../../features/products/featured';
+import { getPublicPostAuthor } from '../../features/posts/author';
 import { collectMediaSrcs, sanitizePostContent } from '../../features/posts/content';
 import { collectHeadings } from '../../features/posts/headings';
+import { collectPostCardIds, listPublishedPostCardsByIds } from '../../features/posts/post-cards';
 import { getPostBySlug, listRelatedPosts } from '../../features/posts/public';
 import { redirectHttpResponse } from '../../features/redirects/http';
 import { resolvePublicRedirect } from '../../features/redirects/lookup';
@@ -86,35 +89,44 @@ async function loadPost() {
   try {
     const db = createDb(getDbBinding());
     const site = await getPublicSite(db);
-    if (!site) return { site: null, failed: false, post: null, html: '', headings: [], related: [], products: [], http: null };
+    if (!site) return { site: null, failed: false, post: null, html: '', headings: [], related: [], products: [], author: null, http: null };
     const found = await getPostBySlug(db, slug);
     if (!found) {
       const outcome = await resolvePublicRedirect(db, routes.knowledge(slug));
-      if (outcome) return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], http: redirectHttpResponse(outcome) };
-      return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], http: null };
+      if (outcome) return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], author: null, http: redirectHttpResponse(outcome) };
+      return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], author: null, http: null };
     }
     const bucket = optionalMediaBucket();
     const [measured] = await applyCoverMeasure(bucket, [found]);
     const sanitized = sanitizePostContent(measured.contentJson);
     const content = sanitized.ok ? (JSON.parse(sanitized.json) as JSONContent) : null;
-    const images = content ? await layoutContentImages(db, bucket, collectMediaSrcs(content)) : { sizes: new Map(), missing: new Set<string>() };
-    const [related, products] = await Promise.all([
+    const embedIds = content ? collectPostCardIds(content) : [];
+    const [images, cardsById, related, products, author] = await Promise.all([
+      content ? layoutContentImages(db, bucket, collectMediaSrcs(content)) : Promise.resolve({ sizes: new Map(), missing: new Set<string>() }),
+      listPublishedPostCardsByIds(db, embedIds),
       listRelatedPosts(db, { id: found.id, categoryId: found.categoryId }),
       listFeaturedProducts(db, 3),
+      getPublicPostAuthor(db, found.authorId),
     ]);
+    const measuredCards = new Map(
+      (await applyCoverMeasure(bucket, [...cardsById.values()])).map((card) => [card.id, card] as const),
+    );
     return {
       site,
       failed: false,
       post: measured,
-      html: content ? renderPostHtml(content, images.sizes, { skip: images.missing, eager: measured.coverUrl ? 0 : 1 }) : '',
+      html: content
+        ? renderPostHtml(content, images.sizes, { skip: images.missing, eager: measured.coverUrl ? 0 : 1, cardsById: measuredCards })
+        : '',
       headings: content ? collectHeadings(content) : [],
       related: await applyCoverMeasure(bucket, related),
       products,
+      author,
       http: null,
     };
   } catch (error) {
     console.error(JSON.stringify({ event: 'post_public_failed', name: error instanceof Error ? error.name : 'unknown' }));
-    return { site: null, failed: true, post: null, html: '', headings: [], related: [], products: [], http: null };
+    return { site: null, failed: true, post: null, html: '', headings: [], related: [], products: [], author: null, http: null };
   }
 }
 ---
@@ -142,79 +154,97 @@ async function loadPost() {
     ) : !loaded.post ? (
       <NotFound />
     ) : (
-      <main class="mx-auto max-w-3xl px-4 py-10">
-        <nav aria-label="Đường dẫn">
-          <ol class="flex flex-wrap gap-2 text-sm text-muted">
-            {crumbs.map((crumb, index) => (
-              <li class="flex gap-2">
-                {index > 0 && <span aria-hidden="true">/</span>}
-                {index === crumbs.length - 1 ? <span>{crumb.name}</span> : <a href={crumb.path}>{crumb.name}</a>}
-              </li>
-            ))}
-          </ol>
-        </nav>
-        <h1 class="mt-4 text-4xl font-semibold tracking-tight text-balance">{loaded.post.title}</h1>
-        <p class="mt-4 text-sm text-muted">
-          {loaded.post.publishedAt && <span>Đăng {formatDateTime(loaded.post.publishedAt)}</span>}
-          <span> · Sửa {formatDateTime(loaded.post.updatedAt)}</span>
-        </p>
-        {loaded.post.coverUrl && (
-          <img
-            class="mt-6 h-auto w-full rounded-lg"
-            src={loaded.post.coverUrl}
-            alt={loaded.post.coverAlt}
-            width={loaded.post.coverWidth ?? undefined}
-            height={loaded.post.coverHeight ?? undefined}
-            fetchpriority="high"
-          />
-        )}
-        {loaded.headings.length > 0 && (
-          <nav class="mt-8 rounded-lg border border-line bg-surface p-4" aria-label="Mục lục">
-            <p class="font-semibold">Mục lục</p>
-            <ol class="mt-2 space-y-1">
-              {loaded.headings.map((heading) => (
-                <li class:list={[heading.level === 3 && 'pl-4']}>
-                  <a href={`#${heading.id}`}>{heading.text}</a>
+      <main class="post-page">
+        <div class="post-page-glow" aria-hidden="true"></div>
+        <div class="post-page-shell">
+          <nav class="post-crumb" aria-label="Đường dẫn">
+            <ol>
+              {crumbs.map((crumb, index) => (
+                <li>
+                  {index > 0 && <span class="post-crumb-sep" aria-hidden="true">·</span>}
+                  {index === crumbs.length - 1 ? <span aria-current="page">{crumb.name}</span> : <a href={crumb.path}>{crumb.name}</a>}
                 </li>
               ))}
             </ol>
           </nav>
-        )}
-        {
-          loaded.html ? (
-            <article class="post-body mt-8" set:html={loaded.html} />
+
+          <header class="post-hero">
+            {loaded.post.categoryName && loaded.post.categorySlug && (
+              <a class="post-kicker" href={routes.knowledgeCategory(loaded.post.categorySlug)}>{loaded.post.categoryName}</a>
+            )}
+            <h1 class="post-headline">{loaded.post.title}</h1>
+            <p class="post-byline">
+              {loaded.post.publishedAt && <time datetime={published}>{formatDateTime(loaded.post.publishedAt)}</time>}
+              {loaded.post.publishedAt && <span class="post-byline-dot" aria-hidden="true"></span>}
+              <span>Cập nhật {formatDateTime(loaded.post.updatedAt)}</span>
+            </p>
+          </header>
+
+          {loaded.post.coverUrl && (
+            <figure class="post-cover">
+              <img
+                src={loaded.post.coverUrl}
+                alt={loaded.post.coverAlt}
+                width={loaded.post.coverWidth ?? undefined}
+                height={loaded.post.coverHeight ?? undefined}
+                fetchpriority="high"
+              />
+            </figure>
+          )}
+
+          {loaded.headings.length > 0 && (
+            <nav class="post-toc" aria-label="Mục lục">
+              <p class="post-toc-label">Trong bài này</p>
+              <ol>
+                {loaded.headings.map((heading) => (
+                  <li class:list={[heading.level === 3 && 'post-toc-sub']}>
+                    <a href={`#${heading.id}`}>{heading.text}</a>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          )}
+
+          {loaded.html ? (
+            <article class="post-body" set:html={loaded.html} />
           ) : (
-            <p class="post-body mt-8">Bài này chưa có nội dung để hiển thị.</p>
-          )
-        }
-        <div class="mt-10 flex flex-wrap gap-3">
-          <a class="btn btn-primary" href={routes.catalog}>Xem sản phẩm</a>
-          <a class="btn btn-accent" href={routes.checkout}>Đặt hàng</a>
+            <p class="post-body post-body-empty">Bài này chưa có nội dung để hiển thị.</p>
+          )}
+
+          {loaded.author && <AuthorCard author={loaded.author} />}
+
+          <section id="san-pham" class="post-band">
+            <div class="post-band-head">
+              <h2>Sản phẩm nổi bật</h2>
+              <p>Gợi ý nhẹ cho mẹ đang chọn vòng.</p>
+            </div>
+            {loaded.products.length === 0 ? (
+              <p class="post-band-empty">Chưa có sản phẩm đang bán.</p>
+            ) : (
+              <ul class="post-product-grid">
+                {loaded.products.map((product) => (
+                  <li><ProductCard product={product} /></li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section class="post-band post-band-last">
+            <div class="post-band-head">
+              <h2>Bài viết liên quan</h2>
+              <p>Đọc tiếp khi mẹ còn thời gian rảnh tay.</p>
+            </div>
+            {loaded.related.length === 0 ? (
+              <p class="post-band-empty">Chưa có bài liên quan.</p>
+            ) : (
+              <ul class="post-related-grid">
+                {loaded.related.map((post) => (
+                  <li><PostCard post={post} level="h3" /></li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
-        <section id="san-pham" class="mt-12">
-          <h2 class="text-2xl font-semibold">Sản phẩm nổi bật</h2>
-          {loaded.products.length === 0 ? (
-            <p class="mt-4 text-muted">Chưa có sản phẩm đang bán.</p>
-          ) : (
-            <ul class="mt-4 grid gap-4 sm:grid-cols-2">
-              {loaded.products.map((product) => (
-                <li><ProductCard product={product} /></li>
-              ))}
-            </ul>
-          )}
-        </section>
-        <section class="mt-12">
-          <h2 class="text-2xl font-semibold">Bài viết liên quan</h2>
-          {loaded.related.length === 0 ? (
-            <p class="mt-4 text-muted">Chưa có bài liên quan.</p>
-          ) : (
-            <ul class="mt-4 grid gap-4">
-              {loaded.related.map((post) => (
-                <li><PostCard post={post} level="h3" /></li>
-              ))}
-            </ul>
-          )}
-        </section>
       </main>
     )
   }

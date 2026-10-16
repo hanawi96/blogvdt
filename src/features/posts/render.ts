@@ -4,11 +4,12 @@ import { isPostHref } from './links';
 import { isMediaSrc } from './content';
 import { postExtensions } from './extensions';
 import { collectHeadings } from './headings';
+import { normalizePostCardIds, orderedPostCards, renderPostCardsHtml, type PostCardEmbed } from './post-cards';
 
 export function renderPostHtml(
   content: JSONContent,
   imageSizes: ReadonlyMap<string, { width: number; height: number }> = new Map(),
-  options: { skip?: ReadonlySet<string>; eager?: number } = {},
+  options: { skip?: ReadonlySet<string>; eager?: number; cardsById?: ReadonlyMap<number, PostCardEmbed> } = {},
 ): string {
   const ids = collectHeadings(content).map((item) => item.id);
   let headingIndex = 0;
@@ -36,6 +37,10 @@ export function renderPostHtml(
           const img = `<img src="${escapeHTMLAttribute(src)}" alt="${escapeHTMLAttribute(alt)}"${dimensionAttrs(imageSizes.get(src))}${loading} />`;
           if (!caption) return img;
           return `<figure>${img}<figcaption>${escapeHTMLAttribute(caption)}</figcaption></figure>`;
+        },
+        postCards: ({ node }) => {
+          if (!options.cardsById) return '';
+          return renderPostCardsHtml(orderedPostCards(normalizePostCardIds(node.attrs.ids), options.cardsById));
         },
       },
       markMapping: {

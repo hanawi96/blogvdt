@@ -1,10 +1,14 @@
 ---
-export const prerender = true;
-
 import NotFound from '../components/public/NotFound.astro';
 import { staticChrome } from '../features/content/policies';
 import PublicLayout from '../layouts/PublicLayout.astro';
 import { notFoundMeta } from '../lib/seo/meta';
+import { PRIVATE_PAGE_CACHE } from '../lib/seo/cache';
+
+// SSR để middleware còn chạy resolve redirect trên URL cũ trước khi trả 404.
+Astro.response.status = 404;
+Astro.response.headers.set('Cache-Control', PRIVATE_PAGE_CACHE);
+Astro.response.headers.set('X-Robots-Tag', 'noindex');
 
 const pageMeta = notFoundMeta();
 ---

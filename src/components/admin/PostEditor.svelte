@@ -5,6 +5,7 @@
   import { routes } from '../../lib/routes';
   import { isMediaSrc } from '../../features/posts/content';
   import { postExtensions } from '../../features/posts/extensions';
+  import { normalizePostCardIds, normalizePostCardLabels, POST_CARDS_MAX, type PostCardRef } from '../../features/posts/post-cards';
   import MediaPicker from './MediaPicker.svelte';
   import type { MediaItem } from '../../features/media/types';
 
@@ -17,6 +18,7 @@
 
   let host: HTMLDivElement | undefined = $state();
   let toolbarEl: HTMLDivElement | undefined = $state();
+  let toolbarPinEl: HTMLSpanElement | undefined = $state();
   let editor = $state<Editor | null>(null);
   let json = $state(untrack(() => contentJson));
   let revision = $state(0);
@@ -39,6 +41,15 @@
   let libraryOpen = $state(false);
   let imageAlt = $state('');
   let imageCaption = $state('');
+  let cardsOpen = $state(false);
+  let cardsEditing = $state(false);
+  let cardsQuery = $state('');
+  let cardsHits = $state<PostCardRef[]>([]);
+  let cardsSelected = $state<PostCardRef[]>([]);
+  let cardsNote = $state('');
+  let cardsError = $state('');
+  let cardsDialog: HTMLDialogElement | undefined = $state();
+  let cardsTimer = 0;
 
   function syncImage(current: Editor) {
     if (!current.isActive('image')) return;
@@ -56,6 +67,8 @@
   }
 
   onMount(() => {
+    // TipTap normalize JSON lúc mount — chưa coi là edit của user.
+    let acceptEdits = false;
     const content = parseContent(untrack(() => contentJson));
     const instance = new Editor({
       element: host,
@@ -65,7 +78,7 @@
         json = JSON.stringify(current.getJSON());
         revision += 1;
         syncImage(current);
-        notifyForm();
+        if (acceptEdits) notifyForm();
       },
       onSelectionUpdate: ({ editor: current }) => {
         revision += 1;
@@ -92,15 +105,40 @@
     });
     editor = instance;
     json = JSON.stringify(instance.getJSON());
+    void tick().then(() => {
+      json = JSON.stringify(instance.getJSON());
+      return tick();
+    }).then(() => {
+      acceptEdits = true;
+      host?.dispatchEvent(new CustomEvent('post-editor-ready', { bubbles: true }));
+    });
     const onPointerDown = (event: PointerEvent) => {
       if (menu === null) return;
       const target = event.target;
       if (!(target instanceof Node) || toolbarEl?.contains(target)) return;
       menu = null;
     };
+    const onCardsEdit = () => openCards(true);
+    host?.addEventListener('post-cards-edit', onCardsEdit);
     document.addEventListener('pointerdown', onPointerDown);
+
+    const syncStuck = () => {
+      if (!toolbarEl || !toolbarPinEl) return;
+      const root = toolbarEl.closest('.post-write');
+      const topRaw = root instanceof HTMLElement ? getComputedStyle(root).getPropertyValue('--editor-toolbar-top') : '';
+      const topPx = Number.parseFloat(topRaw) || 60;
+      const stuck = toolbarPinEl.getBoundingClientRect().top < topPx;
+      toolbarEl.classList.toggle('is-stuck', stuck);
+    };
+    syncStuck();
+    window.addEventListener('scroll', syncStuck, { passive: true });
+    window.addEventListener('resize', syncStuck);
+
     return () => {
+      host?.removeEventListener('post-cards-edit', onCardsEdit);
       document.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('scroll', syncStuck);
+      window.removeEventListener('resize', syncStuck);
       instance.destroy();
     };
   });
@@ -329,6 +367,123 @@
     libraryOpen = !libraryOpen;
   }
 
+  function openCards(editing = false) {
+    if (!editor || !cardsDialog) return;
+    menu = null;
+    cardsEditing = editing || editor.isActive('postCards');
+    cardsQuery = '';
+    cardsHits = [];
+    cardsNote = '';
+    cardsError = '';
+    if (cardsEditing && editor.isActive('postCards')) {
+      const attrs = editor.getAttributes('postCards') as { ids?: unknown; labels?: unknown };
+      const ids = normalizePostCardIds(attrs.ids);
+      const labels = normalizePostCardLabels(attrs.labels, ids.length);
+      cardsSelected = ids.map((id, index) => ({ id, title: labels[index] || `Bài #${id}` }));
+    } else {
+      cardsSelected = [];
+      cardsEditing = false;
+    }
+    cardsOpen = true;
+    cardsDialog.showModal();
+  }
+
+  function closeCards() {
+    cardsDialog?.close();
+  }
+
+  function onCardsClosed() {
+    cardsOpen = false;
+    window.clearTimeout(cardsTimer);
+    editor?.commands.focus();
+  }
+
+  function onCardsBackdrop(event: MouseEvent) {
+    if (!cardsDialog || event.target !== cardsDialog) return;
+    const box = cardsDialog.getBoundingClientRect();
+    const outside = event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+    if (outside) closeCards();
+  }
+
+  function queueCardsSearch(value: string) {
+    cardsQuery = value;
+    window.clearTimeout(cardsTimer);
+    cardsTimer = window.setTimeout(() => void searchCards(), 280);
+  }
+
+  async function searchCards() {
+    const term = cardsQuery.trim();
+    if (term.length < 2) {
+      cardsHits = [];
+      cardsNote = '';
+      return;
+    }
+    const url = new URL(routes.adminPosts, location.origin);
+    url.searchParams.set('q', term);
+    const exclude = formValue('postId');
+    if (exclude) url.searchParams.set('exclude', exclude);
+    try {
+      const response = await fetch(url, { headers: { accept: 'application/json' } });
+      if (!response.ok) {
+        cardsNote = 'Không tìm được bài viết.';
+        return;
+      }
+      const body = (await response.json()) as { posts?: unknown };
+      const posts = Array.isArray(body.posts) ? body.posts : [];
+      cardsHits = posts.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') return [];
+        const record = entry as { id?: unknown; title?: unknown; path?: unknown };
+        if (typeof record.id !== 'number' || !Number.isInteger(record.id) || record.id < 1) return [];
+        if (typeof record.title !== 'string' || typeof record.path !== 'string') return [];
+        if (!record.path.startsWith('/kien-thuc/')) return [];
+        return [{ id: record.id, title: record.title, path: record.path }];
+      });
+      cardsNote = cardsHits.length === 0 ? 'Không có bài đã xuất bản khớp.' : '';
+    } catch {
+      cardsNote = 'Không tìm được bài viết.';
+    }
+  }
+
+  function toggleCard(hit: PostCardRef) {
+    cardsError = '';
+    const exists = cardsSelected.some((item) => item.id === hit.id);
+    if (exists) {
+      cardsSelected = cardsSelected.filter((item) => item.id !== hit.id);
+      return;
+    }
+    if (cardsSelected.length >= POST_CARDS_MAX) {
+      cardsError = `Chỉ chọn tối đa ${POST_CARDS_MAX} bài.`;
+      return;
+    }
+    cardsSelected = [...cardsSelected, { id: hit.id, title: hit.title, path: hit.path }];
+  }
+
+  function removeSelectedCard(id: number) {
+    cardsSelected = cardsSelected.filter((item) => item.id !== id);
+    cardsError = '';
+  }
+
+  function applyCards() {
+    if (!editor) return;
+    if (cardsSelected.length === 0) {
+      cardsError = 'Chọn ít nhất một bài đã xuất bản.';
+      return;
+    }
+    if (cardsEditing && editor.isActive('postCards')) {
+      editor.chain().focus().updatePostCards(cardsSelected).run();
+    } else {
+      editor.chain().focus().insertPostCards(cardsSelected).run();
+    }
+    closeCards();
+  }
+
+  function onCardsKey(event: KeyboardEvent) {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    const first = cardsHits[0];
+    if (first) toggleCard(first);
+  }
+
   function imageSelected() {
     revision;
     return editor?.isActive('image') ?? false;
@@ -398,6 +553,9 @@
     {:else if name === 'table'}
       <rect width="18" height="18" x="3" y="3" rx="2" />
       <path d="M3 9h18M3 15h18M12 3v18" />
+    {:else if name === 'cards'}
+      <rect width="18" height="14" x="3" y="5" rx="2" />
+      <path d="M7 9h6M7 13h10" />
     {/if}
   </svg>
 {/snippet}
@@ -405,6 +563,7 @@
 <div class="editor mt-4">
   <p class="mb-2 font-semibold">Nội dung</p>
   <div class="editor-shell">
+    <span class="editor-toolbar-pin" aria-hidden="true" bind:this={toolbarPinEl}></span>
     <div class="editor-toolbar" role="toolbar" aria-label="Định dạng" bind:this={toolbarEl}>
       <button class="tool" type="button" title="Hoàn tác" disabled={!can('undo')} onclick={() => run((current) => current.chain().focus().undo().run())}>{@render toolIcon('undo')}</button>
       <button class="tool" type="button" title="Làm lại" disabled={!can('redo')} onclick={() => run((current) => current.chain().focus().redo().run())}>{@render toolIcon('redo')}</button>
@@ -433,6 +592,7 @@
       <span class="editor-sep"></span>
       <button class="tool" type="button" title="Ảnh" aria-pressed={libraryOpen} onclick={toggleLibrary}>{@render toolIcon('image')}</button>
       <button class="tool" type="button" title="Bảng" onclick={() => run((current) => current.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run())}>{@render toolIcon('table')}</button>
+      <button class="tool" type="button" title="Bài liên quan" aria-pressed={cardsOpen || active('postCards')} aria-haspopup="dialog" aria-expanded={cardsOpen} onclick={() => openCards(false)}>{@render toolIcon('cards')}</button>
     </div>
     {#if imageSelected()}
       <div class="editor-image">
@@ -516,6 +676,44 @@
       {/if}
       <button class="btn" type="button" onclick={closeLink}>Hủy</button>
       <button class="btn btn-primary" type="button" onclick={() => applyLink()}>{linkHasMark ? 'Cập nhật' : 'Gắn liên kết'}</button>
+    </div>
+  </dialog>
+  <dialog class="category-dialog link-dialog" aria-labelledby="cards-dialog-title" bind:this={cardsDialog} onclose={onCardsClosed} onclick={onCardsBackdrop}>
+    <h2 id="cards-dialog-title" class="text-lg font-semibold">{cardsEditing ? 'Sửa hộp bài liên quan' : 'Chèn hộp bài liên quan'}</h2>
+    <p class="seo-hint mt-2">Chọn tối đa {POST_CARDS_MAX} bài đã xuất bản để hiện trong bài đang soạn.</p>
+    <label class="mt-4 block">
+      <span class="mb-1 block font-semibold">Tìm bài đã xuất bản</span>
+      <input class="field" type="search" placeholder="Nhập ít nhất 2 ký tự của tiêu đề" value={cardsQuery} oninput={(event) => queueCardsSearch(event.currentTarget.value)} onkeydown={onCardsKey} />
+    </label>
+    {#if cardsHits.length > 0}
+      <ul class="editor-link-list" aria-label="Kết quả tìm bài">
+        {#each cardsHits as hit (hit.id)}
+          <li>
+            <button type="button" aria-pressed={cardsSelected.some((item) => item.id === hit.id)} onclick={() => toggleCard(hit)}>
+              {hit.title}
+              <span>{hit.path}</span>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    {:else if cardsNote}
+      <p class="seo-hint">{cardsNote}</p>
+    {/if}
+    {#if cardsSelected.length > 0}
+      <p class="link-dialog-section">Đã chọn ({cardsSelected.length}/{POST_CARDS_MAX})</p>
+      <ul class="editor-cards-selected" aria-label="Bài đã chọn">
+        {#each cardsSelected as item (item.id)}
+          <li>
+            <span>{item.title}</span>
+            <button class="btn btn-compact" type="button" onclick={() => removeSelectedCard(item.id)}>Bỏ</button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+    {#if cardsError}<p class="error-text mt-2" role="alert">{cardsError}</p>{/if}
+    <div class="category-actions">
+      <button class="btn" type="button" onclick={closeCards}>Hủy</button>
+      <button class="btn btn-primary" type="button" onclick={applyCards}>{cardsEditing ? 'Cập nhật hộp' : 'Chèn hộp'}</button>
     </div>
   </dialog>
 </div>

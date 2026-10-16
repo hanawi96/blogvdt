@@ -47,6 +47,25 @@ describe('nội dung bài viết', () => {
     expect(Object.keys(schema.marks).sort()).toEqual([...MARK_TYPES].sort());
   });
 
+  it('giữ hộp bài liên quan theo id và bỏ hộp rỗng', () => {
+    const result = sanitizePostContent(
+      JSON.stringify({
+        type: 'doc',
+        content: [
+          { type: 'postCards', attrs: { ids: [1, 1, 2, 0], labels: ['Một', 'Hai', 'Ba'] } },
+          { type: 'postCards', attrs: { ids: [] } },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const doc = JSON.parse(result.json) as { content: Array<{ type: string; attrs?: { ids: number[]; labels: string[] } }> };
+    expect(doc.content).toHaveLength(1);
+    expect(doc.content[0]?.type).toBe('postCards');
+    expect(doc.content[0]?.attrs?.ids).toEqual([1, 2]);
+    expect(doc.content[0]?.attrs?.labels).toEqual(['Một', 'Hai']);
+  });
+
   it('từ chối chuỗi không phải JSON của bài', () => {
     expect(sanitizePostContent('<p>html</p>').ok).toBe(false);
     expect(isHttpUrl('https://example.com')).toBe(true);

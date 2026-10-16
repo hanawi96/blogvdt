@@ -140,7 +140,7 @@ export async function searchPublishedPosts(db: AppDb, query: string, excludeId: 
   const term = query.replace(/[%_]/g, '').trim().slice(0, 80);
   if (term.length < 2) return [];
   const rows = await db
-    .select({ title: posts.title, slug: posts.slug })
+    .select({ id: posts.id, title: posts.title, slug: posts.slug })
     .from(posts)
     .where(
       and(
@@ -152,7 +152,7 @@ export async function searchPublishedPosts(db: AppDb, query: string, excludeId: 
     )
     .orderBy(desc(posts.publishedAt), desc(posts.id))
     .limit(8);
-  return rows.map((row) => ({ title: row.title, path: routes.knowledge(row.slug) }));
+  return rows.map((row) => ({ id: row.id, title: row.title, path: routes.knowledge(row.slug) }));
 }
 
 export async function slugIsTaken(db: AppDb, slug: string, currentId: number | null): Promise<boolean> {

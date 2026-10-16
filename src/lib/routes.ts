@@ -38,6 +38,8 @@ export const routes = {
   knowledgeList: '/kien-thuc',
   knowledge: (slug: string) => `/kien-thuc/${slug}`,
   knowledgeCategory: (slug: string) => `/kien-thuc/danh-muc/${slug}`,
+  search: '/tim-kiem',
+  searchSuggest: '/tim-kiem/goi-y',
   policy: (slug: string) => `/chinh-sach/${slug}`,
   catalog: '/mau-vong-dau-tam',
   cart: '/gio-hang',

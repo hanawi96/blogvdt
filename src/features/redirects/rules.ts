@@ -10,6 +10,7 @@ const SYSTEM_PREFIXES = ['/admin', '/media', '/_astro'] as const;
 export const STATIC_PUBLIC_PATHS = new Set([
   routes.home,
   routes.knowledgeList,
+  routes.search,
   '/san-pham',
   routes.catalog,
   routes.cart,

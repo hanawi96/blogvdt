@@ -99,6 +99,7 @@ export async function getPostBySlug(db: AppDb, slug: string) {
       publishedAt: posts.publishedAt,
       updatedAt: posts.updatedAt,
       categoryId: posts.categoryId,
+      authorId: posts.authorId,
       categoryName: categories.name,
       categorySlug: categories.slug,
       coverKey: media.r2Key,
