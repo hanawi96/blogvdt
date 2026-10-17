@@ -60,7 +60,22 @@ const trashed = Astro.url.searchParams.get('trashed') === '1' || Astro.url.searc
 const purged = Astro.url.searchParams.get('purged') === '1';
 const listError = Astro.url.searchParams.get('error') ?? '';
 const copyError = listError === 'copy';
-const actionError = copyError ? '' : listError.slice(0, 200);
+const bulkError = listError === 'bulk';
+const retireError = listError === 'retire';
+const actionError = copyError || bulkError || retireError ? '' : listError.slice(0, 200);
+const bulkParam = Astro.url.searchParams.get('bulk') ?? '';
+const bulkCount = Math.max(0, Number(Astro.url.searchParams.get('n')) || 0);
+const bulkSkipped = Math.max(0, Number(Astro.url.searchParams.get('skip')) || 0);
+const bulkNotice =
+  bulkParam === 'publish'
+    ? `Đã xuất bản ${bulkCount} bài.${bulkSkipped > 0 ? ` Bỏ qua ${bulkSkipped} bài chưa đủ nội dung.` : ''}`
+    : bulkParam === 'trash'
+      ? `Đã chuyển ${bulkCount} bài vào thùng rác.`
+      : bulkParam === 'restore'
+        ? `Đã khôi phục ${bulkCount} bài thành bản nháp.${bulkSkipped > 0 ? ` Bỏ qua ${bulkSkipped} bài còn vướng chuyển hướng.` : ''}`
+        : bulkParam === 'purge'
+          ? `Đã xóa vĩnh viễn ${bulkCount} bài.`
+          : '';
 let loadError = '';
 let result: Awaited<ReturnType<typeof listPosts>> | null = null;
 let targets: { title: string; path: string }[] = [];
@@ -105,10 +120,6 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
 <AdminLayout title="Quản lý bài viết">
   <p slot="lead">{status === 'trash' ? 'Bài trong thùng rác vẫn giữ nội dung. Khôi phục sẽ thành bản nháp.' : result ? `${result.libraryTotal} bài trong thư viện` : 'Danh sách bài viết'}</p>
   <a slot="action" class="btn btn-primary" href={routes.adminPostNew}>Viết bài</a>
-  {trashed && <p class="mb-4 text-primary-strong" role="status">Đã chuyển bài vào thùng rác.</p>}
-  {purged && <p class="mb-4 text-primary-strong" role="status">Đã xóa vĩnh viễn bài viết.</p>}
-  {copyError && <p class="error-text mb-4" role="alert">Không sao chép được bài viết.</p>}
-  {actionError && <p class="error-text mb-4" role="alert">{actionError}</p>}
   {loadError && <p class="error-text" role="alert">{loadError}</p>}
   {
     result && (
@@ -128,7 +139,50 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
             ))}
           </div>
         </div>
-        <p class="mb-3 text-sm" role="status" data-category-status hidden></p>
+        <div data-post-results>
+          {trashed && <p class="mb-4 text-primary-strong" role="status">Đã chuyển bài vào thùng rác.</p>}
+          {purged && <p class="mb-4 text-primary-strong" role="status">Đã xóa vĩnh viễn bài viết.</p>}
+          {copyError && <p class="error-text mb-4" role="alert">Không sao chép được bài viết.</p>}
+          {bulkNotice && <p class="mb-4 text-primary-strong" role="status">{bulkNotice}</p>}
+          {bulkError && <p class="error-text mb-4" role="alert">Không thực hiện được thao tác hàng loạt. Chọn tối đa 20 bài rồi thử lại.</p>}
+          {retireError && <p class="error-text mb-4" role="alert">Chưa xử lý được URL cũ. Hãy chọn cách xử lý hợp lệ cho các bài đã công khai.</p>}
+          {actionError && <p class="error-text mb-4" role="alert">{actionError}</p>}
+          <p class="mb-3 text-sm" role="status" data-category-status hidden></p>
+          {result.rows.length > 0 && (
+            <form
+              id="post-bulk"
+              class="bulk-bar"
+              method="post"
+              action={routes.adminPostsBulk}
+              aria-label="Thao tác hàng loạt"
+              data-post-bulk
+              hidden
+            >
+              <input type="hidden" name="csrf" value={session.csrfToken} />
+              <input type="hidden" name="q" value={query} />
+              <input type="hidden" name="status" value={status} />
+              <input type="hidden" name="sort" value={sort} />
+              <input type="hidden" name="page" value={String(result.page)} />
+              <input type="hidden" name="bulk" value="" data-bulk-action />
+              <input type="hidden" name="urlAction" value="" />
+              <input type="hidden" name="urlTarget" value="" />
+              <span class="bulk-count" aria-live="polite" data-bulk-count>Đã chọn 0</span>
+              <button class="bulk-link" type="button" data-bulk-pick-all>Chọn tất cả</button>
+              {status === 'trash' ? (
+                <>
+                  <button class="btn" type="submit" data-bulk-submit="restore">Khôi phục</button>
+                  {canPurge && <button class="btn btn-accent" type="submit" data-bulk-submit="purge">Xóa vĩnh viễn</button>}
+                </>
+              ) : (
+                <>
+                  <button class="btn" type="submit" data-bulk-submit="publish">Xuất bản</button>
+                  <button class="btn btn-accent" type="submit" data-bulk-submit="trash">Thùng rác</button>
+                </>
+              )}
+              <button class="bulk-link" type="button" data-bulk-clear>Bỏ chọn</button>
+              <span class="error-text" role="alert" data-bulk-error hidden></span>
+            </form>
+          )}
         <div data-post-list data-csrf={session.csrfToken}>
           {result.rows.length === 0 ? (
             <p class="post-empty">
@@ -143,6 +197,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
             <table class="post-table">
               <thead>
                 <tr>
+                  <th class="product-check"><input type="checkbox" aria-label="Chọn tất cả bài trong thùng rác" data-bulk-all /></th>
                   <th>Tiêu đề</th>
                   <th>Người xóa</th>
                   <th>Trước khi xóa</th>
@@ -155,6 +210,9 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                   const actor = post.deletedByName?.trim() || '—';
                   return (
                     <tr>
+                      <td class="product-check">
+                        <input type="checkbox" form="post-bulk" name="ids" value={post.id} aria-label={`Chọn ${post.title}`} />
+                      </td>
                       <td><span class="post-title">{post.title}</span></td>
                       <td>{actor}</td>
                       <td>
@@ -201,6 +259,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
             <table class="post-table">
               <thead>
                 <tr>
+                  <th class="product-check"><input type="checkbox" aria-label="Chọn tất cả bài đang hiện" data-bulk-all /></th>
                   <th>Tiêu đề</th>
                   <th>Tác giả</th>
                   <th>Danh mục</th>
@@ -220,6 +279,16 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                   const links = linkCounts.get(post.id);
                   return (
                     <tr>
+                      <td class="product-check">
+                        <input
+                          type="checkbox"
+                          form="post-bulk"
+                          name="ids"
+                          value={post.id}
+                          aria-label={`Chọn ${post.title}`}
+                          data-public={wasPublic ? '1' : undefined}
+                        />
+                      </td>
                       <td>
                         <a class="post-title" href={routes.adminPost(post.id)}>{post.title}</a>
                       </td>
@@ -292,6 +361,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
             {result.page < result.pageCount && <a class="btn" href={pageHref({ page: result.page + 1 })}>Trang sau</a>}
           </nav>
         )}
+        </div>
       </>
     )
   }
@@ -315,23 +385,178 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
     }
   });
 
-  const form = document.querySelector('[data-post-search]');
+  const searchForm = document.querySelector('[data-post-search]');
   const input = document.querySelector('#post-query');
-  const list = document.querySelector('[data-post-list]');
+  // Vùng kết quả bị thay HTML sau mỗi thao tác hàng loạt nên mọi phần tử bên trong đều truy vấn lại khi dùng.
+  const results = document.querySelector<HTMLElement>('[data-post-results]');
+  const postList = () => results?.querySelector<HTMLElement>('[data-post-list]');
 
-  const categoryStatus = document.querySelector('[data-category-status]');
+  const rowBoxes = () => (results ? [...results.querySelectorAll<HTMLInputElement>('input[name="ids"]')] : []);
+  let anchor: HTMLInputElement | null = null;
+
+  function syncSelection() {
+    const boxes = rowBoxes();
+    const picked = boxes.filter((box) => box.checked).length;
+    const allChecked = boxes.length > 0 && picked === boxes.length;
+    const all = results?.querySelector<HTMLInputElement>('[data-bulk-all]');
+    if (all) {
+      all.checked = allChecked;
+      all.indeterminate = picked > 0 && !allChecked;
+    }
+    const bar = results?.querySelector<HTMLFormElement>('[data-post-bulk]');
+    if (!bar) return;
+    bar.hidden = picked === 0;
+    const count = bar.querySelector('[data-bulk-count]');
+    if (count) count.textContent = `Đã chọn ${picked}`;
+    const pickAll = bar.querySelector<HTMLButtonElement>('[data-bulk-pick-all]');
+    if (pickAll) pickAll.hidden = allChecked;
+    const error = bar.querySelector<HTMLElement>('[data-bulk-error]');
+    if (error && picked === 0) error.hidden = true;
+  }
+
+  function pick(checked: boolean) {
+    for (const box of rowBoxes()) box.checked = checked;
+    syncSelection();
+  }
+
+  function bulkError(message: string) {
+    const error = results?.querySelector<HTMLElement>('[data-bulk-error]');
+    if (!(error instanceof HTMLElement)) return;
+    error.textContent = message;
+    error.hidden = message === '';
+  }
+
+  function setConfirm(form: HTMLFormElement, confirm: { title: string; message: string; ok: string; tone: string } | null) {
+    if (!confirm) {
+      delete form.dataset.confirm;
+      delete form.dataset.confirmTitle;
+      delete form.dataset.confirmOk;
+      delete form.dataset.confirmTone;
+      return;
+    }
+    form.dataset.confirm = confirm.message;
+    form.dataset.confirmTitle = confirm.title;
+    form.dataset.confirmOk = confirm.ok;
+    form.dataset.confirmTone = confirm.tone;
+  }
+
+  results?.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+
+    if (target instanceof HTMLInputElement && target.name === 'ids') {
+      if (event.shiftKey && anchor && anchor !== target && anchor.isConnected) {
+        const boxes = rowBoxes();
+        const from = boxes.indexOf(anchor);
+        const to = boxes.indexOf(target);
+        if (from >= 0 && to >= 0) {
+          for (const box of boxes.slice(Math.min(from, to), Math.max(from, to) + 1)) box.checked = target.checked;
+        }
+      }
+      anchor = target;
+      return;
+    }
+
+    if (target.closest('[data-bulk-pick-all]')) return pick(true);
+    if (target.closest('[data-bulk-clear]')) return pick(false);
+
+    const action = target.closest<HTMLButtonElement>('[data-post-bulk] button[data-bulk-submit]');
+    if (!action?.form) return;
+    const form = action.form;
+    const kind = action.dataset.bulkSubmit ?? '';
+    const picked = rowBoxes().filter((box) => box.checked);
+    if (picked.length === 0) return;
+    // Nút submit không mang name; ghi loại thao tác vào input ẩn để fetch và dialog đều gửi đúng.
+    const actionInput = form.querySelector<HTMLInputElement>('[data-bulk-action]');
+    if (actionInput) actionInput.value = kind;
+
+    if (kind === 'trash') {
+      const publicCount = picked.filter((box) => box.dataset.public === '1').length;
+      if (publicCount > 0) {
+        // Bài đã công khai cần cách xử lý URL cũ; mở hộp thoại để chọn một cách chung cho cả nhóm.
+        event.preventDefault();
+        bulkError('');
+        form.dispatchEvent(new CustomEvent('retire-open', { detail: { mode: 'delete', form: 'post-bulk' }, bubbles: true }));
+        return;
+      }
+      setConfirm(form, {
+        title: 'Chuyển vào thùng rác',
+        message: `${picked.length} bản nháp sẽ vào thùng rác. Bạn có thể khôi phục sau.`,
+        ok: `Chuyển ${picked.length} bài`,
+        tone: '',
+      });
+    } else if (kind === 'purge') {
+      setConfirm(form, {
+        title: 'Xóa vĩnh viễn',
+        message: `${picked.length} bài sẽ bị xóa khỏi cơ sở dữ liệu và không khôi phục được. Ảnh trong thư viện được giữ nguyên.`,
+        ok: `Xóa ${picked.length} bài`,
+        tone: 'danger',
+      });
+    } else {
+      setConfirm(form, null);
+    }
+  });
+
+  results?.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.hasAttribute('data-bulk-all')) return pick(target.checked);
+    if (target.name === 'ids') syncSelection();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+    if (rowBoxes().some((box) => box.checked)) pick(false);
+  });
+
+  // ConfirmDialog và RetiredUrlDialog chặn ở pha capture; lượt submit đã xác nhận mới tới đây.
+  document.addEventListener('submit', async (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || !form.hasAttribute('data-post-bulk') || event.defaultPrevented || !results) return;
+    event.preventDefault();
+    if (form.dataset.sending === '1') return;
+    const data = new FormData(form);
+    const buttons = [...form.querySelectorAll('button')];
+    form.dataset.sending = '1';
+    for (const button of buttons) button.disabled = true;
+    postList()?.setAttribute('aria-busy', 'true');
+    try {
+      const response = await fetch(form.getAttribute('action') ?? location.href, { method: 'POST', body: data, headers: { accept: 'text/html' } });
+      const url = new URL(response.url);
+      const next = response.ok ? new DOMParser().parseFromString(await response.text(), 'text/html') : null;
+      const nextResults = next?.querySelector('[data-post-results]');
+      if (!next || !nextResults) throw new Error(`bulk_${response.status}`);
+      results.innerHTML = nextResults.innerHTML;
+      const lead = document.querySelector('[slot="lead"]');
+      const nextLead = next.querySelector('[slot="lead"]');
+      if (lead && nextLead) lead.textContent = nextLead.textContent;
+      history.replaceState(null, '', url.pathname + url.search);
+      anchor = null;
+      syncSelection();
+    } catch {
+      bulkError('Không thực hiện được. Tải lại trang rồi thử lại.');
+    } finally {
+      delete form.dataset.sending;
+      for (const button of buttons) button.disabled = false;
+      postList()?.removeAttribute('aria-busy');
+    }
+  });
+
+  const categoryStatus = () => results?.querySelector<HTMLElement>('[data-category-status]');
   let categoryTimer = 0;
   const announce = (text: string, failed: boolean) => {
-    if (!(categoryStatus instanceof HTMLElement)) return;
+    const node = categoryStatus();
+    if (!(node instanceof HTMLElement)) return;
     window.clearTimeout(categoryTimer);
-    categoryStatus.textContent = text;
-    categoryStatus.className = `mb-3 text-sm ${failed ? 'error-text' : 'text-primary-strong'}`;
-    categoryStatus.hidden = false;
-    if (!failed) categoryTimer = window.setTimeout(() => (categoryStatus.hidden = true), 2500);
+    node.textContent = text;
+    node.className = `mb-3 text-sm ${failed ? 'error-text' : 'text-primary-strong'}`;
+    node.hidden = false;
+    if (!failed) categoryTimer = window.setTimeout(() => (node.hidden = true), 2500);
   };
   document.addEventListener('change', async (event) => {
     const select = event.target;
     if (!(select instanceof HTMLSelectElement) || !select.dataset.postCategory) return;
+    const list = postList();
     const body = new FormData();
     body.set('csrf', list instanceof HTMLElement ? (list.dataset.csrf ?? '') : '');
     body.set('categoryId', select.value);
@@ -354,30 +579,29 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
       announce(`Đã đổi danh mục thành “${select.selectedOptions[0]?.text ?? ''}”.`, false);
     }
   });
-  if (form instanceof HTMLFormElement && input instanceof HTMLInputElement) {
+
+  if (searchForm instanceof HTMLFormElement && input instanceof HTMLInputElement) {
     let timer = 0;
     const go = () => {
       const url = new URL(location.href);
       const value = input.value.trim();
       if (value) url.searchParams.set('q', value);
       else url.searchParams.delete('q');
-      url.searchParams.delete('page');
-      url.searchParams.delete('deleted');
-      url.searchParams.delete('trashed');
-      url.searchParams.delete('purged');
-      url.searchParams.delete('error');
+      for (const name of ['page', 'deleted', 'trashed', 'purged', 'error', 'bulk', 'n', 'skip']) url.searchParams.delete(name);
       if (url.toString() === location.href) return;
-      list?.setAttribute('aria-busy', 'true');
+      postList()?.setAttribute('aria-busy', 'true');
       location.assign(url);
     };
     input.addEventListener('input', () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(go, 300);
     });
-    form.addEventListener('submit', (event) => {
+    searchForm.addEventListener('submit', (event) => {
       event.preventDefault();
       window.clearTimeout(timer);
       go();
     });
   }
+
+  syncSelection();
 </script>

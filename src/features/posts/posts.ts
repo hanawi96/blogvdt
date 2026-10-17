@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
 import { alias } from 'drizzle-orm/sqlite-core';
 import {
@@ -11,6 +11,7 @@ import {
   postSummary,
   type ActivityActor,
 } from '../activity/log';
+import { runBatch } from '../../lib/db/batch';
 import type { AppDb } from '../../lib/db/client';
 import { findRedirect, releasePathQuery, slugRedirectQueries } from '../../lib/db/redirects';
 import { categories, adminUsers, posts } from '../../lib/db/schema';
@@ -618,4 +619,179 @@ async function slugAvailable(db: AppDb, slug: string, currentId: number | null, 
   const occupied = !row || row.enabled !== 1 ? null : row.statusCode === 410 ? routes.knowledge(slug) : row.toPath || null;
   if (redirectOccupiesSlug(ownSlug ? routes.knowledge(ownSlug) : null, occupied)) return 'Slug đã được dùng cho một đường dẫn cũ.';
   return null;
+}
+
+// ----- Thao tác hàng loạt -----
+
+export const POST_BULK_ACTIONS = ['publish', 'trash', 'restore', 'purge'] as const;
+export type PostBulkAction = (typeof POST_BULK_ACTIONS)[number];
+
+export function readPostBulk(form: FormData): { action: PostBulkAction; ids: number[] } | null {
+  const action = POST_BULK_ACTIONS.find((item) => item === form.get('bulk'));
+  const ids = [...new Set(form.getAll('ids').map(Number))].filter((id) => Number.isInteger(id) && id > 0);
+  if (!action || ids.length === 0 || ids.length > PAGE_SIZE) return null;
+  return { action, ids };
+}
+
+// D1 giới hạn 100 tham số mỗi câu lệnh; chia nhỏ để truy vấn theo danh sách id vẫn an toàn.
+function idChunks<T>(values: T[], size = 50): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) chunks.push(values.slice(index, index + size));
+  return chunks;
+}
+
+function bulkLog(actor: ActivityActor, action: 'post.publish' | 'post.trash' | 'post.restore' | 'post.delete', id: number, title: string, now: number) {
+  return {
+    actorId: actor.id,
+    actorName: actor.name,
+    action,
+    objectType: 'post' as const,
+    objectId: String(id),
+    summary: postSummary(action, title),
+    createdAt: now,
+  };
+}
+
+export type BulkResult = { count: number; skipped: number };
+
+// Xuất bản các bài nháp đã chọn còn ngoài thùng rác. Bài thiếu nội dung (excerpt rỗng) bị bỏ qua để không công khai bài trống.
+export async function bulkPublishPosts(db: AppDb, ids: number[], actor?: ActivityActor, now = Date.now()): Promise<BulkResult> {
+  const found = (
+    await Promise.all(
+      idChunks(ids).map((chunk) =>
+        db
+          .select({ id: posts.id, slug: posts.slug, title: posts.title, excerpt: posts.excerpt, publishedAt: posts.publishedAt })
+          .from(posts)
+          .where(and(inArray(posts.id, chunk), eq(posts.status, 'draft'), isNull(posts.deletedAt))),
+      ),
+    )
+  ).flat();
+  const eligible = found.filter((row) => row.excerpt.trim().length > 0);
+  const skipped = ids.length - eligible.length;
+  if (eligible.length === 0) return { count: 0, skipped };
+  const writes: BatchItem<'sqlite'>[] = [];
+  for (const row of eligible) {
+    writes.push(
+      db
+        .update(posts)
+        .set({ status: 'published', publishedAt: row.publishedAt ?? now, updatedAt: now })
+        .where(and(eq(posts.id, row.id), eq(posts.status, 'draft'), isNull(posts.deletedAt))),
+      // Bài vừa công khai: gỡ redirect đang chiếm chính URL của nó (nếu có) để trang hiển thị thật.
+      releasePathQuery(db, routes.knowledge(row.slug)),
+    );
+    if (actor) writes.push(activityWrite(db, bulkLog(actor, 'post.publish', row.id, row.title, now), false));
+  }
+  await runBatch(db, writes);
+  return { count: eligible.length, skipped };
+}
+
+// Chuyển các bài đã chọn vào thùng rác. Bài đang/đã công khai được áp CÙNG một cách xử lý URL cũ (retirement) cho cả lô.
+export async function bulkTrashPosts(
+  db: AppDb,
+  ids: number[],
+  retirement: UrlRetirement | null,
+  actor?: ActivityActor,
+  now = Date.now(),
+): Promise<{ ok: true; result: BulkResult } | { ok: false; error: string }> {
+  const found = (
+    await Promise.all(
+      idChunks(ids).map((chunk) =>
+        db
+          .select({ id: posts.id, slug: posts.slug, title: posts.title, status: posts.status, publishedAt: posts.publishedAt })
+          .from(posts)
+          .where(and(inArray(posts.id, chunk), isNull(posts.deletedAt))),
+      ),
+    )
+  ).flat();
+  if (found.length === 0) return { ok: true, result: { count: 0, skipped: ids.length } };
+  const publicPosts = found.filter((row) => row.status === 'published' || row.publishedAt !== null);
+  if (publicPosts.length > 0) {
+    if (!retirement) return { ok: false, error: retirementRequired };
+    // Không cho chuyển hướng về chính một bài đang bị gỡ trong cùng lượt.
+    if (retirement.action === 'redirect') {
+      const removing = new Set(found.map((row) => routes.knowledge(row.slug)));
+      if (removing.has(retirement.toPath)) return { ok: false, error: 'Nội dung thay thế đang nằm trong nhóm bài bị gỡ. Hãy chọn bài khác.' };
+    }
+  }
+  const writes: BatchItem<'sqlite'>[] = [];
+  for (const row of found) {
+    const isPublic = row.status === 'published' || row.publishedAt !== null;
+    if (isPublic && retirement) {
+      const prepared = await prepareRetirement(db, routes.knowledge(row.slug), retirement, now, actor);
+      if (!prepared.ok) return prepared;
+      writes.push(...prepared.queries);
+    }
+    writes.push(
+      db
+        .update(posts)
+        .set({ deletedAt: now, deletedBy: actor?.id ?? null, updatedAt: now })
+        .where(and(eq(posts.id, row.id), isNull(posts.deletedAt))),
+    );
+    if (actor) writes.push(activityWrite(db, bulkLog(actor, 'post.trash', row.id, row.title, now), false));
+  }
+  await runBatch(db, writes);
+  return { ok: true, result: { count: found.length, skipped: ids.length - found.length } };
+}
+
+// Khôi phục các bài trong thùng rác thành bản nháp. Bài có đường dẫn đang chuyển hướng bật thì bỏ qua để tránh đụng URL công khai.
+export async function bulkRestorePosts(db: AppDb, ids: number[], actor?: ActivityActor, now = Date.now()): Promise<BulkResult> {
+  const found = (
+    await Promise.all(
+      idChunks(ids).map((chunk) =>
+        db
+          .select({ id: posts.id, slug: posts.slug, title: posts.title })
+          .from(posts)
+          .where(and(inArray(posts.id, chunk), isNotNull(posts.deletedAt))),
+      ),
+    )
+  ).flat();
+  if (found.length === 0) return { count: 0, skipped: ids.length };
+  const blocked = new Set<string>();
+  for (const row of found) {
+    const redirect = await findRedirect(db, routes.knowledge(row.slug));
+    if (redirect?.enabled === 1) blocked.add(row.slug);
+  }
+  const eligible = found.filter((row) => !blocked.has(row.slug));
+  if (eligible.length === 0) return { count: 0, skipped: ids.length };
+  const writes: BatchItem<'sqlite'>[] = [];
+  for (const row of eligible) {
+    writes.push(
+      db
+        .update(posts)
+        .set({ status: 'draft', deletedAt: null, deletedBy: null, updatedAt: now })
+        .where(and(eq(posts.id, row.id), isNotNull(posts.deletedAt))),
+    );
+    if (actor) writes.push(activityWrite(db, bulkLog(actor, 'post.restore', row.id, row.title, now), false));
+  }
+  await runBatch(db, writes);
+  return { count: eligible.length, skipped: ids.length - eligible.length };
+}
+
+// Xóa vĩnh viễn các bài đang ở thùng rác. Chỉ quản trị. Ảnh trong thư viện được giữ nguyên.
+export async function bulkPurgePosts(
+  db: AppDb,
+  ids: number[],
+  role: string,
+  actor?: ActivityActor,
+  now = Date.now(),
+): Promise<{ ok: true; result: BulkResult } | { ok: false; error: string }> {
+  if (role !== 'admin') return { ok: false, error: 'Chỉ quản trị mới được xóa vĩnh viễn.' };
+  const found = (
+    await Promise.all(
+      idChunks(ids).map((chunk) =>
+        db
+          .select({ id: posts.id, title: posts.title })
+          .from(posts)
+          .where(and(inArray(posts.id, chunk), isNotNull(posts.deletedAt))),
+      ),
+    )
+  ).flat();
+  if (found.length === 0) return { ok: true, result: { count: 0, skipped: ids.length } };
+  const writes: BatchItem<'sqlite'>[] = [];
+  for (const row of found) {
+    writes.push(db.delete(posts).where(and(eq(posts.id, row.id), isNotNull(posts.deletedAt))));
+    if (actor) writes.push(activityWrite(db, bulkLog(actor, 'post.delete', row.id, row.title, now), false));
+  }
+  await runBatch(db, writes);
+  return { ok: true, result: { count: found.length, skipped: ids.length - found.length } };
 }

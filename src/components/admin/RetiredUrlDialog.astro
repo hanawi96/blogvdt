@@ -123,7 +123,8 @@ const { posts } = Astro.props;
     openRetire(trigger.dataset.retire || 'delete', formId);
   });
 
-  document.getElementById('post-form')?.addEventListener('retire-open', (event) => {
+  // Nghe ở cấp document để mọi form (trình soạn thảo hoặc thao tác hàng loạt) đều kích hoạt được hộp thoại.
+  document.addEventListener('retire-open', (event) => {
     const detail = event instanceof CustomEvent ? event.detail : null;
     if (!detail || typeof detail !== 'object') return;
     const mode = 'mode' in detail && typeof detail.mode === 'string' ? detail.mode : 'unpublish';

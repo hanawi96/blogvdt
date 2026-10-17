@@ -3563,7 +3563,8 @@
   .bulk-link:hover {
     color: var(--color-ink);
   }
-  [data-product-results]:has(.bulk-bar:not([hidden])) {
+  [data-product-results]:has(.bulk-bar:not([hidden])),
+  [data-post-results]:has(.bulk-bar:not([hidden])) {
     padding-bottom: 5rem;
   }
   .post-filters a[aria-current='page'] {
@@ -3773,10 +3774,12 @@
       border: 0;
       padding: 0.15rem 0;
     }
-    .product-table tr {
+    .product-table tr,
+    [data-post-list] .post-table tr {
       position: relative;
     }
-    .product-table td.product-check {
+    .product-table td.product-check,
+    [data-post-list] .post-table td.product-check {
       position: absolute;
       top: 0.75rem;
       right: 0.75rem;
