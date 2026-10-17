@@ -32,6 +32,7 @@ let name = '';
 let slug = '';
 let description = '';
 let coverMediaId = '';
+let weightScale = 'baby';
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -58,8 +59,9 @@ if (Astro.request.method === 'POST') {
     slug = String(form.get('slug') ?? '');
     description = String(form.get('description') ?? '');
     coverMediaId = String(form.get('coverMediaId') ?? '');
+    weightScale = String(form.get('weightScale') ?? 'baby');
     editingId = id ? String(id) : '';
-    const saved = await saveProductCategory(db, { id, name, slug, description, coverMediaId }, Date.now(), actor);
+    const saved = await saveProductCategory(db, { id, name, slug, description, coverMediaId, weightScale }, Date.now(), actor);
     if (!saved.ok) {
       Astro.response.status = 422;
       formError = saved.error;
@@ -81,6 +83,7 @@ if (Astro.request.method !== 'POST' && editing) {
   slug = editing.slug;
   description = editing.description;
   coverMediaId = editing.coverMediaId ? String(editing.coverMediaId) : '';
+  weightScale = editing.weightScale;
 }
 const dialogOpen = saveFailed || (Astro.request.method !== 'POST' && Boolean(editing));
 const slugError = formError.startsWith('Slug') ? formError : '';
@@ -101,6 +104,7 @@ const drafts = categories.map((category) => ({
   slug: category.slug,
   description: category.description,
   coverMediaId: category.coverMediaId ? String(category.coverMediaId) : '',
+  weightScale: category.weightScale,
 }));
 const noticeText =
   notice === 'saved' ? 'Đã lưu danh mục.' : notice === 'deleted' ? 'Đã xóa danh mục.' : notice === 'moved' ? 'Đã đổi thứ tự.' : '';
@@ -129,14 +133,31 @@ function productCountLabel(count: number): string {
   {noticeText && !formError && <p class="mb-4 text-primary-strong" role="status">{noticeText}</p>}
   {Astro.url.searchParams.get('error') === 'used' && !formError && <p class="error-text mb-4" role="alert">Danh mục đang có sản phẩm, chưa xóa được.</p>}
   {bannerError && !dialogOpen && <p class="error-text mb-4" role="alert">{bannerError}</p>}
-  <form class="post-toolbar" method="get" data-category-search>
+  {!searching && categories.length === 0 && (
+    <section class="cms-empty">
+      <span class="cms-empty-icon" aria-hidden="true">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 8.5h6.5V15H5zM13.5 8.5H19V12h-5.5zM5 16.5h6.5V19H5zM13.5 13.5H19V19h-5.5z" />
+        </svg>
+      </span>
+      <h2 class="cms-empty-title">Chưa có danh mục sản phẩm</h2>
+      <p class="cms-empty-text">Nhóm sản phẩm theo danh mục để khách dễ chọn và để lọc nhanh trong cửa hàng.</p>
+      <ul class="cms-empty-points">
+        <li>Mỗi danh mục có tên, slug, mô tả và ảnh đại diện.</li>
+        <li>Sắp xếp thứ tự hiển thị bằng nút lên/xuống.</li>
+        <li>Gán sản phẩm vào danh mục khi thêm hoặc sửa sản phẩm.</li>
+      </ul>
+      <button class="btn btn-primary" type="button" data-category-new>Thêm danh mục đầu tiên</button>
+    </section>
+  )}
+  <form class="post-toolbar" method="get" data-category-search hidden={!searching && categories.length === 0}>
     <label class="sr-only" for="category-query">Tìm danh mục</label>
     <input id="category-query" class="field" name="q" value={query} placeholder="Tên hoặc slug" maxlength="80" />
   </form>
   <div data-category-list>
     {
       categories.length === 0 ? (
-        <p class="post-empty">{searching ? 'Không có danh mục khớp.' : 'Chưa có danh mục sản phẩm.'}</p>
+        searching ? <p class="post-empty">Không có danh mục khớp.</p> : null
       ) : (
         <table class="post-table">
           <thead>
@@ -242,7 +263,7 @@ function productCountLabel(count: number): string {
         client:load
         csrf={session.csrfToken}
         items={mediaItems}
-        initial={{ id: editingId ? Number(editingId) : null, name, slug, description, coverMediaId }}
+        initial={{ id: editingId ? Number(editingId) : null, name, slug, description, coverMediaId, weightScale }}
         errors={fieldErrors}
       />
     </form>
@@ -253,14 +274,14 @@ function productCountLabel(count: number): string {
   const dialog = document.querySelector('[data-category-dialog]');
   if (dialog instanceof HTMLDialogElement) {
     const modal = dialog;
-    type CategoryDraft = { id: number | null; name: string; slug: string; description: string; coverMediaId: string };
+    type CategoryDraft = { id: number | null; name: string; slug: string; description: string; coverMediaId: string; weightScale: string };
     const drafts: CategoryDraft[] = JSON.parse(modal.dataset.categories ?? '[]');
     const open = (draft: CategoryDraft) => {
       window.dispatchEvent(new CustomEvent('product-category-form', { detail: draft }));
       modal.showModal();
     };
     document.querySelector('[data-category-new]')?.addEventListener('click', () => {
-      open({ id: null, name: '', slug: '', description: '', coverMediaId: '' });
+      open({ id: null, name: '', slug: '', description: '', coverMediaId: '', weightScale: 'baby' });
     });
     document.addEventListener('click', (event) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

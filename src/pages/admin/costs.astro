@@ -1,0 +1,348 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { activityActor } from '../../features/activity/log';
+import { mutationError } from '../../features/auth/session';
+import {
+  deleteOrderCost,
+  extraCostOf,
+  formatPercentBp,
+  isOrderCostKind,
+  listOrderCosts,
+  ORDER_COST_NAME_MAX,
+  saveOrderCost,
+  type OrderCost,
+} from '../../features/costs/order-costs';
+import { adDayKey, adSpendFor, deleteAdSpend, listAdSpend, saveAdSpend, type AdRow } from '../../features/costs/ads';
+import { createDb } from '../../lib/db/client';
+import { getDbBinding } from '../../lib/cloudflare/env';
+import { formatVnd } from '../../lib/money';
+import { routes } from '../../lib/routes';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+if (session.role !== 'admin') {
+  return new Response('Bạn không có quyền vào trang này.', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+}
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+
+const db = createDb(getDbBinding());
+const notice = Astro.url.searchParams.get('notice') ?? '';
+const errorCode = Astro.url.searchParams.get('error') ?? '';
+
+let formError = '';
+let adError = '';
+let saveFailed = false;
+const adValues = { kind: 'rate', day: '', amount: '' };
+const values = { id: '', name: '', kind: 'fixed', value: '', active: true };
+
+function amountText(cost: Pick<OrderCost, 'kind' | 'value'>): string {
+  return cost.kind === 'percent' ? formatPercentBp(cost.value) : String(cost.value);
+}
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const read = (name: string) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value : '';
+  };
+  const blocked = mutationError(Astro.request, session, form);
+  const idValue = Number(read('id'));
+  const id = Number.isSafeInteger(idValue) && idValue > 0 ? idValue : undefined;
+  const intent = read('intent');
+  if (blocked) {
+    Astro.response.status = 403;
+    formError = blocked;
+  } else if (intent === 'delete' && id) {
+    const removed = await deleteOrderCost(db, id, await activityActor(db, session.userId));
+    return Astro.redirect(`${routes.adminCosts}?${removed.ok ? 'notice=deleted' : 'error=missing'}`, 303);
+  } else if (intent === 'ad-delete' && id) {
+    const removed = await deleteAdSpend(db, id, await activityActor(db, session.userId));
+    return Astro.redirect(`${routes.adminCosts}?${removed.ok ? 'notice=ad-deleted' : 'error=missing'}`, 303);
+  } else if (intent === 'ad-save') {
+    adValues.kind = read('kind');
+    adValues.day = read('day');
+    adValues.amount = read('amount');
+    const saved = await saveAdSpend(db, adValues, Date.now(), await activityActor(db, session.userId));
+    if (saved.ok) return Astro.redirect(`${routes.adminCosts}?notice=ad-saved`, 303);
+    Astro.response.status = 422;
+    adError = saved.error;
+  } else if (intent === 'save') {
+    values.id = id ? String(id) : '';
+    values.name = read('name');
+    values.kind = isOrderCostKind(read('kind')) ? read('kind') : 'fixed';
+    values.value = read('value');
+    values.active = read('active') === '1';
+    const saved = await saveOrderCost(
+      db,
+      { id, name: values.name, kind: values.kind, value: values.value, active: values.active },
+      Date.now(),
+      await activityActor(db, session.userId),
+    );
+    if (saved.ok) return Astro.redirect(`${routes.adminCosts}?notice=saved`, 303);
+    Astro.response.status = 422;
+    formError = saved.error;
+    saveFailed = true;
+  } else {
+    Astro.response.status = 422;
+    formError = 'Thao tác không hợp lệ.';
+  }
+}
+
+let costs: OrderCost[] = [];
+let loadError = '';
+try {
+  costs = await listOrderCosts(db);
+} catch (error) {
+  console.error(JSON.stringify({ event: 'order_cost_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
+  loadError = 'Không tải được danh sách chi phí.';
+}
+
+let adRows: AdRow[] = [];
+try {
+  adRows = await listAdSpend(db);
+} catch (error) {
+  console.error(JSON.stringify({ event: 'ad_spend_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
+  loadError = 'Không tải được danh sách chi phí.';
+}
+const today = adDayKey(Date.now());
+const todayAd = adSpendFor([today], adRows);
+if (!adValues.day) adValues.day = today;
+if (!adValues.amount && !adError) adValues.amount = todayAd > 0 ? String(todayAd) : '220000';
+
+const dialogOpen = saveFailed;
+const drafts = costs.map((cost) => ({ id: cost.id, name: cost.name, kind: cost.kind, value: amountText(cost), active: cost.active }));
+
+const activeCosts = costs.filter((cost) => cost.active);
+const fixedTotal = extraCostOf(activeCosts.filter((cost) => cost.kind === 'fixed'), 0);
+const percentTotal = activeCosts.filter((cost) => cost.kind === 'percent').reduce((sum, cost) => sum + cost.value, 0);
+
+const noticeText =
+  notice === 'saved'
+    ? 'Đã lưu chi phí.'
+    : notice === 'deleted'
+      ? 'Đã xóa chi phí.'
+      : notice === 'ad-saved'
+        ? 'Đã lưu chi phí quảng cáo.'
+        : notice === 'ad-deleted'
+          ? 'Đã xóa mục quảng cáo.'
+          : '';
+const errorText = errorCode === 'missing' ? 'Không tìm thấy chi phí.' : '';
+---
+
+<AdminLayout title="Chi phí theo đơn">
+  <p slot="lead">
+    Khoản tính một lần cho mỗi đơn, dù đơn có bao nhiêu vòng: hộp, túi, thiệp, ship, thuế… Quảng cáo nhập ở phần dưới.
+  </p>
+  <button slot="action" class="btn btn-primary" type="button" data-cost-new>Thêm chi phí</button>
+  {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
+  {noticeText && !formError && <p class="mb-4 text-primary-strong" role="status">{noticeText}</p>}
+  {errorText && !formError && <p class="error-text mb-4" role="alert">{errorText}</p>}
+  {formError && !dialogOpen && <p class="error-text mb-4" role="alert">{formError}</p>}
+  {
+    costs.length === 0 && !loadError ? (
+      <section class="cms-empty">
+        <h2 class="cms-empty-title">Chưa có chi phí theo đơn nào</h2>
+        <p class="cms-empty-text">Thêm hộp đựng, ship, thuế… để hệ thống tính lợi nhuận mỗi đơn. Đơn mới sẽ lưu lại các khoản đang bật tại thời điểm đặt.</p>
+        <button class="btn btn-primary" type="button" data-cost-new>Thêm chi phí đầu tiên</button>
+      </section>
+    ) : costs.length > 0 ? (
+      <>
+        <p class="seo-hint mb-3">
+          Đang bật: {formatVnd(fixedTotal)} cố định mỗi đơn{percentTotal > 0 ? ` + ${formatPercentBp(percentTotal)}% tổng tiền đơn` : ''}.
+        </p>
+        <table class="post-table">
+          <thead>
+            <tr>
+              <th>Chi phí</th>
+              <th>Cách tính</th>
+              <th>Mức</th>
+              <th>Trạng thái</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            {costs.map((cost) => (
+              <tr>
+                <td><button class="post-title" type="button" data-cost-edit={cost.id}>{cost.name}</button></td>
+                <td data-label="Cách tính">{cost.kind === 'percent' ? 'Phần trăm tổng đơn' : 'Số tiền mỗi đơn'}</td>
+                <td data-label="Mức"><span class="material-price">{cost.kind === 'percent' ? `${formatPercentBp(cost.value)}%` : formatVnd(cost.value)}</span></td>
+                <td data-label="Trạng thái">{cost.active ? 'Đang tính' : <span class="material-off">Tạm tắt</span>}</td>
+                <td data-label="Thao tác">
+                  <div class="post-actions">
+                    <button type="button" data-cost-edit={cost.id}>Sửa</button>
+                    <span class="post-actions-sep" aria-hidden="true">|</span>
+                    <form
+                      method="post"
+                      data-busy
+                      data-confirm-title={`Xóa chi phí “${cost.name}”?`}
+                      data-confirm="Đơn đã đặt vẫn giữ số liệu cũ. Đơn mới sẽ không tính khoản này."
+                      data-confirm-ok="Xóa"
+                      data-confirm-tone="danger"
+                    >
+                      <input type="hidden" name="csrf" value={session.csrfToken} />
+                      <input type="hidden" name="intent" value="delete" />
+                      <input type="hidden" name="id" value={cost.id} />
+                      <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </>
+    ) : null
+  }
+
+  <section class="od-card mt-8" aria-labelledby="ad-title">
+    <h2 id="ad-title" class="text-lg font-semibold">Quảng cáo mỗi ngày</h2>
+    <p class="seo-hint">
+      Hôm nay: {formatVnd(todayAd)}. Mức chung áp dụng từ ngày bạn chọn cho đến khi đặt mức mới, nên đổi mức không làm sai các ngày cũ.
+      Số riêng của một ngày thì thay cho mức chung. Tổng quảng cáo của kỳ được trừ vào lợi nhuận ở trang Tổng quan.
+    </p>
+    {adError && <p class="error-text mt-2" role="alert">{adError}</p>}
+    <form method="post" data-busy class="mt-4 flex flex-wrap items-end gap-3">
+      <input type="hidden" name="csrf" value={session.csrfToken} />
+      <input type="hidden" name="intent" value="ad-save" />
+      <label class="block">
+        <span class="mb-1 block font-semibold">Áp dụng</span>
+        <select class="field" name="kind">
+          <option value="rate" selected={adValues.kind === 'rate'}>Mức mỗi ngày, từ ngày</option>
+          <option value="day" selected={adValues.kind === 'day'}>Chỉ riêng ngày</option>
+        </select>
+      </label>
+      <label class="block">
+        <span class="mb-1 block font-semibold">Ngày</span>
+        <input class="field" type="date" name="day" required value={adValues.day} />
+      </label>
+      <label class="block">
+        <span class="mb-1 block font-semibold">Số tiền (VND)</span>
+        <input class="field" name="amount" required inputmode="numeric" maxlength="12" value={adValues.amount} />
+      </label>
+      <button class="btn btn-primary" type="submit">Lưu</button>
+    </form>
+    {
+      adRows.length === 0 ? (
+        <p class="seo-hint mt-4">Chưa nhập quảng cáo nên lợi nhuận chưa trừ khoản này. Ô trên đã điền sẵn 220.000đ, bấm Lưu để dùng làm mức mỗi ngày.</p>
+      ) : (
+        <table class="post-table mt-4">
+          <thead>
+            <tr>
+              <th>Ngày</th>
+              <th>Loại</th>
+              <th>Số tiền</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            {adRows.map((row) => (
+              <tr>
+                <td>{row.day}</td>
+                <td data-label="Loại">{row.kind === 'rate' ? 'Mức mỗi ngày từ ngày này' : 'Chỉ riêng ngày này'}</td>
+                <td data-label="Số tiền"><span class="material-price">{formatVnd(row.amount)}</span></td>
+                <td data-label="Thao tác">
+                  <form
+                    method="post"
+                    data-busy
+                    data-confirm-title="Xóa mục quảng cáo này?"
+                    data-confirm="Các ngày liên quan sẽ tính theo mức còn lại."
+                    data-confirm-ok="Xóa"
+                    data-confirm-tone="danger"
+                  >
+                    <input type="hidden" name="csrf" value={session.csrfToken} />
+                    <input type="hidden" name="intent" value="ad-delete" />
+                    <input type="hidden" name="id" value={row.id} />
+                    <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                  </form>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )
+    }
+  </section>
+
+  <dialog class="category-dialog" aria-labelledby="cost-dialog-title" data-cost-dialog data-open={dialogOpen ? 'true' : undefined} data-costs={JSON.stringify(drafts)}>
+    <form method="post" data-busy>
+      <input type="hidden" name="csrf" value={session.csrfToken} />
+      <input type="hidden" name="intent" value="save" />
+      <input type="hidden" name="id" value={values.id} data-field="id" />
+      <h2 id="cost-dialog-title" class="text-lg font-semibold" data-cost-title>{values.id ? 'Sửa chi phí' : 'Thêm chi phí'}</h2>
+      {formError && dialogOpen && <p class="error-text mt-2" role="alert">{formError}</p>}
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Tên chi phí</span>
+        <input class="field" name="name" required maxlength={ORDER_COST_NAME_MAX} value={values.name} data-field="name" placeholder="Ví dụ: Hộp đựng" />
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Cách tính</span>
+        <select class="field" name="kind" data-field="kind">
+          <option value="fixed" selected={values.kind === 'fixed'}>Số tiền mỗi đơn (VND)</option>
+          <option value="percent" selected={values.kind === 'percent'}>Phần trăm tổng tiền đơn (%)</option>
+        </select>
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Mức</span>
+        <input class="field" name="value" required inputmode="decimal" maxlength="12" value={values.value} data-field="value" />
+        <span class="seo-hint">Số tiền: 3.470. Phần trăm: 1,5.</span>
+      </label>
+      <label class="mt-4 flex items-center gap-2">
+        <input type="checkbox" name="active" value="1" checked={values.active} data-field="active" />
+        <span>Đang tính vào đơn mới</span>
+      </label>
+      <div class="category-actions">
+        <button class="btn" type="button" data-cost-close>Hủy</button>
+        <button class="btn btn-primary" type="submit">Lưu</button>
+      </div>
+    </form>
+  </dialog>
+</AdminLayout>
+
+<script>
+  type Draft = { id: number | null; name: string; kind: string; value: string; active: boolean };
+  const dialog = document.querySelector('[data-cost-dialog]');
+  if (dialog instanceof HTMLDialogElement) {
+    const modal = dialog;
+    const drafts: Draft[] = JSON.parse(modal.dataset.costs ?? '[]');
+    const field = (name: string) => modal.querySelector<HTMLInputElement>(`[data-field="${name}"]`);
+    const title = modal.querySelector('[data-cost-title]');
+
+    const open = (draft: Draft) => {
+      const set = (name: string, value: string) => {
+        const input = field(name);
+        if (input) input.value = value;
+      };
+      set('id', draft.id === null ? '' : String(draft.id));
+      set('name', draft.name);
+      set('kind', draft.kind);
+      set('value', draft.value);
+      const active = field('active');
+      if (active) active.checked = draft.active;
+      if (title) title.textContent = draft.id === null ? 'Thêm chi phí' : 'Sửa chi phí';
+      modal.querySelector('.error-text')?.remove();
+      modal.showModal();
+      field('name')?.focus();
+    };
+
+    for (const button of document.querySelectorAll('[data-cost-new]')) {
+      button.addEventListener('click', () => open({ id: null, name: '', kind: 'fixed', value: '', active: true }));
+    }
+    for (const button of document.querySelectorAll('[data-cost-edit]')) {
+      button.addEventListener('click', () => {
+        const draft = drafts.find((item) => String(item.id) === button.getAttribute('data-cost-edit'));
+        if (draft) open(draft);
+      });
+    }
+    modal.addEventListener('click', (event) => {
+      if (event.target instanceof Element && event.target.closest('[data-cost-close]')) {
+        modal.close();
+        return;
+      }
+      if (event.target !== modal) return;
+      const box = modal.getBoundingClientRect();
+      const inside = event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
+      if (!inside) modal.close();
+    });
+    if (modal.dataset.open === 'true') modal.showModal();
+  }
+</script>

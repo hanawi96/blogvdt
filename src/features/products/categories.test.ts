@@ -3,23 +3,26 @@ import { categoryListQuery, categoryMovePlan, productCategoryDeleteWarning, prod
 
 describe('danh mục sản phẩm', () => {
   it('chuẩn hóa tên và slug, giữ mô tả đã cắt khoảng trắng', () => {
-    const parsed = readProductCategory({ name: '  Vòng charm  ', slug: '', description: '  Charm bạc  ', coverMediaId: ' 4 ' });
-    expect(parsed.ok && parsed.value).toEqual({ name: 'Vòng charm', slug: 'vong-charm', description: 'Charm bạc', coverMediaId: 4 });
+    const parsed = readProductCategory({ name: '  Vòng charm  ', slug: '', description: '  Charm bạc  ', coverMediaId: ' 4 ', weightScale: 'baby' });
+    expect(parsed.ok && parsed.value).toEqual({ name: 'Vòng charm', slug: 'vong-charm', description: 'Charm bạc', coverMediaId: 4, weightScale: 'baby' });
   });
 
   it('cho phép danh mục không ảnh và từ chối id ảnh sai', () => {
-    const empty = readProductCategory({ name: 'Vòng charm', slug: 'vong-charm', description: '', coverMediaId: '' });
+    const empty = readProductCategory({ name: 'Vòng charm', slug: 'vong-charm', description: '', coverMediaId: '', weightScale: 'none' });
     expect(empty.ok && empty.value.coverMediaId).toBeNull();
-    const bad = readProductCategory({ name: 'Vòng charm', slug: 'vong-charm', description: '', coverMediaId: 'anh' });
+    const bad = readProductCategory({ name: 'Vòng charm', slug: 'vong-charm', description: '', coverMediaId: 'anh', weightScale: 'baby' });
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.error).toBe('Ảnh danh mục không hợp lệ.');
   });
 
-  it('từ chối tên trống và slug không tạo được', () => {
-    expect(readProductCategory({ name: '  ', slug: '', description: '', coverMediaId: '' }).ok).toBe(false);
-    const symbols = readProductCategory({ name: '!!!', slug: '', description: '', coverMediaId: '' });
+  it('từ chối tên trống, slug không tạo được và thang cân nặng lạ', () => {
+    expect(readProductCategory({ name: '  ', slug: '', description: '', coverMediaId: '', weightScale: 'baby' }).ok).toBe(false);
+    const symbols = readProductCategory({ name: '!!!', slug: '', description: '', coverMediaId: '', weightScale: 'baby' });
     expect(symbols.ok).toBe(false);
     if (!symbols.ok) expect(symbols.error).toBe('Slug không hợp lệ.');
+    const badScale = readProductCategory({ name: 'Vòng charm', slug: 'vong-charm', description: '', coverMediaId: '', weightScale: 'teen' });
+    expect(badScale.ok).toBe(false);
+    if (!badScale.ok) expect(badScale.error).toBe('Thang cân nặng không hợp lệ.');
   });
 
   it('chỉ xóa danh mục không còn sản phẩm', () => {

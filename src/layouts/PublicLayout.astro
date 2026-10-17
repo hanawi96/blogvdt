@@ -4,6 +4,7 @@ import SiteHeader from '../components/public/SiteHeader.astro';
 import { shareImageType } from '../features/media/files';
 import type { PublicSite } from '../features/settings/settings';
 import { plainMetaText, shareImageUrl, shareMetadata, shareOriginFrom, type ShareTags } from '../lib/seo/meta';
+import { EMPTY_TRACKING, buildTrackingSnippets, type Tracking, type TrackingEvent } from '../features/tracking/tracking';
 import '../styles/global.css';
 
 interface Props {
@@ -25,6 +26,10 @@ interface Props {
   chrome?: PublicSite | null;
   /** Bỏ header/footer — dùng trong iframe xem trước CMS. */
   embed?: boolean;
+  /** Cấu hình theo dõi quảng cáo (đã hợp nhất landing + site). Mặc định rỗng = không nhúng gì. */
+  tracking?: Tracking;
+  /** Sự kiện cần bắn ngay khi tải: 'view' (xem trang) hoặc 'lead' (gửi đơn thành công). */
+  trackEvent?: TrackingEvent | null;
 }
 
 const {
@@ -45,8 +50,12 @@ const {
   faviconUrl = '/favicon.svg',
   chrome = null,
   embed = false,
+  tracking = EMPTY_TRACKING,
+  trackEvent = null,
 } = Astro.props;
 const showChrome = Boolean(chrome) && !embed;
+// Không bắn mã theo dõi khi xem trước trong CMS (embed).
+const trackingSnippets = buildTrackingSnippets(embed ? EMPTY_TRACKING : tracking, embed ? null : trackEvent);
 const robotsContent = Astro.locals.allowIndex === false ? 'noindex,nofollow' : robots;
 const shareOrigin = shareOriginFrom(canonical, Astro.url.origin);
 const share = shareMetadata({
@@ -84,6 +93,7 @@ async function reachableShareImage(
   }
   return null;
 }
+
 ---
 
 <!doctype html>
@@ -117,8 +127,11 @@ async function reachableShareImage(
     {share.image?.alt && <meta name="twitter:image:alt" content={share.image.alt} />}
     {jsonLd.map((entry) => <script type="application/ld+json" set:html={entry} />)}
     <link rel="icon" href={faviconUrl} />
+    {trackingSnippets.headSrc.map((src) => <script async src={src}></script>)}
+    {trackingSnippets.headScripts.map((code) => <script set:html={code} />)}
   </head>
   <body class:list={['bg-canvas font-sans text-ink antialiased', embed && 'preview-embed']}>
+    {trackingSnippets.bodyNoscript.map((html) => <noscript set:html={html} />)}
     <a class="skip-link" href="#noi-dung">Tới nội dung</a>
     {showChrome && chrome && <SiteHeader site={chrome} />}
     <div id="noi-dung">

@@ -1,0 +1,159 @@
+---
+import LandingEditor from './LandingEditor.svelte';
+import MediaPicker from './MediaPicker.svelte';
+import SlugField from './SlugField.svelte';
+import { SLUG_PATTERN } from '../../features/posts/slug';
+import type { MediaItem } from '../../features/media/types';
+import type { FieldErrors } from '../../lib/validation/errors';
+
+import type { Tracking } from '../../features/tracking/tracking';
+
+interface Values {
+  title: string;
+  slug: string;
+  blocksJson: string;
+  status: string;
+  robots: string;
+  seoTitle: string;
+  metaDescription: string;
+  ogMediaId: string;
+  tracking: Tracking;
+}
+
+interface Props {
+  csrf: string;
+  action: string;
+  values: Values;
+  errors: FieldErrors;
+  formError: string;
+  media: MediaItem[];
+  products: { id: number; name: string; price: number }[];
+  publicUrl?: string;
+  deleteAction?: string;
+  submitLabel: string;
+}
+
+const { csrf, action, values, errors, formError, media, products, publicUrl, deleteAction, submitLabel } = Astro.props;
+const slugPattern = SLUG_PATTERN.source;
+---
+
+<form class="landing-form" method="post" action={action} data-busy id="landing-form">
+  <input type="hidden" name="csrf" value={csrf} />
+  {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
+
+  <div class="landing-form-grid">
+    <div class="landing-form-main">
+      <SlugField
+        client:load
+        label="Tiêu đề trang"
+        title={values.title}
+        slug={values.slug}
+        titleError={errors.title}
+        slugError={errors.slug}
+        slugPattern={slugPattern}
+      />
+      <p class="landing-hint">Đường dẫn công khai: <code>/lp/&lt;slug&gt;</code></p>
+
+      <div class="landing-blocks-wrap">
+        <h2 class="text-lg font-semibold">Nội dung trang</h2>
+        <LandingEditor client:load csrf={csrf} media={media} products={products} blocksJson={values.blocksJson} error={errors.blocksJson ?? ''} />
+      </div>
+    </div>
+
+    <aside class="landing-form-side">
+      <div class="landing-side-card">
+        <label class="block">
+          <span class="mb-1 block font-semibold">Trạng thái</span>
+          <select class="field" name="status">
+            <option value="draft" selected={values.status !== 'published'}>Bản nháp</option>
+            <option value="published" selected={values.status === 'published'}>Đã xuất bản</option>
+          </select>
+        </label>
+        <label class="mt-4 block">
+          <span class="mb-1 block font-semibold">Hiển thị trên Google</span>
+          <select class="field" name="robots">
+            <option value="noindex" selected={values.robots !== 'index'}>Ẩn — noindex (khuyên dùng cho trang quảng cáo)</option>
+            <option value="index" selected={values.robots === 'index'}>Cho Google index</option>
+          </select>
+        </label>
+        {publicUrl && (
+          <a class="landing-hint mt-3 inline-block" href={publicUrl} target="_blank" rel="noopener">Mở trang: {publicUrl}</a>
+        )}
+      </div>
+
+      <div class="landing-side-card">
+        <h3 class="font-semibold">SEO & chia sẻ</h3>
+        <label class="mt-3 block">
+          <span class="mb-1 block font-semibold">SEO title</span>
+          <input class="field" name="seoTitle" maxlength="180" value={values.seoTitle} />
+          {errors.seoTitle && <span class="error-text">{errors.seoTitle}</span>}
+        </label>
+        <label class="mt-4 block">
+          <span class="mb-1 block font-semibold">Mô tả SEO</span>
+          <textarea class="field min-h-20" name="metaDescription" maxlength="300">{values.metaDescription}</textarea>
+          {errors.metaDescription && <span class="error-text">{errors.metaDescription}</span>}
+        </label>
+        <div class="mt-4">
+          <span class="mb-1 block font-semibold">Ảnh chia sẻ (OG)</span>
+          <MediaPicker client:load csrf={csrf} items={media} name="ogMediaId" selected={values.ogMediaId ? [values.ogMediaId] : []} />
+          {errors.ogMediaId && <span class="error-text">{errors.ogMediaId}</span>}
+        </div>
+      </div>
+
+      <details class="landing-side-card landing-tracking">
+        <summary class="font-semibold">Mã theo dõi (trang này)</summary>
+        <p class="landing-hint mt-2">Để trống = dùng mã chung ở Cài đặt. Nhập vào đây để ghi đè riêng cho trang này — tiện khi đối tác quảng cáo cần Pixel/ID khác.</p>
+        <label class="mt-3 block">
+          <span class="landing-field-label">Meta Pixel ID</span>
+          <input class="field" name="tracking_metaPixelId" maxlength="40" value={values.tracking.metaPixelId} placeholder="123456789012345" />
+          {errors.tracking_metaPixelId && <span class="error-text">{errors.tracking_metaPixelId}</span>}
+        </label>
+        <label class="mt-3 block">
+          <span class="landing-field-label">Google Analytics (GA4)</span>
+          <input class="field" name="tracking_gaMeasurementId" maxlength="40" value={values.tracking.gaMeasurementId} placeholder="G-XXXXXXXXXX" />
+          {errors.tracking_gaMeasurementId && <span class="error-text">{errors.tracking_gaMeasurementId}</span>}
+        </label>
+        <label class="mt-3 block">
+          <span class="landing-field-label">Google Ads — ID chuyển đổi</span>
+          <input class="field" name="tracking_googleAdsId" maxlength="40" value={values.tracking.googleAdsId} placeholder="AW-123456789" />
+          {errors.tracking_googleAdsId && <span class="error-text">{errors.tracking_googleAdsId}</span>}
+        </label>
+        <label class="mt-3 block">
+          <span class="landing-field-label">Google Ads — nhãn chuyển đổi</span>
+          <input class="field" name="tracking_googleAdsLabel" maxlength="60" value={values.tracking.googleAdsLabel} placeholder="abcDEfghIJ" />
+          {errors.tracking_googleAdsLabel && <span class="error-text">{errors.tracking_googleAdsLabel}</span>}
+        </label>
+        <label class="mt-3 block">
+          <span class="landing-field-label">TikTok Pixel ID</span>
+          <input class="field" name="tracking_tiktokPixelId" maxlength="40" value={values.tracking.tiktokPixelId} placeholder="C9ABCD1234EF" />
+          {errors.tracking_tiktokPixelId && <span class="error-text">{errors.tracking_tiktokPixelId}</span>}
+        </label>
+        <label class="mt-3 block">
+          <span class="landing-field-label">Google Tag Manager</span>
+          <input class="field" name="tracking_gtmId" maxlength="40" value={values.tracking.gtmId} placeholder="GTM-XXXXXX" />
+          {errors.tracking_gtmId && <span class="error-text">{errors.tracking_gtmId}</span>}
+        </label>
+      </details>
+    </aside>
+  </div>
+
+  <div class="landing-form-actions">
+    <button class="btn btn-primary" type="submit">{submitLabel}</button>
+    {deleteAction && <button class="btn btn-accent" type="submit" form="landing-delete">Xóa trang</button>}
+  </div>
+</form>
+{
+  deleteAction && (
+    <form
+      id="landing-delete"
+      method="post"
+      action={deleteAction}
+      data-confirm-title="Xóa trang đích?"
+      data-confirm="Trang sẽ bị xóa. Quảng cáo đang trỏ tới đường dẫn này sẽ không còn trang để mở."
+      data-confirm-ok="Xóa"
+      data-confirm-tone="danger"
+    >
+      <input type="hidden" name="csrf" value={csrf} />
+    </form>
+  )
+}

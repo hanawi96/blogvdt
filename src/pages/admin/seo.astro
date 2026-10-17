@@ -118,7 +118,7 @@ function codeLabel(code: string): string {
   </form>
   {formError && <p class="error-text" role="alert">{formError}</p>}
   {
-    !loadError && (
+    !loadError && snapshot?.run && (
       <section class="health-overview" aria-label="Tổng quan sức khỏe">
         <div class="health-score" data-tone={scoreTone}>
           <p class="health-score-value">{hasRun && score ? `${score.score}%` : '—'}</p>
@@ -208,7 +208,7 @@ function codeLabel(code: string): string {
     )
   }
   {
-    snapshot?.uncheckedPosts.length ? (
+    snapshot?.run && snapshot.uncheckedPosts.length ? (
       <section class="mt-6">
         <h2 class="text-lg font-semibold">Chưa kiểm tra</h2>
         <ul class="mt-2 flex flex-col gap-1">
@@ -238,7 +238,32 @@ function codeLabel(code: string): string {
     ) : null
   }
   {
-    snapshot && !snapshot.run && <p class="post-empty mt-6">Chưa có kết quả. Bấm Chạy kiểm tra để bắt đầu.</p>
+    snapshot && !snapshot.run && !loadError && (
+      <section class="cms-empty">
+        <span class="cms-empty-icon" aria-hidden="true">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="10.5" cy="10.5" r="6" />
+            <path d="m15 15 4.5 4.5" />
+            <path d="M8 10.5h5M10.5 8v5" />
+          </svg>
+        </span>
+        <h2 class="cms-empty-title">Chưa kiểm tra SEO lần nào</h2>
+        <p class="cms-empty-text">
+          {snapshot.published > 0
+            ? `Có ${snapshot.published} bài đã xuất bản đang chờ được xác minh. Chạy kiểm tra để rà toàn bộ và chấm điểm sức khỏe SEO.`
+            : 'Chạy kiểm tra để rà SEO toàn site. Khi có bài xuất bản, công cụ sẽ chấm điểm sức khỏe và chỉ ra chỗ cần sửa.'}
+        </p>
+        <ul class="cms-empty-points">
+          <li>Rà tiêu đề, mô tả, slug, canonical, sitemap của từng bài.</li>
+          <li>Kiểm tra ảnh còn tồn tại, ALT và liên kết nội bộ gãy.</li>
+          <li>Chấm điểm sức khỏe và gom lỗi theo loại để sửa nhanh.</li>
+        </ul>
+        <form method="post">
+          <input type="hidden" name="csrf" value={session.csrfToken} />
+          <button class="btn btn-primary" type="submit" name="mode" value="start">Chạy kiểm tra ngay</button>
+        </form>
+      </section>
+    )
   }
   {
     snapshot?.run && snapshot.issues.length === 0 && (

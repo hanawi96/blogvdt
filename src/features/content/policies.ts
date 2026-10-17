@@ -1,4 +1,5 @@
 import type { PublicSite } from '../settings/settings';
+import { EMPTY_TRACKING } from '../tracking/tracking';
 
 export const staticChrome: PublicSite = {
   siteName: 'Vòng Dâu Tằm',
@@ -16,6 +17,7 @@ export const staticChrome: PublicSite = {
   ogImageHeight: null,
   defaultSeoTitle: 'Vòng Dâu Tằm',
   defaultSeoDescription: 'Vòng tơ tằm làm thủ công, theo tập quán tặng bé và gia đình.',
+  tracking: EMPTY_TRACKING,
 };
 
 export const POLICIES = [

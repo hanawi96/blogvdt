@@ -57,7 +57,6 @@ describe('danh sách sản phẩm', () => {
     form.set('price', '120000');
     form.set('description', 'Mô tả sản phẩm mẫu.');
     form.set('coverMediaId', '');
-    form.set('options', '');
     form.set('status', 'inactive');
     form.set('sortOrder', '0');
     form.set('seoTitle', 'Tiêu đề SEO');
@@ -118,7 +117,6 @@ function productForm(): FormData {
   form.set('price', '120000');
   form.set('description', 'Mô tả sản phẩm mẫu.');
   form.set('coverMediaId', '');
-  form.set('options', '');
   form.set('status', 'active');
   form.set('sortOrder', '0');
   form.set('seoTitle', '');

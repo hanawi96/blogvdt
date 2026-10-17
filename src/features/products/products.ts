@@ -5,6 +5,8 @@ import type { AppDb } from '../../lib/db/client';
 import { slugRedirectQueries } from '../../lib/db/redirects';
 import { media, productCategories, productMedia, products, redirects } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import type { RecipeLine } from '../materials/costing';
+import { insertRecipe, recipeWrites, validateRecipe } from '../materials/recipes';
 import { canFeatureProduct, isProductStatus, type ProductStatus } from './status';
 
 const PAGE_SIZE = 100;
@@ -75,7 +77,7 @@ export type ProductInput = {
   description: string;
   coverMediaId: number | null;
   albumIds: number[];
-  options: string[];
+  recipe: RecipeLine[];
   status: ProductStatus;
   isFeatured: boolean;
   sortOrder: number;
@@ -190,6 +192,8 @@ export async function createProduct(
   if (mediaError) return { ok: false, error: mediaError };
   const categoryError = await categoryAvailable(db, input.categoryId);
   if (categoryError) return { ok: false, error: categoryError };
+  const recipeError = await validateRecipe(db, input.recipe, null);
+  if (recipeError) return { ok: false, error: recipeError };
   const inserted = await db
     .insert(products)
     .values({ ...productValues(input, now), createdAt: now })
@@ -203,6 +207,15 @@ export async function createProduct(
       await db.delete(products).where(eq(products.id, id));
       console.error(JSON.stringify({ event: 'product_album_failed', name: error instanceof Error ? error.name : 'unknown' }));
       return { ok: false, error: 'Không lưu được album.' };
+    }
+  }
+  if (input.recipe.length > 0) {
+    try {
+      await insertRecipe(db, id, input.recipe);
+    } catch (error) {
+      await db.delete(products).where(eq(products.id, id));
+      console.error(JSON.stringify({ event: 'product_recipe_failed', name: error instanceof Error ? error.name : 'unknown' }));
+      return { ok: false, error: 'Không lưu được công thức nguyên liệu.' };
     }
   }
   return { ok: true, id };
@@ -222,11 +235,14 @@ export async function updateProduct(
   if (mediaError) return { ok: false, error: mediaError };
   const categoryError = await categoryAvailable(db, input.categoryId);
   if (categoryError) return { ok: false, error: categoryError };
+  const recipeError = await validateRecipe(db, input.recipe, id);
+  if (recipeError) return { ok: false, error: recipeError };
   const queries: BatchItem<'sqlite'>[] = [
     db.update(products).set(productValues(input, now)).where(eq(products.id, id)),
     db.delete(productMedia).where(eq(productMedia.productId, id)),
   ];
   if (input.albumIds.length > 0) queries.push(albumInsert(db, id, input.albumIds));
+  queries.push(...recipeWrites(db, id, input.recipe));
   if (current.slug !== input.slug) {
     queries.push(...slugRedirectQueries(db, routes.product(current.slug), routes.product(input.slug), now));
   }
@@ -315,7 +331,6 @@ function productValues(input: ProductInput, now: number) {
     cordType: input.cordType,
     description: input.description,
     coverMediaId: input.coverMediaId,
-    optionsJson: JSON.stringify(input.options),
     status: input.status,
     isFeatured: canFeatureProduct(input.status, input.isFeatured),
     sortOrder: input.sortOrder,

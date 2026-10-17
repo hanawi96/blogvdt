@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const adminUsers = sqliteTable(
   'admin_users',
@@ -174,6 +174,8 @@ export const productCategories = sqliteTable('product_categories', {
   description: text('description').notNull().default(''),
   coverMediaId: integer('cover_media_id').references(() => media.id, { onDelete: 'set null' }),
   sortOrder: integer('sort_order').notNull().default(0),
+  // Thang cân nặng của danh mục: 'none' (không cần chọn), 'baby', ... (xem features/products/weight.ts).
+  weightScale: text('weight_scale').notNull().default('baby'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
@@ -209,6 +211,60 @@ export const products = sqliteTable(
   ],
 );
 
+// Nhóm nguyên liệu (Charm bạc, Bi bạc...). Tên không trùng, không phân biệt hoa thường.
+export const materialGroups = sqliteTable(
+  'material_groups',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [uniqueIndex('material_groups_name_unique').on(sql`lower(${table.name})`)],
+);
+
+// Nguyên liệu làm vòng. Đơn giá là nguồn giá duy nhất: giá vốn sản phẩm được tính từ đây khi xem.
+export const materials = sqliteTable(
+  'materials',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    code: text('code').notNull().unique(),
+    name: text('name').notNull(),
+    // Cột cho phép NULL chỉ vì SQLite không thêm được NOT NULL khi ALTER; ứng dụng luôn gán nhóm.
+    groupId: integer('group_id').references(() => materialGroups.id, { onDelete: 'restrict' }),
+    unitCost: integer('unit_cost').notNull(),
+    // 1 = đang dùng, 0 = ngừng dùng (không thêm được vào sản phẩm mới; sản phẩm cũ vẫn giữ).
+    active: integer('active').notNull().default(1),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    index('materials_group_id_idx').on(table.groupId),
+    check('materials_unit_cost_check', sql`${table.unitCost} >= 0`),
+    check('materials_active_check', sql`${table.active} in (0, 1)`),
+  ],
+);
+
+// Công thức của sản phẩm: dùng bao nhiêu mỗi nguyên liệu. Xóa nguyên liệu đang được dùng bị chặn (restrict).
+export const productMaterials = sqliteTable(
+  'product_materials',
+  {
+    productId: integer('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    materialId: integer('material_id')
+      .notNull()
+      .references(() => materials.id, { onDelete: 'restrict' }),
+    quantity: integer('quantity').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.productId, table.materialId] }),
+    index('product_materials_material_idx').on(table.materialId),
+    check('product_materials_quantity_check', sql`${table.quantity} > 0`),
+  ],
+);
+
 export const productMedia = sqliteTable(
   'product_media',
   {
@@ -239,8 +295,16 @@ export const orders = sqliteTable(
     quantity: integer('quantity').notNull(),
     optionLabel: text('option_label'),
     totalPrice: integer('total_price').notNull(),
+    // 'cod' (thanh toán khi nhận hàng) | 'bank' (chuyển khoản). Xem features/orders/payment.ts.
+    paymentMethod: text('payment_method').notNull().default('cod'),
+    // Ảnh chụp chi phí lúc đặt đơn, đổi giá nguyên liệu sau này không làm lệch đơn cũ.
+    // costGoods: tổng giá vốn các vòng (NULL nếu có sản phẩm chưa có công thức); costExtra: hộp, ship, thuế... của đơn.
+    // NULL = đơn cũ chưa có số liệu, không tính lợi nhuận.
+    costGoods: integer('cost_goods'),
+    costExtra: integer('cost_extra'),
     status: text('status').notNull(),
     ipHash: text('ip_hash').notNull(),
+    landingSlug: text('landing_slug'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
   },
@@ -248,12 +312,57 @@ export const orders = sqliteTable(
     index('orders_status_idx').on(table.status),
     index('orders_created_at_idx').on(table.createdAt),
     index('orders_phone_idx').on(table.phone),
+    index('orders_landing_idx').on(table.landingSlug),
+    index('orders_product_idx').on(table.productId),
     check(
       'orders_status_check',
       sql`${table.status} in ('new', 'confirmed', 'preparing', 'shipped', 'completed', 'cancelled')`,
     ),
+    check('orders_payment_method_check', sql`${table.paymentMethod} in ('cod', 'bank')`),
     check('orders_quantity_check', sql`${table.quantity} > 0`),
     check('orders_unit_price_check', sql`${table.unitPrice} >= 0`),
+  ],
+);
+
+// Chi phí tính trên MỖI ĐƠN (hộp, túi, ship, thuế...), khác giá vốn nguyên liệu tính trên từng sản phẩm.
+// kind 'fixed': value là số tiền VND mỗi đơn; 'percent': value là phần vạn (150 = 1,5%) của tổng tiền đơn.
+export const orderCosts = sqliteTable(
+  'order_costs',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull(),
+    kind: text('kind').notNull(),
+    value: integer('value').notNull(),
+    active: integer('active').notNull().default(1),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('order_costs_name_unique').on(sql`lower(${table.name})`),
+    check('order_costs_kind_check', sql`${table.kind} in ('fixed', 'percent')`),
+    check('order_costs_value_check', sql`${table.value} >= 0`),
+    check('order_costs_active_check', sql`${table.active} in (0, 1)`),
+  ],
+);
+
+// Chi phí quảng cáo mỗi ngày (VND), ngày theo giờ Việt Nam dạng YYYY-MM-DD.
+// kind 'rate': mức mỗi ngày áp dụng từ `day` cho đến khi có mức mới hơn (không sửa lịch sử khi đổi mức).
+// kind 'day': số tiền riêng của đúng ngày `day`, ưu tiên hơn mức chung.
+export const adSpend = sqliteTable(
+  'ad_spend',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    kind: text('kind').notNull(),
+    day: text('day').notNull(),
+    amount: integer('amount').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('ad_spend_kind_day_unique').on(table.kind, table.day),
+    check('ad_spend_kind_check', sql`${table.kind} in ('rate', 'day')`),
+    check('ad_spend_amount_check', sql`${table.amount} >= 0`),
+    check('ad_spend_day_check', sql`${table.day} glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`),
   ],
 );
 
@@ -274,6 +383,7 @@ export const orderItems = sqliteTable(
   },
   (table) => [
     index('order_items_order_idx').on(table.orderId),
+    index('order_items_product_idx').on(table.productId),
     check('order_items_quantity_check', sql`${table.quantity} > 0`),
     check('order_items_price_check', sql`${table.unitPrice} >= 0`),
   ],
@@ -374,5 +484,31 @@ export const seoHealthIssues = sqliteTable(
   (table) => [
     index('seo_health_issues_filter_idx').on(table.runId, table.severity, table.code, table.postId),
     check('seo_health_issues_severity_check', sql`${table.severity} in ('error', 'warning')`),
+  ],
+);
+
+// Trang đích (landing) chạy quảng cáo. Nội dung là các khối cố định lưu JSON trong blocks_json.
+// Mặc định noindex để không ảnh hưởng SEO của site chính; có thể bật index từng trang.
+export const landings = sqliteTable(
+  'landings',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    slug: text('slug').notNull().unique(),
+    title: text('title').notNull(),
+    blocksJson: text('blocks_json').notNull().default('[]'),
+    status: text('status').notNull().default('draft'),
+    robots: text('robots').notNull().default('noindex'),
+    seoTitle: text('seo_title'),
+    metaDescription: text('meta_description'),
+    ogMediaId: integer('og_media_id').references(() => media.id, { onDelete: 'set null' }),
+    views: integer('views').notNull().default(0),
+    trackingJson: text('tracking_json').notNull().default('{}'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    index('landings_status_idx').on(table.status),
+    check('landings_status_check', sql`${table.status} in ('draft', 'published')`),
+    check('landings_robots_check', sql`${table.robots} in ('noindex', 'index')`),
   ],
 );

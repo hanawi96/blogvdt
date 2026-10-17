@@ -41,7 +41,8 @@ const values = {
   address: read('address'),
   note: read('note'),
   quantity: read('quantity') || '1',
-  option: read('option'),
+  weight: read('weight'),
+  paymentMethod: read('paymentMethod'),
 };
 let errors: FieldErrors = {};
 let formError = '';
@@ -55,7 +56,7 @@ if (posted) {
     formError = 'Nguồn gửi không hợp lệ.';
   } else {
     const parsed = parseOrderSubmission(
-      { ...values, productSlug: selectedSlug, company: read('company') },
+      { ...values, productSlug: selectedSlug, company: read('company'), landing: read('landing') },
       catalog,
     );
     if (!parsed.ok) {

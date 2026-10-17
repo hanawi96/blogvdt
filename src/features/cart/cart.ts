@@ -8,8 +8,10 @@ const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export type CartLine = {
   slug: string;
   quantity: number;
-  option: string;
+  weight: string;
 };
+
+export const CART_MAX_WEIGHT = 40;
 
 export function cartCount(lines: CartLine[]): number {
   return lines.reduce((sum, line) => sum + line.quantity, 0);
@@ -29,8 +31,8 @@ export function parseCart(value: string | null | undefined): CartLine[] {
     const lines: CartLine[] = [];
     for (const item of parsed) {
       if (!item || typeof item !== 'object') continue;
-      const record = item as { slug?: unknown; quantity?: unknown; option?: unknown };
-      const line = cleanLine(record.slug, record.option, record.quantity);
+      const record = item as { slug?: unknown; quantity?: unknown; weight?: unknown };
+      const line = cleanLine(record.slug, record.quantity, record.weight);
       if (!line) continue;
       pushLine(lines, line);
     }
@@ -41,14 +43,14 @@ export function parseCart(value: string | null | undefined): CartLine[] {
 }
 
 export function serializeCart(lines: CartLine[]): string {
-  return JSON.stringify(lines.map((line) => ({ slug: line.slug, quantity: line.quantity, option: line.option })));
+  return JSON.stringify(lines.map((line) => ({ slug: line.slug, quantity: line.quantity, weight: line.weight })));
 }
 
 export function addCartLine(
   lines: CartLine[],
-  next: { slug: string; option: string; quantity: number },
+  next: { slug: string; quantity: number; weight: string },
 ): { ok: true; lines: CartLine[] } | { ok: false; error: string } {
-  const line = cleanLine(next.slug, next.option, next.quantity);
+  const line = cleanLine(next.slug, next.quantity, next.weight);
   if (!line) return { ok: false, error: 'Sản phẩm hoặc số lượng chưa đúng.' };
   const copy = lines.map((item) => ({ ...item }));
   const added = pushLine(copy, line);
@@ -59,13 +61,15 @@ export function addCartLine(
 export function postedCartLines(
   slugs: string[],
   quantities: string[],
-  options: string[],
+  weights: string[],
 ): { ok: true; lines: CartLine[] } | { ok: false; error: string } {
-  if (slugs.length !== quantities.length || slugs.length !== options.length) return { ok: false, error: 'Giỏ không hợp lệ.' };
+  if (slugs.length !== quantities.length || slugs.length !== weights.length) {
+    return { ok: false, error: 'Giỏ không hợp lệ.' };
+  }
   if (slugs.length > CART_MAX_LINES) return { ok: false, error: `Một đơn tối đa ${CART_MAX_LINES} mẫu.` };
   const lines: CartLine[] = [];
   for (let index = 0; index < slugs.length; index += 1) {
-    const line = cleanLine(slugs[index], options[index], Number(quantities[index]));
+    const line = cleanLine(slugs[index], Number(quantities[index]), weights[index]);
     if (!line) return { ok: false, error: 'Sản phẩm hoặc số lượng chưa đúng.' };
     const added = pushLine(lines, line);
     if (!added) return { ok: false, error: `Một đơn tối đa ${CART_MAX_LINES} mẫu.` };
@@ -77,17 +81,17 @@ export function cartCookieOptions(secure: boolean, maxAge = CART_MAX_AGE) {
   return { path: '/', sameSite: 'lax' as const, maxAge, secure, httpOnly: false };
 }
 
-function cleanLine(slug: unknown, option: unknown, quantity: unknown): CartLine | null {
+function cleanLine(slug: unknown, quantity: unknown, weight: unknown): CartLine | null {
   if (typeof slug !== 'string' || !SLUG.test(slug)) return null;
-  if (typeof option !== 'string') return null;
-  const label = option.trim().slice(0, 40);
-  if (option.trim().length > 40) return null;
+  if (typeof weight !== 'string') return null;
+  const weightLabel = weight.trim().slice(0, CART_MAX_WEIGHT);
+  if (weight.trim().length > CART_MAX_WEIGHT) return null;
   if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1 || quantity > CART_MAX_QUANTITY) return null;
-  return { slug, option: label, quantity };
+  return { slug, quantity, weight: weightLabel };
 }
 
 function pushLine(lines: CartLine[], line: CartLine): boolean {
-  const index = lines.findIndex((item) => item.slug === line.slug && item.option === line.option);
+  const index = lines.findIndex((item) => item.slug === line.slug && item.weight === line.weight);
   if (index === -1) {
     if (lines.length >= CART_MAX_LINES) return false;
     lines.push(line);

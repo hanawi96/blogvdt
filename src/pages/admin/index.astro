@@ -1,80 +1,228 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { getDashboard } from '../../features/dashboard/stats';
+import { DASHBOARD_PERIODS, DEFAULT_PERIOD, describeDelta, readPeriod, timeAgo } from '../../features/dashboard/metrics';
 import { orderStatusLabel } from '../../features/orders/status';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
 import { formatDateTime } from '../../lib/datetime';
+import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
 
 const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
 const admin = session.role === 'admin';
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+
+const days = readPeriod(Astro.url.searchParams.get('ky'));
+const now = Date.now();
 
 let loadError = '';
 let dashboard: Awaited<ReturnType<typeof getDashboard>> | null = null;
 try {
-  dashboard = await getDashboard(createDb(getDbBinding()));
+  dashboard = await getDashboard(createDb(getDbBinding()), { admin, days, now });
 } catch (error) {
   console.error(JSON.stringify({ event: 'dashboard_failed', name: error instanceof Error ? error.name : 'unknown' }));
   loadError = 'Không tải được số liệu.';
 }
 
-const cards = dashboard
-  ? admin
-    ? [
-        ['Bài viết', dashboard.posts],
-        ['Đã xuất bản', dashboard.publishedPosts],
-        ['Sản phẩm', dashboard.products],
-        ['Đơn hàng', dashboard.orders],
-        ['Đơn mới', dashboard.newOrders],
-      ]
-    : [
-        ['Bài viết', dashboard.posts],
-        ['Đã xuất bản', dashboard.publishedPosts],
-      ]
+function periodHref(period: number): string {
+  return period === DEFAULT_PERIOD ? routes.admin : `${routes.admin}?ky=${period}`;
+}
+
+function whenLabel(at: number): string {
+  return timeAgo(at, now) || formatDateTime(at);
+}
+
+const kpis = dashboard
+  ? [
+      {
+        label: 'Số đơn',
+        value: String(dashboard.kpi.orders),
+        note: describeDelta(dashboard.kpi.changes.orders),
+      },
+      {
+        label: 'Giá trị đơn',
+        value: formatVnd(dashboard.kpi.value),
+        note: describeDelta(dashboard.kpi.changes.value),
+      },
+      {
+        label: 'Giá trị trung bình',
+        value: formatVnd(dashboard.kpi.average),
+        note: describeDelta(dashboard.kpi.changes.average),
+      },
+      {
+        label: 'Lợi nhuận',
+        value: formatVnd(dashboard.kpi.profit),
+        note:
+          dashboard.kpi.costedOrders < dashboard.kpi.orders
+            ? { text: `Tính trên ${dashboard.kpi.costedOrders}/${dashboard.kpi.orders} đơn có chi phí`, tone: 'flat' as const }
+            : describeDelta(dashboard.kpi.changes.profit),
+      },
+      {
+        label: 'Tỉ lệ hủy',
+        value: `${dashboard.kpi.cancelRate}%`,
+        note: {
+          text: `Kỳ trước ${dashboard.kpi.previousCancelRate}%`,
+          tone:
+            dashboard.kpi.cancelRate > dashboard.kpi.previousCancelRate
+              ? ('bad' as const)
+              : dashboard.kpi.cancelRate < dashboard.kpi.previousCancelRate
+                ? ('good' as const)
+                : ('flat' as const),
+        },
+      },
+    ]
   : [];
+
+const topMax = dashboard ? Math.max(1, ...dashboard.topProducts.map((item) => item.sold)) : 1;
 ---
 
 <AdminLayout title="Tổng quan">
+  <p slot="lead">Những việc cần chú ý và số liệu gần đây của website.</p>
+  <div slot="action" class="dash-quick">
+    <a class="btn btn-primary" href={routes.adminPostNew}>Viết bài</a>
+    {admin && <a class="btn" href={routes.adminProductNew}>Thêm sản phẩm</a>}
+    <a class="btn" href={routes.home} target="_blank" rel="noopener">Xem website</a>
+  </div>
   {loadError && <p class="error-text" role="alert">{loadError}</p>}
   {
     dashboard && (
-      <>
-        <ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {cards.map(([label, value]) => (
-            <li class="rounded-md border border-line bg-surface p-4">
-              <p class="text-sm text-muted">{label}</p>
-              <p class="mt-1 text-2xl font-semibold">{value}</p>
-            </li>
-          ))}
-        </ul>
-        {admin && <h2 class="mt-8 text-lg font-semibold">Đơn gần đây</h2>}
-        {admin && dashboard.recentOrders.length === 0 ? (
-          <p class="mt-3 text-muted">Chưa có đơn hàng.</p>
-        ) : admin ? (
-          <table class="mt-3 w-full border-collapse text-left">
-            <thead>
-              <tr class="border-b border-line">
-                <th class="py-2">Mã</th>
-                <th class="py-2">Khách</th>
-                <th class="py-2">Trạng thái</th>
-                <th class="py-2">Thời gian</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dashboard.recentOrders.map((order) => (
-                <tr class="border-b border-line">
-                  <td class="py-2"><a class="font-semibold underline" href={routes.adminOrder(order.id)}>{order.code}</a></td>
-                  <td class="py-2">{order.customerName}</td>
-                  <td class="py-2">{orderStatusLabel(order.status)}</td>
-                  <td class="py-2">{formatDateTime(order.createdAt)}</td>
-                </tr>
+      <div class="dash">
+        <section class="dash-card" aria-labelledby="dash-actions-title">
+          <h2 id="dash-actions-title">Cần xử lý ngay</h2>
+          {dashboard.actions.length === 0 ? (
+            <p class="dash-ok">Hiện không có việc nào cần xử lý. Mọi thứ đang ổn.</p>
+          ) : (
+            <ul class="dash-actions">
+              {dashboard.actions.map((item) => (
+                <li>
+                  <a class="dash-action" href={item.href} data-tone={item.tone}>
+                    <span class="dash-action-count">{item.count ?? '→'}</span>
+                    <span class="dash-action-text">
+                      <strong>{item.label}</strong>
+                      <span>{item.detail}</span>
+                    </span>
+                    <span class="dash-action-go" aria-hidden="true">›</span>
+                  </a>
+                </li>
               ))}
-            </tbody>
-          </table>
-        ) : null}
-      </>
+            </ul>
+          )}
+        </section>
+
+        {admin && (
+          <section aria-labelledby="dash-kpi-title">
+            <div class="dash-card-head">
+              <h2 id="dash-kpi-title">Chỉ số {days} ngày qua</h2>
+              <nav class="dash-periods" aria-label="Chọn kỳ thống kê">
+                {DASHBOARD_PERIODS.map((period) => (
+                  <a class="chip" href={periodHref(period)} aria-current={period === days ? 'true' : undefined}>
+                    {period} ngày
+                  </a>
+                ))}
+              </nav>
+            </div>
+            <ul class="dash-kpis">
+              {kpis.map((item) => (
+                <li class="dash-card dash-kpi">
+                  <p class="dash-kpi-label">{item.label}</p>
+                  <p class="dash-kpi-value">{item.value}</p>
+                  <p class="dash-delta" data-tone={item.note.tone}>{item.note.text}</p>
+                </li>
+              ))}
+            </ul>
+            <p class="dash-foot">
+              Giá trị đơn là tổng tiền các đơn không bị hủy, chưa phải tiền đã thu. Lợi nhuận = lợi nhuận các đơn có chi phí trừ quảng cáo
+              {formatVnd(dashboard.kpi.adSpend)} của {days} ngày (<a href={routes.adminCosts}>chỉnh quảng cáo</a>).
+            </p>
+          </section>
+        )}
+
+        <div class="dash-columns">
+          <div class="dash-col">
+            {admin && (
+              <section class="dash-card" aria-labelledby="dash-orders-title">
+                <div class="dash-card-head">
+                  <h2 id="dash-orders-title">Đơn gần đây</h2>
+                  <a href={routes.adminOrders}>Xem tất cả</a>
+                </div>
+                {dashboard.recentOrders.length === 0 ? (
+                  <p class="text-muted">Chưa có đơn hàng.</p>
+                ) : (
+                  <ul class="dash-orders">
+                    {dashboard.recentOrders.map((order) => (
+                      <li>
+                        <div class="dash-order-main">
+                          <a class="font-semibold" href={routes.adminOrder(order.id)}>{order.code}</a>
+                          <p class="dash-order-meta">{order.customerName} · {order.productName}</p>
+                        </div>
+                        <div class="dash-order-side">
+                          <strong>{formatVnd(order.totalPrice)}</strong>
+                          <span class="order-badge" data-status={order.status}>{orderStatusLabel(order.status)}</span>
+                          <span class="dash-order-time">{whenLabel(order.createdAt)}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
+            <section class="dash-card" aria-labelledby="dash-content-title">
+              <h2 id="dash-content-title">Nội dung và cửa hàng</h2>
+              <ul class="dash-stats">
+                <li><span>Bài viết</span><strong>{dashboard.posts.total}</strong></li>
+                <li><span>Đã xuất bản</span><strong>{dashboard.posts.published}</strong></li>
+                {admin && <li><span>Sản phẩm đang bán</span><strong>{dashboard.activeProducts}</strong></li>}
+                {admin && <li><span>Tổng số đơn</span><strong>{dashboard.totalOrders}</strong></li>}
+              </ul>
+            </section>
+          </div>
+
+          {admin && (
+            <div class="dash-col">
+              <section class="dash-card" aria-labelledby="dash-top-title">
+                <h2 id="dash-top-title">Bán chạy {days} ngày qua</h2>
+                {dashboard.topProducts.length === 0 ? (
+                  <p class="text-muted">Chưa có đơn trong kỳ này.</p>
+                ) : (
+                  <ol class="dash-top">
+                    {dashboard.topProducts.map((item) => (
+                      <li>
+                        <div class="dash-top-row">
+                          <a href={routes.adminProduct(item.productId)}>{item.name}</a>
+                          <strong>{item.sold} chiếc</strong>
+                        </div>
+                        <div class="dash-bar" aria-hidden="true">
+                          <span style={`width: ${Math.max(4, Math.round((item.sold / topMax) * 100))}%`}></span>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </section>
+              <section class="dash-card" aria-labelledby="dash-log-title">
+                <div class="dash-card-head">
+                  <h2 id="dash-log-title">Hoạt động gần đây</h2>
+                  <a href={routes.adminActivity}>Xem tất cả</a>
+                </div>
+                {dashboard.activity.length === 0 ? (
+                  <p class="text-muted">Chưa có hoạt động nào.</p>
+                ) : (
+                  <ul class="dash-log">
+                    {dashboard.activity.map((entry) => (
+                      <li>
+                        <p>{entry.summary}</p>
+                        <p class="dash-log-meta">{entry.actorName} · {whenLabel(entry.createdAt)}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </div>
+          )}
+        </div>
+      </div>
     )
   }
 </AdminLayout>

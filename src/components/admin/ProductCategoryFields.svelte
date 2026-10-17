@@ -3,9 +3,12 @@
   import MediaPicker from './MediaPicker.svelte';
   import SlugField from './SlugField.svelte';
   import type { MediaItem } from '../../features/media/types';
+  import { WEIGHT_SCALE_LABELS } from '../../features/products/weight';
 
-  type CategoryDraft = { id: number | null; name: string; slug: string; description: string; coverMediaId: string };
+  type CategoryDraft = { id: number | null; name: string; slug: string; description: string; coverMediaId: string; weightScale: string };
   type FieldErrors = { form?: string; name?: string; slug?: string; description?: string; cover?: string };
+
+  const weightScales = WEIGHT_SCALE_LABELS;
 
   let {
     csrf,
@@ -67,6 +70,15 @@
     <span class="mb-1 block font-semibold">Mô tả ngắn</span>
     <textarea class="field min-h-24" name="description" maxlength="300" value={current.description}></textarea>
     {#if shownErrors.description}<span class="error-text">{shownErrors.description}</span>{/if}
+  </label>
+  <label class="mt-4 block">
+    <span class="mb-1 block font-semibold">Chọn cân nặng khi mua</span>
+    <select class="field" name="weightScale" value={current.weightScale}>
+      {#each weightScales as scale (scale.value)}
+        <option value={scale.value}>{scale.label}</option>
+      {/each}
+    </select>
+    <span class="seo-hint">Thang “Bé” buộc khách chọn cân nặng khi thêm vào giỏ. Chọn “Không cần” cho danh mục không áp dụng.</span>
   </label>
   <fieldset class="mt-4">
     <legend class="mb-1 font-semibold">Ảnh danh mục</legend>

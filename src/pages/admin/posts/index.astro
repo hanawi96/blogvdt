@@ -124,21 +124,23 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
   {
     result && (
       <>
-        <div class="post-controls">
-          <form class="post-toolbar" method="get" data-post-search>
-            {status && <input type="hidden" name="status" value={status} />}
-            {sort === 'oldest' && <input type="hidden" name="sort" value="oldest" />}
-            <label class="sr-only" for="post-query">Tìm bài viết</label>
-            <input id="post-query" class="field" name="q" value={query} placeholder="Tìm bài viết..." maxlength="180" />
-          </form>
-          <div class="post-filters" role="group" aria-label="Lọc trạng thái">
-            {filters.map((filter) => (
-              <a href={pageHref({ status: filter.id, page: 1 })} aria-current={status === filter.id ? 'page' : undefined}>
-                {filter.label} ({filter.count})
-              </a>
-            ))}
+        {!(result.counts.all === 0 && result.counts.trash === 0 && !query) && (
+          <div class="post-controls">
+            <form class="post-toolbar" method="get" data-post-search>
+              {status && <input type="hidden" name="status" value={status} />}
+              {sort === 'oldest' && <input type="hidden" name="sort" value="oldest" />}
+              <label class="sr-only" for="post-query">Tìm bài viết</label>
+              <input id="post-query" class="field" name="q" value={query} placeholder="Tìm bài viết..." maxlength="180" />
+            </form>
+            <div class="post-filters" role="group" aria-label="Lọc trạng thái">
+              {filters.map((filter) => (
+                <a href={pageHref({ status: filter.id, page: 1 })} aria-current={status === filter.id ? 'page' : undefined}>
+                  {filter.label} ({filter.count})
+                </a>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
         <div data-post-results>
           {trashed && <p class="mb-4 text-primary-strong" role="status">Đã chuyển bài vào thùng rác.</p>}
           {purged && <p class="mb-4 text-primary-strong" role="status">Đã xóa vĩnh viễn bài viết.</p>}
@@ -184,14 +186,26 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
             </form>
           )}
         <div data-post-list data-csrf={session.csrfToken}>
-          {result.rows.length === 0 ? (
+          {result.rows.length === 0 && result.counts.all === 0 && !query && status !== 'trash' ? (
+            <section class="cms-empty">
+              <span class="cms-empty-icon" aria-hidden="true">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M7 3.5h7l4 4V20.5H7z" />
+                  <path d="M14 3.5V8h4M9.5 12.5h6M9.5 16h4" />
+                </svg>
+              </span>
+              <h2 class="cms-empty-title">Chưa có bài viết nào</h2>
+              <p class="cms-empty-text">Viết bài chia sẻ kiến thức để thu hút khách tự nhiên từ Google và xây lòng tin với người mua.</p>
+              <ul class="cms-empty-points">
+                <li>Soạn bài bằng trình soạn thảo có ảnh, tiêu đề, danh mục và thẻ.</li>
+                <li>Chèn liên kết tới sản phẩm hoặc bài liên quan ngay trong nội dung.</li>
+                <li>Công cụ Kiểm tra SEO rà title, mô tả, ảnh và liên kết giúp bài lên top.</li>
+              </ul>
+              <a class="btn btn-primary" href={routes.adminPostNew}>Viết bài đầu tiên</a>
+            </section>
+          ) : result.rows.length === 0 ? (
             <p class="post-empty">
-              {status === 'trash' && !query
-                ? 'Thùng rác trống.'
-                : result.counts.all === 0 && !query
-                  ? 'Chưa có bài viết.'
-                  : 'Không có bài khớp bộ lọc.'}
-              {status !== 'trash' && result.counts.all === 0 && !query && <a href={routes.adminPostNew}>Viết bài đầu tiên</a>}
+              {status === 'trash' && !query ? 'Thùng rác trống.' : 'Không có bài khớp bộ lọc.'}
             </p>
           ) : status === 'trash' ? (
             <table class="post-table">

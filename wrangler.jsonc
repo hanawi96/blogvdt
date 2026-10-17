@@ -9,6 +9,13 @@
     "directory": "./dist",
     "binding": "ASSETS"
   },
+  // Biến môi trường production. Khi chạy thử trên *.workers.dev: giữ ENVIRONMENT khác "production"
+  // để toàn site noindex (không cho Google index tên miền tạm). Khi có domain thật:
+  // đổi SITE_URL = "https://ten-mien.com" và ENVIRONMENT = "production" rồi deploy lại.
+  "vars": {
+    "ENVIRONMENT": "staging",
+    "SITE_URL": ""
+  },
   "observability": {
     "enabled": true,
     "logs": {
@@ -23,9 +30,12 @@
   "d1_databases": [
     {
       "binding": "DB",
+      // Tên hiển thị của database. Local dùng tên này để định danh DB local.
+      // --remote nhắm production theo database_id (DB production thật tên "blogvdt").
       "database_name": "vong-dau-tam",
+      "database_id": "b98c2657-e991-42e8-bba3-a797452437b2",
       "migrations_dir": "migrations",
-      // Local không được trỏ sang database production.
+      // Lệnh không có --remote luôn dùng D1 local; --remote mới chạm database thật theo database_id.
       "remote": false
     }
   ],

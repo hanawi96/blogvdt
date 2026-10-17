@@ -120,6 +120,27 @@
       "when": 1792170000000,
       "tag": "0016_seo_health_published_total",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1792180000000,
+      "tag": "0017_landings",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1792190000000,
+      "tag": "0018_landing_conversion",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1792200000000,
+      "tag": "0019_landing_tracking",
+      "breakpoints": true
     }
   ]
 }

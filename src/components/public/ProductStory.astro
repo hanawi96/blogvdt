@@ -1,0 +1,78 @@
+---
+// Nội dung giới thiệu chung cho trang chi tiết sản phẩm. Số Zalo của xưởng đặt ở đây vì
+// Cài đặt website chỉ có một số điện thoại chung.
+const contacts = [
+  { label: '0972.483.892', phone: '0972483892' },
+  { label: '0386.190.596', phone: '0386190596' },
+];
+
+const strengths = [
+  { lead: 'Làm thủ công từ cành dâu tằm ta Việt Nam nhà trồng.', rest: 'Đúng với dâu tằm mà các cụ ngày xưa hay làm cho các bé.' },
+  { lead: 'Không hóa chất, không sơn màu.', rest: 'Bé ngậm mút vòng thoải mái mà không lo hại sức khỏe.' },
+  { lead: 'Hạt được mài tay, nhẵn, mịn.', rest: 'Đeo không cấn, không đau tay bé.' },
+  { lead: 'Dây kéo rút điều chỉnh kích thước.', rest: 'Mẹ mua 1 lần, bé đeo được từ lúc nhỏ tới lúc lớn, không lo chật.' },
+  { lead: 'Làm theo yêu cầu riêng.', rest: 'Mẹ muốn bạc, hạt hổ phách, charm tên bé, kiểu vòng nào, em đều làm được.' },
+  {
+    lead: 'Làm theo size riêng của mỗi bé.',
+    rest: 'Tất cả vòng dâu tằm bên em sẽ làm theo cân nặng riêng của từng bé, nên các mẹ yên tâm không lo bị chật hay rộng ạ.',
+  },
+];
+
+const facts = [
+  'Vòng phù hợp cho cả bé trai và bé gái.',
+  'Sản phẩm được làm thủ công.',
+  'Số hạt dâu được căn vào số hạt đẹp, tính theo Sinh - Lão - Bệnh - Tử (theo quan niệm dân gian), các mẹ nhận vòng là đeo được luôn cho bé.',
+  'Kích thước vòng làm theo cân nặng riêng của từng bé, từ 0 - 15kg. Bé trên 15kg giá sẽ cao hơn một chút do cần thêm nguyên liệu.',
+];
+---
+
+<div class="product-story">
+  <section aria-labelledby="story-title">
+    <h2 id="story-title">Câu chuyện của người làm vòng</h2>
+    <blockquote class="story-quote">
+      <p>Nhiều mẹ bảo em: vòng dâu làm thủ công vừa lâu, lại không được đẹp. Giờ trên mạng bán đầy, vừa rẻ vừa bắt mắt – sao cạnh tranh nổi?</p>
+      <p>Nghe riết cũng nản chứ các mẹ.</p>
+      <p>Người ta bán cả trăm cái mỗi ngày, còn em, lẹt đẹt vài cái mà bụi bặm cực luôn.</p>
+      <p>Nhưng em biết, nhiều mẹ chưa thực sự hiểu rằng…</p>
+    </blockquote>
+    <h3>Những chiếc vòng dâu tằm đang bán 2k đến 5k tràn lan</h3>
+    <p>Đa phần không phải gỗ dâu thật. Chúng được làm từ gỗ cao su, gỗ lồng mức nhập từ Trung Quốc. Hạt thì tròn đều, bóng loáng vì đã được sơn và tẩm hóa chất chống mốc.</p>
+    <p>Nhìn rất bắt mắt, nên mẹ nào mua cũng thấy đẹp là đúng rồi.</p>
+    <p>Nhưng em thì vẫn chọn làm thủ công. Đẹp xấu chưa biết, nhưng ít nhất em biết rõ: đây là gỗ dâu thật, nhà trồng – Việt Nam mình.</p>
+    <p>Em tin, vẫn còn rất nhiều mẹ bỉm ngoài kia đang cần một chiếc vòng dâu thật – lành – yên tâm cho bé đeo. Chỉ là… chưa biết đến em thôi.</p>
+  </section>
+
+  <section aria-labelledby="diff-title">
+    <h2 id="diff-title">Vòng dâu em làm khác hàng ngoài thị trường</h2>
+    <ul class="story-checks">
+      {
+        strengths.map((item) => (
+          <li>
+            <strong>{item.lead}</strong> {item.rest}
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+
+  <section aria-labelledby="facts-title">
+    <h2 id="facts-title">Một vài thông tin về sản phẩm</h2>
+    <ul class="story-facts">
+      {facts.map((fact) => <li>{fact}</li>)}
+    </ul>
+  </section>
+
+  <section class="story-contact" aria-labelledby="contact-title">
+    <h2 id="contact-title">Muốn làm vòng theo yêu cầu riêng?</h2>
+    <p>Nếu mẹ muốn làm hoặc mix vòng theo yêu cầu riêng, nhắn Zalo cho shop nhé:</p>
+    <div class="story-contact-links">
+      {
+        contacts.map((contact) => (
+          <a class="btn btn-primary" href={`https://zalo.me/${contact.phone}`} target="_blank" rel="noopener noreferrer">
+            Zalo {contact.label}
+          </a>
+        ))
+      }
+    </div>
+  </section>
+</div>

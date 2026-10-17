@@ -299,6 +299,21 @@ export async function updateMediaAlt(db: AppDb, id: number, altText: string): Pr
   await db.update(media).set({ altText: altText.slice(0, 200) }).where(eq(media.id, id));
 }
 
+export type MediaRef = { url: string; alt: string; width: number | null; height: number | null };
+
+/** Lấy nhanh url/alt/kích thước cho một nhóm media id (ví dụ ảnh hero/OG của landing). */
+export async function mediaMapByIds(db: AppDb, ids: number[]): Promise<Map<number, MediaRef>> {
+  const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
+  const map = new Map<number, MediaRef>();
+  if (unique.length === 0) return map;
+  const rows = await db
+    .select({ id: media.id, key: media.r2Key, alt: media.altText, width: media.width, height: media.height })
+    .from(media)
+    .where(inArray(media.id, unique));
+  for (const row of rows) map.set(row.id, { url: routes.media(row.key), alt: row.alt ?? '', width: row.width, height: row.height });
+  return map;
+}
+
 export async function deleteMedia(
   db: AppDb,
   bucket: R2Bucket,

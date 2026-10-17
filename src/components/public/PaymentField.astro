@@ -1,0 +1,30 @@
+---
+import { DEFAULT_PAYMENT_METHOD, PAYMENT_METHODS } from '../../features/orders/payment';
+
+interface Props {
+  value?: string;
+  error?: string;
+  small?: boolean;
+}
+
+const { value = '', error = '', small = false } = Astro.props;
+const selected = PAYMENT_METHODS.some((method) => method.value === value) ? value : DEFAULT_PAYMENT_METHOD;
+---
+
+<fieldset class="mt-4">
+  <legend class:list={['mb-1 font-semibold', small && 'text-sm']}>Hình thức thanh toán</legend>
+  <div class="pay-list">
+    {
+      PAYMENT_METHODS.map((method) => (
+        <label class="pay-option">
+          <input type="radio" name="paymentMethod" value={method.value} checked={selected === method.value} required />
+          <span>
+            <span class="pay-label">{method.label}</span>
+            {method.hint && <span class="pay-hint">{method.hint}</span>}
+          </span>
+        </label>
+      ))
+    }
+  </div>
+  {error && <span class="error-text">{error}</span>}
+</fieldset>

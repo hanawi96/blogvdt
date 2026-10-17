@@ -1,0 +1,166 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { listLandings, LANDING_STATUS_LABELS, type LandingStatus } from '../../../features/landings/landings';
+import { createDb } from '../../../lib/db/client';
+import { getDbBinding } from '../../../lib/cloudflare/env';
+import { formatDateTime } from '../../../lib/datetime';
+import { routes } from '../../../lib/routes';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+if (session.role !== 'admin') return new Response('Bạn không có quyền vào trang này.', { status: 403 });
+
+const query = Astro.url.searchParams.get('q') ?? '';
+const page = Number(Astro.url.searchParams.get('page') ?? '1');
+const saved = Astro.url.searchParams.get('saved') === '1';
+const deleted = Astro.url.searchParams.get('deleted') === '1';
+const listError = (Astro.url.searchParams.get('error') ?? '').slice(0, 200);
+
+let loadError = '';
+let result: Awaited<ReturnType<typeof listLandings>> | null = null;
+try {
+  const db = createDb(getDbBinding());
+  result = await listLandings(db, { query, page: Number.isInteger(page) ? page : 1 });
+} catch (error) {
+  console.error(JSON.stringify({ event: 'landing_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
+  loadError = 'Không tải được danh sách trang đích.';
+}
+
+function pageHref(next: number): string {
+  const params = new URLSearchParams();
+  if (query) params.set('q', query);
+  if (next > 1) params.set('page', String(next));
+  const text = params.toString();
+  return text ? `${routes.adminLandings}?${text}` : routes.adminLandings;
+}
+---
+
+<AdminLayout title="Trang đích">
+  <p slot="lead">{result && result.total > 0 ? `${result.total} trang đích để chạy quảng cáo` : 'Trang đích để chạy quảng cáo và đo chuyển đổi'}</p>
+  <a slot="action" class="btn btn-primary" href={routes.adminLandingNew}>Tạo trang đích</a>
+  {saved && <p class="mb-4 text-primary-strong" role="status">Đã lưu trang đích.</p>}
+  {deleted && <p class="mb-4 text-primary-strong" role="status">Đã xóa trang đích.</p>}
+  {listError && <p class="error-text mb-4" role="alert">{listError}</p>}
+  {loadError && <p class="error-text" role="alert">{loadError}</p>}
+  {
+    result && result.total === 0 && !query ? (
+      <section class="cms-empty">
+        <span class="cms-empty-icon" aria-hidden="true">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3.5" y="4" width="17" height="16" rx="2" />
+            <path d="M3.5 9h17M7 13h6M7 16.5h4" />
+            <circle cx="16.5" cy="15.5" r="2.4" />
+            <path d="m18.4 17.4 1.6 1.6" />
+          </svg>
+        </span>
+        <h2 class="cms-empty-title">Chưa có trang đích nào</h2>
+        <p class="cms-empty-text">
+          Tạo trang đích riêng cho mỗi chiến dịch quảng cáo để thử nghiệm nội dung và theo dõi tỉ lệ chuyển đổi.
+          Mỗi trang có đường dẫn riêng dạng <code>/lp/&lt;slug&gt;</code>, mặc định ẩn khỏi Google.
+        </p>
+        <ul class="cms-empty-points">
+          <li>Dựng trang bằng các khối: Hero, Ảnh, Văn bản, Lợi ích, Lưới sản phẩm, CTA.</li>
+          <li>Khách chọn mẫu và đặt hàng ngay trên trang.</li>
+          <li>Xem lượt truy cập, số đơn và tỉ lệ chuyển đổi của từng trang.</li>
+        </ul>
+        <a class="btn btn-primary" href={routes.adminLandingNew}>Tạo trang đích đầu tiên</a>
+      </section>
+    ) : result ? (
+      <>
+        <form class="post-toolbar" method="get">
+          <label class="sr-only" for="landing-query">Tìm trang đích</label>
+          <input id="landing-query" class="field" name="q" value={query} placeholder="Tìm theo tiêu đề..." maxlength="180" />
+          <button class="btn" type="submit">Tìm</button>
+        </form>
+        {result.rows.length === 0 ? (
+          <p class="post-empty">Không có trang đích khớp từ khóa.</p>
+        ) : (
+          <table class="post-table">
+            <thead>
+              <tr>
+                <th>Tiêu đề</th>
+                <th>Trạng thái</th>
+                <th title="Lượt mở trang">Lượt xem</th>
+                <th title="Số đơn phát sinh từ trang này">Đơn</th>
+                <th title="Tỉ lệ đơn trên lượt xem">Chuyển đổi</th>
+                <th>Đường dẫn</th>
+                <th>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.rows.map((landing) => {
+                const published = landing.status === 'published';
+                return (
+                  <tr>
+                    <td><a class="post-title" href={routes.adminLanding(landing.id)}>{landing.title}</a></td>
+                    <td data-label="Trạng thái">
+                      <span class="post-status" data-status={published ? 'published' : 'draft'}>
+                        {LANDING_STATUS_LABELS[landing.status as LandingStatus] ?? landing.status}
+                      </span>
+                    </td>
+                    <td data-label="Lượt xem">{landing.views.toLocaleString('vi-VN')}</td>
+                    <td data-label="Đơn">{landing.orders.toLocaleString('vi-VN')}</td>
+                    <td data-label="Chuyển đổi">{landing.conversion === null ? '—' : `${landing.conversion}%`}</td>
+                    <td data-label="Đường dẫn"><code>/lp/{landing.slug}</code></td>
+                    <td>
+                      <div class="post-actions">
+                        <a href={routes.adminLanding(landing.id)}>Sửa</a>
+                        <span class="post-actions-sep" aria-hidden="true">|</span>
+                        {published ? (
+                          <a href={routes.landing(landing.slug)} target="_blank" rel="noopener">Xem</a>
+                        ) : (
+                          <a href={`${routes.landing(landing.slug)}?preview=1`} target="_blank" rel="noopener">Xem thử</a>
+                        )}
+                        <details class="row-menu">
+                          <summary aria-label={`Thao tác khác: ${landing.title}`}>⋯</summary>
+                          <div>
+                            <form
+                              method="post"
+                              action={routes.adminLandingDelete(landing.id)}
+                              data-confirm-title="Xóa trang đích?"
+                              data-confirm={`“${landing.title}” sẽ bị xóa. Quảng cáo đang trỏ tới đường dẫn này sẽ không còn trang để mở.`}
+                              data-confirm-ok="Xóa"
+                              data-confirm-tone="danger"
+                            >
+                              <input type="hidden" name="csrf" value={session.csrfToken} />
+                              <button type="submit">Xóa</button>
+                            </form>
+                          </div>
+                        </details>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+        {result.pageCount > 1 && (
+          <nav class="post-pager" aria-label="Phân trang">
+            {result.page > 1 && <a class="btn" href={pageHref(result.page - 1)}>Trang trước</a>}
+            <span>Trang {result.page}/{result.pageCount}</span>
+            {result.page < result.pageCount && <a class="btn" href={pageHref(result.page + 1)}>Trang sau</a>}
+          </nav>
+        )}
+      </>
+    ) : null
+  }
+</AdminLayout>
+
+<script>
+  document.addEventListener('toggle', (event) => {
+    const menu = event.target;
+    if (!(menu instanceof HTMLDetailsElement) || !menu.open || !menu.classList.contains('row-menu')) return;
+    for (const other of document.querySelectorAll('details.row-menu[open]')) {
+      if (other !== menu && other instanceof HTMLDetailsElement) other.open = false;
+    }
+  }, true);
+
+  document.addEventListener('pointerdown', (event) => {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    for (const menu of document.querySelectorAll('details.row-menu[open]')) {
+      if (menu instanceof HTMLDetailsElement && !menu.contains(target)) menu.open = false;
+    }
+  });
+</script>

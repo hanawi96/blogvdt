@@ -94,3 +94,61 @@ Remove-Item Env:ADMIN_PASSWORD
 ```
 
 Hash in ra có dạng `pbkdf2-sha256$100000$...`. Không ghi mật khẩu vào Git, `.dev.vars` hay README. Cookie phiên trên HTTPS có cờ `Secure`.
+
+## Deploy production (Cloudflare Workers)
+
+Tài nguyên production dùng cờ `--remote`. `wrangler.jsonc` đã có `database_id` thật và binding `MEDIA`.
+Giai đoạn chạy thử trên `*.workers.dev`: giữ `ENVIRONMENT = "staging"` trong `wrangler.jsonc` để toàn site `noindex`
+(không cho Google index tên miền tạm). Khi có domain thật, đổi `SITE_URL` và `ENVIRONMENT = "production"` rồi deploy lại.
+
+### Lần đầu
+
+```powershell
+# 1. Đăng nhập (một lần)
+npx wrangler login
+
+# 2. Tạo D1 + R2 trên Cloudflare (một lần). Dán database_id vào wrangler.jsonc nếu chưa có.
+npx wrangler d1 create vong-dau-tam
+npx wrangler r2 bucket create vong-dau-tam-media
+
+# 3. Áp toàn bộ migration lên D1 production
+npx wrangler d1 migrations apply vong-dau-tam --remote
+
+# 4. Tạo tài khoản admin production (KHÔNG seed). Sinh hash rồi chèn vào D1 thật.
+$env:ADMIN_PASSWORD = "mat-khau-that-tren-16-ky-tu"
+npm run hash:admin
+Remove-Item Env:ADMIN_PASSWORD
+# Copy chuỗi pbkdf2-sha256$... rồi thay vào <HASH> dưới đây (đổi <username> nếu muốn):
+npx wrangler d1 execute vong-dau-tam --remote --command "INSERT INTO admin_users (username, display_name, role, status, password_hash, created_at, updated_at) VALUES ('admin', 'Quản trị', 'admin', 'active', '<HASH>', 0, 0);"
+
+# 5. Build + deploy
+npm run build
+npx wrangler deploy
+```
+
+Sau `wrangler deploy`, URL thử có dạng `https://vong-dau-tam.<tài-khoản>.workers.dev`.
+Đăng nhập `/admin`, vào Cài đặt để nhập tên site, logo, SĐT, SEO, mã theo dõi.
+
+### Gắn domain thật (khi đã mua)
+
+1. Thêm domain vào Cloudflare (đổi nameserver).
+2. Dashboard → Workers → `vong-dau-tam` → Custom Domains → thêm domain.
+3. Trong `wrangler.jsonc`: đặt `SITE_URL = "https://ten-mien.com"` và `ENVIRONMENT = "production"`.
+4. `npm run build` rồi `npx wrangler deploy`. Lúc này trang công khai mới được Google index.
+
+### Cập nhật về sau
+
+```powershell
+# Có migration mới thì áp trước:
+npx wrangler d1 migrations apply vong-dau-tam --remote
+npm run build
+npx wrangler deploy
+```
+
+### Backup production
+
+```powershell
+npx wrangler d1 export vong-dau-tam --remote --output .\backup-prod.sql
+```
+
+File backup chứa đơn hàng và thông tin khách. Không commit. Ảnh nằm ở R2, backup riêng theo `r2_key`.

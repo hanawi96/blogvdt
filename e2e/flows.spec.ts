@@ -135,7 +135,6 @@ test('bài cũ và màn hình điện thoại', async ({ page }) => {
 
 test('đặt hàng và xử lý đơn', async ({ page }) => {
   await page.goto('/san-pham/vong-to-tam-tron');
-  await page.getByLabel('Lựa chọn').selectOption('Size vừa');
   await page.getByLabel('Số lượng').fill('1');
   await page.getByLabel('Họ tên').fill('Khách E2E');
   await page.getByLabel('Số điện thoại').fill(ORDER_PHONE);
@@ -143,7 +142,7 @@ test('đặt hàng và xử lý đơn', async ({ page }) => {
   await page.getByRole('button', { name: 'Gửi đơn' }).click();
   await expect(page).toHaveURL(/\/dat-hang\/thanh-cong\?ma=VD\d{8}-\d{4}$/);
   expect(page.url()).not.toContain(ORDER_PHONE);
-  await expect(page.locator('#noi-dung h1')).toHaveText('Đã nhận đơn');
+  await expect(page.locator('#noi-dung h1')).toHaveText('Cảm ơn mẹ đã đặt hàng');
   const code = new URL(page.url()).searchParams.get('ma') ?? '';
 
   await login(page);

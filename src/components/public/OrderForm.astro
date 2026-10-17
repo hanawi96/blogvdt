@@ -1,26 +1,30 @@
 ---
 import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
+import { weightOptions, type WeightScale } from '../../features/products/weight';
+import PaymentField from './PaymentField.astro';
 import { routes } from '../../lib/routes';
 import type { FieldErrors } from '../../lib/validation/errors';
 
 interface Props {
-  product: { slug: string; options: string[] };
+  product: { slug: string; weightScale: WeightScale };
   values?: {
     customerName: string;
     phone: string;
     address: string;
     note: string;
     quantity: string;
-    option: string;
+    weight: string;
+    paymentMethod: string;
   };
   errors?: FieldErrors;
 }
 
 const {
   product,
-  values = { customerName: '', phone: '', address: '', note: '', quantity: '1', option: '' },
+  values = { customerName: '', phone: '', address: '', note: '', quantity: '1', weight: '', paymentMethod: '' },
   errors = {},
 } = Astro.props;
+const weights = weightOptions(product.weightScale);
 ---
 
 <form class="mt-6" method="post" action={routes.checkout} data-order-form>
@@ -30,19 +34,19 @@ const {
     <input id="company" name="company" tabindex="-1" autocomplete="off" />
   </div>
   {
-    product.options.length > 0 && (
-      <label class="block" for="option">
-        <span class="mb-1 block font-semibold">Lựa chọn</span>
-        <select id="option" class="field" name="option" required>
-          <option value="">Chọn</option>
-          {product.options.map((option) => (
-            <option value={option} selected={values.option === option}>
-              {option}
-            </option>
+    weights.length > 0 && (
+      <fieldset class="mt-4">
+        <legend class="mb-1 font-semibold">Cân nặng của bé</legend>
+        <div class="weight-grid mt-2" role="radiogroup">
+          {weights.map((weight, index) => (
+            <label class="weight-chip">
+              <input type="radio" name="weight" value={weight} required={index === 0} checked={values.weight === weight} />
+              <span>{weight}</span>
+            </label>
           ))}
-        </select>
-        {errors.option && <span class="error-text">{errors.option}</span>}
-      </label>
+        </div>
+        {errors.weight && <span class="error-text">{errors.weight}</span>}
+      </fieldset>
     )
   }
   <label class="mt-4 block" for="quantity">
@@ -50,6 +54,7 @@ const {
     <input id="quantity" class="field" name="quantity" type="number" min="1" max={ORDER_MAX_QUANTITY} required value={values.quantity} />
     {errors.quantity && <span class="error-text">{errors.quantity}</span>}
   </label>
+  <PaymentField value={values.paymentMethod} error={errors.paymentMethod} />
   <label class="mt-4 block" for="customer-name">
     <span class="mb-1 block font-semibold">Họ tên</span>
     <input id="customer-name" class="field" name="customerName" required maxlength="80" autocomplete="name" value={values.customerName} />
@@ -70,7 +75,7 @@ const {
     <textarea id="note" class="field min-h-20" name="note" maxlength="500">{values.note}</textarea>
     {errors.note && <span class="error-text">{errors.note}</span>}
   </label>
-  <button class="btn btn-accent mt-6" type="submit">Gửi đơn</button>
+  <button class="btn btn-primary mt-6 w-full" type="submit">Gửi đơn</button>
 </form>
 <script>
   document.querySelectorAll('form[data-order-form]').forEach((form) => {

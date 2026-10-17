@@ -1,0 +1,257 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { activityActor } from '../../features/activity/log';
+import { mutationError } from '../../features/auth/session';
+import {
+  DEFAULT_ROUND_STEP,
+  DEFAULT_TARGET_MARGIN,
+  LOW_MARGIN_PERCENT,
+  MAX_TARGET_MARGIN,
+  ROUND_STEPS,
+  marginTone,
+  parseRoundStep,
+  parseTargetMargin,
+  profitOf,
+  suggestedPrice,
+} from '../../features/materials/costing';
+import { PRICING_APPLY_MAX, applySuggestedPrices, listPricingRows } from '../../features/materials/pricing';
+import { isProductStatus, PRODUCT_STATUS_LABELS } from '../../features/products/status';
+import { createDb } from '../../lib/db/client';
+import { getDbBinding } from '../../lib/cloudflare/env';
+import { formatVnd } from '../../lib/money';
+import { routes } from '../../lib/routes';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+if (session.role !== 'admin') {
+  return new Response('Bạn không có quyền vào trang này.', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+}
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+
+const PAGE_SIZE = PRICING_APPLY_MAX;
+const db = createDb(getDbBinding());
+const params = Astro.url.searchParams;
+const margin = parseTargetMargin(params.get('bien'));
+const step = parseRoundStep(params.get('lam-tron'));
+const filter = params.get('loc') === 'tat-ca' ? 'tat-ca' : 'thap';
+const pageParam = Number(params.get('page') ?? '1');
+const page = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1;
+const notice = params.get('notice') ?? '';
+const errorCode = params.get('error') ?? '';
+const count = Number(params.get('n') ?? '0');
+const unchanged = Number(params.get('u') ?? '0');
+let loadError = '';
+
+function listHref(next: { margin: number; step: number; filter: string; page?: number; extra?: Record<string, string> }): string {
+  const query = new URLSearchParams();
+  if (next.margin !== DEFAULT_TARGET_MARGIN) query.set('bien', String(next.margin));
+  if (next.step !== DEFAULT_ROUND_STEP) query.set('lam-tron', String(next.step));
+  if (next.filter === 'tat-ca') query.set('loc', 'tat-ca');
+  if (next.page && next.page > 1) query.set('page', String(next.page));
+  for (const [key, value] of Object.entries(next.extra ?? {})) query.set(key, value);
+  const text = query.toString();
+  return text ? `${routes.adminPricing}?${text}` : routes.adminPricing;
+}
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const read = (name: string) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value : '';
+  };
+  const blocked = mutationError(Astro.request, session, form);
+  const postMargin = parseTargetMargin(read('bien'));
+  const postStep = parseRoundStep(read('lam-tron'));
+  const postFilter = read('loc') === 'tat-ca' ? 'tat-ca' : 'thap';
+  if (blocked) {
+    Astro.response.status = 403;
+    loadError = blocked;
+  } else if (read('intent') === 'apply') {
+    const ids = form
+      .getAll('ids')
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value > 0);
+    const back = { margin: postMargin, step: postStep, filter: postFilter };
+    if (ids.length === 0) return Astro.redirect(listHref({ ...back, extra: { error: 'none' } }), 303);
+    if (ids.length > PRICING_APPLY_MAX) return Astro.redirect(listHref({ ...back, extra: { error: 'toomany' } }), 303);
+    const result = await applySuggestedPrices(db, ids, postMargin, postStep, await activityActor(db, session.userId));
+    return Astro.redirect(listHref({ ...back, extra: { notice: 'applied', n: String(result.updated), u: String(result.unchanged) } }), 303);
+  } else {
+    Astro.response.status = 422;
+    loadError = 'Thao tác không hợp lệ.';
+  }
+}
+
+let listed: Awaited<ReturnType<typeof listPricingRows>> | null = null;
+try {
+  listed = await listPricingRows(db);
+} catch (error) {
+  console.error(JSON.stringify({ event: 'pricing_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
+  loadError = loadError || 'Không tải được danh sách sản phẩm.';
+}
+
+// Chỉ sản phẩm có giá vốn lớn hơn 0 mới có giá đề xuất.
+const computed = (listed?.rows ?? []).flatMap((row) => {
+  const suggested = suggestedPrice(row.cost, margin, step);
+  if (suggested === null) return [];
+  const { marginPercent } = profitOf(row.price, row.cost);
+  return [{ ...row, suggested, diff: suggested - row.price, marginPercent, tone: marginTone(marginPercent) }];
+});
+const below = computed.filter((row) => row.suggested > row.price);
+const shown = filter === 'tat-ca' ? computed : below;
+const pageCount = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
+const current = Math.min(page, pageCount);
+const visible = shown.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
+const base = { margin, step, filter };
+
+const noticeText =
+  notice === 'applied'
+    ? count > 0
+      ? `Đã đổi giá bán ${count} sản phẩm theo giá đề xuất.${unchanged > 0 ? ` ${unchanged} sản phẩm giữ nguyên vì giá đã khớp hoặc chưa có giá vốn.` : ''}`
+      : 'Không có sản phẩm nào cần đổi giá.'
+    : '';
+const errorText = errorCode === 'none' ? 'Chưa chọn sản phẩm nào.' : errorCode === 'toomany' ? `Mỗi lần chỉ áp dụng tối đa ${PRICING_APPLY_MAX} sản phẩm.` : '';
+const stepLabels: Record<number, string> = { 1: 'Không làm tròn', 500: '500 ₫', 1000: '1.000 ₫', 5000: '5.000 ₫', 10000: '10.000 ₫' };
+---
+
+<AdminLayout title="Định giá bán">
+  <p slot="lead">Giá bán đề xuất theo giá vốn nguyên liệu. Giá chỉ đổi khi bạn bấm áp dụng.</p>
+  {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
+  {noticeText && <p class="mb-4 text-primary-strong" role="status">{noticeText}</p>}
+  {errorText && <p class="error-text mb-4" role="alert">{errorText}</p>}
+  {
+    listed && computed.length === 0 ? (
+      <section class="cms-empty">
+        <span class="cms-empty-icon" aria-hidden="true">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4.5 12.5V6.2A1.7 1.7 0 0 1 6.2 4.5h6.3L19.5 11.5l-7 7-8-6zM9.7 8.3a1.35 1.35 0 1 0 0-2.7 1.35 1.35 0 0 0 0 2.7z" />
+          </svg>
+        </span>
+        <h2 class="cms-empty-title">Chưa có sản phẩm nào có giá vốn</h2>
+        <p class="cms-empty-text">Thêm nguyên liệu cho sản phẩm để hệ thống tính giá vốn và đề xuất giá bán.</p>
+        <a class="btn btn-primary" href={routes.adminMaterials}>Quản lý nguyên liệu</a>
+      </section>
+    ) : listed ? (
+      <>
+        <form class="pricing-controls" method="get" action={routes.adminPricing}>
+          <label>
+            <span>Biên mục tiêu (%)</span>
+            <input class="field" name="bien" type="number" inputmode="numeric" min="0" max={MAX_TARGET_MARGIN} value={margin} />
+          </label>
+          <label>
+            <span>Làm tròn lên</span>
+            <select class="field" name="lam-tron">
+              {ROUND_STEPS.map((item) => <option value={item} selected={step === item}>{stepLabels[item]}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>Hiển thị</span>
+            <select class="field" name="loc">
+              <option value="thap" selected={filter === 'thap'}>Chưa đạt biên mục tiêu</option>
+              <option value="tat-ca" selected={filter === 'tat-ca'}>Tất cả sản phẩm có giá vốn</option>
+            </select>
+          </label>
+          <button class="btn" type="submit">Cập nhật</button>
+        </form>
+        <p class="pricing-summary">
+          {computed.length} sản phẩm có giá vốn · <strong>{below.length}</strong> chưa đạt biên {margin}% · cảnh báo khi biên dưới {LOW_MARGIN_PERCENT}%
+        </p>
+        {listed.truncated && <p class="pricing-summary">Chỉ hiển thị 500 sản phẩm đầu tiên theo tên.</p>}
+        {visible.length === 0 ? (
+          <p class="post-empty">Mọi sản phẩm đã đạt biên mục tiêu {margin}%.</p>
+        ) : (
+          <form
+            method="post"
+            data-pricing-form
+            data-busy
+            data-confirm-title="Đổi giá bán theo giá đề xuất?"
+            data-confirm={`Giá bán của các sản phẩm đã chọn sẽ đổi ngay trên website (biên mục tiêu ${margin}%). Giá cũ không được lưu lại, chỉ ghi số lượng vào nhật ký.`}
+            data-confirm-ok="Đổi giá"
+          >
+            <input type="hidden" name="csrf" value={session.csrfToken} />
+            <input type="hidden" name="intent" value="apply" />
+            <input type="hidden" name="bien" value={margin} />
+            <input type="hidden" name="lam-tron" value={step} />
+            <input type="hidden" name="loc" value={filter} />
+            <table class="post-table pricing-table">
+              <thead>
+                <tr>
+                  <th class="product-check">
+                    <input type="checkbox" aria-label="Chọn tất cả sản phẩm trên trang này" data-pricing-all />
+                  </th>
+                  <th>Sản phẩm</th>
+                  <th>Giá vốn</th>
+                  <th>Giá hiện tại</th>
+                  <th>Giá đề xuất</th>
+                  <th>Thay đổi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((row) => (
+                  <tr>
+                    <td class="product-check">
+                      <input type="checkbox" name="ids" value={row.id} aria-label={`Chọn ${row.name}`} data-pricing-row />
+                    </td>
+                    <td>
+                      <a class="post-title" href={routes.adminProduct(row.id)}>{row.name}</a>
+                      {isProductStatus(row.status) && row.status !== 'active' && <span class="material-off">{PRODUCT_STATUS_LABELS[row.status]}</span>}
+                    </td>
+                    <td data-label="Giá vốn">{formatVnd(row.cost)}</td>
+                    <td data-label="Giá hiện tại">
+                      {formatVnd(row.price)}
+                      <span class="pricing-margin" data-tone={row.tone}>biên {row.marginPercent === null ? '—' : `${row.marginPercent}%`}</span>
+                    </td>
+                    <td data-label="Giá đề xuất"><strong class="material-price">{formatVnd(row.suggested)}</strong></td>
+                    <td data-label="Thay đổi">
+                      <span class="pricing-diff" data-direction={row.diff > 0 ? 'up' : row.diff < 0 ? 'down' : 'same'}>
+                        {row.diff > 0 ? '+' : row.diff < 0 ? '−' : ''}{formatVnd(Math.abs(row.diff))}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div class="pricing-bar">
+              <span data-pricing-count aria-live="polite">Đã chọn 0</span>
+              <button class="btn btn-primary" type="submit" data-pricing-apply>Áp dụng giá đề xuất cho sản phẩm đã chọn</button>
+            </div>
+            <p class="pricing-summary">Giá gốc (gạch ngang trên website) không đổi. Chọn tối đa {PRICING_APPLY_MAX} sản phẩm mỗi lần.</p>
+          </form>
+        )}
+        {pageCount > 1 && (
+          <nav class="post-pager" aria-label="Phân trang">
+            {current > 1 && <a class="btn" href={listHref({ ...base, page: current - 1 })}>Trang trước</a>}
+            <span>Trang {current}/{pageCount}</span>
+            {current < pageCount && <a class="btn" href={listHref({ ...base, page: current + 1 })}>Trang sau</a>}
+          </nav>
+        )}
+      </>
+    ) : null
+  }
+</AdminLayout>
+
+<script>
+  const form = document.querySelector('[data-pricing-form]');
+  if (form instanceof HTMLFormElement) {
+    const all = form.querySelector('[data-pricing-all]');
+    const rows = Array.from(form.querySelectorAll<HTMLInputElement>('[data-pricing-row]'));
+    const count = form.querySelector('[data-pricing-count]');
+    const apply = form.querySelector('[data-pricing-apply]');
+    const sync = () => {
+      const picked = rows.filter((row) => row.checked).length;
+      if (count) count.textContent = `Đã chọn ${picked}`;
+      if (apply instanceof HTMLButtonElement) apply.disabled = picked === 0;
+      if (all instanceof HTMLInputElement) {
+        all.checked = picked > 0 && picked === rows.length;
+        all.indeterminate = picked > 0 && picked < rows.length;
+      }
+    };
+    all?.addEventListener('change', () => {
+      if (!(all instanceof HTMLInputElement)) return;
+      for (const row of rows) row.checked = all.checked;
+      sync();
+    });
+    for (const row of rows) row.addEventListener('change', sync);
+    sync();
+  }
+</script>

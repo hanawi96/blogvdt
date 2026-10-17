@@ -1,6 +1,7 @@
 ---
 import DataError from '../../components/public/DataError.astro';
 import { getPublicSite } from '../../features/settings/settings';
+import { EMPTY_TRACKING } from '../../features/tracking/tracking';
 import PublicLayout from '../../layouts/PublicLayout.astro';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
@@ -29,17 +30,87 @@ Astro.response.headers.set('X-Robots-Tag', 'noindex');
   siteName={site?.siteName}
   faviconUrl={site?.faviconUrl || '/favicon.svg'}
   chrome={site}
+  tracking={site?.tracking ?? EMPTY_TRACKING}
+  trackEvent="lead"
 >
   {
     !site ? (
       <DataError failed={failed} />
     ) : (
-      <main class="mx-auto max-w-xl px-4 py-16">
-        <h1 class="text-3xl font-semibold">Đã nhận đơn</h1>
-        {shown && <p class="mt-4">Mã đơn: <strong>{shown}</strong></p>}
-        <p class="mt-4 text-muted">Xưởng sẽ liên hệ qua số điện thoại đã gửi. Không cần thanh toán trên website.</p>
-        <p class="mt-6"><a href={routes.home}>Về trang chủ</a></p>
+      <main class="done-page">
+        <section class="done-hero" aria-labelledby="done-title">
+          <span class="done-icon" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12.5l4.5 4.5L19 7.5" />
+            </svg>
+          </span>
+          <h1 id="done-title">Cảm ơn mẹ đã đặt hàng</h1>
+          <p class="done-lead">Đơn của mẹ đã được ghi nhận. Xưởng sẽ gọi cho mẹ sớm để xác nhận nhé.</p>
+          {
+            shown && (
+              <div class="done-code">
+                <span>Mã đơn của mẹ</span>
+                <strong data-done-code>{shown}</strong>
+                <button class="done-copy" type="button" data-done-copy hidden>Sao chép mã</button>
+              </div>
+            )
+          }
+        </section>
+
+        <section class="done-card" aria-labelledby="done-steps-title">
+          <h2 id="done-steps-title">Tiếp theo sẽ như thế nào?</h2>
+          <ol class="done-steps">
+            <li>
+              <strong>Xưởng gọi xác nhận</strong>
+              <span>Xưởng gọi vào số điện thoại mẹ đã gửi để xác nhận đơn, cân nặng của bé và địa chỉ nhận hàng.</span>
+            </li>
+            <li>
+              <strong>Làm vòng cho bé</strong>
+              <span>Vòng được làm thủ công theo thông tin mẹ đã chọn.</span>
+            </li>
+            <li>
+              <strong>Giao hàng và thanh toán</strong>
+              <span>Mẹ chưa cần thanh toán trên website. Xưởng sẽ báo thời gian giao và cách thanh toán khi gọi xác nhận.</span>
+            </li>
+          </ol>
+          <p class="done-tip">Mẹ nhớ để ý điện thoại giúp xưởng nhé. Cần hỏi gì, mẹ cứ gửi kèm mã đơn.</p>
+        </section>
+
+        {
+          (site.phone || site.zaloUrl) && (
+            <section class="done-card" aria-labelledby="done-help-title">
+              <h2 id="done-help-title">Cần hỗ trợ ngay?</h2>
+              <div class="done-help">
+                {site.phone && <a class="btn" href={`tel:${site.phone.replace(/[^\d+]/g, '')}`}>Gọi {site.phone}</a>}
+                {site.zaloUrl && <a class="btn" href={site.zaloUrl} target="_blank" rel="noopener noreferrer">Nhắn Zalo</a>}
+              </div>
+            </section>
+          )
+        }
+
+        <div class="done-actions">
+          <a class="btn btn-primary" href={routes.catalog}>Xem thêm mẫu vòng</a>
+          <a class="btn" href={routes.home}>Về trang chủ</a>
+        </div>
       </main>
     )
   }
 </PublicLayout>
+<script>
+  const copy = document.querySelector('[data-done-copy]');
+  const code = document.querySelector('[data-done-code]');
+  if (copy instanceof HTMLButtonElement && code) {
+    copy.hidden = false;
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(code.textContent ?? '');
+        copy.textContent = 'Đã sao chép';
+        window.setTimeout(() => {
+          copy.textContent = 'Sao chép mã';
+        }, 1500);
+      } catch {
+        // Trình duyệt chặn clipboard: mẹ vẫn chọn và chép mã thủ công được.
+      }
+    });
+  }
+</script>

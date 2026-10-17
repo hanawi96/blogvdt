@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, gte, gt, inArray, isNull, like, lt, or } fro
 import type { AppDb } from '../../lib/db/client';
 import { routes } from '../../lib/routes';
 import { orderItems, orders } from '../../lib/db/schema';
+import { activityWrite, commitWrites, type ActivityActor } from '../activity/log';
 import {
   formatOrderCode,
   isRecentDuplicate,
@@ -114,6 +115,9 @@ export async function getOrder(db: AppDb, id: number) {
       quantity: orders.quantity,
       optionLabel: orders.optionLabel,
       totalPrice: orders.totalPrice,
+      paymentMethod: orders.paymentMethod,
+      costGoods: orders.costGoods,
+      costExtra: orders.costExtra,
       status: orders.status,
       createdAt: orders.createdAt,
       updatedAt: orders.updatedAt,
@@ -152,6 +156,41 @@ export async function updateOrderStatus(
     await db.update(orders).set({ status, updatedAt: now }).where(eq(orders.id, id));
   }
   return { ok: true, updatedAt: now };
+}
+
+// Xóa vĩnh viễn một đơn cùng các dòng sản phẩm. Nhật ký chỉ ghi mã đơn, không ghi thông tin khách.
+// Nhật ký chạy sau lệnh xóa đơn và chỉ ghi khi lệnh đó thật sự xóa được dòng nào (changes() > 0).
+export async function deleteOrder(
+  db: AppDb,
+  id: number,
+  actor?: ActivityActor,
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const rows = await db.select({ code: orders.code }).from(orders).where(eq(orders.id, id)).limit(1);
+  const current = rows[0];
+  if (!current) return { ok: false, error: 'Không tìm thấy đơn hàng.' };
+  await commitWrites(db, [
+    db.delete(orderItems).where(eq(orderItems.orderId, id)),
+    db.delete(orders).where(eq(orders.id, id)),
+    ...(actor
+      ? [
+          activityWrite(
+            db,
+            {
+              actorId: actor.id,
+              actorName: actor.name,
+              action: 'order.delete',
+              objectType: 'order',
+              objectId: String(id),
+              summary: `Đã xóa đơn ${current.code}.`,
+              createdAt: now,
+            },
+            true,
+          ),
+        ]
+      : []),
+  ]);
+  return { ok: true };
 }
 
 export async function updateOrderNote(
@@ -218,8 +257,10 @@ export async function placeOrder(
         quantity: draft.quantity,
         optionLabel: draft.optionLabel,
         totalPrice: draft.totalPrice,
+        paymentMethod: draft.paymentMethod,
         status: 'new',
         ipHash,
+        landingSlug: draft.landingSlug,
         createdAt: now,
         updatedAt: now,
       });
@@ -280,6 +321,7 @@ export async function placeCartOrder(
           quantity: draft.quantity,
           optionLabel: null,
           totalPrice: draft.totalPrice,
+          paymentMethod: draft.paymentMethod,
           status: 'new',
           ipHash,
           createdAt: now,

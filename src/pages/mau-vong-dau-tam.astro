@@ -4,8 +4,6 @@ import DataError from '../components/public/DataError.astro';
 import Pagination from '../components/public/Pagination.astro';
 import { listSellableProductCategories } from '../features/products/categories';
 import {
-  CATALOG_CORDS,
-  CATALOG_SORTS,
   catalogFiltered,
   catalogNeedsRedirect,
   catalogPath,
@@ -13,6 +11,7 @@ import {
   readCatalogQuery,
 } from '../features/products/catalog';
 import { getPublicSite } from '../features/settings/settings';
+import OrderDialog from '../components/public/OrderDialog.astro';
 import PublicLayout from '../layouts/PublicLayout.astro';
 import { createDb } from '../lib/db/client';
 import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
@@ -24,6 +23,7 @@ if (catalogNeedsRedirect(Astro.url, query)) return Astro.redirect(catalogPath(qu
 
 const page = query.page;
 const filtered = catalogFiltered(query);
+const bestSelling = query.sort === 'ban-chay';
 const loaded = await loadCatalog();
 const outOfRange = Boolean(loaded.site) && page > loaded.pageCount && (loaded.total > 0 || page > 1);
 if (outOfRange) Astro.response.status = 404;
@@ -73,61 +73,45 @@ async function loadCatalog() {
       <main class="mx-auto max-w-6xl px-4 py-10">
         <h1 class="text-3xl font-semibold">Mẫu vòng dâu tằm</h1>
         <p class="mt-3 max-w-2xl text-muted">Vòng làm thủ công, đang nhận đặt. Giá là giá từng chiếc, chưa gồm phí giao.</p>
-        <form class="catalog-bar" method="get" action={routes.catalog}>
-          <label class="catalog-field catalog-field-search">
-            <span>Tìm</span>
-            <input class="field" type="search" name="q" value={query.q} placeholder="Tên mẫu vòng..." maxlength="80" />
-          </label>
-          <label class="catalog-field">
-            <span>Danh mục</span>
-            <select class="field" name="danh-muc" onchange="this.form.requestSubmit()">
-              <option value="" selected={query.category === ''}>Tất cả danh mục</option>
+        <div class="catalog-filters">
+          <form class="catalog-search" method="get" action={routes.catalog} role="search">
+            {query.category && <input type="hidden" name="danh-muc" value={query.category} />}
+            {query.sort !== 'mac-dinh' && <input type="hidden" name="sap-xep" value={query.sort} />}
+            <label class="sr-only" for="catalog-q">Tìm mẫu vòng</label>
+            <input id="catalog-q" class="field" type="search" name="q" value={query.q} placeholder="Tìm tên mẫu vòng..." maxlength="80" />
+            <button class="btn btn-primary" type="submit">Tìm</button>
+            {query.q && <a class="btn" href={catalogPath({ ...query, q: '' }, 1)}>Xóa</a>}
+          </form>
+          {loaded.categories.length > 0 && (
+            <nav class="catalog-chips" aria-label="Lọc theo danh mục">
+              <a class="chip" href={catalogPath({ ...query, category: '' }, 1)} aria-current={query.category === '' ? 'true' : undefined}>Tất cả</a>
               {loaded.categories.map((category) => (
-                <option value={category.slug} selected={query.category === category.slug}>{category.name}</option>
+                <a class="chip" href={catalogPath({ ...query, category: category.slug }, 1)} aria-current={query.category === category.slug ? 'true' : undefined}>
+                  {category.name}
+                </a>
               ))}
-            </select>
-          </label>
-          <label class="catalog-field">
-            <span>Kiểu dây</span>
-            <select class="field" name="day" onchange="this.form.requestSubmit()">
-              <option value="" selected={query.cord === ''}>Tất cả kiểu dây</option>
-              {CATALOG_CORDS.map((cord) => (
-                <option value={cord.value} selected={query.cord === cord.value}>{cord.label}</option>
-              ))}
-            </select>
-          </label>
-          <label class="catalog-field">
-            <span>Giá từ</span>
-            <input class="field" name="tu" inputmode="numeric" maxlength="8" value={query.min ?? ''} placeholder="VND" />
-          </label>
-          <label class="catalog-field">
-            <span>Giá đến</span>
-            <input class="field" name="den" inputmode="numeric" maxlength="8" value={query.max ?? ''} placeholder="VND" />
-          </label>
-          <label class="catalog-field">
-            <span>Sắp xếp</span>
-            <select class="field" name="sap-xep" onchange="this.form.requestSubmit()">
-              {CATALOG_SORTS.map((sort) => (
-                <option value={sort.value} selected={query.sort === sort.value}>{sort.label}</option>
-              ))}
-            </select>
-          </label>
-          <div class="catalog-actions">
-            <button class="btn btn-primary" type="submit">Lọc</button>
-            {filtered && <a class="btn" href={routes.catalog}>Bỏ lọc</a>}
-          </div>
-        </form>
+            </nav>
+          )}
+          <a
+            class="chip chip-sort"
+            href={catalogPath({ ...query, sort: bestSelling ? 'mac-dinh' : 'ban-chay' }, 1)}
+            aria-current={bestSelling ? 'true' : undefined}
+          >
+            Bán chạy nhất
+          </a>
+        </div>
         <p class="mt-4 text-muted">
           {loaded.total === 0 ? (filtered ? 'Không có mẫu khớp.' : 'Chưa có mẫu đang bán.') : loaded.total === 1 ? '1 mẫu' : `${loaded.total} mẫu`}
         </p>
         {loaded.products.length > 0 && (
-          <ul class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-4">
+          <ul class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {loaded.products.map((product, index) => (
               <li><CatalogCard product={product} eager={index < 4} /></li>
             ))}
           </ul>
         )}
         <Pagination page={page} pageCount={loaded.pageCount} hrefFor={(next) => catalogPath(query, next)} />
+        {loaded.products.length > 0 && <OrderDialog />}
       </main>
     )
   }

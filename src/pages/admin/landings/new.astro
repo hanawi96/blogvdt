@@ -1,0 +1,83 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import LandingForm from '../../../components/admin/LandingForm.astro';
+import { activityActor } from '../../../features/activity/log';
+import { mutationError } from '../../../features/auth/session';
+import { createLanding, parseLandingForm } from '../../../features/landings/landings';
+import { EMPTY_TRACKING, TRACKING_KEYS, cleanTracking } from '../../../features/tracking/tracking';
+import { listMedia } from '../../../features/media/media';
+import { listOrderCatalog } from '../../../features/products/public';
+import { createDb } from '../../../lib/db/client';
+import { getDbBinding } from '../../../lib/cloudflare/env';
+import { routes } from '../../../lib/routes';
+import type { FieldErrors } from '../../../lib/validation/errors';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+if (session.role !== 'admin') return new Response('Bạn không có quyền vào trang này.', { status: 403 });
+
+const db = createDb(getDbBinding());
+const [media, catalog] = await Promise.all([listMedia(db), listOrderCatalog(db)]);
+const products = catalog.map((item) => ({ id: item.id, name: item.name, price: item.price }));
+
+const empty = { title: '', slug: '', blocksJson: '[]', status: 'draft', robots: 'noindex', seoTitle: '', metaDescription: '', ogMediaId: '', tracking: EMPTY_TRACKING };
+let values = empty;
+let errors: FieldErrors = {};
+let formError = '';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const blocked = mutationError(Astro.request, session, form);
+  values = valuesFrom(form);
+  if (blocked) {
+    Astro.response.status = 403;
+    formError = blocked;
+  } else {
+    const parsed = parseLandingForm(form);
+    if (!parsed.ok) {
+      Astro.response.status = 422;
+      errors = parsed.errors;
+    } else {
+      const saved = await createLanding(db, parsed.input, Date.now(), await activityActor(db, session.userId));
+      if (!saved.ok) {
+        Astro.response.status = 422;
+        formError = saved.error;
+      } else {
+        return Astro.redirect(`${routes.adminLanding(saved.id)}?saved=1`, 303);
+      }
+    }
+  }
+}
+
+function valuesFrom(form: FormData) {
+  const read = (name: string) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value : '';
+  };
+  return {
+    title: read('title'),
+    slug: read('slug'),
+    blocksJson: read('blocksJson') || '[]',
+    status: read('status'),
+    robots: read('robots'),
+    seoTitle: read('seoTitle'),
+    metaDescription: read('metaDescription'),
+    ogMediaId: read('ogMediaId'),
+    tracking: cleanTracking(Object.fromEntries(TRACKING_KEYS.map((key) => [key, read(`tracking_${key}`)]))),
+  };
+}
+---
+
+<AdminLayout title="Tạo trang đích">
+  <p slot="lead">Trang đích để chạy quảng cáo. Mặc định ẩn khỏi Google.</p>
+  <LandingForm
+    csrf={session.csrfToken}
+    action={routes.adminLandingNew}
+    values={values}
+    errors={errors}
+    formError={formError}
+    media={media}
+    products={products}
+    submitLabel="Lưu trang đích"
+  />
+</AdminLayout>

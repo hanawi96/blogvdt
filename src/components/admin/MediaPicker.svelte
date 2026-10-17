@@ -53,6 +53,8 @@
   let listUsage = $state(untrack(() => libraryUsage));
   let listSort = $state(untrack(() => librarySort));
   let loading = $state(false);
+  let deleting = $state(false);
+  let confirmDeleteId = $state<number | null>(null);
   let loadError = $state('');
   let progress = $state('');
   let altDraft = $state('');
@@ -83,6 +85,8 @@
     return library.filter((item) => `${item.filename} ${item.alt}`.toLowerCase().includes(needle));
   });
   const pageCount = $derived(Math.max(1, Math.ceil(libraryTotal / Math.max(1, pageSize))));
+  // Trang quản lý khi thư viện trống hẳn: ẩn ô tìm + bộ lọc, chỉ giữ nút tải ảnh.
+  const manageEmpty = $derived(manage && libraryTotal === 0 && listQuery.trim() === '' && listUsage === 'all' && listSort === 'newest');
   const chosenItems = $derived(chosen.map((id) => library.find((item) => String(item.id) === id)).filter((item): item is MediaItem => !!item));
 
   onMount(() => {
@@ -184,6 +188,7 @@
 
   function chooseTile(item: MediaItem) {
     previewId = item.id;
+    confirmDeleteId = null;
     if (manage) {
       altDraft = item.alt;
       altStatus = '';
@@ -355,22 +360,31 @@
   }
 
   async function removeItem(item: MediaItem) {
-    if (usesOf(item).length > 0) return;
-    if (!confirm('Xóa ảnh này?')) return;
-    const body = new FormData();
-    body.set('csrf', csrf);
-    const response = await fetch(routes.adminMediaDelete(item.id), {
-      method: 'POST',
-      headers: { accept: 'application/json' },
-      body,
-    });
-    const payload = (await response.json()) as { ok?: boolean; error?: string };
-    if (!response.ok || !payload.ok) {
-      message = payload.error ?? 'Không xóa được ảnh.';
-      return;
+    if (usesOf(item).length > 0 || deleting) return;
+    deleting = true;
+    message = '';
+    try {
+      const body = new FormData();
+      body.set('csrf', csrf);
+      const response = await fetch(routes.adminMediaDelete(item.id), {
+        method: 'POST',
+        headers: { accept: 'application/json' },
+        body,
+      });
+      const payload = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!response.ok || !payload?.ok) {
+        message = payload?.error ?? 'Không xóa được ảnh.';
+        return;
+      }
+      library = library.filter((entry) => entry.id !== item.id);
+      libraryTotal = Math.max(0, libraryTotal - 1);
+      if (previewId === item.id) previewId = null;
+      confirmDeleteId = null;
+    } catch {
+      message = 'Không kết nối được. Thử lại.';
+    } finally {
+      deleting = false;
     }
-    library = library.filter((entry) => entry.id !== item.id);
-    if (previewId === item.id) previewId = null;
   }
 
   function meta(item: MediaItem): string {
@@ -403,28 +417,50 @@
     ondragleave={() => (hot = false)}
     ondrop={onDrop}
   >
-    <div class="media-library-bar">
-      <input class="field" type="search" placeholder="Tìm theo tên hoặc mô tả" value={listQuery} oninput={(event) => { listQuery = (event.currentTarget as HTMLInputElement).value; scheduleLibrary(); }} />
-      <select class="field" value={listUsage} onchange={(event) => { listUsage = (event.currentTarget as HTMLSelectElement).value as typeof listUsage; void loadPage(1); }}>
-        <option value="all">Tất cả</option>
-        <option value="used">Đang dùng</option>
-        <option value="unused">Chưa dùng</option>
-      </select>
-      <select class="field" value={listSort} onchange={(event) => { listSort = (event.currentTarget as HTMLSelectElement).value as typeof listSort; void loadPage(1); }}>
-        <option value="newest">Mới nhất</option>
-        <option value="name">Tên</option>
-        <option value="size">Dung lượng</option>
-      </select>
+    {#if manageEmpty}
+      <section class="cms-empty">
+        <span class="cms-empty-icon" aria-hidden="true">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="5" width="16" height="14" rx="2" />
+            <circle cx="9" cy="10" r="1.6" />
+            <path d="m7 17 4-4.5 3 3L17 12l3 4" />
+          </svg>
+        </span>
+        <h2 class="cms-empty-title">Thư viện ảnh đang trống</h2>
+        <p class="cms-empty-text">Tải ảnh lên để dùng chung cho sản phẩm, bài viết, trang đích và cài đặt.</p>
+        <ul class="cms-empty-points">
+          <li>Hỗ trợ JPEG, PNG, WebP; tối đa 2 MB mỗi ảnh.</li>
+          <li>Thêm mô tả (ALT) cho ảnh để tốt cho SEO và trợ năng.</li>
+          <li>Một ảnh tải một lần, dùng lại ở nhiều nơi.</li>
+        </ul>
+      </section>
+    {/if}
+    <div class="media-library-bar" class:is-empty={manageEmpty}>
+      {#if !manageEmpty}
+        <input class="field" type="search" placeholder="Tìm theo tên hoặc mô tả" value={listQuery} oninput={(event) => { listQuery = (event.currentTarget as HTMLInputElement).value; scheduleLibrary(); }} />
+        <select class="field" value={listUsage} onchange={(event) => { listUsage = (event.currentTarget as HTMLSelectElement).value as typeof listUsage; void loadPage(1); }}>
+          <option value="all">Tất cả</option>
+          <option value="used">Đang dùng</option>
+          <option value="unused">Chưa dùng</option>
+        </select>
+        <select class="field" value={listSort} onchange={(event) => { listSort = (event.currentTarget as HTMLSelectElement).value as typeof listSort; void loadPage(1); }}>
+          <option value="newest">Mới nhất</option>
+          <option value="name">Tên</option>
+          <option value="size">Dung lượng</option>
+        </select>
+      {/if}
       <button class="btn btn-primary" type="button" disabled={busy} onclick={() => fileInput?.click()}>Tải ảnh lên</button>
     </div>
     <input class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple bind:this={fileInput} onchange={onPickFile} />
     {#if progress}<p class="media-meta" role="status">{progress}</p>{/if}
     {#if message}<p class="error-text" role="alert">{message}</p>{/if}
     {#if loadError}<p class="error-text" role="alert">{loadError}</p>{/if}
-    <div class="media-layout" aria-busy={loading}>
-      {@render grid(true)}
-      {@render previewPane()}
-    </div>
+    {#if !manageEmpty}
+      <div class="media-layout" aria-busy={loading}>
+        {@render grid(true)}
+        {@render previewPane()}
+      </div>
+    {/if}
     {#if pageCount > 1}
       <div class="media-pages">
         <button class="btn" type="button" disabled={libraryPage <= 1 || loading} onclick={() => void loadPage(libraryPage - 1)}>Trước</button>
@@ -568,7 +604,17 @@
         {:else}
           <p class="media-meta">Chưa được dùng.</p>
         {/if}
-        <button class="btn btn-accent mt-3" type="button" disabled={usesOf(preview).length > 0} onclick={() => preview && void removeItem(preview)}>Xóa ảnh</button>
+        {#if confirmDeleteId === preview.id}
+          <div class="media-delete-confirm">
+            <p class="media-meta">Xóa ảnh này? Không khôi phục được.</p>
+            <div class="media-delete-actions">
+              <button class="btn" type="button" disabled={deleting} onclick={() => (confirmDeleteId = null)}>Hủy</button>
+              <button class="btn btn-accent" type="button" disabled={deleting} onclick={() => preview && void removeItem(preview)}>{deleting ? 'Đang xóa...' : 'Xác nhận xóa'}</button>
+            </div>
+          </div>
+        {:else}
+          <button class="btn btn-accent mt-3" type="button" disabled={usesOf(preview).length > 0} onclick={() => (confirmDeleteId = preview?.id ?? null)}>Xóa ảnh</button>
+        {/if}
       {/if}
     {:else}
       <p class="media-meta">Chọn một ảnh để xem trước.</p>

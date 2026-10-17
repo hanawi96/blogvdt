@@ -14,7 +14,7 @@ import { mergeMetaCorpus, siteListCorpus } from '../../lib/seo/meta';
 import { routes } from '../../lib/routes';
 import type { FieldErrors } from '../../lib/validation/errors';
 
-const TABS = ['general', 'contact', 'brand', 'seo'] as const;
+const TABS = ['general', 'contact', 'brand', 'seo', 'tracking'] as const;
 type SettingsTab = (typeof TABS)[number];
 
 const TAB_FIELDS: Record<SettingsTab, Array<keyof SiteSettingValues>> = {
@@ -22,6 +22,7 @@ const TAB_FIELDS: Record<SettingsTab, Array<keyof SiteSettingValues>> = {
   contact: ['phone', 'contact_info', 'facebook_url', 'zalo_url'],
   brand: ['logo_media_id', 'favicon_media_id'],
   seo: ['default_seo_title', 'default_seo_description', 'og_media_id'],
+  tracking: ['meta_pixel_id', 'ga_measurement_id'],
 };
 
 const session = Astro.locals.adminSession;
@@ -96,6 +97,7 @@ function tabQuery(value: string | null): string {
       <button type="button" role="tab" data-settings-tab="contact" aria-selected={activeTab === 'contact' ? 'true' : 'false'}>Liên hệ</button>
       <button type="button" role="tab" data-settings-tab="brand" aria-selected={activeTab === 'brand' ? 'true' : 'false'}>Nhận diện</button>
       <button type="button" role="tab" data-settings-tab="seo" aria-selected={activeTab === 'seo' ? 'true' : 'false'}>SEO & chia sẻ</button>
+      <button type="button" role="tab" data-settings-tab="tracking" aria-selected={activeTab === 'tracking' ? 'true' : 'false'}>Theo dõi quảng cáo</button>
     </div>
     {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
 
@@ -192,6 +194,46 @@ function tabQuery(value: string | null): string {
         <p class="seo-hint">Dùng khi trang không có ảnh riêng. Bài viết và sản phẩm vẫn dùng ảnh của chúng.</p>
         {errors.og_media_id && <span class="error-text">{errors.og_media_id}</span>}
       </fieldset>
+    </div>
+
+    <div class="settings-panel" data-settings-panel="tracking" hidden={activeTab !== 'tracking'}>
+      <p class="seo-hint mb-3">Mã theo dõi mặc định cho toàn site và các trang đích. Mỗi trang đích có thể nhập mã riêng để ghi đè. Để trống nếu chưa chạy quảng cáo.</p>
+      <label class="block">
+        <span class="mb-1 block font-semibold">Meta Pixel ID (Facebook)</span>
+        <input class="field" name="meta_pixel_id" inputmode="numeric" maxlength="40" placeholder="Ví dụ 123456789012345" value={values.meta_pixel_id} />
+        <span class="seo-hint">Lấy trong Trình quản lý sự kiện của Meta. Chỉ gồm chữ số.</span>
+        {errors.meta_pixel_id && <span class="error-text">{errors.meta_pixel_id}</span>}
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Google Analytics (GA4)</span>
+        <input class="field" name="ga_measurement_id" maxlength="40" placeholder="G-XXXXXXXXXX" value={values.ga_measurement_id} />
+        <span class="seo-hint">Dạng G-XXXXXXXXXX trong Google Analytics 4.</span>
+        {errors.ga_measurement_id && <span class="error-text">{errors.ga_measurement_id}</span>}
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Google Ads — ID chuyển đổi</span>
+        <input class="field" name="google_ads_id" maxlength="40" placeholder="AW-123456789" value={values.google_ads_id} />
+        <span class="seo-hint">Dạng AW-123456789. Dùng để đo chuyển đổi Google Ads (khác GA4).</span>
+        {errors.google_ads_id && <span class="error-text">{errors.google_ads_id}</span>}
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Google Ads — nhãn chuyển đổi</span>
+        <input class="field" name="google_ads_label" maxlength="60" placeholder="abcDEfghIJ" value={values.google_ads_label} />
+        <span class="seo-hint">Phần sau dấu gạch chéo trong mã chuyển đổi Google Ads.</span>
+        {errors.google_ads_label && <span class="error-text">{errors.google_ads_label}</span>}
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">TikTok Pixel ID</span>
+        <input class="field" name="tiktok_pixel_id" maxlength="40" placeholder="Ví dụ C9ABCD1234EF" value={values.tiktok_pixel_id} />
+        <span class="seo-hint">Lấy trong Trình quản lý sự kiện của TikTok.</span>
+        {errors.tiktok_pixel_id && <span class="error-text">{errors.tiktok_pixel_id}</span>}
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Google Tag Manager</span>
+        <input class="field" name="gtm_id" maxlength="40" placeholder="GTM-XXXXXX" value={values.gtm_id} />
+        <span class="seo-hint">Dạng GTM-XXXXXX. Cấp cho bên chạy quảng cáo để họ tự quản mọi thẻ mà không cần sửa code.</span>
+        {errors.gtm_id && <span class="error-text">{errors.gtm_id}</span>}
+      </label>
     </div>
 
     <div class="settings-save">

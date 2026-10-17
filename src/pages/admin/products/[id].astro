@@ -2,8 +2,9 @@
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import ProductForm from '../../../components/admin/ProductForm.astro';
 import { mutationError } from '../../../features/auth/session';
+import { parseRecipe, resolveRecipeLines, type RecipeLine } from '../../../features/materials/costing';
+import { listRecipeOptions, loadRecipe } from '../../../features/materials/recipes';
 import { listMedia } from '../../../features/media/media';
-import { optionsText, readOptions } from '../../../features/products/options';
 import { listProductCategories } from '../../../features/products/categories';
 import { parseProductForm } from '../../../features/products/form';
 import { getProduct, updateProduct } from '../../../features/products/products';
@@ -24,6 +25,8 @@ if (!product) return Astro.redirect(routes.adminProducts);
 
 const media = await listMedia(db);
 const categories = await listProductCategories(db);
+const currentRecipe = await loadRecipe(db, id);
+let postedRecipe: RecipeLine[] | null = null;
 let values = {
   name: product.name,
   slug: product.slug,
@@ -34,7 +37,6 @@ let values = {
   description: product.description,
   coverMediaId: product.coverMediaId ? String(product.coverMediaId) : '',
   album: product.albumIds.map(String),
-  options: optionsText(readOptions(product.optionsJson)),
   status: product.status,
   featured: product.isFeatured,
   sortOrder: String(product.sortOrder),
@@ -49,6 +51,11 @@ if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const blocked = mutationError(Astro.request, session, form);
   values = valuesFrom(form);
+  const posted = parseRecipe(
+    form.getAll('materialId').filter((value): value is string => typeof value === 'string'),
+    form.getAll('materialQty').filter((value): value is string => typeof value === 'string'),
+  );
+  if (posted.ok) postedRecipe = posted.lines;
   if (blocked) {
     Astro.response.status = 403;
     formError = blocked;
@@ -69,6 +76,11 @@ if (Astro.request.method === 'POST') {
   }
 }
 
+// Gửi lỗi thì giữ đúng công thức khách vừa chọn; mở trang bình thường thì lấy công thức đã lưu.
+const recipeSource: RecipeLine[] = postedRecipe ?? currentRecipe.map(({ materialId, quantity }) => ({ materialId, quantity }));
+const recipeOptions = await listRecipeOptions(db, [...currentRecipe.map((line) => line.materialId), ...recipeSource.map((line) => line.materialId)]);
+const recipeLines = resolveRecipeLines(recipeSource, recipeOptions);
+
 function valuesFrom(form: FormData) {
   const read = (name: string) => {
     const value = form.get(name);
@@ -84,7 +96,6 @@ function valuesFrom(form: FormData) {
     description: read('description'),
     coverMediaId: read('coverMediaId'),
     album: form.getAll('album').filter((value): value is string => typeof value === 'string'),
-    options: read('options'),
     status: read('status') || 'active',
     featured: form.get('featured') === '1',
     sortOrder: read('sortOrder') || '0',
@@ -105,5 +116,7 @@ function valuesFrom(form: FormData) {
     {formError}
     {media}
     {categories}
+    {recipeOptions}
+    {recipeLines}
   />
 </AdminLayout>

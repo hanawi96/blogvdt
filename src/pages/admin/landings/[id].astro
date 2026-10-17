@@ -1,0 +1,94 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import LandingForm from '../../../components/admin/LandingForm.astro';
+import NotFound from '../../../components/public/NotFound.astro';
+import { activityActor } from '../../../features/activity/log';
+import { mutationError } from '../../../features/auth/session';
+import { getLanding, parseLandingForm, updateLanding } from '../../../features/landings/landings';
+import { parseTrackingJson } from '../../../features/tracking/tracking';
+import { listMedia } from '../../../features/media/media';
+import { listOrderCatalog } from '../../../features/products/public';
+import { createDb } from '../../../lib/db/client';
+import { getDbBinding } from '../../../lib/cloudflare/env';
+import { routes } from '../../../lib/routes';
+import type { FieldErrors } from '../../../lib/validation/errors';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+if (session.role !== 'admin') return new Response('Bạn không có quyền vào trang này.', { status: 403 });
+
+const id = Number(Astro.params.id);
+if (!Number.isInteger(id) || id < 1) return Astro.redirect(routes.adminLandings);
+
+const db = createDb(getDbBinding());
+const current = await getLanding(db, id);
+
+const saved = Astro.url.searchParams.get('saved') === '1';
+const loadError = (Astro.url.searchParams.get('error') ?? '').slice(0, 200);
+let errors: FieldErrors = {};
+let formError = loadError;
+
+if (current && Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const blocked = mutationError(Astro.request, session, form);
+  if (blocked) {
+    Astro.response.status = 403;
+    formError = blocked;
+  } else {
+    const parsed = parseLandingForm(form);
+    if (!parsed.ok) {
+      Astro.response.status = 422;
+      errors = parsed.errors;
+    } else {
+      const result = await updateLanding(db, id, parsed.input, Date.now(), await activityActor(db, session.userId));
+      if (!result.ok) {
+        Astro.response.status = 422;
+        formError = result.error;
+      } else {
+        return Astro.redirect(`${routes.adminLanding(id)}?saved=1`, 303);
+      }
+    }
+  }
+}
+
+const [media, catalog] = current ? await Promise.all([listMedia(db), listOrderCatalog(db)]) : [[], []];
+const products = catalog.map((item) => ({ id: item.id, name: item.name, price: item.price }));
+
+const values = current
+  ? {
+      title: current.title,
+      slug: current.slug,
+      blocksJson: current.blocksJson || '[]',
+      status: current.status,
+      robots: current.robots,
+      seoTitle: current.seoTitle ?? '',
+      metaDescription: current.metaDescription ?? '',
+      ogMediaId: current.ogMediaId ? String(current.ogMediaId) : '',
+      tracking: parseTrackingJson(current.trackingJson),
+    }
+  : null;
+const publicUrl = current ? routes.landing(current.slug) : '';
+---
+
+<AdminLayout title={current ? `Sửa: ${current.title}` : 'Không tìm thấy'}>
+  <p slot="lead">{current ? `Đường dẫn: /lp/${current.slug}` : ''}</p>
+  {saved && <p class="mb-4 text-primary-strong" role="status">Đã lưu trang đích.</p>}
+  {
+    !current || !values ? (
+      <NotFound />
+    ) : (
+      <LandingForm
+        csrf={session.csrfToken}
+        action={routes.adminLanding(id)}
+        values={values}
+        errors={errors}
+        formError={formError}
+        media={media}
+        products={products}
+        publicUrl={publicUrl}
+        deleteAction={routes.adminLandingDelete(id)}
+        submitLabel="Lưu thay đổi"
+      />
+    )
+  }
+</AdminLayout>

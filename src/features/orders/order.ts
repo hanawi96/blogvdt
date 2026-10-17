@@ -1,4 +1,7 @@
 import { cartSummary, type CartLine } from '../cart/cart';
+import { SLUG_PATTERN } from '../posts/slug';
+import { isValidWeight, requiresWeight, type WeightScale } from '../products/weight';
+import { DEFAULT_PAYMENT_METHOD, isPaymentMethod, paymentLabel, type PaymentMethod } from './payment';
 import { calendarRange } from '../../lib/datetime';
 import type { FieldErrors } from '../../lib/validation/errors';
 import { formatVnd } from '../../lib/money';
@@ -13,7 +16,7 @@ export type CatalogProduct = {
   slug: string;
   name: string;
   price: number;
-  options: string[];
+  weightScale: WeightScale;
 };
 
 export function orderCreatedRange(from: string, to: string): { start: number | null; end: number | null; invalid: boolean } {
@@ -32,6 +35,7 @@ export function orderHandoffText(order: {
   totalPrice: number;
   note: string | null;
   internalNote: string | null;
+  paymentMethod?: string;
   items?: { productName: string; optionLabel: string | null; quantity: number; lineTotal: number }[];
 }): string {
   const lines = [
@@ -40,6 +44,7 @@ export function orderHandoffText(order: {
     `SĐT: ${order.phone}`,
     `Địa chỉ: ${order.address}`,
   ];
+  if (order.paymentMethod) lines.push(`Thanh toán: ${paymentLabel(order.paymentMethod)}`);
   if (order.items && order.items.length > 0) {
     lines.push('Sản phẩm:');
     for (const item of order.items) {
@@ -70,7 +75,15 @@ export type OrderDraft = {
   quantity: number;
   optionLabel: string | null;
   totalPrice: number;
+  paymentMethod: PaymentMethod;
+  landingSlug: string | null;
 };
+
+// Nguồn landing đi kèm đơn để đo chuyển đổi. Chỉ nhận slug hợp lệ, không bắt buộc còn tồn tại.
+export function readLandingSlug(value: string): string | null {
+  const slug = value.trim().slice(0, 180);
+  return slug && SLUG_PATTERN.test(slug) ? slug : null;
+}
 
 export type CartLineDraft = {
   productId: number;
@@ -90,7 +103,14 @@ export type CartOrderDraft = {
   productName: string;
   quantity: number;
   totalPrice: number;
+  paymentMethod: PaymentMethod;
 };
+
+// Nhãn bổ sung lưu kèm đơn: hiện chỉ còn cân nặng của bé (nếu có).
+export function orderOptionLabel(weight: string): string | null {
+  const value = weight.trim();
+  return value.length > 0 ? value : null;
+}
 
 export function normalizePhone(value: string): string | null {
   const compact = value.replace(/[\s.\-()]/g, '');
@@ -140,8 +160,10 @@ export function parseOrderSubmission(
     note: string;
     productSlug: string;
     quantity: string;
-    option: string;
+    weight?: string;
+    paymentMethod?: string;
     company: string;
+    landing?: string;
   },
   catalog: CatalogProduct[],
 ): { ok: true; draft: OrderDraft } | { ok: false; blocked: boolean; errors: FieldErrors } {
@@ -154,9 +176,13 @@ export function parseOrderSubmission(
     errors.quantity = `Số lượng là số nguyên từ 1 đến ${ORDER_MAX_QUANTITY}.`;
   }
   if (!product) errors.productSlug = 'Chọn sản phẩm đang bán.';
-  const option = input.option.trim();
-  if (product && product.options.length > 0 && !product.options.includes(option)) errors.option = 'Chọn một lựa chọn của sản phẩm.';
-  if (product && product.options.length === 0 && option) errors.option = 'Sản phẩm này không có lựa chọn.';
+  // Form không gửi hình thức (landing...) thì mặc định thanh toán khi nhận hàng; giá trị lạ bị từ chối.
+  const paymentRaw = (input.paymentMethod ?? '').trim();
+  if (paymentRaw && !isPaymentMethod(paymentRaw)) errors.paymentMethod = 'Chọn hình thức thanh toán.';
+  const paymentMethod = isPaymentMethod(paymentRaw) ? paymentRaw : DEFAULT_PAYMENT_METHOD;
+  const weight = (input.weight ?? '').trim();
+  if (product && requiresWeight(product.weightScale) && !weight) errors.weight = 'Chọn cân nặng cho bé.';
+  else if (product && !isValidWeight(product.weightScale, weight)) errors.weight = 'Cân nặng không hợp lệ.';
   if (Object.keys(errors).length > 0 || !product || !customer.phone || !Number.isInteger(quantity)) {
     return { ok: false, blocked: false, errors };
   }
@@ -171,8 +197,10 @@ export function parseOrderSubmission(
       productName: product.name,
       unitPrice: product.price,
       quantity,
-      optionLabel: option || null,
+      optionLabel: orderOptionLabel(weight),
       totalPrice: product.price * quantity,
+      paymentMethod,
+      landingSlug: readLandingSlug(input.landing ?? ''),
     },
   };
 }
@@ -183,6 +211,7 @@ export function parseCartOrder(
     phone: string;
     address: string;
     note: string;
+    paymentMethod?: string;
     company: string;
     lines: CartLine[];
   },
@@ -191,6 +220,9 @@ export function parseCartOrder(
   if (input.company.trim()) return { ok: false, blocked: true, errors: {} };
   const customer = readCustomer(input);
   const errors: FieldErrors = { ...customer.errors };
+  const paymentRaw = (input.paymentMethod ?? '').trim();
+  if (paymentRaw && !isPaymentMethod(paymentRaw)) errors.paymentMethod = 'Chọn hình thức thanh toán.';
+  const paymentMethod = isPaymentMethod(paymentRaw) ? paymentRaw : DEFAULT_PAYMENT_METHOD;
   if (input.lines.length < 1) errors.cart = 'Giỏ đang trống.';
   const built: CartLineDraft[] = [];
   for (const [index, line] of input.lines.entries()) {
@@ -202,15 +234,15 @@ export function parseCartOrder(
     if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > ORDER_MAX_QUANTITY) {
       errors[`quantity${index}`] = `Số lượng là số nguyên từ 1 đến ${ORDER_MAX_QUANTITY}.`;
     }
-    if (product.options.length > 0 && !product.options.includes(line.option)) errors[`option${index}`] = 'Chọn một lựa chọn của sản phẩm.';
-    if (product.options.length === 0 && line.option) errors[`option${index}`] = 'Sản phẩm này không có lựa chọn.';
-    if (errors[`option${index}`] || errors[`quantity${index}`]) continue;
+    if (requiresWeight(product.weightScale) && !line.weight) errors[`weight${index}`] = 'Chọn cân nặng cho bé.';
+    if (!isValidWeight(product.weightScale, line.weight)) errors[`weight${index}`] = 'Cân nặng không hợp lệ.';
+    if (errors[`quantity${index}`] || errors[`weight${index}`]) continue;
     built.push({
       productId: product.id,
       productName: product.name,
       unitPrice: product.price,
       quantity: line.quantity,
-      optionLabel: line.option || null,
+      optionLabel: orderOptionLabel(line.weight),
       lineTotal: product.price * line.quantity,
     });
   }
@@ -233,6 +265,8 @@ export function parseCartOrder(
         quantity: line.quantity,
         optionLabel: line.optionLabel,
         totalPrice: line.lineTotal,
+        paymentMethod,
+        landingSlug: null,
       },
     };
   }
@@ -248,6 +282,7 @@ export function parseCartOrder(
       productName: cartSummary(built.map((item) => item.productName)),
       quantity: built.reduce((sum, item) => sum + item.quantity, 0),
       totalPrice: built.reduce((sum, item) => sum + item.lineTotal, 0),
+      paymentMethod,
     },
   };
 }

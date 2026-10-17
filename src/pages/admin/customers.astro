@@ -30,7 +30,24 @@ try {
   <p slot="lead">{result ? `${result.libraryTotal} khách hàng` : 'Danh sách khách hàng'}</p>
   {loadError && <p class="error-text" role="alert">{loadError}</p>}
   {
-    result && (
+    result && result.libraryTotal === 0 && !query ? (
+      <section class="cms-empty">
+        <span class="cms-empty-icon" aria-hidden="true">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="8.5" r="3.4" />
+            <path d="M5.5 19.5c.9-3.3 3.1-5 6.5-5s5.6 1.7 6.5 5" />
+          </svg>
+        </span>
+        <h2 class="cms-empty-title">Chưa có khách hàng nào</h2>
+        <p class="cms-empty-text">Danh sách khách được tổng hợp tự động từ đơn hàng. Khi có đơn đầu tiên, thông tin khách sẽ xuất hiện ở đây.</p>
+        <ul class="cms-empty-points">
+          <li>Gộp theo số điện thoại: số đơn, tổng chi tiêu, đơn gần nhất.</li>
+          <li>Bấm "Xem đơn" để lọc nhanh mọi đơn của một khách.</li>
+          <li>Không cần khách đăng ký tài khoản.</li>
+        </ul>
+        <a class="btn btn-primary" href={routes.adminOrders}>Tới đơn hàng</a>
+      </section>
+    ) : result ? (
       <>
         <form class="post-toolbar" method="get" data-customer-search>
           <label class="sr-only" for="customer-query">Tìm khách hàng</label>
@@ -42,7 +59,7 @@ try {
         </form>
         <div data-customer-list>
           {result.rows.length === 0 ? (
-            <p class="post-empty">{result.libraryTotal === 0 ? 'Chưa có khách hàng. Khách sẽ xuất hiện sau đơn đầu tiên.' : 'Không có khách khớp tìm kiếm.'}</p>
+            <p class="post-empty">Không có khách khớp tìm kiếm.</p>
           ) : (
             <table class="post-table">
               <thead>
@@ -88,7 +105,7 @@ try {
           </nav>
         )}
       </>
-    )
+    ) : null
   }
 </AdminLayout>
 

@@ -345,26 +345,29 @@ function current(href: string): boolean {
     if (!(node instanceof HTMLFormElement)) return;
     node.addEventListener('submit', (event) => {
       if (node.dataset.cartFrom === 'order') {
-        const option = document.getElementById('option');
         const quantity = document.getElementById('quantity');
-        const optionField = node.querySelector('[name="option"]');
         const quantityField = node.querySelector('[name="quantity"]');
-        if (optionField instanceof HTMLInputElement && option instanceof HTMLSelectElement) optionField.value = option.value;
         if (quantityField instanceof HTMLInputElement && quantity instanceof HTMLInputElement) quantityField.value = quantity.value;
       }
       const data = new FormData(node);
-      const option = String(data.get('option') ?? '').trim();
-      const button = node.querySelector('button');
-      if (node.dataset.requiresOption === 'true' && option.length === 0) {
+      const weight = String(data.get('weight') ?? '').trim();
+      const button = node.querySelector('button[type="submit"]');
+      const notice = node.querySelector('.add-error');
+      const warn = (message: string) => {
         event.preventDefault();
-        if (button instanceof HTMLButtonElement) flash(button, 'Chọn lựa chọn');
-        return;
-      }
+        if (notice instanceof HTMLElement) {
+          notice.textContent = message;
+          notice.hidden = false;
+        } else if (button instanceof HTMLButtonElement) {
+          flash(button, message);
+        }
+      };
+      if (node.dataset.requiresWeight === 'true' && weight.length === 0) return warn('Chọn cân nặng');
       event.preventDefault();
       const quantity = Number(data.get('quantity') ?? '1');
       const result = addCartLine(readCookie(), {
         slug: String(data.get('slug') ?? ''),
-        option,
+        weight,
         quantity: Number.isInteger(quantity) ? quantity : 1,
       });
       if (!result.ok) {
@@ -372,6 +375,12 @@ function current(href: string): boolean {
         return;
       }
       store(result.lines);
+      const dialog = node.closest('dialog');
+      if (dialog instanceof HTMLDialogElement) {
+        dialog.close();
+        node.reset();
+        if (notice instanceof HTMLElement) notice.hidden = true;
+      }
       if (button instanceof HTMLButtonElement) flash(button, 'Đã thêm');
     });
   });

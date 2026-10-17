@@ -6,6 +6,7 @@ import { media, siteSettings } from '../../lib/db/schema';
 import { isHttpUrl } from '../../lib/http';
 import { routes } from '../../lib/routes';
 import { fieldErrors, type FieldErrors } from '../../lib/validation/errors';
+import { cleanTracking, trackingErrors, type Tracking } from '../tracking/tracking';
 
 export const SETTING_KEYS = [
   'site_name',
@@ -19,6 +20,12 @@ export const SETTING_KEYS = [
   'og_media_id',
   'default_seo_title',
   'default_seo_description',
+  'meta_pixel_id',
+  'ga_measurement_id',
+  'google_ads_id',
+  'google_ads_label',
+  'tiktok_pixel_id',
+  'gtm_id',
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -44,6 +51,7 @@ export type PublicSite = {
   ogImageHeight: number | null;
   defaultSeoTitle: string;
   defaultSeoDescription: string;
+  tracking: Tracking;
 };
 
 export async function getPublicSite(db: AppDb): Promise<PublicSite | null> {
@@ -69,6 +77,7 @@ export async function getPublicSite(db: AppDb): Promise<PublicSite | null> {
     ogImageHeight: ogImage?.height ?? null,
     defaultSeoTitle: values.default_seo_title || values.site_name,
     defaultSeoDescription: values.default_seo_description || values.site_description,
+    tracking: siteTracking(values),
   };
 }
 
@@ -121,7 +130,24 @@ const settingsFields = z.object({
   og_media_id: z.string().trim().max(20),
   default_seo_title: z.string().trim().max(180, 'SEO title quá dài.'),
   default_seo_description: z.string().trim().max(300, 'Mô tả SEO quá dài.'),
+  // Định dạng chi tiết do trackingErrors kiểm (một nguồn chung với landing); zod chỉ chặn độ dài.
+  meta_pixel_id: z.string().trim().max(40),
+  ga_measurement_id: z.string().trim().max(40),
+  google_ads_id: z.string().trim().max(40),
+  google_ads_label: z.string().trim().max(60),
+  tiktok_pixel_id: z.string().trim().max(40),
+  gtm_id: z.string().trim().max(40),
 });
+
+// Ánh xạ field tracking (snake_case trong settings) sang khóa Tracking (camelCase) để validate chung.
+const TRACKING_FIELD_MAP = {
+  meta_pixel_id: 'metaPixelId',
+  ga_measurement_id: 'gaMeasurementId',
+  google_ads_id: 'googleAdsId',
+  google_ads_label: 'googleAdsLabel',
+  tiktok_pixel_id: 'tiktokPixelId',
+  gtm_id: 'gtmId',
+} as const;
 
 export function parseSettingsForm(form: FormData): { ok: true; values: SiteSettingValues } | { ok: false; errors: FieldErrors } {
   const raw = Object.fromEntries(SETTING_KEYS.map((key) => [key, stringField(form, key)]));
@@ -132,7 +158,28 @@ export function parseSettingsForm(form: FormData): { ok: true; values: SiteSetti
       return { ok: false, errors: { [key]: 'Ảnh không hợp lệ.' } };
     }
   }
+  // Kiểm định dạng ID theo dõi bằng cùng quy tắc với trang đích.
+  const trackingInput = Object.fromEntries(
+    Object.entries(TRACKING_FIELD_MAP).map(([settingKey, trackingKey]) => [trackingKey, parsed.data[settingKey as keyof typeof parsed.data]]),
+  ) as Record<keyof Tracking, string>;
+  const tErrors = trackingErrors(trackingInput);
+  const firstError = Object.entries(tErrors)[0];
+  if (firstError) {
+    const settingKey = (Object.entries(TRACKING_FIELD_MAP).find(([, tk]) => tk === firstError[0]) ?? [])[0];
+    if (settingKey) return { ok: false, errors: { [settingKey]: firstError[1] } };
+  }
   return { ok: true, values: parsed.data };
+}
+
+export function siteTracking(values: SiteSettingValues): Tracking {
+  return cleanTracking({
+    metaPixelId: values.meta_pixel_id,
+    gaMeasurementId: values.ga_measurement_id,
+    googleAdsId: values.google_ads_id,
+    googleAdsLabel: values.google_ads_label,
+    tiktokPixelId: values.tiktok_pixel_id,
+    gtmId: values.gtm_id,
+  });
 }
 
 function stringField(form: FormData, name: string): string {

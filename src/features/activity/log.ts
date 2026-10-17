@@ -36,6 +36,22 @@ export const ACTIVITY_ACTIONS = [
   'redirect.create',
   'redirect.update',
   'redirect.delete',
+  'landing.create',
+  'landing.update',
+  'landing.delete',
+  'order.delete',
+  'material.create',
+  'material.update',
+  'material.delete',
+  'product.reprice',
+  'material_group.create',
+  'material_group.update',
+  'material_group.delete',
+  'order_cost.create',
+  'order_cost.update',
+  'order_cost.delete',
+  'ad_spend.save',
+  'ad_spend.delete',
 ] as const;
 
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];
@@ -68,9 +84,25 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'redirect.create': 'Tạo chuyển hướng',
   'redirect.update': 'Sửa chuyển hướng',
   'redirect.delete': 'Xóa chuyển hướng',
+  'landing.create': 'Tạo trang đích',
+  'landing.update': 'Sửa trang đích',
+  'landing.delete': 'Xóa trang đích',
+  'order.delete': 'Xóa đơn hàng',
+  'material.create': 'Tạo nguyên liệu',
+  'material.update': 'Sửa nguyên liệu',
+  'material.delete': 'Xóa nguyên liệu',
+  'product.reprice': 'Cập nhật giá bán hàng loạt',
+  'material_group.create': 'Tạo nhóm nguyên liệu',
+  'material_group.update': 'Sửa nhóm nguyên liệu',
+  'material_group.delete': 'Xóa nhóm nguyên liệu',
+  'order_cost.create': 'Tạo chi phí theo đơn',
+  'order_cost.update': 'Sửa chi phí theo đơn',
+  'order_cost.delete': 'Xóa chi phí theo đơn',
+  'ad_spend.save': 'Lưu chi phí quảng cáo',
+  'ad_spend.delete': 'Xóa chi phí quảng cáo',
 };
 
-export type ActivityObject = 'post' | 'category' | 'tag' | 'product_category' | 'user' | 'media' | 'settings' | 'redirect';
+export type ActivityObject = 'post' | 'category' | 'tag' | 'product_category' | 'user' | 'media' | 'settings' | 'redirect' | 'landing' | 'order' | 'material' | 'material_group' | 'order_cost' | 'ad_spend' | 'product';
 
 export type ActivityActor = { id: number; name: string };
 

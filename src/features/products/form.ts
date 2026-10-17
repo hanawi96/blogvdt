@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { fieldErrors, type FieldErrors } from '../../lib/validation/errors';
-import { parseOptionsText } from './options';
+import { parseRecipe } from '../materials/costing';
 import type { ProductInput } from './products';
 import { canFeatureProduct, isProductStatus } from './status';
 
@@ -20,7 +20,6 @@ const productFields = z.object({
   cordType: z.string().trim().max(80, 'Kiểu dây quá dài.'),
   description: z.string().trim().min(1, 'Nhập mô tả.').max(2000, 'Mô tả quá dài.'),
   coverMediaId: z.string(),
-  options: z.string(),
   status: z.string(),
   sortOrder: z.string().regex(/^-?\d{1,4}$/, 'Thứ tự là số nguyên.'),
   seoTitle: z.string().trim().max(180, 'SEO title quá dài.'),
@@ -37,7 +36,6 @@ export function parseProductForm(form: FormData): { ok: true; input: ProductInpu
     cordType: formValue(form, 'cordType'),
     description: formValue(form, 'description'),
     coverMediaId: formValue(form, 'coverMediaId'),
-    options: formValue(form, 'options'),
     status: formValue(form, 'status'),
     sortOrder: formValue(form, 'sortOrder') || '0',
     seoTitle: formValue(form, 'seoTitle'),
@@ -48,14 +46,14 @@ export function parseProductForm(form: FormData): { ok: true; input: ProductInpu
   if (parsed.data.cordType && !isCordType(parsed.data.cordType)) return { ok: false, errors: { cordType: 'Kiểu dây không hợp lệ.' } };
   const comparePrice = readComparePrice(parsed.data.comparePrice, Number(parsed.data.price));
   if (!comparePrice.ok) return { ok: false, errors: { comparePrice: comparePrice.error } };
-  const options = parseOptionsText(parsed.data.options);
-  if (!options.ok) return { ok: false, errors: { options: options.error } };
   const coverMediaId = optionalId(parsed.data.coverMediaId);
   if (parsed.data.coverMediaId && coverMediaId === null) return { ok: false, errors: { coverMediaId: 'Ảnh đại diện không hợp lệ.' } };
   const categoryId = optionalId(parsed.data.categoryId);
   if (parsed.data.categoryId && categoryId === null) return { ok: false, errors: { categoryId: 'Danh mục không hợp lệ.' } };
   const albumIds = albumFrom(form, coverMediaId);
   if (albumIds === null) return { ok: false, errors: { album: 'Album có ảnh không hợp lệ hoặc quá 8 ảnh.' } };
+  const recipe = parseRecipe(formStrings(form, 'materialId'), formStrings(form, 'materialQty'));
+  if (!recipe.ok) return { ok: false, errors: { recipe: recipe.error } };
   return {
     ok: true,
     input: {
@@ -68,7 +66,7 @@ export function parseProductForm(form: FormData): { ok: true; input: ProductInpu
       description: parsed.data.description,
       coverMediaId,
       albumIds,
-      options: options.options,
+      recipe: recipe.lines,
       status: parsed.data.status,
       isFeatured: canFeatureProduct(parsed.data.status, form.get('featured') === '1'),
       sortOrder: Number(parsed.data.sortOrder),
@@ -88,6 +86,10 @@ function albumFrom(form: FormData, coverMediaId: number | null): number[] | null
     if (!ids.includes(id)) ids.push(id);
   }
   return ids.length <= 8 ? ids : null;
+}
+
+function formStrings(form: FormData, name: string): string[] {
+  return form.getAll(name).flatMap((value) => (typeof value === 'string' ? [value] : []));
 }
 
 function formValue(form: FormData, name: string): string {

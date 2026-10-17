@@ -1,7 +1,9 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { activityActor } from '../../../features/activity/log';
+import { mutationError } from '../../../features/auth/session';
 import { orderCreatedRange } from '../../../features/orders/order';
-import { listOrders, orderAdminQuery, orderListStatus } from '../../../features/orders/orders';
+import { deleteOrder, listOrders, orderAdminQuery, orderListStatus } from '../../../features/orders/orders';
 import { isOrderStatus, ORDER_STATUS_LABELS, ORDER_STATUSES } from '../../../features/orders/status';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
@@ -9,7 +11,8 @@ import { formatDateTime } from '../../../lib/datetime';
 import { formatVnd } from '../../../lib/money';
 import { routes } from '../../../lib/routes';
 
-if (!Astro.locals.adminSession) return Astro.redirect(routes.adminLogin);
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
 
 const query = Astro.url.searchParams.get('q') ?? '';
 const status = orderListStatus(Astro.url.searchParams.get('status'));
@@ -18,6 +21,28 @@ const to = Astro.url.searchParams.get('to') ?? '';
 const page = Number(Astro.url.searchParams.get('page') ?? '1');
 const range = orderCreatedRange(from, to);
 let loadError = range.invalid ? 'Khoảng ngày không hợp lệ.' : '';
+const notice = Astro.url.searchParams.get('notice');
+
+if (Astro.request.method === 'POST') {
+  if (session.role !== 'admin') {
+    return new Response('Bạn không có quyền xóa đơn hàng.', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  }
+  const form = await Astro.request.formData();
+  const blocked = mutationError(Astro.request, session, form);
+  const id = Number(form.get('id'));
+  if (blocked) {
+    Astro.response.status = 403;
+    loadError = blocked;
+  } else if (form.get('intent') !== 'delete' || !Number.isInteger(id) || id < 1) {
+    Astro.response.status = 422;
+    loadError = 'Thao tác không hợp lệ.';
+  } else {
+    const db = createDb(getDbBinding());
+    const removed = await deleteOrder(db, id, await activityActor(db, session.userId));
+    const back = orderAdminQuery({ query, status, from, to, page: Number.isInteger(page) ? page : 1 });
+    return Astro.redirect(`${back}${back.includes('?') ? '&' : '?'}notice=${removed.ok ? 'deleted' : 'missing'}`, 303);
+  }
+}
 let result: Awaited<ReturnType<typeof listOrders>> | null = null;
 if (!range.invalid) {
   try {
@@ -49,8 +74,27 @@ function pageHref(nextPage: number): string {
 <AdminLayout title="Quản lý đơn hàng">
   <p slot="lead">{result ? `${result.libraryTotal} đơn hàng` : 'Danh sách đơn hàng'}</p>
   {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
+  {notice === 'deleted' && <p class="mb-4 text-primary-strong" role="status">Đã xóa đơn hàng.</p>}
+  {notice === 'missing' && <p class="error-text mb-4" role="alert">Không tìm thấy đơn hàng cần xóa.</p>}
   {
-    result && (
+    result && result.libraryTotal === 0 && !query && !from && !to && status === '' ? (
+      <section class="cms-empty">
+        <span class="cms-empty-icon" aria-hidden="true">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 4.5h10v15H7z" />
+            <path d="M10 8h4M10 11.5h4M10 15h2.5" />
+          </svg>
+        </span>
+        <h2 class="cms-empty-title">Chưa có đơn hàng nào</h2>
+        <p class="cms-empty-text">Đơn hàng sẽ hiện ở đây ngay khi khách gửi thông tin đặt mua trên website. Xưởng gọi lại để chốt, website không thu tiền trực tuyến.</p>
+        <ul class="cms-empty-points">
+          <li>Mỗi đơn gồm sản phẩm, lựa chọn, số lượng và thông tin liên hệ khách.</li>
+          <li>Theo dõi trạng thái: mới, xác nhận, đang chuẩn bị, đã gửi, hoàn thành.</li>
+          <li>Đơn từ trang đích quảng cáo được gắn nguồn để đo chuyển đổi.</li>
+        </ul>
+        <a class="btn btn-primary" href={routes.checkout} target="_blank" rel="noopener">Xem trang đặt hàng</a>
+      </section>
+    ) : result ? (
       <>
         <div class="order-stats">
           {stats.map((item) => (
@@ -76,7 +120,7 @@ function pageHref(nextPage: number): string {
         </form>
         <div data-order-list>
           {result.rows.length === 0 ? (
-            <p class="post-empty">{result.libraryTotal === 0 ? 'Chưa có đơn hàng.' : 'Không có đơn khớp bộ lọc.'}</p>
+            <p class="post-empty">Không có đơn khớp bộ lọc.</p>
           ) : (
             <table class="post-table order-table">
               <thead>
@@ -103,7 +147,25 @@ function pageHref(nextPage: number): string {
                       </span>
                     </td>
                     <td data-label="Thời gian">{formatDateTime(order.createdAt)}</td>
-                    <td><a href={routes.adminOrder(order.id)}>Xem</a></td>
+                    <td data-label="Thao tác">
+                      <div class="post-actions">
+                        <a href={routes.adminOrder(order.id)}>Xem</a>
+                        <span class="post-actions-sep" aria-hidden="true">|</span>
+                        <form
+                          method="post"
+                          data-busy
+                          data-confirm-title={`Xóa đơn ${order.code}?`}
+                          data-confirm="Đơn sẽ bị xóa vĩnh viễn cùng các dòng sản phẩm và không khôi phục được. Nếu chỉ muốn bỏ đơn, hãy đổi trạng thái sang Hủy đơn."
+                          data-confirm-ok="Xóa"
+                          data-confirm-tone="danger"
+                        >
+                          <input type="hidden" name="csrf" value={session.csrfToken} />
+                          <input type="hidden" name="intent" value="delete" />
+                          <input type="hidden" name="id" value={order.id} />
+                          <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                        </form>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -118,7 +180,7 @@ function pageHref(nextPage: number): string {
           </nav>
         )}
       </>
-    )
+    ) : null
   }
 </AdminLayout>
 

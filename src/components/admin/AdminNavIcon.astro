@@ -7,11 +7,15 @@ interface Props {
     | 'tags'
     | 'products'
     | 'productCategories'
+    | 'materials'
+    | 'pricing'
+    | 'costs'
     | 'orders'
     | 'customers'
     | 'media'
     | 'seo'
     | 'redirects'
+    | 'landing'
     | 'users'
     | 'activity'
     | 'settings';
@@ -92,6 +96,39 @@ const { name } = Astro.props;
     )
   }
   {
+    name === 'materials' && (
+      <>
+        <circle cx="8.5" cy="9" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
+        <circle cx="16" cy="9.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
+        <circle cx="12" cy="16.5" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
+      </>
+    )
+  }
+  {
+    name === 'pricing' && (
+      <path
+        d="M4.5 12.5V6.2A1.7 1.7 0 0 1 6.2 4.5h6.3L19.5 11.5l-7 7-8-6zm5.2-4.2a1.35 1.35 0 1 0 0-2.7 1.35 1.35 0 0 0 0 2.7z"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.7"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      ></path>
+    )
+  }
+  {
+    name === 'costs' && (
+      <path
+        d="M4.5 7.5h15v10h-15zM4.5 7.5l2-3h11l2 3M9.5 12h5"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.7"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      ></path>
+    )
+  }
+  {
     name === 'orders' && (
       <path
         d="M7 4.5h10v16H7v-16zm3 4h4M10 12h6M10 15.5h5"
@@ -138,6 +175,15 @@ const { name } = Astro.props;
         stroke-linecap="round"
         stroke-linejoin="round"
       ></path>
+    )
+  }
+  {
+    name === 'landing' && (
+      <>
+        <rect x="4.5" y="4" width="15" height="16" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.7"></rect>
+        <path d="M7.5 8h9M7.5 11h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"></path>
+        <rect x="7.5" y="14" width="6" height="3" rx="1" fill="none" stroke="currentColor" stroke-width="1.7"></rect>
+      </>
     )
   }
   {

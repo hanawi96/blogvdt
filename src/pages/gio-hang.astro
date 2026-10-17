@@ -1,9 +1,11 @@
 ---
 import DataError from '../components/public/DataError.astro';
-import { addCartLine, CART_COOKIE, cartCookieOptions, parseCart, postedCartLines, serializeCart, type CartLine } from '../features/cart/cart';
+import PaymentField from '../components/public/PaymentField.astro';
+import { addCartLine, CART_COOKIE, CART_MAX_QUANTITY, cartCookieOptions, parseCart, postedCartLines, serializeCart, type CartLine } from '../features/cart/cart';
 import { parseCartOrder } from '../features/orders/order';
 import { placeCartOrder, placeOrder } from '../features/orders/orders';
 import { listOrderCatalog } from '../features/products/public';
+import { isValidWeight, requiresWeight } from '../features/products/weight';
 import { getPublicSite } from '../features/settings/settings';
 import PublicLayout from '../layouts/PublicLayout.astro';
 import { createDb } from '../lib/db/client';
@@ -18,7 +20,7 @@ const loaded = await loadCart();
 let lines = parseCart(Astro.cookies.get(CART_COOKIE)?.value);
 let formError = '';
 let errors: FieldErrors = {};
-const values = { customerName: '', phone: '', address: '', note: '' };
+const values = { customerName: '', phone: '', address: '', note: '', paymentMethod: '' };
 Astro.response.headers.set('Cache-Control', 'private, no-store');
 
 if (Astro.request.method === 'POST') {
@@ -32,18 +34,19 @@ if (Astro.request.method === 'POST') {
   values.phone = read('phone');
   values.address = read('address');
   values.note = read('note');
+  values.paymentMethod = read('paymentMethod');
   if (!loaded.site) {
     Astro.response.status = 503;
   } else if (!isSameOrigin(Astro.request)) {
     Astro.response.status = 403;
     formError = 'Nguồn gửi không hợp lệ.';
   } else if (intent === 'add') {
-    const added = addCartLine(lines, { slug: read('slug'), option: read('option'), quantity: Number(read('quantity') || '1') });
+    const added = addCartLine(lines, { slug: read('slug'), quantity: Number(read('quantity') || '1'), weight: read('weight') });
     const product = loaded.catalog.find((item) => item.slug === read('slug'));
     if (!added.ok) formError = added.error;
     else if (!product) formError = 'Sản phẩm không còn bán.';
-    else if (product.options.length > 0 && !product.options.includes(read('option').trim())) formError = 'Chọn một lựa chọn của sản phẩm.';
-    else if (product.options.length === 0 && read('option').trim()) formError = 'Sản phẩm này không có lựa chọn.';
+    else if (requiresWeight(product.weightScale) && !read('weight').trim()) formError = 'Chọn cân nặng cho bé.';
+    else if (!isValidWeight(product.weightScale, read('weight'))) formError = 'Cân nặng không hợp lệ.';
     else {
       remember(added.lines);
       return Astro.redirect(routes.cart, 303);
@@ -109,24 +112,34 @@ if (Astro.request.method === 'POST') {
 const resolved = lines.flatMap((line) => {
   const product = loaded.catalog.find((item) => item.slug === line.slug);
   if (!product) return [];
-  return [{ ...line, name: product.name, price: product.price, options: product.options, lineTotal: product.price * line.quantity }];
+  return [
+    {
+      ...line,
+      name: product.name,
+      price: product.price,
+      coverUrl: product.coverUrl,
+      coverAlt: product.coverAlt,
+      lineTotal: product.price * line.quantity,
+    },
+  ];
 });
 const dropped = resolved.length !== lines.length;
-if (dropped && Astro.request.method === 'GET') remember(resolved.map(({ slug, quantity, option }) => ({ slug, quantity, option })));
+if (dropped && Astro.request.method === 'GET') remember(resolved.map(({ slug, quantity, weight }) => ({ slug, quantity, weight })));
 const total = resolved.reduce((sum, line) => sum + line.lineTotal, 0);
+const pieces = resolved.reduce((sum, line) => sum + line.quantity, 0);
 
 function linesFrom(form: FormData, intent: string): { ok: true; lines: CartLine[] } | { ok: false; error: string } {
   const slugs = strings(form, 'slug');
   const quantities = strings(form, 'quantity');
-  const options = strings(form, 'option');
+  const weights = strings(form, 'weight');
   if (intent.startsWith('remove:')) {
     const index = Number(intent.slice('remove:'.length));
     if (!Number.isInteger(index) || index < 0 || index >= slugs.length) return { ok: false, error: 'Không xóa được mẫu này.' };
     slugs.splice(index, 1);
     quantities.splice(index, 1);
-    options.splice(index, 1);
+    weights.splice(index, 1);
   }
-  return postedCartLines(slugs, quantities, options);
+  return postedCartLines(slugs, quantities, weights);
 }
 
 function strings(form: FormData, name: string): string[] {
@@ -162,49 +175,78 @@ async function loadCart() {
     !loaded.site ? (
       <DataError failed={loaded.failed} />
     ) : (
-      <main class="mx-auto max-w-xl px-4 py-10">
+      <main class="mx-auto max-w-5xl px-4 py-8 sm:py-10">
         <h1 class="text-3xl font-semibold">Giỏ hàng</h1>
-        <p class="mt-3 text-muted">Một lần gửi cho nhiều mẫu. Xưởng gọi lại để chốt, website không thu tiền trực tuyến.</p>
-        {dropped && <p class="mt-4 text-muted">Đã bỏ mẫu không còn bán.</p>}
-        {formError && <p class="error-text mt-4" role="alert">{formError}</p>}
-        {errors.cart && <p class="error-text mt-4" role="alert">{errors.cart}</p>}
+        {resolved.length > 0 && (
+          <p class="mt-2 text-muted">
+            <span data-cart-sum-lines>{resolved.length} mẫu</span> · <span data-cart-sum-count>{pieces}</span> chiếc
+          </p>
+        )}
+        {dropped && <p class="mt-3 text-muted">Đã bỏ mẫu không còn bán.</p>}
+        {formError && <p class="error-text mt-3" role="alert">{formError}</p>}
+        {errors.cart && <p class="error-text mt-3" role="alert">{errors.cart}</p>}
         {resolved.length === 0 ? (
-          <p class="mt-6"><a href={routes.catalog}>Xem mẫu vòng</a></p>
+          <section class="cart-card cart-empty">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 7h12l1 13H5L6 7z" />
+              <path d="M9 7a3 3 0 0 1 6 0" />
+            </svg>
+            <h2 class="text-xl font-semibold">Giỏ hàng đang trống</h2>
+            <p class="text-muted">Chọn vài mẫu vòng bạn thích rồi quay lại đây để gửi đơn một lần.</p>
+            <a class="btn btn-primary" href={routes.catalog}>Xem mẫu vòng</a>
+          </section>
         ) : (
-          <form class="mt-6" method="post" action={routes.cart}>
-            {resolved.map((line, index) => (
-              <div class="cart-line">
-                <div>
-                  <p class="font-semibold">{line.name}</p>
-                  <p class="text-sm text-primary-strong">{formatVnd(line.price)}</p>
-                  <input type="hidden" name="slug" value={line.slug} />
-                  {line.options.length > 0 ? (
-                    <label class="mt-2 block text-sm font-semibold">
-                      Lựa chọn
-                      <select class="field mt-1" name="option">
-                        <option value="">Chọn</option>
-                        {line.options.map((option) => <option value={option} selected={option === line.option}>{option}</option>)}
-                      </select>
-                    </label>
-                  ) : (
-                    <input type="hidden" name="option" value="" />
-                  )}
-                  {errors[`option${index}`] && <p class="error-text mt-1">{errors[`option${index}`]}</p>}
-                </div>
-                <label class="text-sm font-semibold">
-                  Số lượng
-                  <input class="field cart-line-qty mt-1" name="quantity" type="number" min="1" max="20" required value={line.quantity} />
-                  {errors[`quantity${index}`] && <p class="error-text mt-1">{errors[`quantity${index}`]}</p>}
-                </label>
-                <div>
-                  <p class="font-semibold">{formatVnd(line.lineTotal)}</p>
-                  <button class="btn mt-2" type="submit" name="intent" value={`remove:${index}`}>Xóa</button>
-                </div>
+          <form class="cart-layout" method="post" action={routes.cart} data-cart-page>
+            <button class="sr-only" type="submit" name="intent" value="save" tabindex="-1" aria-hidden="true">Cập nhật giỏ</button>
+            <section class="cart-card" aria-label="Sản phẩm trong giỏ">
+              <ul class="cart-list">
+                {resolved.map((line, index) => (
+                  <li class="cart-item" data-cart-item data-price={line.price}>
+                    {line.coverUrl ? (
+                      <img class="cart-thumb" src={line.coverUrl} alt={line.coverAlt || line.name} width="80" height="80" loading="lazy" />
+                    ) : (
+                      <span class="cart-thumb" aria-hidden="true"></span>
+                    )}
+                    <div class="cart-body">
+                      <a class="cart-name" href={routes.product(line.slug)}>{line.name}</a>
+                      <p class="cart-price">{formatVnd(line.price)}</p>
+                      <input type="hidden" name="slug" value={line.slug} />
+                      <input type="hidden" name="weight" value={line.weight} />
+                      {line.weight && (
+                        <p class="cart-meta"><span class="cart-tag">Cân nặng: {line.weight}</span></p>
+                      )}
+                      {errors[`weight${index}`] && <p class="error-text mt-1">{errors[`weight${index}`]}</p>}
+                      <button class="cart-remove" type="submit" name="intent" value={`remove:${index}`}>Xóa</button>
+                    </div>
+                    <div class="cart-row">
+                      <div class="qty">
+                        <button class="qty-btn" type="button" data-qty-step="-1" aria-label={`Giảm số lượng ${line.name}`} hidden>−</button>
+                        <input
+                          class="qty-input"
+                          name="quantity"
+                          type="number"
+                          inputmode="numeric"
+                          min="1"
+                          max={CART_MAX_QUANTITY}
+                          required
+                          value={line.quantity}
+                          aria-label={`Số lượng ${line.name}`}
+                        />
+                        <button class="qty-btn" type="button" data-qty-step="1" aria-label={`Tăng số lượng ${line.name}`} hidden>+</button>
+                      </div>
+                      <p class="cart-line-total" data-line-total>{formatVnd(line.lineTotal)}</p>
+                    </div>
+                    {errors[`quantity${index}`] && <p class="error-text cart-row-error">{errors[`quantity${index}`]}</p>}
+                  </li>
+                ))}
+              </ul>
+              <div class="cart-tools">
+                <a href={routes.catalog}>← Xem thêm mẫu</a>
+                <button class="btn" type="submit" name="intent" value="save">Cập nhật giỏ</button>
               </div>
-            ))}
-            <p class="mt-4 text-lg font-semibold">Tổng: {formatVnd(total)}</p>
-            <button class="btn mt-3" type="submit" name="intent" value="save">Cập nhật giỏ</button>
-            <h2 class="mt-8 text-xl font-semibold">Thông tin nhận hàng</h2>
+            </section>
+            <section class="cart-card cart-checkout" aria-labelledby="cart-checkout-title">
+              <h2 id="cart-checkout-title" class="text-lg font-semibold">Thông tin nhận hàng</h2>
             <div class="absolute -left-[9999px]" aria-hidden="true">
               <label for="company">Công ty</label>
               <input id="company" name="company" tabindex="-1" autocomplete="off" />
@@ -229,10 +271,77 @@ async function loadCart() {
               <textarea id="note" class="field min-h-20" name="note" maxlength="500">{values.note}</textarea>
               {errors.note && <span class="error-text">{errors.note}</span>}
             </label>
-            <button class="btn btn-accent mt-6" type="submit" name="intent" value="order">Gửi đơn</button>
+            <PaymentField value={values.paymentMethod} error={errors.paymentMethod} />
+            <div class="cart-sum">
+              <span>Tạm tính</span>
+              <strong data-cart-total>{formatVnd(total)}</strong>
+            </div>
+            <p class="cart-sum-note">Chưa gồm phí giao. Xưởng gọi lại để chốt đơn, website không thu tiền trực tuyến.</p>
+            <button class="btn btn-accent mt-4 w-full" type="submit" name="intent" value="order">Gửi đơn</button>
+            </section>
           </form>
         )}
       </main>
     )
   }
 </PublicLayout>
+<script>
+  const form = document.querySelector('form[data-cart-page]');
+  if (form instanceof HTMLFormElement) {
+    const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
+
+    // Tính lại tiền từng dòng và tổng ngay khi đổi số lượng (server vẫn tính lại khi gửi).
+    const recalc = () => {
+      let total = 0;
+      let pieces = 0;
+      form.querySelectorAll<HTMLElement>('[data-cart-item]').forEach((item) => {
+        const input = item.querySelector('input[name="quantity"]');
+        if (!(input instanceof HTMLInputElement)) return;
+        const price = Number(item.dataset.price);
+        const quantity = Number(input.value);
+        if (!Number.isInteger(quantity) || quantity < 1 || quantity > (Number(input.max) || 20)) return;
+        total += price * quantity;
+        pieces += quantity;
+        const out = item.querySelector('[data-line-total]');
+        if (out) out.textContent = money.format(price * quantity);
+      });
+      const totalOut = form.querySelector('[data-cart-total]');
+      if (totalOut) totalOut.textContent = money.format(total);
+      const countOut = document.querySelector('[data-cart-sum-count]');
+      if (countOut) countOut.textContent = String(pieces);
+    };
+
+    form.querySelectorAll<HTMLButtonElement>('[data-qty-step]').forEach((button) => {
+      button.hidden = false;
+      button.addEventListener('click', () => {
+        const input = button.closest('.qty')?.querySelector('input[name="quantity"]');
+        if (!(input instanceof HTMLInputElement)) return;
+        const max = Number(input.max) || 20;
+        const next = (Number.isInteger(Number(input.value)) ? Number(input.value) : 1) + Number(button.dataset.qtyStep);
+        input.value = String(Math.min(max, Math.max(1, next)));
+        recalc();
+      });
+    });
+    form.addEventListener('input', (event) => {
+      if (event.target instanceof HTMLInputElement && event.target.name === 'quantity') recalc();
+    });
+
+    // Chặn bấm "Gửi đơn" hai lần; không vô hiệu hóa nút vì giá trị intent cần được gửi đi.
+    let sending = false;
+    form.addEventListener('submit', (event) => {
+      const submitter = event instanceof SubmitEvent ? event.submitter : null;
+      if (!(submitter instanceof HTMLButtonElement) || submitter.value !== 'order') return;
+      if (sending) {
+        event.preventDefault();
+        return;
+      }
+      sending = true;
+      submitter.textContent = 'Đang gửi...';
+    });
+    window.addEventListener('pageshow', () => {
+      sending = false;
+      const orderButton = form.querySelector('button[name="intent"][value="order"]');
+      if (orderButton) orderButton.textContent = 'Gửi đơn';
+    });
+  }
+</script>

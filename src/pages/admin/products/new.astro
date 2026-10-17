@@ -2,6 +2,8 @@
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import ProductForm from '../../../components/admin/ProductForm.astro';
 import { mutationError } from '../../../features/auth/session';
+import { parseRecipe, resolveRecipeLines, type RecipeLine } from '../../../features/materials/costing';
+import { listRecipeOptions } from '../../../features/materials/recipes';
 import { listMedia } from '../../../features/media/media';
 import { listProductCategories } from '../../../features/products/categories';
 import { parseProductForm } from '../../../features/products/form';
@@ -27,7 +29,6 @@ const empty = {
   description: '',
   coverMediaId: '',
   album: [] as string[],
-  options: '',
   status: 'active',
   featured: false,
   sortOrder: '0',
@@ -37,11 +38,17 @@ const empty = {
 let values = empty;
 let errors: FieldErrors = {};
 let formError = '';
+let postedRecipe: RecipeLine[] = [];
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const blocked = mutationError(Astro.request, session, form);
   values = valuesFrom(form);
+  const posted = parseRecipe(
+    form.getAll('materialId').filter((value): value is string => typeof value === 'string'),
+    form.getAll('materialQty').filter((value): value is string => typeof value === 'string'),
+  );
+  if (posted.ok) postedRecipe = posted.lines;
   if (blocked) {
     Astro.response.status = 403;
     formError = blocked;
@@ -62,6 +69,9 @@ if (Astro.request.method === 'POST') {
   }
 }
 
+const recipeOptions = await listRecipeOptions(db, postedRecipe.map((line) => line.materialId));
+const recipeLines = resolveRecipeLines(postedRecipe, recipeOptions);
+
 function valuesFrom(form: FormData) {
   const read = (name: string) => {
     const value = form.get(name);
@@ -77,7 +87,6 @@ function valuesFrom(form: FormData) {
     description: read('description'),
     coverMediaId: read('coverMediaId'),
     album: form.getAll('album').filter((value): value is string => typeof value === 'string'),
-    options: read('options'),
     status: read('status') || 'active',
     featured: form.get('featured') === '1',
     sortOrder: read('sortOrder') || '0',
@@ -88,5 +97,5 @@ function valuesFrom(form: FormData) {
 ---
 
 <AdminLayout title="Thêm sản phẩm">
-  <ProductForm csrf={session.csrfToken} action={routes.adminProductNew} {values} {errors} {formError} {media} {categories} />
+  <ProductForm csrf={session.csrfToken} action={routes.adminProductNew} {values} {errors} {formError} {media} {categories} {recipeOptions} {recipeLines} />
 </AdminLayout>

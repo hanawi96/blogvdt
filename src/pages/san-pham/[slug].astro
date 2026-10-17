@@ -2,6 +2,7 @@
 import DataError from '../../components/public/DataError.astro';
 import NotFound from '../../components/public/NotFound.astro';
 import OrderForm from '../../components/public/OrderForm.astro';
+import ProductStory from '../../components/public/ProductStory.astro';
 import { getPublicProduct } from '../../features/products/public';
 import { getPublicSite } from '../../features/settings/settings';
 import PublicLayout from '../../layouts/PublicLayout.astro';
@@ -124,21 +125,14 @@ async function loadProduct() {
           </ul>
         )}
         <p class="mt-6 whitespace-pre-line leading-relaxed">{visible.description}</p>
-        {visible.options.length > 0 && (
-          <div class="mt-6">
-            <h2 class="text-lg font-semibold">Lựa chọn</h2>
-            <ul class="mt-2 list-disc pl-5">
-              {visible.options.map((option) => <li>{option}</li>)}
-            </ul>
-          </div>
-        )}
+        <ProductStory />
         <section id="dat-hang" class="mt-10 rounded-lg border border-line bg-surface p-4 sm:p-6" aria-labelledby="order-heading">
           <h2 id="order-heading" class="text-xl font-semibold">Đặt hàng</h2>
           <p class="mt-2 text-muted">Xưởng gọi lại để chốt đơn. Website không thu tiền trực tuyến.</p>
-          <form class="mt-4" method="post" action={routes.cart} data-cart-form data-cart-from="order" data-requires-option={visible.options.length > 0 ? 'true' : 'false'}>
+          <form class="mt-4" method="post" action={routes.cart} data-cart-form data-cart-from="order">
             <input type="hidden" name="intent" value="add" />
             <input type="hidden" name="slug" value={visible.slug} />
-            <input type="hidden" name="option" value="" />
+            <input type="hidden" name="weight" value="" />
             <input type="hidden" name="quantity" value="1" />
             <button class="btn" type="submit">Thêm vào giỏ</button>
           </form>

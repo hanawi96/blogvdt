@@ -17,11 +17,15 @@ type NavIcon =
   | 'tags'
   | 'products'
   | 'productCategories'
+  | 'materials'
+  | 'pricing'
+  | 'costs'
   | 'orders'
   | 'customers'
   | 'media'
   | 'seo'
   | 'redirects'
+  | 'landing'
   | 'users'
   | 'activity'
   | 'settings';
@@ -39,6 +43,9 @@ const items: { href: string; label: string; icon: NavIcon }[] = [
     ? [
         { href: routes.adminProducts, label: 'Sản phẩm', icon: 'products' as const },
         { href: routes.adminProductCategories, label: 'Danh mục SP', icon: 'productCategories' as const },
+        { href: routes.adminMaterials, label: 'Nguyên liệu', icon: 'materials' as const },
+        { href: routes.adminPricing, label: 'Định giá', icon: 'pricing' as const },
+        { href: routes.adminCosts, label: 'Chi phí đơn', icon: 'costs' as const },
         { href: routes.adminOrders, label: 'Đơn hàng', icon: 'orders' as const },
         { href: routes.adminCustomers, label: 'Khách hàng', icon: 'customers' as const },
       ]
@@ -46,6 +53,7 @@ const items: { href: string; label: string; icon: NavIcon }[] = [
   { href: routes.adminMedia, label: 'Thư viện ảnh', icon: 'media' },
   ...(isAdmin
     ? [
+        { href: routes.adminLandings, label: 'Trang đích', icon: 'landing' as const },
         { href: routes.adminSeo, label: 'Kiểm tra SEO', icon: 'seo' as const },
         { href: routes.adminRedirects, label: 'Chuyển hướng', icon: 'redirects' as const },
         { href: routes.adminUsers, label: 'Người dùng', icon: 'users' as const },

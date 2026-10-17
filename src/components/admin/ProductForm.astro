@@ -1,6 +1,8 @@
 ---
 import MediaPicker from './MediaPicker.svelte';
+import ProductRecipe from './ProductRecipe.svelte';
 import SlugField from './SlugField.svelte';
+import type { CostedLine, MaterialOption } from '../../features/materials/costing';
 import type { MediaItem } from '../../features/media/types';
 import { CORD_TYPES } from '../../features/products/form';
 import { PRODUCT_STATUS_LABELS } from '../../features/products/status';
@@ -17,7 +19,6 @@ interface Values {
   description: string;
   coverMediaId: string;
   album: string[];
-  options: string;
   status: string;
   featured: boolean;
   sortOrder: string;
@@ -33,10 +34,12 @@ interface Props {
   formError: string;
   media: MediaItem[];
   categories: { id: number; name: string }[];
+  recipeOptions: MaterialOption[];
+  recipeLines: CostedLine[];
   deleteAction?: string;
 }
 
-const { csrf, action, values, errors, formError, media, categories, deleteAction } = Astro.props;
+const { csrf, action, values, errors, formError, media, categories, recipeOptions, recipeLines, deleteAction } = Astro.props;
 ---
 
 <form id="product-form" class="max-w-3xl" method="post" action={action} data-busy>
@@ -61,6 +64,7 @@ const { csrf, action, values, errors, formError, media, categories, deleteAction
     <input class="field" name="comparePrice" inputmode="numeric" maxlength="8" value={values.comparePrice} placeholder="Để trống nếu không có" />
     {errors.comparePrice && <span class="error-text">{errors.comparePrice}</span>}
   </label>
+  <ProductRecipe client:load options={recipeOptions} lines={recipeLines} error={errors.recipe ?? ''} materialsHref={routes.adminMaterials} />
   <label class="mt-4 block">
     <span class="mb-1 block font-semibold">Danh mục</span>
     <select class="field" name="categoryId">
@@ -99,11 +103,7 @@ const { csrf, action, values, errors, formError, media, categories, deleteAction
     <MediaPicker client:load {csrf} items={media} name="album" multiple selected={values.album} max={8} />
     {errors.album && <span class="error-text">{errors.album}</span>}
   </fieldset>
-  <label class="mt-4 block">
-    <span class="mb-1 block font-semibold">Lựa chọn</span>
-    <textarea class="field min-h-24" name="options" maxlength="600" placeholder="Mỗi dòng một lựa chọn, ví dụ Size vừa">{values.options}</textarea>
-    {errors.options && <span class="error-text">{errors.options}</span>}
-  </label>
+
   <label class="mt-4 block">
     <span class="mb-1 block font-semibold">Thứ tự</span>
     <input class="field" name="sortOrder" inputmode="numeric" required maxlength="5" value={values.sortOrder} />

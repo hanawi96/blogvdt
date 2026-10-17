@@ -1,7 +1,10 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { mutationError } from '../../../features/auth/session';
+import { orderProfit } from '../../../features/costs/order-costs';
+import { profitOf } from '../../../features/materials/costing';
 import { orderHandoffText } from '../../../features/orders/order';
+import { paymentLabel } from '../../../features/orders/payment';
 import { getOrder, updateOrderNote, updateOrderStatus } from '../../../features/orders/orders';
 import { isOrderStatus, nextOrderStatuses, ORDER_STATUS_LABELS } from '../../../features/orders/status';
 import { createDb } from '../../../lib/db/client';
@@ -23,6 +26,9 @@ if (!order) return Astro.redirect(routes.adminOrders);
 let formError = '';
 let noteError = '';
 const saved = Astro.url.searchParams.get('saved');
+const isAdmin = session.role === 'admin';
+const profit = orderProfit(order);
+const margin = profit === null ? null : profitOf(order.totalPrice, order.totalPrice - profit).marginPercent;
 const currentStatus = isOrderStatus(order.status) ? order.status : null;
 const choices = currentStatus ? [currentStatus, ...nextOrderStatuses(currentStatus)] : [];
 
@@ -65,6 +71,21 @@ if (Astro.request.method === 'POST') {
 
 const handoff = orderHandoffText(order);
 const statusLabel = isOrderStatus(order.status) ? ORDER_STATUS_LABELS[order.status] : order.status;
+// Đơn một mẫu lưu thẳng trên orders, đơn nhiều mẫu lưu ở order_items: gom về cùng một danh sách để hiển thị.
+const lines =
+  order.items.length > 0
+    ? order.items
+    : [
+        {
+          productId: order.productId,
+          productName: order.productName,
+          unitPrice: order.unitPrice,
+          quantity: order.quantity,
+          optionLabel: order.optionLabel,
+          lineTotal: order.totalPrice,
+        },
+      ];
+const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
 ---
 
 <AdminLayout title={`Đơn ${order.code}`}>
@@ -72,88 +93,138 @@ const statusLabel = isOrderStatus(order.status) ? ORDER_STATUS_LABELS[order.stat
   {saved === 'status' && <p class="mb-4 text-primary-strong" role="status">Đã cập nhật trạng thái.</p>}
   {saved === 'note' && <p class="mb-4 text-primary-strong" role="status">Đã lưu ghi chú nội bộ.</p>}
   {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
-  <div class="order-detail">
-    <section>
-      <h2>Khách hàng</h2>
-      <dl>
-        <div><dt>Khách</dt><dd>{order.customerName}</dd></div>
-        <div><dt>Số điện thoại</dt><dd><a href={`tel:${order.phone}`}>{order.phone}</a></dd></div>
-        <div><dt>Địa chỉ</dt><dd>{order.address}</dd></div>
-        <div><dt>Ghi chú của khách</dt><dd>{order.note || '—'}</dd></div>
-      </dl>
-      <h2>Sản phẩm lúc đặt</h2>
-      {order.items.length > 0 ? (
-        <>
-          <ul class="order-lines">
-            {order.items.map((item) => (
-              <li>
-                <span>
-                  {item.productName}
-                  {item.optionLabel ? ` (${item.optionLabel})` : ''} — {item.quantity} × {formatVnd(item.unitPrice)}
-                </span>
-                <strong>{formatVnd(item.lineTotal)}</strong>
-                {item.productId && <a href={routes.adminProduct(item.productId)}>Xem sản phẩm hiện tại</a>}
-              </li>
-            ))}
-          </ul>
-          <p>Tổng tiền: {formatVnd(order.totalPrice)}</p>
-        </>
-      ) : (
-        <dl>
-          <div>
-            <dt>Sản phẩm</dt>
-            <dd>
-              {order.productName}
-              {order.productId && <a href={routes.adminProduct(order.productId)}>Xem sản phẩm hiện tại</a>}
-            </dd>
-          </div>
-          <div><dt>Lựa chọn</dt><dd>{order.optionLabel || '—'}</dd></div>
-          <div><dt>Số lượng</dt><dd>{order.quantity}</dd></div>
-          <div><dt>Đơn giá</dt><dd>{formatVnd(order.unitPrice)}</dd></div>
-          <div><dt>Tổng tiền</dt><dd>{formatVnd(order.totalPrice)}</dd></div>
-        </dl>
-      )}
-      <p class="order-note">Giá và tên sản phẩm được giữ tại thời điểm đặt, không đổi khi sửa giá hiện tại.</p>
-      <h2>Thanh toán</h2>
-      <p class="order-pay">Chưa ghi nhận thanh toán. Trạng thái xử lý đơn không có nghĩa đã thu tiền.</p>
-      <h2>Thời gian</h2>
-      <dl>
-        <div><dt>Tạo</dt><dd>{formatDateTime(order.createdAt)}</dd></div>
-        <div><dt>Cập nhật</dt><dd>{formatDateTime(order.updatedAt)}</dd></div>
-        <div><dt>Trạng thái</dt><dd><span class="order-badge" data-status={order.status}>{statusLabel}</span></dd></div>
-      </dl>
+  <div class="od-page">
+    <section class="od-card od-head" aria-label="Tóm tắt đơn">
+      <div class="od-head-main">
+        <div class="od-head-line">
+          <span class="od-code">{order.code}</span>
+          <span class="order-badge" data-status={order.status}>{statusLabel}</span>
+        </div>
+        <p class="od-meta">
+          <span>Tạo {formatDateTime(order.createdAt)}</span>
+          <span>Cập nhật {formatDateTime(order.updatedAt)}</span>
+          <span>{lines.length} mẫu · {pieces} chiếc</span>
+        </p>
+        <p class="od-chip-row"><span class="od-chip">{paymentLabel(order.paymentMethod)}</span></p>
+      </div>
+      <div class="od-head-total">
+        <span>Tổng tiền</span>
+        <strong>{formatVnd(order.totalPrice)}</strong>
+      </div>
     </section>
-    <aside>
-      {choices.length > 1 ? (
-        <form method="post" action={routes.adminOrder(id)} data-order-status data-busy>
-          <input type="hidden" name="csrf" value={session.csrfToken} />
-          <input type="hidden" name="intent" value="status" />
-          <label>
-            <span class="mb-1 block font-semibold">Trạng thái</span>
-            <select class="field" name="status">
-              {choices.map((item) => <option value={item} selected={order.status === item}>{ORDER_STATUS_LABELS[item]}</option>)}
-            </select>
-          </label>
-          <button class="btn btn-primary mt-3" type="submit">Lưu trạng thái</button>
-        </form>
-      ) : (
-        <p>Đơn {statusLabel.toLowerCase()} không đổi trạng thái nữa. Lịch sử đơn vẫn được giữ.</p>
-      )}
-      <form class="mt-6" method="post" action={routes.adminOrder(id)} data-busy>
-        <input type="hidden" name="csrf" value={session.csrfToken} />
-        <input type="hidden" name="intent" value="note" />
-        <label>
-          <span class="mb-1 block font-semibold">Ghi chú nội bộ</span>
-          <textarea class="field min-h-28" name="internalNote" maxlength="1000">{order.internalNote ?? ''}</textarea>
-        </label>
-        {noteError && <p class="error-text mt-2" role="alert">{noteError}</p>}
-        <button class="btn mt-3" type="submit">Lưu ghi chú</button>
-      </form>
-      <h2 class="mt-6">Giao hàng</h2>
-      <pre class="order-handoff">{handoff}</pre>
-      <button class="btn mt-3" type="button" data-copy-order>Sao chép thông tin giao hàng</button>
-      <p class="mt-2 text-primary-strong" data-copy-status role="status" hidden></p>
-    </aside>
+
+    <div class="od-columns">
+      <div class="od-col">
+        <section class="od-card">
+          <h2>Sản phẩm</h2>
+          <ul class="od-lines">
+            {
+              lines.map((line) => (
+                <li>
+                  <div class="od-line-main">
+                    <p class="od-line-name">{line.productName}</p>
+                    <p class="od-line-meta">
+                      {line.optionLabel && <span class="od-tag">{line.optionLabel}</span>}
+                      <span>{line.quantity} × {formatVnd(line.unitPrice)}</span>
+                      {line.productId && <a href={routes.adminProduct(line.productId)}>Xem sản phẩm</a>}
+                    </p>
+                  </div>
+                  <strong class="od-line-total">{formatVnd(line.lineTotal)}</strong>
+                </li>
+              ))
+            }
+          </ul>
+          <div class="od-total">
+            <span>Tổng tiền</span>
+            <strong>{formatVnd(order.totalPrice)}</strong>
+          </div>
+          <p class="od-note">Giá và tên sản phẩm được giữ tại thời điểm đặt, không đổi khi sửa giá hiện tại.</p>
+        </section>
+
+        {
+          isAdmin && (
+            <section class="od-card">
+              <h2>Lợi nhuận</h2>
+              {profit === null || order.costGoods === null || order.costExtra === null ? (
+                <p class="od-note">
+                  Chưa có số liệu chi phí cho đơn này: đơn đặt trước khi nhập chi phí, hoặc có sản phẩm chưa có công thức nguyên liệu.
+                </p>
+              ) : (
+                <>
+                  <dl class="od-facts">
+                    <div><dt>Tổng tiền đơn</dt><dd>{formatVnd(order.totalPrice)}</dd></div>
+                    <div><dt>Giá vốn các vòng</dt><dd>− {formatVnd(order.costGoods)}</dd></div>
+                    <div><dt>Chi phí đơn (hộp, ship, thuế…)</dt><dd>− {formatVnd(order.costExtra)}</dd></div>
+                    <div><dt>Lợi nhuận{margin !== null ? ` · biên ${margin}%` : ''}</dt><dd><strong>{formatVnd(profit)}</strong></dd></div>
+                  </dl>
+                  <p class="od-note">Số liệu được chụp lúc đặt đơn, không đổi khi sửa giá nguyên liệu sau này.</p>
+                </>
+              )}
+            </section>
+          )
+        }
+
+        <section class="od-card">
+          <h2>Khách hàng</h2>
+          <dl class="od-facts">
+            <div><dt>Họ tên</dt><dd>{order.customerName}</dd></div>
+            <div><dt>Số điện thoại</dt><dd><a class="od-phone" href={`tel:${order.phone}`}>{order.phone}</a></dd></div>
+            <div><dt>Địa chỉ nhận hàng</dt><dd>{order.address}</dd></div>
+            <div><dt>Ghi chú của khách</dt><dd>{order.note || '—'}</dd></div>
+          </dl>
+        </section>
+
+        <section class="od-card">
+          <h2>Thanh toán</h2>
+          <dl class="od-facts">
+            <div><dt>Hình thức khách chọn</dt><dd>{paymentLabel(order.paymentMethod)}</dd></div>
+          </dl>
+          <p class="od-note">Chưa ghi nhận thanh toán. Trạng thái xử lý đơn không có nghĩa đã thu tiền.</p>
+        </section>
+      </div>
+
+      <aside class="od-col od-aside">
+        <section class="od-card">
+          <h2>Xử lý đơn</h2>
+          {choices.length > 1 ? (
+            <form method="post" action={routes.adminOrder(id)} data-order-status data-busy>
+              <input type="hidden" name="csrf" value={session.csrfToken} />
+              <input type="hidden" name="intent" value="status" />
+              <label>
+                <span class="od-label">Trạng thái</span>
+                <select class="field" name="status">
+                  {choices.map((item) => <option value={item} selected={order.status === item}>{ORDER_STATUS_LABELS[item]}</option>)}
+                </select>
+              </label>
+              <button class="btn btn-primary mt-3 w-full" type="submit">Lưu trạng thái</button>
+            </form>
+          ) : (
+            <p class="od-note">Đơn {statusLabel.toLowerCase()} không đổi trạng thái nữa. Lịch sử đơn vẫn được giữ.</p>
+          )}
+        </section>
+
+        <section class="od-card">
+          <h2>Ghi chú nội bộ</h2>
+          <form method="post" action={routes.adminOrder(id)} data-busy>
+            <input type="hidden" name="csrf" value={session.csrfToken} />
+            <input type="hidden" name="intent" value="note" />
+            <label>
+              <span class="sr-only">Ghi chú nội bộ</span>
+              <textarea class="field min-h-28" name="internalNote" maxlength="1000" placeholder="Chỉ nhân viên thấy ghi chú này">{order.internalNote ?? ''}</textarea>
+            </label>
+            {noteError && <p class="error-text mt-2" role="alert">{noteError}</p>}
+            <button class="btn mt-3 w-full" type="submit">Lưu ghi chú</button>
+          </form>
+        </section>
+
+        <section class="od-card">
+          <h2>Thông tin giao hàng</h2>
+          <pre class="order-handoff">{handoff}</pre>
+          <button class="btn mt-3 w-full" type="button" data-copy-order>Sao chép thông tin giao hàng</button>
+          <p class="mt-2 text-primary-strong" data-copy-status role="status" hidden></p>
+        </section>
+      </aside>
+    </div>
   </div>
 </AdminLayout>
 

@@ -1,6 +1,8 @@
 ---
 import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
+import { CART_MAX_QUANTITY } from '../../features/cart/cart';
+import { requiresWeight, weightOptions, type WeightScale } from '../../features/products/weight';
 
 interface Props {
   product: {
@@ -9,10 +11,7 @@ interface Props {
     slug: string;
     price: number;
     comparePrice: number | null;
-    description: string;
-    cordType: string;
-    categoryName: string | null;
-    options: string[];
+    weightScale: WeightScale;
     coverUrl: string | null;
     coverAlt: string;
     coverWidth: number | null;
@@ -25,8 +24,19 @@ const { product, eager = false } = Astro.props;
 const href = routes.product(product.slug);
 const orderHref = `${routes.checkout}?san-pham=${encodeURIComponent(product.slug)}`;
 const alt = product.coverAlt || product.name;
-const dialogId = `quick-${product.id}`;
-const titleId = `quick-title-${product.id}`;
+const addId = `add-${product.id}`;
+const addTitleId = `add-title-${product.id}`;
+const needsWeight = requiresWeight(product.weightScale);
+const weights = needsWeight ? weightOptions(product.weightScale) : [];
+// Dữ liệu cho modal đặt hàng dùng chung (OrderDialog); thiếu JS thì vẫn là link /dat-hang.
+const orderAttrs = {
+  'data-order-open': '',
+  'data-slug': product.slug,
+  'data-name': product.name,
+  'data-price': String(product.price),
+  'data-scale': product.weightScale,
+  'data-cover': product.coverUrl ?? '',
+};
 ---
 
 <article class="overflow-hidden rounded-lg border border-line bg-surface">
@@ -49,80 +59,74 @@ const titleId = `quick-title-${product.id}`;
   </a>
   <div class="p-3">
     <h2 class="text-base font-semibold"><a href={href}>{product.name}</a></h2>
-    <p class="mt-1 font-semibold text-primary-strong">{formatVnd(product.price)}</p>
-    {product.comparePrice != null && <p class="product-compare">{formatVnd(product.comparePrice)}</p>}
-    <p class="mt-1 text-sm text-muted">Đang bán</p>
+    <p class="product-price">
+      <span class="font-semibold text-primary-strong">{formatVnd(product.price)}</span>
+      {product.comparePrice != null && <span class="product-compare">{formatVnd(product.comparePrice)}</span>}
+    </p>
     <div class="catalog-card-actions">
-      <button class="btn" type="button" data-quick-open aria-haspopup="dialog" aria-controls={dialogId}>Xem nhanh</button>
       {
-        product.options.length > 0 ? (
-          <button class="btn" type="button" data-quick-open aria-controls={dialogId}>Thêm vào giỏ</button>
+        needsWeight ? (
+          <button class="btn" type="button" data-add-open aria-haspopup="dialog" aria-controls={addId}>Thêm giỏ</button>
         ) : (
           <form method="post" action={routes.cart} data-cart-form>
             <input type="hidden" name="intent" value="add" />
             <input type="hidden" name="slug" value={product.slug} />
-            <input type="hidden" name="option" value="" />
+            <input type="hidden" name="weight" value="" />
             <input type="hidden" name="quantity" value="1" />
-            <button class="btn" type="submit">Thêm vào giỏ</button>
+            <button class="btn" type="submit">Thêm giỏ</button>
           </form>
         )
       }
-      <a class="btn btn-primary" href={orderHref}>Đặt hàng</a>
+      <a class="btn btn-primary" href={orderHref} {...orderAttrs}>Đặt hàng</a>
     </div>
   </div>
-  <dialog id={dialogId} class="quick-view" aria-labelledby={titleId}>
-    <form class="quick-view-bar" method="dialog">
-      <button class="btn" type="submit">Đóng</button>
-    </form>
-    <div class="quick-view-body">
-      {
-        product.coverUrl ? (
-          <img class="quick-view-photo" src={product.coverUrl} alt={alt} width={product.coverWidth ?? undefined} height={product.coverHeight ?? undefined} />
-        ) : (
-          <span class="quick-view-empty" aria-hidden="true"></span>
-        )
-      }
-      <div>
-        <p id={titleId} class="text-xl font-semibold">{product.name}</p>
-        <p class="mt-1 font-semibold text-primary-strong">{formatVnd(product.price)}</p>
-        {product.comparePrice != null && <p class="product-compare">{formatVnd(product.comparePrice)}</p>}
-        <p class="mt-1 text-sm text-muted">Đang bán</p>
-        {product.categoryName && <p class="mt-3 text-sm">Danh mục: {product.categoryName}</p>}
-        {product.cordType && <p class="mt-1 text-sm">Kiểu dây: {product.cordType}</p>}
-        {product.description && <p class="mt-3 whitespace-pre-line leading-relaxed">{product.description}</p>}
-        {
-          product.options.length > 0 && (
-            <form class="mt-3" method="post" action={routes.cart} data-cart-form data-requires-option="true">
-              <input type="hidden" name="intent" value="add" />
-              <input type="hidden" name="slug" value={product.slug} />
-              <input type="hidden" name="quantity" value="1" />
-              <label class="block text-sm font-semibold">
-                Lựa chọn
-                <select class="field mt-1" name="option" required>
-                  <option value="">Chọn</option>
-                  {product.options.map((option) => <option value={option}>{option}</option>)}
-                </select>
-              </label>
-              <button class="btn mt-3" type="submit">Thêm vào giỏ</button>
-            </form>
-          )
-        }
-        <div class="quick-view-actions">
-          <a class="btn btn-primary" href={orderHref}>Đặt hàng</a>
-          <a class="btn" href={href}>Xem chi tiết</a>
-        </div>
-      </div>
-    </div>
-  </dialog>
+  {
+    needsWeight && (
+      <dialog id={addId} class="add-dialog" aria-labelledby={addTitleId}>
+        <form class="add-form" method="post" action={routes.cart} data-cart-form data-requires-weight="true">
+          <div class="add-head">
+            <p id={addTitleId} class="font-semibold">{product.name}</p>
+            <button class="add-close" type="button" data-add-close aria-label="Đóng">×</button>
+          </div>
+          <p class="font-semibold text-primary-strong">{formatVnd(product.price)}</p>
+          <input type="hidden" name="intent" value="add" />
+          <input type="hidden" name="slug" value={product.slug} />
+          <fieldset class="mt-3">
+            <legend class="text-sm font-semibold">Cân nặng của bé</legend>
+            <div class="weight-grid mt-2" role="radiogroup">
+              {weights.map((weight, index) => (
+                <label class="weight-chip">
+                  <input type="radio" name="weight" value={weight} required={index === 0} />
+                  <span>{weight}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <label class="mt-3 block text-sm font-semibold">
+            Số lượng
+            <input class="field mt-1" name="quantity" type="number" min="1" max={CART_MAX_QUANTITY} value="1" required />
+          </label>
+          <p class="add-error error-text mt-2" role="alert" hidden></p>
+          <button class="btn btn-primary mt-4 w-full" type="submit">Thêm giỏ</button>
+        </form>
+      </dialog>
+    )
+  }
 </article>
 <script>
-  document.querySelectorAll('[data-quick-open]').forEach((button) => {
+  document.querySelectorAll('[data-add-open]').forEach((button) => {
     button.addEventListener('click', () => {
-      const dialog = button.closest('article')?.querySelector('dialog');
+      const dialog = button.closest('article')?.querySelector('dialog.add-dialog');
       if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
     });
   });
-  document.querySelectorAll('dialog.quick-view').forEach((dialog) => {
+  document.querySelectorAll('[data-add-close]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const dialog = button.closest('dialog');
+      if (dialog instanceof HTMLDialogElement) dialog.close();
+    });
+  });
+  document.querySelectorAll('dialog.add-dialog').forEach((dialog) => {
     if (!(dialog instanceof HTMLDialogElement)) return;
     dialog.addEventListener('click', (event) => {
       if (event.target === dialog) dialog.close();
