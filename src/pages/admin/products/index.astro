@@ -1,7 +1,7 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { listTopSellingProducts, searchActiveProducts } from '../../../features/posts/product-cards';
-import { marginTone, profitOf } from '../../../features/materials/costing';
+import { profitOf } from '../../../features/materials/costing';
 import { loadProductCosts } from '../../../features/materials/recipes';
 import { listProducts, productAdminQuery, productListSort, type ProductListSort } from '../../../features/products/products';
 import { isProductStatus, PRODUCT_STATUS_LABELS, type ProductStatus } from '../../../features/products/status';
@@ -67,18 +67,6 @@ try {
 } catch (error) {
   console.error(JSON.stringify({ event: 'product_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
   loadError = 'Không tải được danh sách sản phẩm.';
-}
-
-// Giá vốn tính từ công thức nguyên liệu; sản phẩm chưa có công thức thì chưa có giá vốn.
-function costInfo(price: number, productId: number): { text: string; warn: boolean } | null {
-  const cost = costs.get(productId);
-  if (cost === undefined) return null;
-  const { marginPercent } = profitOf(price, cost);
-  const tone = marginTone(marginPercent);
-  return {
-    text: `Vốn ${formatVnd(cost)}${marginPercent === null ? '' : ` · biên ${marginPercent}%`}`,
-    warn: tone === 'loss' || tone === 'low',
-  };
 }
 
 const sorts: { id: ProductListSort; label: string }[] = [
@@ -195,6 +183,8 @@ function pageHref(next: { page?: number }): string {
                       </th>
                       <th>Sản phẩm</th>
                       <th>Giá</th>
+                      <th>Giá vốn</th>
+                      <th>Biên lợi nhuận</th>
                       <th>Danh mục</th>
                       <th>Kiểu dây</th>
                       <th>Trạng thái</th>
@@ -206,6 +196,8 @@ function pageHref(next: { page?: number }): string {
                   <tbody>
                     {result.rows.map((product) => {
                       const active = product.status === 'active';
+                      const cost = costs.get(product.id);
+                      const margin = cost === undefined ? null : profitOf(product.price, cost).marginPercent;
                       return (
                         <tr data-category={product.categoryId ?? ''} hidden={!isRowShown(product.categoryId)}>
                           <td class="product-check">
@@ -231,12 +223,15 @@ function pageHref(next: { page?: number }): string {
                           <td data-label="Giá">
                             {formatVnd(product.price)}
                             {product.comparePrice != null && <span class="product-compare">{formatVnd(product.comparePrice)}</span>}
-                            {costInfo(product.price, product.id) ? (
-                              <span class:list={['product-cost', costInfo(product.price, product.id)?.warn && 'is-low']}>
-                                {costInfo(product.price, product.id)?.text}
-                              </span>
+                          </td>
+                          <td data-label="Giá vốn">
+                            {cost === undefined ? <span class="product-figure is-empty">Chưa có</span> : <span class="product-figure">{formatVnd(cost)}</span>}
+                          </td>
+                          <td data-label="Biên lợi nhuận">
+                            {margin === null ? (
+                              <span class="product-figure is-empty">—</span>
                             ) : (
-                              <span class="product-cost">Chưa có giá vốn</span>
+                              <span class="product-figure" data-margin={margin < 15 ? 'low' : margin <= 35 ? 'mid' : 'high'}>{margin}%</span>
                             )}
                           </td>
                           <td data-label="Danh mục">{product.categoryName || '—'}</td>

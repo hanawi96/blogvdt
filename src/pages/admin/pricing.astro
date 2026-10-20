@@ -14,7 +14,7 @@ import {
   profitOf,
   suggestedPrice,
 } from '../../features/materials/costing';
-import { PRICING_APPLY_MAX, applySuggestedPrices, listPricingRows } from '../../features/materials/pricing';
+import { PRICING_APPLY_MAX, applySuggestedPrices, listPricingRows, pricingMaterialName } from '../../features/materials/pricing';
 import { isProductStatus, PRODUCT_STATUS_LABELS } from '../../features/products/status';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
@@ -40,13 +40,16 @@ const notice = params.get('notice') ?? '';
 const errorCode = params.get('error') ?? '';
 const count = Number(params.get('n') ?? '0');
 const unchanged = Number(params.get('u') ?? '0');
+const materialParam = Number(params.get('vat-lieu'));
+const requestedMaterial = Number.isInteger(materialParam) && materialParam > 0 ? materialParam : null;
 let loadError = '';
 
-function listHref(next: { margin: number; step: number; filter: string; page?: number; extra?: Record<string, string> }): string {
+function listHref(next: { margin: number; step: number; filter: string; materialId?: number | null; page?: number; extra?: Record<string, string> }): string {
   const query = new URLSearchParams();
   if (next.margin !== DEFAULT_TARGET_MARGIN) query.set('bien', String(next.margin));
   if (next.step !== DEFAULT_ROUND_STEP) query.set('lam-tron', String(next.step));
   if (next.filter === 'tat-ca') query.set('loc', 'tat-ca');
+  if (next.materialId) query.set('vat-lieu', String(next.materialId));
   if (next.page && next.page > 1) query.set('page', String(next.page));
   for (const [key, value] of Object.entries(next.extra ?? {})) query.set(key, value);
   const text = query.toString();
@@ -63,6 +66,8 @@ if (Astro.request.method === 'POST') {
   const postMargin = parseTargetMargin(read('bien'));
   const postStep = parseRoundStep(read('lam-tron'));
   const postFilter = read('loc') === 'tat-ca' ? 'tat-ca' : 'thap';
+  const postMaterial = Number(read('vat-lieu'));
+  const postMaterialId = Number.isInteger(postMaterial) && postMaterial > 0 ? postMaterial : null;
   if (blocked) {
     Astro.response.status = 403;
     loadError = blocked;
@@ -71,7 +76,7 @@ if (Astro.request.method === 'POST') {
       .getAll('ids')
       .map((value) => Number(value))
       .filter((value) => Number.isInteger(value) && value > 0);
-    const back = { margin: postMargin, step: postStep, filter: postFilter };
+    const back = { margin: postMargin, step: postStep, filter: postFilter, materialId: postMaterialId };
     if (ids.length === 0) return Astro.redirect(listHref({ ...back, extra: { error: 'none' } }), 303);
     if (ids.length > PRICING_APPLY_MAX) return Astro.redirect(listHref({ ...back, extra: { error: 'toomany' } }), 303);
     const result = await applySuggestedPrices(db, ids, postMargin, postStep, await activityActor(db, session.userId));
@@ -82,9 +87,12 @@ if (Astro.request.method === 'POST') {
   }
 }
 
+let materialName = '';
+if (requestedMaterial) materialName = (await pricingMaterialName(db, requestedMaterial)) ?? '';
+const materialId = materialName ? requestedMaterial : null;
 let listed: Awaited<ReturnType<typeof listPricingRows>> | null = null;
 try {
-  listed = await listPricingRows(db);
+  listed = await listPricingRows(db, materialId);
 } catch (error) {
   console.error(JSON.stringify({ event: 'pricing_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
   loadError = loadError || 'Không tải được danh sách sản phẩm.';
@@ -102,7 +110,7 @@ const shown = filter === 'tat-ca' ? computed : below;
 const pageCount = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
 const current = Math.min(page, pageCount);
 const visible = shown.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
-const base = { margin, step, filter };
+const base = { margin, step, filter, materialId };
 
 const noticeText =
   notice === 'applied'
@@ -115,7 +123,9 @@ const stepLabels: Record<number, string> = { 1: 'Không làm tròn', 500: '500 �
 ---
 
 <AdminLayout title="Định giá bán">
-  <p slot="lead">Giá bán đề xuất theo giá vốn nguyên liệu. Giá chỉ đổi khi bạn bấm áp dụng.</p>
+  <p slot="lead">
+    {materialName ? `Sản phẩm dùng “${materialName}”. ` : ''}Giá bán đề xuất theo giá vốn nguyên liệu. Giá chỉ đổi khi bạn bấm áp dụng.
+  </p>
   {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
   {noticeText && <p class="mb-4 text-primary-strong" role="status">{noticeText}</p>}
   {errorText && <p class="error-text mb-4" role="alert">{errorText}</p>}
@@ -134,6 +144,7 @@ const stepLabels: Record<number, string> = { 1: 'Không làm tròn', 500: '500 �
     ) : listed ? (
       <>
         <form class="pricing-controls" method="get" action={routes.adminPricing}>
+          {materialId && <input type="hidden" name="vat-lieu" value={materialId} />}
           <label>
             <span>Biên mục tiêu (%)</span>
             <input class="field" name="bien" type="number" inputmode="numeric" min="0" max={MAX_TARGET_MARGIN} value={margin} />
@@ -173,6 +184,7 @@ const stepLabels: Record<number, string> = { 1: 'Không làm tròn', 500: '500 �
             <input type="hidden" name="bien" value={margin} />
             <input type="hidden" name="lam-tron" value={step} />
             <input type="hidden" name="loc" value={filter} />
+            {materialId && <input type="hidden" name="vat-lieu" value={materialId} />}
             <table class="post-table pricing-table">
               <thead>
                 <tr>

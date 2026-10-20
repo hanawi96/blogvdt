@@ -4,10 +4,9 @@ import ProductForm from '../../../components/admin/ProductForm.astro';
 import { mutationError } from '../../../features/auth/session';
 import { parseRecipe, resolveRecipeLines, type RecipeLine } from '../../../features/materials/costing';
 import { listRecipeOptions } from '../../../features/materials/recipes';
-import { listMedia } from '../../../features/media/media';
 import { listProductCategories } from '../../../features/products/categories';
 import { parseProductForm } from '../../../features/products/form';
-import { createProduct } from '../../../features/products/products';
+import { createProduct, productPhotoViews } from '../../../features/products/products';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
 import { routes } from '../../../lib/routes';
@@ -17,7 +16,6 @@ const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
 
 const db = createDb(getDbBinding());
-const media = await listMedia(db);
 const categories = await listProductCategories(db);
 const empty = {
   name: '',
@@ -71,6 +69,11 @@ if (Astro.request.method === 'POST') {
 
 const recipeOptions = await listRecipeOptions(db, postedRecipe.map((line) => line.materialId));
 const recipeLines = resolveRecipeLines(postedRecipe, recipeOptions);
+const photos = await productPhotoViews(
+  db,
+  Number(values.coverMediaId) || null,
+  values.album.map(Number).filter((id) => Number.isInteger(id) && id > 0),
+);
 
 function valuesFrom(form: FormData) {
   const read = (name: string) => {
@@ -97,5 +100,5 @@ function valuesFrom(form: FormData) {
 ---
 
 <AdminLayout title="Thêm sản phẩm">
-  <ProductForm csrf={session.csrfToken} action={routes.adminProductNew} {values} {errors} {formError} {media} {categories} {recipeOptions} {recipeLines} />
+  <ProductForm csrf={session.csrfToken} action={routes.adminProductNew} {values} {errors} {formError} {categories} {photos} {recipeOptions} {recipeLines} />
 </AdminLayout>

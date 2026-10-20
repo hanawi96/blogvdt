@@ -8,6 +8,10 @@ import {
   marginTone,
   parseRoundStep,
   parseTargetMargin,
+  keepProfitPrice,
+  repriceLines,
+  repriceNote,
+  repriceOffer,
   suggestedPrice,
 } from './costing';
 
@@ -112,5 +116,52 @@ describe('tác động khi đổi đơn giá nguyên liệu', () => {
 
   it('không có sản phẩm nào thì tất cả bằng 0', () => {
     expect(impactOfUnitCostChange([], 1, 2)).toMatchObject({ count: 0, minDelta: 0, maxDelta: 0, flagged: [] });
+  });
+});
+
+describe('cập nhật giá bán sau khi đổi đơn giá', () => {
+  const charmUp = [
+    { productId: 1, name: 'Vòng A', price: 200000, comparePrice: null, cost: 120000, quantity: 2, status: 'active' },
+    { productId: 2, name: 'Vòng B', price: 150000, comparePrice: 160000, cost: 90000, quantity: 1, status: 'inactive' },
+  ];
+
+  it('giữ tiền lời cộng đúng phần vốn rồi làm tròn lên', () => {
+    expect(keepProfitPrice(200000, 50000, 1000)).toBe(250000);
+    expect(keepProfitPrice(100400, 1, 1000)).toBe(101000);
+    expect(keepProfitPrice(100000, -100, 1000)).toBe(100000);
+    expect(keepProfitPrice(1000, -5000, 1000)).toBeNull();
+  });
+
+  it('đơn giá tăng: chọn sẵn giữ tiền lời, chặn dòng chạm giá gốc', () => {
+    const offer = repriceOffer(charmUp, 35000, 60000);
+    expect(offer).toEqual({ open: true, mode: 'keep' });
+    const lines = repriceLines(charmUp, 35000, 60000, 'keep', 40, 1000);
+    const kept = lines[0];
+    const blocked = lines[1];
+    expect(kept).toMatchObject({ nextPrice: 250000, changed: true, blocked: false, marginBefore: 40, marginAfter: 52 });
+    expect(blocked).toMatchObject({ nextPrice: 175000, changed: false, blocked: true });
+    if (!kept || !blocked) throw new Error('thiếu dòng');
+    expect(repriceNote(blocked, 'keep', '160.000 ₫')).toContain('160.000 ₫');
+    expect(repriceNote(kept, 'keep', '')).toBe('');
+  });
+
+  it('đơn giá giảm: mở bảng nhưng chọn sẵn không đổi giá bán', () => {
+    const rows = [{ productId: 1, name: 'Vòng A', price: 250000, comparePrice: null, cost: 70000, quantity: 2, status: 'active' }];
+    expect(repriceOffer(rows, 60000, 35000)).toEqual({ open: true, mode: 'none' });
+    const lines = repriceLines(rows, 60000, 35000, 'none', 40, 1000);
+    expect(lines[0]).toMatchObject({ nextPrice: null, changed: false, blocked: false });
+  });
+
+  it('làm tròn xong không đổi giá thì không mở bảng', () => {
+    const rows = [{ productId: 1, name: 'Vòng A', price: 167000, comparePrice: null, cost: 99900, quantity: 1, status: 'active' }];
+    expect(repriceOffer(rows, 35000, 34900)).toEqual({ open: false, mode: 'none' });
+    expect(repriceOffer([], 35000, 60000)).toEqual({ open: false, mode: 'none' });
+  });
+
+  it('đặt lại theo biên dùng giá vốn mới', () => {
+    const rows = [{ productId: 1, name: 'Vòng A', price: 200000, comparePrice: null, cost: 60000, quantity: 1, status: 'active' }];
+    const lines = repriceLines(rows, 35000, 60000, 'margin', 40, 1000);
+    expect(lines[0]?.nextPrice).toBe(100000);
+    expect(lines[0]?.changed).toBe(true);
   });
 });

@@ -9,12 +9,6 @@ export const WEIGHT_SCALES = {
 
 export type WeightScale = keyof typeof WEIGHT_SCALES;
 
-// Nhãn hiển thị cho admin khi chọn thang của danh mục.
-export const WEIGHT_SCALE_LABELS: { value: WeightScale; label: string }[] = [
-  { value: 'baby', label: 'Bé (Chưa sinh, 3–15kg)' },
-  { value: 'none', label: 'Không cần chọn cân nặng' },
-];
-
 export const DEFAULT_WEIGHT_SCALE: WeightScale = 'baby';
 
 // Nhãn cân nặng tối đa 40 ký tự để vừa độ dài option của giỏ/đơn hàng.

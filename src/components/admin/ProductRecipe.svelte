@@ -26,26 +26,29 @@
   }: { options: MaterialOption[]; lines: CostedLine[]; error?: string; priceInput?: string; materialsHref?: string } = $props();
 
   let rows = $state<CostedLine[]>(untrack(() => lines.map((line) => ({ ...line }))));
-  let picked = $state('');
-  let pickedQuantity = $state(1);
+  let draft = $state<CostedLine[]>([]);
+  let query = $state('');
   let price = $state(0);
   let targetMargin = $state<number | null>(DEFAULT_TARGET_MARGIN);
   let priceEl: HTMLInputElement | null = null;
+  let dialogEl = $state<HTMLDialogElement | null>(null);
 
-  const taken = $derived(new Set(rows.map((row) => row.materialId)));
-  const available = $derived(options.filter((option) => option.active && !taken.has(option.id)));
+  const cost = $derived(recipeCost(rows));
+  const draftCost = $derived(recipeCost(draft));
   const groups = $derived.by(() => {
+    const term = query.trim().toLocaleLowerCase('vi');
     const map = new Map<string, MaterialOption[]>();
-    for (const option of available) {
+    for (const option of options) {
+      if (term && !`${option.name} ${option.group}`.toLocaleLowerCase('vi').includes(term)) continue;
       const list = map.get(option.group);
       if (list) list.push(option);
       else map.set(option.group, [option]);
     }
     return [...map.entries()];
   });
-  const cost = $derived(recipeCost(rows));
   const figures = $derived(profitOf(price, cost));
   const full = $derived(rows.length >= RECIPE_MAX_LINES);
+  const draftFull = $derived(draft.length >= RECIPE_MAX_LINES);
   const tone = $derived(rows.length > 0 && price > 0 ? marginTone(figures.marginPercent) : 'none');
   const margin = $derived(
     typeof targetMargin === 'number' && Number.isInteger(targetMargin) && targetMargin >= 0 && targetMargin <= MAX_TARGET_MARGIN
@@ -66,12 +69,52 @@
     return Math.min(RECIPE_MAX_QUANTITY, value);
   }
 
-  function add() {
-    const option = options.find((item) => String(item.id) === picked);
-    if (!option || full || taken.has(option.id)) return;
-    rows.push({ materialId: option.id, quantity: clampQuantity(pickedQuantity), name: option.name, group: option.group, unitCost: option.unitCost, active: option.active });
-    picked = '';
-    pickedQuantity = 1;
+  function openPicker() {
+    draft = rows.map((line) => ({ ...line }));
+    query = '';
+    dialogEl?.showModal();
+  }
+
+  function applyDraft() {
+    const rank = new Map(options.map((option, index) => [option.id, index]));
+    rows = draft.map((line) => ({ ...line })).sort((a, b) => (rank.get(a.materialId) ?? 0) - (rank.get(b.materialId) ?? 0));
+    dialogEl?.close();
+  }
+
+  function draftRow(id: number): CostedLine | undefined {
+    return draft.find((row) => row.materialId === id);
+  }
+
+  function toggle(option: MaterialOption) {
+    const index = draft.findIndex((row) => row.materialId === option.id);
+    if (index >= 0) {
+      draft.splice(index, 1);
+      return;
+    }
+    if (draft.length >= RECIPE_MAX_LINES) return;
+    draft.push({ materialId: option.id, quantity: 1, name: option.name, group: option.group, unitCost: option.unitCost, active: option.active });
+  }
+
+  function step(id: number, delta: number) {
+    const row = draftRow(id);
+    if (!row) return;
+    row.quantity = clampQuantity(row.quantity + delta);
+  }
+
+  function setDraftQuantity(id: number, event: Event) {
+    const row = draftRow(id);
+    if (!row) return;
+    const input = event.currentTarget as HTMLInputElement;
+    row.quantity = clampQuantity(Number(input.value));
+    input.value = String(row.quantity);
+  }
+
+  function onDialogClick(event: MouseEvent) {
+    const node = dialogEl;
+    if (!node || event.target !== node) return;
+    const box = node.getBoundingClientRect();
+    const inside = event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
+    if (!inside) node.close();
   }
 
   function remove(index: number) {
@@ -111,13 +154,16 @@
 
 <section class="recipe" aria-labelledby="recipe-title">
   <h2 id="recipe-title" class="recipe-title">Nguyên liệu và giá vốn</h2>
-  <p class="recipe-hint">Chọn các nguyên liệu làm một sản phẩm (tính theo cỡ chuẩn). Giá vốn tự cập nhật khi giá nguyên liệu đổi.</p>
+  <p class="recipe-hint">Một chiếc vòng chọn được nhiều nguyên liệu cùng lúc. Giá vốn bằng số lượng nhân đơn giá, và tự đổi khi giá nguyên liệu đổi.</p>
 
   {#each rows as row (row.materialId)}
     <input type="hidden" name="materialId" value={row.materialId} />
     <input type="hidden" name="materialQty" value={row.quantity} />
   {/each}
 
+  <div class="recipe-toolbar">
+    <button class="btn" type="button" onclick={openPicker} disabled={options.length === 0}>Chọn nguyên liệu</button>
+  </div>
   {#if rows.length === 0}
     <p class="recipe-empty">Chưa chọn nguyên liệu nào, nên chưa tính được giá vốn.</p>
   {:else}
@@ -148,27 +194,6 @@
       {/each}
     </ul>
   {/if}
-
-  <div class="recipe-add">
-    <label class="recipe-pick">
-      <span class="sr-only">Chọn nguyên liệu để thêm</span>
-      <select class="field" bind:value={picked} disabled={full || available.length === 0}>
-        <option value="">{available.length === 0 ? 'Không còn nguyên liệu để thêm' : 'Chọn nguyên liệu…'}</option>
-        {#each groups as [group, list] (group)}
-          <optgroup label={group}>
-            {#each list as option (option.id)}
-              <option value={String(option.id)}>{option.name} — {formatVnd(option.unitCost)}</option>
-            {/each}
-          </optgroup>
-        {/each}
-      </select>
-    </label>
-    <label class="recipe-qty">
-      <span class="sr-only">Số lượng cần thêm</span>
-      <input class="field" type="number" inputmode="numeric" min="1" max={RECIPE_MAX_QUANTITY} bind:value={pickedQuantity} onkeydown={holdEnter} disabled={full} />
-    </label>
-    <button class="btn" type="button" onclick={add} disabled={!picked || full}>Thêm</button>
-  </div>
   {#if full}<p class="recipe-hint">Tối đa {RECIPE_MAX_LINES} nguyên liệu mỗi sản phẩm.</p>{/if}
   {#if error}<span class="error-text" role="alert">{error}</span>{/if}
   <p class="recipe-hint">
@@ -209,4 +234,82 @@
       <button class="btn" type="button" onclick={applySuggested} disabled={price === suggested}>Dùng giá này</button>
     </div>
   {/if}
+
+  <dialog class="recipe-dialog" aria-labelledby="recipe-dialog-title" bind:this={dialogEl} onclick={onDialogClick}>
+    <header class="recipe-dialog-head">
+      <div>
+        <h2 id="recipe-dialog-title">Chọn nguyên liệu</h2>
+        <p>Đã chọn: {draft.length} nguyên liệu</p>
+      </div>
+      <button class="recipe-dialog-close" type="button" aria-label="Đóng" onclick={() => dialogEl?.close()}>×</button>
+    </header>
+    <div class="recipe-dialog-body">
+      <label class="recipe-search">
+        <span class="sr-only">Tìm nguyên liệu</span>
+        <input class="field" type="search" placeholder="Tìm theo tên hoặc nhóm" bind:value={query} onkeydown={holdEnter} />
+      </label>
+      <p class="recipe-hint">Giá vốn tạm tính theo đơn giá hiện tại. Bấm Lưu sản phẩm để ghi công thức.</p>
+      {#if draftFull}<p class="recipe-hint">Tối đa {RECIPE_MAX_LINES} nguyên liệu. Bỏ bớt nếu muốn chọn loại khác.</p>{/if}
+      {#if groups.length === 0}
+        <p class="recipe-empty">{options.length === 0 ? 'Chưa có nguyên liệu đang dùng.' : 'Không có nguyên liệu khớp.'}</p>
+      {:else}
+        {#each groups as [group, list], groupIndex (group)}
+          <section class="recipe-group" aria-labelledby={`recipe-group-${groupIndex}`}>
+            <h3 id={`recipe-group-${groupIndex}`}>{group} <span>({list.length})</span></h3>
+            <ul class="recipe-grid">
+              {#each list as option (option.id)}
+                {@const picked = draftRow(option.id)}
+                <li class="recipe-card" class:is-on={picked !== undefined}>
+                  <label class="recipe-card-pick">
+                    <input
+                      type="checkbox"
+                      checked={picked !== undefined}
+                      disabled={picked === undefined && draftFull}
+                      onclick={(event) => {
+                        event.preventDefault();
+                        toggle(option);
+                      }}
+                    />
+                    <span class="recipe-card-name">
+                      <strong>{option.name}</strong>
+                      {#if !option.active}<em>Ngừng dùng</em>{/if}
+                    </span>
+                    <span class="recipe-card-price">{formatVnd(option.unitCost)}</span>
+                  </label>
+                  {#if picked}
+                    <div class="recipe-card-foot">
+                      <div class="recipe-step">
+                        <button type="button" aria-label={`Giảm ${option.name}`} onclick={() => step(option.id, -1)} disabled={picked.quantity <= 1}>−</button>
+                        <input
+                          aria-label={`Số lượng ${option.name}`}
+                          inputmode="numeric"
+                          min="1"
+                          max={RECIPE_MAX_QUANTITY}
+                          value={picked.quantity}
+                          onchange={(event) => setDraftQuantity(option.id, event)}
+                          onkeydown={holdEnter}
+                        />
+                        <button type="button" aria-label={`Tăng ${option.name}`} onclick={() => step(option.id, 1)} disabled={picked.quantity >= RECIPE_MAX_QUANTITY}>+</button>
+                      </div>
+                      <strong>{formatVnd(lineCost(option.unitCost, picked.quantity))}</strong>
+                    </div>
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          </section>
+        {/each}
+      {/if}
+    </div>
+    <footer class="recipe-dialog-foot">
+      <p>
+        {draft.length} nguyên liệu đã chọn
+        <span>Giá vốn {draft.length > 0 ? formatVnd(draftCost) : '—'}</span>
+      </p>
+      <div class="recipe-dialog-actions">
+        <button class="btn" type="button" onclick={() => dialogEl?.close()}>Hủy</button>
+        <button class="btn btn-primary" type="button" onclick={applyDraft}>Lưu nguyên liệu</button>
+      </div>
+    </footer>
+  </dialog>
 </section>

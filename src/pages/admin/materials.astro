@@ -4,7 +4,20 @@ import { activityActor } from '../../features/activity/log';
 import { mutationError } from '../../features/auth/session';
 import { deleteMaterial, listMaterials, saveMaterial } from '../../features/materials/materials';
 import { deleteGroup, GROUP_NAME_MAX, moveGroup, saveGroup } from '../../features/materials/groups';
-import { loadMaterialImpact } from '../../features/materials/pricing';
+import { applyMaterialReprice, loadMaterialImpact, loadMaterialReprice } from '../../features/materials/pricing';
+import {
+  DEFAULT_ROUND_STEP,
+  DEFAULT_TARGET_MARGIN,
+  MATERIAL_MAX_PRICE,
+  MAX_TARGET_MARGIN,
+  ROUND_STEPS,
+  parseRoundStep,
+  parseTargetMargin,
+  repriceLines,
+  repriceNote,
+  repriceOffer,
+} from '../../features/materials/costing';
+import { isProductStatus, PRODUCT_STATUS_LABELS } from '../../features/products/status';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
 import { formatDateTime } from '../../lib/datetime';
@@ -43,7 +56,7 @@ let groupDraft = '';
 let groupDraftId = '';
 const values = { id: '', name: '', code: '', groupId: '', unitCost: '', active: true };
 
-function listHref(next?: { notice?: string; error?: string; edit?: number; groups?: boolean }): string {
+function listHref(next?: { notice?: string; error?: string; edit?: number; groups?: boolean; reprice?: number; truoc?: number; vatlieu?: number; n?: number; u?: number }): string {
   const params = new URLSearchParams();
   if (groupId) params.set('nhom', String(groupId));
   if (page > 1) params.set('page', String(page));
@@ -51,6 +64,11 @@ function listHref(next?: { notice?: string; error?: string; edit?: number; group
   if (next?.error) params.set('error', next.error);
   if (next?.edit) params.set('edit', String(next.edit));
   if (next?.groups) params.set('groups', '1');
+  if (next?.reprice) params.set('reprice', String(next.reprice));
+  if (next?.truoc !== undefined && next.reprice) params.set('truoc', String(next.truoc));
+  if (next?.vatlieu) params.set('vatlieu', String(next.vatlieu));
+  if (next?.n !== undefined && next.notice === 'repriced') params.set('n', String(next.n));
+  if (next?.u !== undefined && next.notice === 'repriced') params.set('u', String(next.u));
   const text = params.toString();
   return text ? `${routes.adminMaterials}?${text}` : routes.adminMaterials;
 }
@@ -114,14 +132,78 @@ if (Astro.request.method === 'POST') {
       Date.now(),
       await activityActor(db, session.userId),
     );
-    if (saved.ok) return Astro.redirect(listHref({ notice: saved.priceChanged ? 'saved-price' : 'saved' }), 303);
+    if (saved.ok && saved.priceChanged) return Astro.redirect(listHref({ reprice: saved.id, truoc: saved.previousUnitCost }), 303);
+    if (saved.ok) return Astro.redirect(listHref({ notice: 'saved' }), 303);
     Astro.response.status = 422;
     formError = saved.error;
     saveFailed = true;
+  } else if (intent === 'reprice' && id) {
+    const previous = Number(read('truoc'));
+    const currentUnit = Number(read('hien-tai'));
+    const mode = read('mode') === 'margin' ? 'margin' : read('mode') === 'keep' ? 'keep' : 'none';
+    const picked = form
+      .getAll('ids')
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value > 0);
+    if (mode === 'none') return Astro.redirect(listHref({ notice: 'saved-price', vatlieu: id }), 303);
+    if (picked.length === 0) return Astro.redirect(listHref({ reprice: id, truoc: previous, error: 'none' }), 303);
+    const applied = await applyMaterialReprice(
+      db,
+      {
+        materialId: id,
+        previousUnitCost: previous,
+        unitCost: currentUnit,
+        mode,
+        margin: parseTargetMargin(read('bien')),
+        step: mode === 'keep' ? DEFAULT_ROUND_STEP : parseRoundStep(read('lam-tron')),
+        ids: picked,
+      },
+      await activityActor(db, session.userId),
+    );
+    if (!applied.ok) {
+      const code = applied.error.includes('sửa tiếp') ? 'stale' : 'reprice';
+      return Astro.redirect(listHref({ notice: 'saved-price', error: code, vatlieu: id }), 303);
+    }
+    return Astro.redirect(listHref({ notice: 'repriced', vatlieu: id, n: applied.updated, u: applied.skipped }), 303);
   } else {
     Astro.response.status = 422;
     formError = 'Thao tác không hợp lệ.';
   }
+}
+
+const repriceParam = Number(Astro.url.searchParams.get('reprice'));
+const truocText = Astro.url.searchParams.get('truoc');
+const previousParam = Number(truocText);
+const vatlieuParam = Number(Astro.url.searchParams.get('vatlieu'));
+const focusMaterial = Number.isInteger(vatlieuParam) && vatlieuParam > 0 ? vatlieuParam : 0;
+const updatedCount = Number(Astro.url.searchParams.get('n') ?? '0');
+const skippedCount = Number(Astro.url.searchParams.get('u') ?? '0');
+let repriceView: {
+  id: number;
+  name: string;
+  unitCost: number;
+  previous: number;
+  total: number;
+  mode: 'keep' | 'margin' | 'none';
+  lines: ReturnType<typeof repriceLines>;
+  payload: string;
+} | null = null;
+
+if (Astro.request.method === 'GET' && Number.isInteger(repriceParam) && repriceParam > 0) {
+  const previousOk = truocText !== null && Number.isInteger(previousParam) && previousParam >= 0 && previousParam <= MATERIAL_MAX_PRICE;
+  const context = previousOk ? await loadMaterialReprice(db, repriceParam) : null;
+  const offer = context && context.unitCost !== previousParam ? repriceOffer(context.rows, previousParam, context.unitCost) : { open: false, mode: 'none' as const };
+  if (!context || !offer.open) return Astro.redirect(listHref({ notice: 'saved-price', vatlieu: context ? repriceParam : focusMaterial || undefined }), 303);
+  repriceView = {
+    id: context.id,
+    name: context.name,
+    unitCost: context.unitCost,
+    previous: previousParam,
+    total: context.total,
+    mode: offer.mode,
+    lines: repriceLines(context.rows, previousParam, context.unitCost, offer.mode, DEFAULT_TARGET_MARGIN, DEFAULT_ROUND_STEP),
+    payload: JSON.stringify({ previous: previousParam, unitCost: context.unitCost, rows: context.rows }),
+  };
 }
 
 let result: Awaited<ReturnType<typeof listMaterials>> | null = null;
@@ -166,12 +248,19 @@ for (const row of result?.rows ?? []) {
   else sections.push({ name: row.group, rows: [row] });
 }
 
+const stepLabels: Record<number, string> = { 1: 'Không làm tròn', 500: '500 ₫', 1000: '1.000 ₫', 5000: '5.000 ₫', 10000: '10.000 ₫' };
+const percent = (value: number | null) => (value === null ? '—' : `${value}%`);
+const pricingHref = focusMaterial > 0 ? `${routes.adminPricing}?vat-lieu=${focusMaterial}&loc=tat-ca` : routes.adminPricing;
 const noticeText =
   notice === 'saved'
     ? 'Đã lưu nguyên liệu.'
     : notice === 'saved-price'
-      ? 'Đã lưu nguyên liệu. Giá vốn các sản phẩm liên quan đã tự cập nhật.'
-      : notice === 'deleted'
+      ? 'Đã lưu nguyên liệu. Giá vốn các sản phẩm liên quan đã tự cập nhật. Giá bán giữ nguyên.'
+      : notice === 'repriced'
+        ? updatedCount > 0
+          ? `Đã cập nhật giá bán ${updatedCount} sản phẩm.${skippedCount > 0 ? ` ${skippedCount} sản phẩm giữ nguyên vì giá không đổi hoặc chạm giá gốc.` : ''}`
+          : 'Không có sản phẩm nào cần đổi giá bán.'
+        : notice === 'deleted'
         ? 'Đã xóa nguyên liệu.'
         : notice === 'group-created'
           ? 'Đã tạo nhóm.'
@@ -185,7 +274,13 @@ const errorText =
     ? 'Nguyên liệu đang được sản phẩm dùng, chưa xóa được. Hãy chuyển sang ngừng dùng.'
     : errorCode === 'missing'
       ? 'Không tìm thấy nguyên liệu.'
-      : '';
+      : errorCode === 'none'
+        ? 'Chưa chọn sản phẩm nào.'
+        : errorCode === 'stale'
+          ? 'Đơn giá vừa được sửa tiếp. Hãy sửa lại nếu vẫn muốn cập nhật giá bán.'
+          : errorCode === 'reprice'
+            ? 'Không cập nhật được giá bán.'
+            : '';
 const filtering = Boolean(groupId);
 
 function pageHref(next: number): string {
@@ -208,7 +303,7 @@ function pageHref(next: number): string {
     noticeText && !formError && (
       <p class="mb-4 text-primary-strong" role="status">
         {noticeText}
-        {notice === 'saved-price' && <> <a href={routes.adminPricing}>Xem giá bán đề xuất</a></>}
+        {(notice === 'saved-price' || notice === 'repriced') && <> <a href={pricingHref}>Xem trên trang Định giá</a></>}
       </p>
     )
   }
@@ -252,12 +347,19 @@ function pageHref(next: number): string {
                 {section.name}
                 <span>{section.rows.length} nguyên liệu</span>
               </h2>
-              <table class="post-table">
+              <table class="post-table material-table">
+                <colgroup>
+                  <col />
+                  <col class="material-col-price" />
+                  <col class="material-col-use" />
+                  <col class="material-col-time" />
+                  <col class="material-col-actions" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Nguyên liệu</th>
                     <th>Đơn giá</th>
-                    <th>Đang dùng</th>
+                    <th>Số sản phẩm</th>
                     <th>Cập nhật</th>
                     <th>Thao tác</th>
                   </tr>
@@ -271,12 +373,8 @@ function pageHref(next: number): string {
                         <p class="catalog-slug"><span class="truncate">{row.code}</span></p>
                       </td>
                       <td data-label="Đơn giá"><span class="material-price">{formatVnd(row.unitCost)}</span></td>
-                      <td data-label="Đang dùng">
-                        {row.usedBy > 0 ? (
-                          <span class="catalog-count">{row.usedBy} sản phẩm</span>
-                        ) : (
-                          <span class="catalog-count is-empty">Chưa dùng</span>
-                        )}
+                      <td data-label="Số sản phẩm">
+                        <span class="catalog-count" class:list={[{ 'is-empty': row.usedBy === 0 }]}>{row.usedBy} sản phẩm</span>
                       </td>
                       <td data-label="Cập nhật">{formatDateTime(row.updatedAt)}</td>
                       <td data-label="Thao tác">
@@ -439,6 +537,112 @@ function pageHref(next: number): string {
       <button class="btn" type="button" data-groups-close>Đóng</button>
     </div>
   </dialog>
+
+  {
+    repriceView && (
+      <dialog
+        class="reprice-dialog"
+        aria-labelledby="reprice-dialog-title"
+        data-reprice-dialog
+        data-open="true"
+        data-dismiss={listHref({ notice: 'saved-price', vatlieu: repriceView.id })}
+        data-reprice={repriceView.payload}
+      >
+        <form
+          method="post"
+          data-busy
+          data-confirm-title="Cập nhật giá bán?"
+          data-confirm="Giá bán của các sản phẩm đã chọn sẽ đổi ngay trên website. Giá cũ không được lưu lại. Đơn hàng đã đặt giữ nguyên giá."
+          data-confirm-ok="Cập nhật giá"
+        >
+          <input type="hidden" name="csrf" value={session.csrfToken} />
+          <input type="hidden" name="intent" value="reprice" />
+          <input type="hidden" name="id" value={repriceView.id} />
+          <input type="hidden" name="truoc" value={repriceView.previous} />
+          <input type="hidden" name="hien-tai" value={repriceView.unitCost} />
+          <h2 id="reprice-dialog-title" class="text-lg font-semibold">Cập nhật giá bán</h2>
+          <p class="mt-2">
+            Đã đổi <strong>{repriceView.name}</strong> từ {formatVnd(repriceView.previous)} {repriceView.unitCost > repriceView.previous ? 'lên' : 'xuống'} {formatVnd(repriceView.unitCost)}. Có {repriceView.total} sản phẩm đang dùng nguyên liệu này.
+          </p>
+          {errorText && <p class="error-text mt-2" role="alert">{errorText}</p>}
+          {repriceView.total > repriceView.lines.length && (
+            <p class="pricing-summary">Chỉ liệt kê {repriceView.lines.length} sản phẩm đầu tiên. Số còn lại chỉnh trên trang Định giá.</p>
+          )}
+          <div class="reprice-modes">
+            <label class="reprice-mode">
+              <input type="radio" name="mode" value="keep" checked={repriceView.mode === 'keep'} data-reprice-mode />
+              <span><strong>Giữ tiền lời</strong><span class="seo-hint">Cộng hoặc trừ đúng phần vốn thay đổi, rồi làm tròn lên 1.000 ₫.</span></span>
+            </label>
+            <label class="reprice-mode">
+              <input type="radio" name="mode" value="margin" checked={repriceView.mode === 'margin'} data-reprice-mode />
+              <span><strong>Đặt lại theo biên</strong><span class="seo-hint">Tính lại giá bán từ giá vốn mới, theo biên và bước làm tròn bên dưới.</span></span>
+            </label>
+            <div class="reprice-tools" data-reprice-tools hidden={repriceView.mode !== 'margin'}>
+              <label>
+                <span class="mb-1 block font-semibold">Biên mục tiêu (%)</span>
+                <input class="field" name="bien" type="number" inputmode="numeric" min="0" max={MAX_TARGET_MARGIN} value={DEFAULT_TARGET_MARGIN} data-reprice-margin />
+              </label>
+              <label>
+                <span class="mb-1 block font-semibold">Làm tròn lên</span>
+                <select class="field" name="lam-tron" data-reprice-step>
+                  {ROUND_STEPS.map((item) => <option value={item} selected={item === DEFAULT_ROUND_STEP}>{stepLabels[item]}</option>)}
+                </select>
+              </label>
+            </div>
+            <label class="reprice-mode">
+              <input type="radio" name="mode" value="none" checked={repriceView.mode === 'none'} data-reprice-mode />
+              <span><strong>Không đổi giá bán</strong><span class="seo-hint">Đơn giá mới vẫn được giữ. Giá bán các sản phẩm giữ nguyên.</span></span>
+            </label>
+          </div>
+          <p class="pricing-summary">Đổi cách tính sẽ chọn lại những sản phẩm có giá mới. Dòng tô màu là biên dưới 30%, đang lỗ, hoặc bị giá gốc chặn.</p>
+          <table class="post-table reprice-table">
+            <thead>
+              <tr>
+                <th class="product-check">
+                  <input type="checkbox" aria-label="Chọn tất cả sản phẩm có thể đổi giá" data-reprice-all disabled={!repriceView.lines.some((line) => line.changed)} />
+                </th>
+                <th>Sản phẩm</th>
+                <th>Số lượng</th>
+                <th>Giá hiện tại</th>
+                <th>Giá mới</th>
+                <th>Biên</th>
+              </tr>
+            </thead>
+            <tbody>
+              {repriceView.lines.map((line) => {
+                const note = line.blocked && line.comparePrice !== null ? repriceNote(line, repriceView.mode, formatVnd(line.comparePrice)) : repriceNote(line, repriceView.mode, '');
+                const marginLabel = repriceView.mode === 'none' || line.marginAfter === null ? `biên ${percent(line.marginBefore)}` : `${percent(line.marginBefore)} → ${percent(line.marginAfter)}`;
+                return (
+                  <tr class:list={[{ 'is-warn': line.warn }]} data-reprice-id={line.productId}>
+                    <td class="product-check">
+                      <input type="checkbox" name="ids" value={line.productId} checked={line.changed} disabled={!line.changed} aria-label={`Chọn ${line.name}`} data-reprice-check />
+                    </td>
+                    <td data-label="Sản phẩm">
+                      <a class="post-title" href={routes.adminProduct(line.productId)} target="_blank" rel="noopener">{line.name}</a>
+                      {isProductStatus(line.status) && line.status !== 'active' && <span class="material-off">{PRODUCT_STATUS_LABELS[line.status]}</span>}
+                      {note && <span class="reprice-note" data-reprice-note>{note}</span>}
+                      {!note && <span class="reprice-note" data-reprice-note hidden></span>}
+                    </td>
+                    <td data-label="Số lượng">{line.quantity}</td>
+                    <td data-label="Giá hiện tại">{formatVnd(line.price)}</td>
+                    <td data-label="Giá mới"><strong class="material-price" data-reprice-next>{line.nextPrice !== null && line.nextPrice !== line.price ? formatVnd(line.nextPrice) : '—'}</strong></td>
+                    <td data-label="Biên"><span class="pricing-margin" data-reprice-margin-text data-tone={line.warn ? 'low' : 'ok'}>{marginLabel}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div class="pricing-bar">
+            <span data-reprice-count aria-live="polite">Đã chọn {repriceView.lines.filter((line) => line.changed).length}</span>
+            <div class="dash-quick">
+              <button class="btn" type="button" data-reprice-close>Để sau</button>
+              <button class="btn btn-primary" type="submit" data-reprice-apply disabled={!repriceView.lines.some((line) => line.changed)}>Cập nhật giá bán</button>
+            </div>
+          </div>
+        </form>
+      </dialog>
+    )
+  }
 </AdminLayout>
 
 <script>
@@ -677,5 +881,140 @@ function pageHref(next: number): string {
         }
       });
     });
+  }
+</script>
+
+<script>
+  import {
+    DEFAULT_ROUND_STEP,
+    parseRoundStep,
+    parseTargetMargin,
+    repriceLines,
+    repriceNote,
+    type RepriceMode,
+    type RepriceSource,
+  } from '../../features/materials/costing';
+
+  const repriceDialog = document.querySelector('[data-reprice-dialog]');
+  if (repriceDialog instanceof HTMLDialogElement) {
+    const modal = repriceDialog;
+    const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
+    const percentText = (value: number | null) => (value === null ? '—' : `${value}%`);
+
+    const readRows = (value: unknown): { previous: number; unitCost: number; rows: RepriceSource[] } | null => {
+      if (typeof value !== 'object' || value === null || !('rows' in value) || !('previous' in value) || !('unitCost' in value)) return null;
+      const source = value as { previous: unknown; unitCost: unknown; rows: unknown };
+      if (typeof source.previous !== 'number' || typeof source.unitCost !== 'number' || !Array.isArray(source.rows)) return null;
+      const rows = source.rows.flatMap((item) => {
+        if (typeof item !== 'object' || item === null) return [];
+        const row = item as Record<string, unknown>;
+        if (typeof row.productId !== 'number' || typeof row.name !== 'string' || typeof row.price !== 'number' || typeof row.cost !== 'number' || typeof row.quantity !== 'number' || typeof row.status !== 'string') return [];
+        return [{ productId: row.productId, name: row.name, price: row.price, comparePrice: typeof row.comparePrice === 'number' ? row.comparePrice : null, cost: row.cost, quantity: row.quantity, status: row.status }];
+      });
+      return { previous: source.previous, unitCost: source.unitCost, rows };
+    };
+
+    let parsed: { previous: number; unitCost: number; rows: RepriceSource[] } | null = null;
+    try {
+      parsed = readRows(JSON.parse(modal.dataset.reprice ?? ''));
+    } catch {
+      parsed = null;
+    }
+
+    const modeOf = (): RepriceMode => {
+      const picked = modal.querySelector<HTMLInputElement>('[data-reprice-mode]:checked');
+      if (picked?.value === 'keep' || picked?.value === 'margin' || picked?.value === 'none') return picked.value;
+      return 'none';
+    };
+
+    const sync = () => {
+      const checks = [...modal.querySelectorAll<HTMLInputElement>('[data-reprice-check]')];
+      const enabled = checks.filter((item) => !item.disabled);
+      const picked = enabled.filter((item) => item.checked).length;
+      const count = modal.querySelector('[data-reprice-count]');
+      if (count) count.textContent = `Đã chọn ${picked}`;
+      const apply = modal.querySelector('[data-reprice-apply]');
+      if (apply instanceof HTMLButtonElement) apply.disabled = picked === 0;
+      const all = modal.querySelector<HTMLInputElement>('[data-reprice-all]');
+      if (all) {
+        all.disabled = enabled.length === 0;
+        all.checked = picked > 0 && picked === enabled.length;
+        all.indeterminate = picked > 0 && picked < enabled.length;
+      }
+    };
+
+    const render = () => {
+      if (!parsed) return;
+      const mode = modeOf();
+      const tools = modal.querySelector<HTMLElement>('[data-reprice-tools]');
+      if (tools) tools.hidden = mode !== 'margin';
+      const marginInput = modal.querySelector('[data-reprice-margin]');
+      const stepInput = modal.querySelector('[data-reprice-step]');
+      const margin = parseTargetMargin(marginInput instanceof HTMLInputElement ? marginInput.value : '');
+      const step = mode === 'margin' ? parseRoundStep(stepInput instanceof HTMLSelectElement ? stepInput.value : '') : DEFAULT_ROUND_STEP;
+      const lines = repriceLines(parsed.rows, parsed.previous, parsed.unitCost, mode, margin, step);
+      for (const line of lines) {
+        const tr = modal.querySelector<HTMLTableRowElement>(`[data-reprice-id="${line.productId}"]`);
+        if (!tr) continue;
+        tr.classList.toggle('is-warn', line.warn);
+        const check = tr.querySelector<HTMLInputElement>('[data-reprice-check]');
+        if (check) {
+          check.disabled = !line.changed;
+          check.checked = line.changed;
+        }
+        const next = tr.querySelector('[data-reprice-next]');
+        if (next) next.textContent = line.nextPrice !== null && line.nextPrice !== line.price ? money.format(line.nextPrice) : '—';
+        const marginText = tr.querySelector('[data-reprice-margin-text]');
+        if (marginText instanceof HTMLElement) {
+          marginText.textContent = mode === 'none' || line.marginAfter === null ? `biên ${percentText(line.marginBefore)}` : `${percentText(line.marginBefore)} → ${percentText(line.marginAfter)}`;
+          marginText.dataset.tone = line.warn ? 'low' : 'ok';
+        }
+        const note = tr.querySelector('[data-reprice-note]');
+        if (note instanceof HTMLElement) {
+          const text = repriceNote(line, mode, line.comparePrice !== null ? money.format(line.comparePrice) : '');
+          note.textContent = text;
+          note.hidden = text === '';
+        }
+      }
+      sync();
+    };
+
+    for (const input of modal.querySelectorAll('[data-reprice-mode]')) input.addEventListener('change', render);
+    modal.querySelector('[data-reprice-margin]')?.addEventListener('input', render);
+    modal.querySelector('[data-reprice-step]')?.addEventListener('change', render);
+    modal.querySelector('[data-reprice-all]')?.addEventListener('change', (event) => {
+      const all = event.currentTarget;
+      if (!(all instanceof HTMLInputElement)) return;
+      for (const check of modal.querySelectorAll<HTMLInputElement>('[data-reprice-check]')) {
+        if (!check.disabled) check.checked = all.checked;
+      }
+      sync();
+    });
+    modal.querySelector('tbody')?.addEventListener('change', (event) => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement && target.matches('[data-reprice-check]')) sync();
+    });
+    let leaving = false;
+    const dismiss = () => {
+      leaving = true;
+      modal.close();
+    };
+    modal.querySelector('[data-reprice-close]')?.addEventListener('click', dismiss);
+    modal.addEventListener('click', (event) => {
+      if (event.target !== modal) return;
+      const box = modal.getBoundingClientRect();
+      const inside = event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
+      if (!inside) dismiss();
+    });
+    modal.addEventListener('cancel', () => {
+      leaving = true;
+    });
+    modal.addEventListener('close', () => {
+      if (!leaving) return;
+      const href = modal.dataset.dismiss;
+      if (href) location.assign(href);
+    });
+    sync();
+    if (modal.dataset.open === 'true') modal.showModal();
   }
 </script>

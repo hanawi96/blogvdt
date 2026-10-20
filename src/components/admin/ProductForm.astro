@@ -1,9 +1,9 @@
 ---
-import MediaPicker from './MediaPicker.svelte';
+import ProductPhotos from './ProductPhotos.svelte';
 import ProductRecipe from './ProductRecipe.svelte';
 import SlugField from './SlugField.svelte';
+import type { ProductPhoto } from '../../features/products/products';
 import type { CostedLine, MaterialOption } from '../../features/materials/costing';
-import type { MediaItem } from '../../features/media/types';
 import { CORD_TYPES } from '../../features/products/form';
 import { PRODUCT_STATUS_LABELS } from '../../features/products/status';
 import type { FieldErrors } from '../../lib/validation/errors';
@@ -32,19 +32,20 @@ interface Props {
   values: Values;
   errors: FieldErrors;
   formError: string;
-  media: MediaItem[];
   categories: { id: number; name: string }[];
+  photos: { cover: ProductPhoto | null; album: ProductPhoto[] };
   recipeOptions: MaterialOption[];
   recipeLines: CostedLine[];
   deleteAction?: string;
 }
 
-const { csrf, action, values, errors, formError, media, categories, recipeOptions, recipeLines, deleteAction } = Astro.props;
+const { csrf, action, values, errors, formError, categories, photos, recipeOptions, recipeLines, deleteAction } = Astro.props;
 ---
 
-<form id="product-form" class="max-w-3xl" method="post" action={action} data-busy>
+<form id="product-form" class="product-editor" method="post" action={action} data-busy>
   <input type="hidden" name="csrf" value={csrf} />
-  {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
+  {formError && <p class="error-text mb-4 col-span-full" role="alert">{formError}</p>}
+  <div class="product-editor-main">
   <SlugField
     client:load
     title={values.name}
@@ -64,7 +65,7 @@ const { csrf, action, values, errors, formError, media, categories, recipeOption
     <input class="field" name="comparePrice" inputmode="numeric" maxlength="8" value={values.comparePrice} placeholder="Để trống nếu không có" />
     {errors.comparePrice && <span class="error-text">{errors.comparePrice}</span>}
   </label>
-  <ProductRecipe client:load options={recipeOptions} lines={recipeLines} error={errors.recipe ?? ''} materialsHref={routes.adminMaterials} />
+  <ProductPhotos client:load {csrf} cover={photos.cover} album={photos.album} error={errors.coverMediaId ?? errors.album ?? ''} />
   <label class="mt-4 block">
     <span class="mb-1 block font-semibold">Danh mục</span>
     <select class="field" name="categoryId">
@@ -78,37 +79,24 @@ const { csrf, action, values, errors, formError, media, categories, recipeOption
     )}
     {errors.categoryId && <span class="error-text">{errors.categoryId}</span>}
   </label>
-  <label class="mt-4 block">
-    <span class="mb-1 block font-semibold">Kiểu dây</span>
-    <select class="field" name="cordType">
-      <option value="" selected={values.cordType === ''}>Chưa chọn</option>
+  <div class="mt-4">
+    <span class="mb-1 block font-semibold" id="cord-type-label">Kiểu dây</span>
+    <div class="category-presets" role="radiogroup" aria-labelledby="cord-type-label">
       {CORD_TYPES.map((type) => (
-        <option value={type} selected={values.cordType === type}>{type}</option>
+        <label class="category-preset">
+          <input type="radio" name="cordType" value={type} checked={values.cordType === type} />
+          <span>{type}</span>
+        </label>
       ))}
-    </select>
+    </div>
     {errors.cordType && <span class="error-text">{errors.cordType}</span>}
-  </label>
+  </div>
   <label class="mt-4 block">
     <span class="mb-1 block font-semibold">Mô tả</span>
     <textarea class="field min-h-32" name="description" required maxlength="2000">{values.description}</textarea>
     {errors.description && <span class="error-text">{errors.description}</span>}
   </label>
-  <fieldset class="mt-4">
-    <legend class="mb-1 font-semibold">Ảnh đại diện</legend>
-    <MediaPicker client:load {csrf} items={media} name="coverMediaId" selected={values.coverMediaId ? [values.coverMediaId] : []} />
-    {errors.coverMediaId && <span class="error-text">{errors.coverMediaId}</span>}
-  </fieldset>
-  <fieldset class="mt-4">
-    <legend class="mb-1 font-semibold">Album</legend>
-    <MediaPicker client:load {csrf} items={media} name="album" multiple selected={values.album} max={8} />
-    {errors.album && <span class="error-text">{errors.album}</span>}
-  </fieldset>
-
-  <label class="mt-4 block">
-    <span class="mb-1 block font-semibold">Thứ tự</span>
-    <input class="field" name="sortOrder" inputmode="numeric" required maxlength="5" value={values.sortOrder} />
-    {errors.sortOrder && <span class="error-text">{errors.sortOrder}</span>}
-  </label>
+  <input type="hidden" name="sortOrder" value={values.sortOrder} />
   <label class="mt-4 flex items-center gap-2">
     <input type="checkbox" name="featured" value="1" checked={values.featured} data-product-featured />
     <span class="font-semibold">Hiện ở trang chủ</span>
@@ -132,6 +120,8 @@ const { csrf, action, values, errors, formError, media, categories, recipeOption
     </select>
     {errors.status && <span class="error-text">{errors.status}</span>}
   </label>
+  </div>
+  <ProductRecipe client:load options={recipeOptions} lines={recipeLines} error={errors.recipe ?? ''} materialsHref={routes.adminMaterials} />
 </form>
 <div class="mt-6 flex flex-wrap items-center gap-3">
   <button class="btn btn-primary" type="submit" form="product-form">Lưu sản phẩm</button>
@@ -155,5 +145,19 @@ const { csrf, action, values, errors, formError, media, categories, recipeOption
     };
     status.addEventListener('change', syncFeatured);
     syncFeatured();
+  }
+  for (const node of document.querySelectorAll('#product-form input[name="cordType"]')) {
+    if (!(node instanceof HTMLInputElement)) continue;
+    const input = node;
+    input.addEventListener('click', () => {
+      if (input.dataset.wasChecked === '1') {
+        input.checked = false;
+        delete input.dataset.wasChecked;
+      }
+    });
+    input.addEventListener('mousedown', () => {
+      if (input.checked) input.dataset.wasChecked = '1';
+      else delete input.dataset.wasChecked;
+    });
   }
 </script>

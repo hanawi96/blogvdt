@@ -4,10 +4,9 @@ import ProductForm from '../../../components/admin/ProductForm.astro';
 import { mutationError } from '../../../features/auth/session';
 import { parseRecipe, resolveRecipeLines, type RecipeLine } from '../../../features/materials/costing';
 import { listRecipeOptions, loadRecipe } from '../../../features/materials/recipes';
-import { listMedia } from '../../../features/media/media';
 import { listProductCategories } from '../../../features/products/categories';
 import { parseProductForm } from '../../../features/products/form';
-import { getProduct, updateProduct } from '../../../features/products/products';
+import { getProduct, productPhotoViews, updateProduct } from '../../../features/products/products';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
 import { routes } from '../../../lib/routes';
@@ -23,7 +22,6 @@ const db = createDb(getDbBinding());
 const product = await getProduct(db, id);
 if (!product) return Astro.redirect(routes.adminProducts);
 
-const media = await listMedia(db);
 const categories = await listProductCategories(db);
 const currentRecipe = await loadRecipe(db, id);
 let postedRecipe: RecipeLine[] | null = null;
@@ -80,6 +78,11 @@ if (Astro.request.method === 'POST') {
 const recipeSource: RecipeLine[] = postedRecipe ?? currentRecipe.map(({ materialId, quantity }) => ({ materialId, quantity }));
 const recipeOptions = await listRecipeOptions(db, [...currentRecipe.map((line) => line.materialId), ...recipeSource.map((line) => line.materialId)]);
 const recipeLines = resolveRecipeLines(recipeSource, recipeOptions);
+const photos = await productPhotoViews(
+  db,
+  Number(values.coverMediaId) || null,
+  values.album.map(Number).filter((id) => Number.isInteger(id) && id > 0),
+);
 
 function valuesFrom(form: FormData) {
   const read = (name: string) => {
@@ -114,8 +117,8 @@ function valuesFrom(form: FormData) {
     {values}
     {errors}
     {formError}
-    {media}
     {categories}
+    {photos}
     {recipeOptions}
     {recipeLines}
   />

@@ -5,6 +5,7 @@ import type { AppDb } from '../../lib/db/client';
 import { slugRedirectQueries } from '../../lib/db/redirects';
 import { media, productCategories, productMedia, products, redirects } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { mediaMapByIds } from '../media/media';
 import type { RecipeLine } from '../materials/costing';
 import { insertRecipe, recipeWrites, validateRecipe } from '../materials/recipes';
 import { canFeatureProduct, isProductStatus, type ProductStatus } from './status';
@@ -167,6 +168,26 @@ function productOrder(sort: ProductListSort) {
   if (sort === 'price-asc') return [asc(products.price), desc(products.id)] as const;
   if (sort === 'price-desc') return [desc(products.price), desc(products.id)] as const;
   return [desc(products.updatedAt), desc(products.id)] as const;
+}
+
+export type ProductPhoto = { id: string; url: string };
+
+// Chỉ lấy ảnh đang gắn với sản phẩm, không tải cả thư viện.
+export async function productPhotoViews(
+  db: AppDb,
+  coverId: number | null,
+  albumIds: readonly number[],
+): Promise<{ cover: ProductPhoto | null; album: ProductPhoto[] }> {
+  const map = await mediaMapByIds(db, [coverId ?? 0, ...albumIds]);
+  const coverRef = coverId ? map.get(coverId) : undefined;
+  return {
+    cover: coverRef && coverId ? { id: String(coverId), url: coverRef.url } : null,
+    album: albumIds.flatMap((id) => {
+      if (id === coverId) return [];
+      const item = map.get(id);
+      return item ? [{ id: String(id), url: item.url }] : [];
+    }),
+  };
 }
 
 export async function getProduct(db: AppDb, id: number) {

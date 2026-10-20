@@ -84,7 +84,9 @@ export async function listMaterials(db: AppDb, filters: { groupId: number | null
       unitCost: materials.unitCost,
       active: materials.active,
       updatedAt: materials.updatedAt,
-      usedBy: sql<number>`(select count(*) from product_materials pm where pm.material_id = "materials"."id")`.mapWith(Number),
+      // Đếm sản phẩm, không đếm số lượng hạt. Mỗi cặp sản phẩm–nguyên liệu chỉ một dòng.
+      // Phải ghi "materials"."id": Drizzle có thể in cột trần "id", truy vấn con sẽ đếm sai thành 0.
+      usedBy: sql<number>`(select count(distinct pm.product_id) from product_materials pm where pm.material_id = "materials"."id")`.mapWith(Number),
     })
     .from(materials)
     .leftJoin(materialGroups, eq(materials.groupId, materialGroups.id))
@@ -93,7 +95,7 @@ export async function listMaterials(db: AppDb, filters: { groupId: number | null
     .limit(MATERIAL_PAGE_SIZE)
     .offset(window.offset);
   return {
-    rows: rows.map((row) => ({ ...row, active: row.active === 1 })),
+    rows: rows.map((row) => ({ ...row, active: row.active === 1, usedBy: Number(row.usedBy) || 0 })),
     total,
     page: window.current,
     pageCount: window.pageCount,
@@ -131,7 +133,7 @@ export async function saveMaterial(
   input: MaterialInput,
   now = Date.now(),
   actor?: ActivityActor,
-): Promise<{ ok: true; priceChanged: boolean } | { ok: false; error: string }> {
+): Promise<{ ok: true; priceChanged: false } | { ok: true; priceChanged: true; id: number; previousUnitCost: number; unitCost: number } | { ok: false; error: string }> {
   const parsed = parseMaterialInput(input, !input.id);
   if (!parsed.ok) return parsed;
   const value = parsed.value;
@@ -175,7 +177,8 @@ export async function saveMaterial(
           ]
         : []),
     ]);
-    return { ok: true, priceChanged: current.unitCost !== value.unitCost };
+    if (current.unitCost === value.unitCost) return { ok: true, priceChanged: false };
+    return { ok: true, priceChanged: true, id: input.id, previousUnitCost: current.unitCost, unitCost: value.unitCost };
   }
 
   let code = value.code;

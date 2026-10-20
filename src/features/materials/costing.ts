@@ -141,3 +141,96 @@ export function impactOfUnitCostChange(rows: readonly ImpactRow[], oldUnit: numb
     items,
   };
 }
+
+// ---- Cập nhật giá bán sau khi đơn giá nguyên liệu đã lưu ----
+
+export type RepriceMode = 'keep' | 'margin' | 'none';
+
+// cost là giá vốn SAU khi đơn giá mới đã ghi vào database.
+export type RepriceSource = {
+  productId: number;
+  name: string;
+  price: number;
+  comparePrice: number | null;
+  cost: number;
+  quantity: number;
+  status: string;
+};
+
+export type RepriceLine = RepriceSource & {
+  nextPrice: number | null;
+  marginBefore: number | null;
+  marginAfter: number | null;
+  blocked: boolean;
+  changed: boolean;
+  warn: boolean;
+};
+
+// Giữ số tiền lời: cộng đúng phần vốn tăng/giảm, rồi làm tròn LÊN theo bước.
+export function keepProfitPrice(price: number, deltaCost: number, step: number): number | null {
+  if (!Number.isInteger(price) || !Number.isInteger(deltaCost) || price < 0) return null;
+  const raw = price + deltaCost;
+  if (raw < 0) return null;
+  const size = Math.max(1, Math.floor(step));
+  const rounded = Math.ceil(raw / size) * size;
+  return rounded <= MAX_PRODUCT_PRICE ? rounded : null;
+}
+
+export function repriceLines(
+  rows: readonly RepriceSource[],
+  oldUnit: number,
+  newUnit: number,
+  mode: RepriceMode,
+  margin: number,
+  step: number,
+): RepriceLine[] {
+  const unitChange = newUnit - oldUnit;
+  return rows.map((row) => {
+    const marginBefore = profitOf(row.price, row.cost).marginPercent;
+    const nextPrice =
+      mode === 'keep'
+        ? keepProfitPrice(row.price, row.quantity * unitChange, step)
+        : mode === 'margin'
+          ? suggestedPrice(row.cost, margin, step)
+          : null;
+    const blocked =
+      nextPrice !== null &&
+      nextPrice !== row.price &&
+      row.comparePrice !== null &&
+      row.comparePrice > 0 &&
+      nextPrice >= row.comparePrice;
+    const changed = nextPrice !== null && nextPrice !== row.price && !blocked;
+    const marginAfter = nextPrice === null ? null : profitOf(nextPrice, row.cost).marginPercent;
+    const shown = changed && nextPrice !== null ? nextPrice : row.price;
+    const shownTone = marginTone(profitOf(shown, row.cost).marginPercent);
+    const warn = blocked || shownTone === 'low' || shownTone === 'loss' || marginTone(marginBefore) === 'loss';
+    return { ...row, nextPrice, marginBefore, marginAfter, blocked, changed, warn };
+  });
+}
+
+// Mở bảng khi còn sản phẩm và ít nhất một cách tính làm giá bán đổi hoặc bị giá gốc chặn.
+// Đơn giá giảm thì chọn sẵn «không đổi»; đơn giá tăng thì ưu tiên giữ tiền lời.
+export function repriceOffer(
+  rows: readonly RepriceSource[],
+  oldUnit: number,
+  newUnit: number,
+): { open: boolean; mode: RepriceMode } {
+  if (!Number.isInteger(oldUnit) || !Number.isInteger(newUnit) || oldUnit === newUnit || rows.length === 0) {
+    return { open: false, mode: 'none' };
+  }
+  const keep = repriceLines(rows, oldUnit, newUnit, 'keep', DEFAULT_TARGET_MARGIN, DEFAULT_ROUND_STEP);
+  const margin = repriceLines(rows, oldUnit, newUnit, 'margin', DEFAULT_TARGET_MARGIN, DEFAULT_ROUND_STEP);
+  const needsDecision = (lines: readonly RepriceLine[]) => lines.some((line) => line.changed || line.blocked);
+  if (!needsDecision(keep) && !needsDecision(margin)) return { open: false, mode: 'none' };
+  if (newUnit < oldUnit) return { open: true, mode: 'none' };
+  if (needsDecision(keep)) return { open: true, mode: 'keep' };
+  return { open: true, mode: 'margin' };
+}
+
+export function repriceNote(line: RepriceLine, mode: RepriceMode, compareLabel: string): string {
+  if (line.blocked) return `Giá mới chạm hoặc vượt giá gốc ${compareLabel}, chưa chọn.`;
+  if (mode !== 'none' && line.nextPrice === null) return 'Không tính được giá mới trong giới hạn cho phép.';
+  if (mode !== 'none' && !line.changed) return '';
+  if (line.marginBefore !== null && line.marginBefore < 0) return 'Giữ giá bán hiện tại sẽ bị lỗ.';
+  return '';
+}
