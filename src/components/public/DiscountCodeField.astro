@@ -1,0 +1,28 @@
+---
+import { formatVnd } from '../../lib/money';
+
+interface Props {
+  id: string;
+  value?: string;
+  error?: string;
+  quote?: { code: string; discountAmount: number; totalPrice: number } | null;
+}
+
+const { id, value = '', error = '', quote = null } = Astro.props;
+---
+
+<div class="discount-field">
+  <label for={id}>
+    <span class="mb-1 block font-semibold">Mã giảm giá</span>
+  </label>
+  <div class="discount-field-row">
+    <input id={id} class="field" name="discountCode" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" value={value} placeholder="Nếu có" />
+    <button class="btn" type="submit" name="intent" value="apply" formnovalidate>Áp dụng</button>
+  </div>
+  {error && <span class="error-text">{error}</span>}
+  {quote && !error && (
+    <p class="discount-quote" data-discount-quote role="status">
+      Giảm {quote.code}: −{formatVnd(quote.discountAmount)}. Còn {formatVnd(quote.totalPrice)}.
+    </p>
+  )}
+</div>

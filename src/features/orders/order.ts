@@ -23,6 +23,17 @@ export function orderCreatedRange(from: string, to: string): { start: number | n
   return calendarRange(from, to);
 }
 
+function pushPayable(
+  lines: string[],
+  order: { subtotal?: number | null; discountCode?: string | null; discountAmount?: number; totalPrice: number },
+): void {
+  if (order.discountAmount && order.discountAmount > 0) {
+    lines.push(`Tạm tính: ${formatVnd(order.subtotal ?? order.totalPrice + order.discountAmount)}`);
+    lines.push(`Giảm ${order.discountCode ?? ''}: −${formatVnd(order.discountAmount)}`);
+  }
+  lines.push(`Tổng: ${formatVnd(order.totalPrice)}`);
+}
+
 export function orderHandoffText(order: {
   code: string;
   customerName: string;
@@ -36,6 +47,9 @@ export function orderHandoffText(order: {
   note: string | null;
   internalNote: string | null;
   paymentMethod?: string;
+  subtotal?: number | null;
+  discountCode?: string | null;
+  discountAmount?: number;
   items?: { productName: string; optionLabel: string | null; quantity: number; lineTotal: number }[];
 }): string {
   const lines = [
@@ -50,14 +64,14 @@ export function orderHandoffText(order: {
     for (const item of order.items) {
       lines.push(`- ${item.productName}${item.optionLabel ? ` (${item.optionLabel})` : ''} × ${item.quantity} — ${formatVnd(item.lineTotal)}`);
     }
-    lines.push(`Tổng: ${formatVnd(order.totalPrice)}`);
+    pushPayable(lines, order);
   } else {
     lines.push(
       `Sản phẩm: ${order.productName}${order.optionLabel ? ` (${order.optionLabel})` : ''}`,
       `Số lượng: ${order.quantity}`,
       `Đơn giá: ${formatVnd(order.unitPrice)}`,
-      `Tổng: ${formatVnd(order.totalPrice)}`,
     );
+    pushPayable(lines, order);
   }
   if (order.note) lines.push(`Ghi chú khách: ${order.note}`);
   if (order.internalNote) lines.push(`Ghi chú nội bộ: ${order.internalNote}`);
@@ -74,6 +88,9 @@ export type OrderDraft = {
   unitPrice: number;
   quantity: number;
   optionLabel: string | null;
+  subtotal: number;
+  discountCode: string | null;
+  discountAmount: number;
   totalPrice: number;
   paymentMethod: PaymentMethod;
   landingSlug: string | null;
@@ -102,6 +119,9 @@ export type CartOrderDraft = {
   lines: CartLineDraft[];
   productName: string;
   quantity: number;
+  subtotal: number;
+  discountCode: string | null;
+  discountAmount: number;
   totalPrice: number;
   paymentMethod: PaymentMethod;
 };
@@ -198,6 +218,9 @@ export function parseOrderSubmission(
       unitPrice: product.price,
       quantity,
       optionLabel: orderOptionLabel(weight),
+      subtotal: product.price * quantity,
+      discountCode: null,
+      discountAmount: 0,
       totalPrice: product.price * quantity,
       paymentMethod,
       landingSlug: readLandingSlug(input.landing ?? ''),
@@ -264,6 +287,9 @@ export function parseCartOrder(
         unitPrice: line.unitPrice,
         quantity: line.quantity,
         optionLabel: line.optionLabel,
+        subtotal: line.lineTotal,
+        discountCode: null,
+        discountAmount: 0,
         totalPrice: line.lineTotal,
         paymentMethod,
         landingSlug: null,
@@ -281,6 +307,9 @@ export function parseCartOrder(
       lines: built,
       productName: cartSummary(built.map((item) => item.productName)),
       quantity: built.reduce((sum, item) => sum + item.quantity, 0),
+      subtotal: built.reduce((sum, item) => sum + item.lineTotal, 0),
+      discountCode: null,
+      discountAmount: 0,
       totalPrice: built.reduce((sum, item) => sum + item.lineTotal, 0),
       paymentMethod,
     },

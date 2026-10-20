@@ -1,0 +1,291 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { activityActor } from '../../features/activity/log';
+import { mutationError } from '../../features/auth/session';
+import {
+  deleteDiscountCode,
+  discountFormValue,
+  getDiscountCode,
+  listDiscountCodes,
+  saveDiscountCode,
+  setDiscountActive,
+  type DiscountCode,
+  type DiscountInput,
+} from '../../features/discounts/discounts';
+import { createDb } from '../../lib/db/client';
+import { getDbBinding } from '../../lib/cloudflare/env';
+import { formatDateTime } from '../../lib/datetime';
+import { formatVnd } from '../../lib/money';
+import { routes } from '../../lib/routes';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+if (session.role !== 'admin') {
+  return new Response('Bạn không có quyền vào trang này.', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+}
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+
+const db = createDb(getDbBinding());
+const query = Astro.url.searchParams.get('q') ?? '';
+const listHref = query ? `${routes.adminDiscounts}?q=${encodeURIComponent(query)}` : routes.adminDiscounts;
+let formError = '';
+const values: DiscountInput = {
+  code: '',
+  kind: 'percent',
+  value: '',
+  minSubtotal: '',
+  usageLimit: '',
+  startsAt: '',
+  endsAt: '',
+  active: true,
+  note: '',
+};
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const read = (name: string) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value : '';
+  };
+  const blocked = mutationError(Astro.request, session, form);
+  const idValue = Number(read('id'));
+  const id = Number.isSafeInteger(idValue) && idValue > 0 ? idValue : undefined;
+  const intent = read('intent');
+  if (blocked) {
+    Astro.response.status = 403;
+    formError = blocked;
+  } else if (intent === 'delete' && id) {
+    const removed = await deleteDiscountCode(db, id, await activityActor(db, session.userId));
+    const key = removed.ok ? 'notice=deleted' : `error=${encodeURIComponent(removed.error)}`;
+    return Astro.redirect(`${listHref}${listHref.includes('?') ? '&' : '?'}${key}`, 303);
+  } else if (intent === 'toggle' && id) {
+    const turnedOn = read('active') === '1';
+    const toggled = await setDiscountActive(db, id, turnedOn, Date.now(), await activityActor(db, session.userId));
+    const key = toggled.ok ? 'notice=saved' : `error=${encodeURIComponent(toggled.error)}`;
+    return Astro.redirect(`${listHref}${listHref.includes('?') ? '&' : '?'}${key}`, 303);
+  } else if (intent === 'save') {
+    values.id = id;
+    values.code = read('code');
+    values.kind = read('kind') === 'fixed' ? 'fixed' : 'percent';
+    values.value = read('value');
+    values.minSubtotal = read('minSubtotal');
+    values.usageLimit = read('usageLimit');
+    values.startsAt = read('startsAt');
+    values.endsAt = read('endsAt');
+    values.active = read('active') === '1';
+    values.note = read('note');
+    const saved = await saveDiscountCode(db, values, Date.now(), await activityActor(db, session.userId));
+    if (saved.ok) return Astro.redirect(`${listHref}${listHref.includes('?') ? '&' : '?'}notice=saved`, 303);
+    Astro.response.status = 422;
+    formError = saved.error;
+  } else {
+    Astro.response.status = 422;
+    formError = 'Thao tác không hợp lệ.';
+  }
+}
+
+const editId = Number(Astro.url.searchParams.get('edit') ?? '');
+if (Astro.request.method === 'GET' && Number.isInteger(editId) && editId > 0) {
+  const editing = await getDiscountCode(db, editId);
+  if (editing) Object.assign(values, discountFormValue(editing));
+}
+
+let rows: DiscountCode[] = [];
+let loadError = '';
+try {
+  rows = await listDiscountCodes(db, query);
+} catch (error) {
+  console.error(JSON.stringify({ event: 'discount_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
+  loadError = 'Không tải được danh sách mã giảm giá.';
+}
+
+const notice = Astro.url.searchParams.get('notice') ?? '';
+const errorText = Astro.url.searchParams.get('error') ?? '';
+const noticeText = notice === 'saved' ? 'Đã lưu mã giảm giá.' : notice === 'deleted' ? 'Đã xóa mã giảm giá.' : '';
+
+function valueText(row: DiscountCode): string {
+  return row.kind === 'percent' ? `${row.value}%` : formatVnd(row.value);
+}
+
+function windowText(row: DiscountCode): string {
+  if (row.startsAt === null && row.endsAt === null) return 'Luôn dùng được';
+  const start = row.startsAt === null ? '…' : formatDateTime(row.startsAt);
+  const end = row.endsAt === null ? '…' : formatDateTime(row.endsAt);
+  return `${start} – ${end}`;
+}
+---
+
+<AdminLayout title="Mã giảm giá">
+  <p slot="lead" class="text-sm text-muted">Một đơn một mã. Giảm trên tạm tính, tính lại lúc khách gửi đơn. Đơn đã đặt giữ số đã giảm.</p>
+  {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
+  {noticeText && !formError && <p class="mb-4 text-primary-strong" role="status">{noticeText}</p>}
+  {errorText && !formError && <p class="error-text mb-4" role="alert">{errorText}</p>}
+  {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
+  <div class="category-layout">
+    <form class="category-panel" method="post" data-busy>
+      <h2 class="category-panel-title">{values.id ? 'Sửa mã' : 'Thêm mã'}</h2>
+      <input type="hidden" name="csrf" value={session.csrfToken} />
+      <input type="hidden" name="intent" value="save" />
+      {values.id && <input type="hidden" name="id" value={values.id} />}
+      <label class="block">
+        <span class="mb-1 block font-semibold">Mã</span>
+        <input
+          class="field"
+          name="code"
+          required
+          minlength="3"
+          maxlength="20"
+          pattern="[A-Z0-9]{3,20}"
+          value={values.code}
+          placeholder="SALE10"
+          autocomplete="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          data-discount-code
+        />
+        <span class="seo-hint">Chỉ chữ in hoa và số, từ 3 đến 20 ký tự.</span>
+      </label>
+      <div class="mt-4">
+        <span class="mb-1 block font-semibold" id="discount-kind-label">Cách giảm</span>
+        <div class="category-presets" role="radiogroup" aria-labelledby="discount-kind-label">
+          <label class="category-preset">
+            <input type="radio" name="kind" value="percent" checked={values.kind !== 'fixed'} required />
+            <span>Phần trăm</span>
+          </label>
+          <label class="category-preset">
+            <input type="radio" name="kind" value="fixed" checked={values.kind === 'fixed'} />
+            <span>Số tiền</span>
+          </label>
+        </div>
+      </div>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Mức giảm</span>
+        <input class="field" name="value" required maxlength="12" value={values.value} inputmode="numeric" />
+        <span class="seo-hint">Phần trăm: số từ 1 đến 90. Số tiền: VND, tối thiểu 1.000.</span>
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Đơn tối thiểu</span>
+        <input class="field" name="minSubtotal" maxlength="12" value={values.minSubtotal} inputmode="numeric" placeholder="Để trống nếu không yêu cầu" />
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Giới hạn lượt</span>
+        <input class="field" name="usageLimit" maxlength="6" value={values.usageLimit} inputmode="numeric" placeholder="Để trống nếu không giới hạn" />
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Bắt đầu</span>
+        <input class="field" type="datetime-local" name="startsAt" value={values.startsAt} />
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Kết thúc</span>
+        <input class="field" type="datetime-local" name="endsAt" value={values.endsAt} />
+        <span class="seo-hint">Giờ Việt Nam. Hết hạn đúng thời điểm kết thúc. Để trống nếu không giới hạn ngày.</span>
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Ghi chú nội bộ</span>
+        <input class="field" name="note" maxlength="200" value={values.note} />
+      </label>
+      <label class="mt-4 flex items-center gap-2">
+        <input type="checkbox" name="active" value="1" checked={values.active} />
+        <span>Đang bật</span>
+      </label>
+      <div class="category-actions">
+        <button class="btn btn-primary" type="submit">{values.id ? 'Cập nhật' : 'Thêm mã'}</button>
+        {values.id && <a class="btn" href={listHref}>Hủy</a>}
+      </div>
+    </form>
+    <section class="category-panel">
+      <h2 class="category-panel-title">Danh sách</h2>
+      <form class="category-search" method="get">
+        <label>
+          <span class="sr-only">Tìm mã</span>
+          <input class="field" type="search" name="q" value={query} maxlength="20" placeholder="Tìm mã" />
+        </label>
+      </form>
+      {
+        rows.length === 0 ? (
+          <p class="text-muted">{query ? 'Không có mã khớp.' : 'Chưa có mã giảm giá.'}</p>
+        ) : (
+          <table class="post-table">
+            <thead>
+              <tr>
+                <th>Mã</th>
+                <th>Mức</th>
+                <th>Đơn tối thiểu</th>
+                <th>Đã dùng</th>
+                <th>Thời hạn</th>
+                <th>Trạng thái</th>
+                <th>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr class:list={[values.id === row.id && 'is-current']}>
+                  <td>
+                    <a class="post-title" href={`${routes.adminDiscounts}?edit=${row.id}${query ? `&q=${encodeURIComponent(query)}` : ''}`}>{row.code}</a>
+                    {row.note && <p class="text-sm text-muted">{row.note}</p>}
+                  </td>
+                  <td data-label="Mức">{valueText(row)}</td>
+                  <td data-label="Đơn tối thiểu">{row.minSubtotal > 0 ? formatVnd(row.minSubtotal) : '—'}</td>
+                  <td data-label="Đã dùng">{row.usedCount} / {row.usageLimit ?? '∞'}</td>
+                  <td data-label="Thời hạn">{windowText(row)}</td>
+                  <td data-label="Trạng thái">
+                    <span class="post-status" data-status={row.active ? 'active' : 'inactive'}>{row.active ? 'Đang bật' : 'Đang tắt'}</span>
+                  </td>
+                  <td data-label="Thao tác">
+                    <div class="post-actions">
+                      <a href={`${routes.adminDiscounts}?edit=${row.id}${query ? `&q=${encodeURIComponent(query)}` : ''}`}>Sửa</a>
+                      <span class="post-actions-sep" aria-hidden="true">|</span>
+                      <form method="post" data-busy>
+                        <input type="hidden" name="csrf" value={session.csrfToken} />
+                        <input type="hidden" name="intent" value="toggle" />
+                        <input type="hidden" name="id" value={row.id} />
+                        <input type="hidden" name="active" value={row.active ? '0' : '1'} />
+                        <button type="submit">{row.active ? 'Tắt' : 'Bật'}</button>
+                      </form>
+                      {row.usedCount === 0 && (
+                        <>
+                          <span class="post-actions-sep" aria-hidden="true">|</span>
+                          <form method="post" data-busy data-confirm-title={`Xóa mã ${row.code}?`} data-confirm="Mã chưa có đơn nào dùng." data-confirm-ok="Xóa" data-confirm-tone="danger">
+                            <input type="hidden" name="csrf" value={session.csrfToken} />
+                            <input type="hidden" name="intent" value="delete" />
+                            <input type="hidden" name="id" value={row.id} />
+                            <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                          </form>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      }
+    </section>
+  </div>
+</AdminLayout>
+<script>
+  const codeField = document.querySelector('[data-discount-code]');
+  if (codeField instanceof HTMLInputElement) {
+    const keep = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
+    codeField.addEventListener('beforeinput', (event) => {
+      if (!(event instanceof InputEvent) || event.data == null) return;
+      if (/^[A-Za-z0-9]+$/.test(event.data)) return;
+      event.preventDefault();
+      const extra = keep(event.data);
+      if (!extra) return;
+      const start = codeField.selectionStart ?? codeField.value.length;
+      const end = codeField.selectionEnd ?? start;
+      const prefix = keep(codeField.value.slice(0, start) + extra);
+      codeField.value = keep(codeField.value.slice(0, start) + extra + codeField.value.slice(end));
+      codeField.setSelectionRange(prefix.length, prefix.length);
+    });
+    codeField.addEventListener('input', () => {
+      const next = keep(codeField.value);
+      if (codeField.value === next) return;
+      const pos = codeField.selectionStart ?? next.length;
+      codeField.value = next;
+      codeField.setSelectionRange(Math.min(pos, next.length), Math.min(pos, next.length));
+    });
+  }
+</script>

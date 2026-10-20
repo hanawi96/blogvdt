@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extraCostOf, formatPercentBp, goodsCostOf, orderProfit, parseOrderCostValue, parsePercentBp } from './order-costs';
+import { costSnapshotOf, encodeCostLines, extraCostOf, formatPercentBp, goodsCostOf, orderProfit, parseCostLines, parseOrderCostValue, parsePercentBp } from './order-costs';
 
 describe('phần trăm', () => {
   it('đọc 1,5% thành 150 phần vạn', () => {
@@ -67,5 +67,54 @@ describe('lợi nhuận đơn', () => {
   it('đơn cũ chưa có số liệu thì không tính', () => {
     expect(orderProfit({ totalPrice: 300000, costGoods: null, costExtra: 1000 })).toBeNull();
     expect(orderProfit({ totalPrice: 300000, costGoods: 1000, costExtra: null })).toBeNull();
+  });
+});
+
+describe('ảnh chụp chi phí lúc đặt', () => {
+  const costs = [
+    { name: 'Hộp', kind: 'fixed' as const, value: 5000, active: true },
+    { name: 'Thuế', kind: 'percent' as const, value: 1000, active: true },
+    { name: 'Tắt', kind: 'fixed' as const, value: 9000, active: false },
+  ];
+
+  it('lợi nhuận bằng số phải trả trừ giá vốn và từng khoản đang bật', () => {
+    const shot = costSnapshotOf(
+      [{ name: 'Vòng trơn', productId: 1, quantity: 2 }],
+      new Map([[1, 40000]]),
+      costs,
+      180000,
+    );
+    expect(shot.costGoods).toBe(80000);
+    expect(shot.extra).toEqual([
+      { name: 'Hộp', kind: 'fixed', rate: 5000, amount: 5000 },
+      { name: 'Thuế', kind: 'percent', rate: 1000, amount: 18000 },
+    ]);
+    expect(shot.costExtra).toBe(23000);
+    expect(orderProfit({ totalPrice: 180000, costGoods: shot.costGoods, costExtra: shot.costExtra })).toBe(77000);
+    expect(parseCostLines(encodeCostLines(shot))).toEqual({ goods: shot.goods, missing: [], extra: shot.extra });
+  });
+
+  it('thiếu công thức thì không có lợi nhuận, vẫn giữ chi phí đơn', () => {
+    const shot = costSnapshotOf([{ name: 'Vòng lạ', productId: 9, quantity: 1 }], new Map(), costs, 100000);
+    expect(shot.goods).toEqual([]);
+    expect(shot.costGoods).toBeNull();
+    expect(shot.missing).toEqual(['Vòng lạ']);
+    expect(shot.costExtra).toBe(15000);
+    expect(orderProfit({ totalPrice: 100000, costGoods: shot.costGoods, costExtra: shot.costExtra })).toBeNull();
+  });
+
+  it('giữ giá vốn dòng đã có và để trống tổng khi còn dòng thiếu', () => {
+    const shot = costSnapshotOf(
+      [
+        { name: 'Vòng trơn', productId: 1, quantity: 1 },
+        { name: 'Vòng lạ', productId: 9, quantity: 1 },
+      ],
+      new Map([[1, 40000]]),
+      costs,
+      100000,
+    );
+    expect(shot.goods).toEqual([{ name: 'Vòng trơn', quantity: 1, unitCost: 40000, amount: 40000 }]);
+    expect(shot.missing).toEqual(['Vòng lạ']);
+    expect(shot.costGoods).toBeNull();
   });
 });

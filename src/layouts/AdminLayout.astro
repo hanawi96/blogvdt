@@ -20,6 +20,7 @@ type NavIcon =
   | 'materials'
   | 'pricing'
   | 'costs'
+  | 'discounts'
   | 'orders'
   | 'customers'
   | 'media'
@@ -46,6 +47,7 @@ const items: { href: string; label: string; icon: NavIcon }[] = [
         { href: routes.adminMaterials, label: 'Nguyên liệu', icon: 'materials' as const },
         { href: routes.adminPricing, label: 'Định giá', icon: 'pricing' as const },
         { href: routes.adminCosts, label: 'Chi phí đơn', icon: 'costs' as const },
+        { href: routes.adminDiscounts, label: 'Mã giảm giá', icon: 'discounts' as const },
         { href: routes.adminOrders, label: 'Đơn hàng', icon: 'orders' as const },
         { href: routes.adminCustomers, label: 'Khách hàng', icon: 'customers' as const },
       ]

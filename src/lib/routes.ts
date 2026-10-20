@@ -20,6 +20,7 @@ export const routes = {
   adminMaterials: '/admin/materials',
   adminPricing: '/admin/pricing',
   adminCosts: '/admin/costs',
+  adminDiscounts: '/admin/discounts',
   adminMedia: '/admin/media',
   adminSettings: '/admin/settings',
   adminSeo: '/admin/seo',

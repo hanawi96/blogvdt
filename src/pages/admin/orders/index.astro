@@ -2,6 +2,7 @@
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { activityActor } from '../../../features/activity/log';
 import { mutationError } from '../../../features/auth/session';
+import { orderProfit } from '../../../features/costs/order-costs';
 import { orderCreatedRange } from '../../../features/orders/order';
 import { deleteOrder, listOrders, orderAdminQuery, orderListStatus } from '../../../features/orders/orders';
 import { isOrderStatus, ORDER_STATUS_LABELS, ORDER_STATUSES } from '../../../features/orders/status';
@@ -129,6 +130,7 @@ function pageHref(nextPage: number): string {
                   <th>Khách hàng</th>
                   <th>Sản phẩm</th>
                   <th>Tổng tiền</th>
+                  <th>Lợi nhuận</th>
                   <th>Trạng thái</th>
                   <th>Thời gian</th>
                   <th>Thao tác</th>
@@ -141,6 +143,13 @@ function pageHref(nextPage: number): string {
                     <td data-label="Khách hàng">{order.customerName}</td>
                     <td data-label="Sản phẩm">{order.productName}</td>
                     <td data-label="Tổng tiền">{formatVnd(order.totalPrice)}</td>
+                    <td data-label="Lợi nhuận">
+                      {(() => {
+                        const profit = orderProfit(order);
+                        if (profit === null) return <span class="text-muted">—</span>;
+                        return <span class="order-profit" data-sign={profit < 0 ? 'loss' : 'gain'}>{formatVnd(profit)}</span>;
+                      })()}
+                    </td>
                     <td data-label="Trạng thái">
                       <span class="order-badge" data-status={order.status}>
                         {isOrderStatus(order.status) ? ORDER_STATUS_LABELS[order.status] : order.status}

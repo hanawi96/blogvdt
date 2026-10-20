@@ -22,6 +22,7 @@ describe('quyền CMS', () => {
     expect(canAccessPath('editor', '/admin/orders/14')).toBe(false);
     expect(canAccessPath('editor', '/admin/customers')).toBe(false);
     expect(canAccessPath('editor', '/admin/redirects')).toBe(false);
+    expect(canAccessPath('editor', '/admin/discounts')).toBe(false);
   });
 
   it('quản trị vào được trang người dùng và cài đặt', () => {
@@ -30,6 +31,7 @@ describe('quyền CMS', () => {
     expect(canAccessPath('admin', '/admin/seo')).toBe(true);
     expect(canAccessPath('admin', '/admin/activity-logs')).toBe(true);
     expect(canAccessPath('admin', '/admin/redirects')).toBe(true);
+    expect(canAccessPath('admin', '/admin/discounts')).toBe(true);
   });
 
   it('không hạ hoặc khóa quản trị viên cuối cùng', () => {

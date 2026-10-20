@@ -1,5 +1,6 @@
 ---
 import DataError from '../../components/public/DataError.astro';
+import DiscountCodeField from '../../components/public/DiscountCodeField.astro';
 import NotFound from '../../components/public/NotFound.astro';
 import PublicLayout from '../../layouts/PublicLayout.astro';
 import { bumpLandingView, getLandingPreview, getPublicLanding } from '../../features/landings/landings';
@@ -231,6 +232,7 @@ const pageTracking = preview || !landing ? EMPTY_TRACKING : mergeTracking(landin
                   <span class="mb-1 block font-semibold">Ghi chú</span>
                   <textarea id="lp-note" class="field min-h-20" name="note" maxlength="500"></textarea>
                 </label>
+                <DiscountCodeField id="lp-discount" />
                 <button class="btn btn-accent mt-6 w-full" type="submit">Gửi đơn</button>
                 <p class="mt-3 text-sm text-muted">Xưởng gọi lại để chốt đơn. Website không thu tiền trực tuyến.</p>
               </form>
@@ -276,13 +278,12 @@ const pageTracking = preview || !landing ? EMPTY_TRACKING : mergeTracking(landin
       });
     }
 
-    form.addEventListener('submit', () => {
+    form.addEventListener('submit', (event) => {
       fireInitiateCheckout();
-      const button = form.querySelector('button[type="submit"]');
-      if (button instanceof HTMLButtonElement) {
-        button.disabled = true;
-        button.textContent = 'Đang gửi...';
-      }
+      const button = event instanceof SubmitEvent ? event.submitter : null;
+      if (!(button instanceof HTMLButtonElement) || button.value === 'apply') return;
+      button.disabled = true;
+      button.textContent = 'Đang gửi...';
     });
   }
 </script>

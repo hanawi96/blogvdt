@@ -2576,6 +2576,16 @@
   .category-search {
     margin-bottom: 0.85rem;
   }
+  .redirect-table td:first-child {
+    overflow-wrap: anywhere;
+  }
+  .redirect-table th:nth-child(2),
+  .redirect-table td:nth-child(2) {
+    white-space: nowrap;
+  }
+  .redirect-table tr.is-current td {
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  }
   .category-main {
     display: flex;
     align-items: center;
@@ -3371,6 +3381,23 @@
     color: var(--color-muted);
     font-size: 0.8125rem;
   }
+  .discount-field {
+    margin-top: 1rem;
+  }
+  .discount-field-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .discount-field-row .field {
+    flex: 1;
+    min-width: 0;
+  }
+  .discount-quote {
+    margin-top: 0.35rem;
+    color: var(--color-primary-strong);
+    font-size: 0.875rem;
+  }
   .cart-empty {
     display: grid;
     justify-items: center;
@@ -4037,6 +4064,12 @@
   }
   .order-badge[data-status='cancelled'] {
     color: var(--color-muted);
+  }
+  .order-profit[data-sign='gain'] {
+    color: var(--color-primary-strong);
+  }
+  .order-profit[data-sign='loss'] {
+    color: var(--color-danger);
   }
   .recipe {
     margin-top: 1rem;
@@ -5068,13 +5101,28 @@
     font-weight: 600;
   }
   .order-handoff {
+    display: grid;
+    gap: 0.2rem;
+    margin: 0;
     overflow: auto;
     border-radius: var(--radius-sm);
     background: var(--color-canvas);
     padding: 0.75rem;
-    white-space: pre-wrap;
-    font-family: inherit;
+    list-style: none;
     font-size: 0.875rem;
+  }
+  .order-handoff li {
+    display: flex;
+    gap: 0.45rem;
+    align-items: flex-start;
+  }
+  .handoff-dot {
+    flex: none;
+    width: 0.38rem;
+    height: 0.38rem;
+    margin-top: 0.42rem;
+    border-radius: 999px;
+    background: var(--color-muted);
   }
   @media (min-width: 640px) {
     .od-head {

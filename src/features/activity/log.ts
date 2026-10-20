@@ -50,6 +50,9 @@ export const ACTIVITY_ACTIONS = [
   'order_cost.create',
   'order_cost.update',
   'order_cost.delete',
+  'discount.create',
+  'discount.update',
+  'discount.delete',
   'ad_spend.save',
   'ad_spend.delete',
 ] as const;
@@ -98,11 +101,14 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'order_cost.create': 'Tạo chi phí theo đơn',
   'order_cost.update': 'Sửa chi phí theo đơn',
   'order_cost.delete': 'Xóa chi phí theo đơn',
+  'discount.create': 'Tạo mã giảm giá',
+  'discount.update': 'Sửa mã giảm giá',
+  'discount.delete': 'Xóa mã giảm giá',
   'ad_spend.save': 'Lưu chi phí quảng cáo',
   'ad_spend.delete': 'Xóa chi phí quảng cáo',
 };
 
-export type ActivityObject = 'post' | 'category' | 'tag' | 'product_category' | 'user' | 'media' | 'settings' | 'redirect' | 'landing' | 'order' | 'material' | 'material_group' | 'order_cost' | 'ad_spend' | 'product';
+export type ActivityObject = 'post' | 'category' | 'tag' | 'product_category' | 'user' | 'media' | 'settings' | 'redirect' | 'landing' | 'order' | 'material' | 'material_group' | 'order_cost' | 'ad_spend' | 'product' | 'discount';
 
 export type ActivityActor = { id: number; name: string };
 

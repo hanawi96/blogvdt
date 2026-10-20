@@ -2,6 +2,7 @@
 import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
 import { WEIGHT_SCALES } from '../../features/products/weight';
 import { routes } from '../../lib/routes';
+import DiscountCodeField from './DiscountCodeField.astro';
 import PaymentField from './PaymentField.astro';
 
 // Modal đặt hàng dùng chung cho cả trang. Nút [data-order-open] truyền sản phẩm vào modal;
@@ -63,6 +64,7 @@ const scaleGroups = Object.entries(WEIGHT_SCALES).filter(([, labels]) => labels.
       Ghi chú
       <textarea id="od-note" class="field mt-1 min-h-16" name="note" maxlength="500"></textarea>
     </label>
+    <DiscountCodeField id="od-discount" />
     <p class="order-total">Tạm tính <strong data-od-total></strong></p>
     <p class="mt-2 text-sm text-muted">Xưởng gọi lại để chốt đơn. Website không thu tiền trực tuyến.</p>
     <button class="btn btn-primary mt-4 w-full" type="submit">Gửi đơn</button>
@@ -80,7 +82,7 @@ const scaleGroups = Object.entries(WEIGHT_SCALES).filter(([, labels]) => labels.
     const slugField = form.querySelector('[data-od-slug]');
     const weightWrap = form.querySelector('[data-od-weight]');
     const quantity = form.querySelector('#od-quantity');
-    const submit = form.querySelector('button[type="submit"]');
+    const submit = form.querySelector('button[type="submit"]:not([value="apply"])');
     let price = 0;
 
     const paintTotal = () => {
@@ -137,11 +139,11 @@ const scaleGroups = Object.entries(WEIGHT_SCALES).filter(([, labels]) => labels.
     dialog.addEventListener('click', (event) => {
       if (event.target === dialog || (event.target instanceof Element && event.target.closest('[data-order-close]'))) dialog.close();
     });
-    form.addEventListener('submit', () => {
-      if (submit instanceof HTMLButtonElement) {
-        submit.disabled = true;
-        submit.textContent = 'Đang gửi...';
-      }
+    form.addEventListener('submit', (event) => {
+      const button = event instanceof SubmitEvent ? event.submitter : submit;
+      if (!(button instanceof HTMLButtonElement) || button.value === 'apply') return;
+      button.disabled = true;
+      button.textContent = 'Đang gửi...';
     });
     // Quay lại bằng nút Back (bfcache) thì mở lại nút gửi.
     window.addEventListener('pageshow', () => {

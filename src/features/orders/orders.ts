@@ -3,6 +3,8 @@ import type { AppDb } from '../../lib/db/client';
 import { routes } from '../../lib/routes';
 import { orderItems, orders } from '../../lib/db/schema';
 import { activityWrite, commitWrites, type ActivityActor } from '../activity/log';
+import { claimDiscount, releaseDiscount, restoreDiscountQuery } from '../discounts/discounts';
+import { encodeCostLines, snapshotOrderCosts } from '../costs/order-costs';
 import {
   formatOrderCode,
   isRecentDuplicate,
@@ -77,6 +79,8 @@ export async function listOrders(
         customerName: orders.customerName,
         productName: orders.productName,
         totalPrice: orders.totalPrice,
+        costGoods: orders.costGoods,
+        costExtra: orders.costExtra,
         status: orders.status,
         createdAt: orders.createdAt,
       })
@@ -115,9 +119,14 @@ export async function getOrder(db: AppDb, id: number) {
       quantity: orders.quantity,
       optionLabel: orders.optionLabel,
       totalPrice: orders.totalPrice,
+      subtotal: orders.subtotal,
+      discountCode: orders.discountCode,
+      discountAmount: orders.discountAmount,
+      discountRestored: orders.discountRestored,
       paymentMethod: orders.paymentMethod,
       costGoods: orders.costGoods,
       costExtra: orders.costExtra,
+      costLines: orders.costLines,
       status: orders.status,
       createdAt: orders.createdAt,
       updatedAt: orders.updatedAt,
@@ -152,9 +161,16 @@ export async function updateOrderStatus(
   if (!current) return { ok: false, error: 'Không tìm thấy đơn hàng.' };
   if (!isOrderStatus(current.status)) return { ok: false, error: 'Trạng thái hiện tại không hợp lệ.' };
   if (!canTransitionOrder(current.status, status)) return { ok: false, error: orderTransitionError(current.status, status) };
-  if (current.status !== status) {
-    await db.update(orders).set({ status, updatedAt: now }).where(eq(orders.id, id));
+  if (current.status === status) return { ok: true, updatedAt: current.updatedAt };
+  const restore = status === 'cancelled' && current.discountCode && current.discountAmount > 0 && current.discountRestored === 0;
+  if (restore && current.discountCode) {
+    await commitWrites(db, [
+      restoreDiscountQuery(db, current.discountCode, now),
+      db.update(orders).set({ status, discountRestored: 1, updatedAt: now }).where(eq(orders.id, id)),
+    ]);
+    return { ok: true, updatedAt: now };
   }
+  await db.update(orders).set({ status, updatedAt: now }).where(eq(orders.id, id));
   return { ok: true, updatedAt: now };
 }
 
@@ -166,10 +182,22 @@ export async function deleteOrder(
   actor?: ActivityActor,
   now = Date.now(),
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const rows = await db.select({ code: orders.code }).from(orders).where(eq(orders.id, id)).limit(1);
+  const rows = await db
+    .select({
+      code: orders.code,
+      discountCode: orders.discountCode,
+      discountAmount: orders.discountAmount,
+      discountRestored: orders.discountRestored,
+    })
+    .from(orders)
+    .where(eq(orders.id, id))
+    .limit(1);
   const current = rows[0];
   if (!current) return { ok: false, error: 'Không tìm thấy đơn hàng.' };
   await commitWrites(db, [
+    ...(current.discountCode && current.discountAmount > 0 && current.discountRestored === 0
+      ? [restoreDiscountQuery(db, current.discountCode, now)]
+      : []),
     db.delete(orderItems).where(eq(orderItems.orderId, id)),
     db.delete(orders).where(eq(orders.id, id)),
     ...(actor
@@ -233,44 +261,63 @@ export async function placeOrder(
   if (duplicate[0] && isRecentDuplicate(duplicate[0].createdAt, now)) {
     return { ok: false, status: 409, error: 'Đơn cùng sản phẩm và lựa chọn vừa được gửi. Nếu cần đổi, hãy gọi xưởng.' };
   }
-  const day = orderDayKey(now);
-  const latest = await db
-    .select({ code: orders.code })
-    .from(orders)
-    .where(like(orders.code, `VD${day}-%`))
-    .orderBy(desc(orders.code))
-    .limit(1);
-  let sequence = sequenceFromCode(latest[0]?.code ?? '') + 1;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (sequence > 9999) return { ok: false, status: 503, error: 'Hết mã đơn trong ngày. Hãy gọi xưởng để đặt.' };
-    const code = formatOrderCode(day, sequence);
-    try {
-      await db.insert(orders).values({
-        code,
-        customerName: draft.customerName,
-        phone: draft.phone,
-        address: draft.address,
-        note: draft.note || null,
-        productId: draft.productId,
-        productName: draft.productName,
-        unitPrice: draft.unitPrice,
-        quantity: draft.quantity,
-        optionLabel: draft.optionLabel,
-        totalPrice: draft.totalPrice,
-        paymentMethod: draft.paymentMethod,
-        status: 'new',
-        ipHash,
-        landingSlug: draft.landingSlug,
-        createdAt: now,
-        updatedAt: now,
-      });
-      return { ok: true, code };
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-      sequence += 1;
+  const slot = await takeDiscountSlot(db, draft.discountCode, now);
+  if (!slot.ok) return { ok: false, status: 409, error: slot.error };
+  const snapshot = await snapshotOrderCosts(db, [{ name: draft.productName, productId: draft.productId, quantity: draft.quantity }], draft.totalPrice);
+  try {
+    const day = orderDayKey(now);
+    const latest = await db
+      .select({ code: orders.code })
+      .from(orders)
+      .where(like(orders.code, `VD${day}-%`))
+      .orderBy(desc(orders.code))
+      .limit(1);
+    let sequence = sequenceFromCode(latest[0]?.code ?? '') + 1;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (sequence > 9999) {
+        await releaseDiscountSlot(db, slot.id, now);
+        return { ok: false, status: 503, error: 'Hết mã đơn trong ngày. Hãy gọi xưởng để đặt.' };
+      }
+      const code = formatOrderCode(day, sequence);
+      try {
+        await db.insert(orders).values({
+          code,
+          customerName: draft.customerName,
+          phone: draft.phone,
+          address: draft.address,
+          note: draft.note || null,
+          productId: draft.productId,
+          productName: draft.productName,
+          unitPrice: draft.unitPrice,
+          quantity: draft.quantity,
+          optionLabel: draft.optionLabel,
+          subtotal: draft.subtotal,
+          discountCode: draft.discountCode,
+          discountAmount: draft.discountAmount,
+          discountRestored: 0,
+          totalPrice: draft.totalPrice,
+          costGoods: snapshot?.costGoods ?? null,
+          costExtra: snapshot ? snapshot.costExtra : null,
+          costLines: snapshot ? encodeCostLines(snapshot) : null,
+          paymentMethod: draft.paymentMethod,
+          status: 'new',
+          ipHash,
+          landingSlug: draft.landingSlug,
+          createdAt: now,
+          updatedAt: now,
+        });
+        return { ok: true, code };
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+        sequence += 1;
+      }
     }
+    await releaseDiscountSlot(db, slot.id, now);
+    return { ok: false, status: 503, error: 'Chưa tạo được mã đơn. Thử lại.' };
+  } catch (error) {
+    await releaseDiscountSlot(db, slot.id, now);
+    throw error;
   }
-  return { ok: false, status: 503, error: 'Chưa tạo được mã đơn. Thử lại.' };
 }
 
 export async function placeCartOrder(
@@ -295,65 +342,106 @@ export async function placeCartOrder(
   if (duplicate[0] && isRecentDuplicate(duplicate[0].createdAt, now)) {
     return { ok: false, status: 409, error: 'Đơn cùng các mẫu vừa được gửi. Nếu cần đổi, hãy gọi xưởng.' };
   }
-  const day = orderDayKey(now);
-  const latest = await db
-    .select({ code: orders.code })
-    .from(orders)
-    .where(like(orders.code, `VD${day}-%`))
-    .orderBy(desc(orders.code))
-    .limit(1);
-  let sequence = sequenceFromCode(latest[0]?.code ?? '') + 1;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (sequence > 9999) return { ok: false, status: 503, error: 'Hết mã đơn trong ngày. Hãy gọi xưởng để đặt.' };
-    const code = formatOrderCode(day, sequence);
-    try {
-      const inserted = await db
-        .insert(orders)
-        .values({
-          code,
-          customerName: draft.customerName,
-          phone: draft.phone,
-          address: draft.address,
-          note: draft.note || null,
-          productId: null,
-          productName: draft.productName,
-          unitPrice: 0,
-          quantity: draft.quantity,
-          optionLabel: null,
-          totalPrice: draft.totalPrice,
-          paymentMethod: draft.paymentMethod,
-          status: 'new',
-          ipHash,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning({ id: orders.id });
-      const orderId = inserted[0]?.id;
-      if (!orderId) return { ok: false, status: 503, error: 'Chưa tạo được mã đơn. Thử lại.' };
-      try {
-        await db.insert(orderItems).values(
-          draft.lines.map((line, index) => ({
-            orderId,
-            productId: line.productId,
-            productName: line.productName,
-            unitPrice: line.unitPrice,
-            quantity: line.quantity,
-            optionLabel: line.optionLabel,
-            lineTotal: line.lineTotal,
-            sortOrder: index,
-          })),
-        );
-      } catch (error) {
-        await db.delete(orders).where(eq(orders.id, orderId));
-        throw error;
+  const slot = await takeDiscountSlot(db, draft.discountCode, now);
+  if (!slot.ok) return { ok: false, status: 409, error: slot.error };
+  const snapshot = await snapshotOrderCosts(
+    db,
+    draft.lines.map((line) => ({ name: line.productName, productId: line.productId, quantity: line.quantity })),
+    draft.totalPrice,
+  );
+  try {
+    const day = orderDayKey(now);
+    const latest = await db
+      .select({ code: orders.code })
+      .from(orders)
+      .where(like(orders.code, `VD${day}-%`))
+      .orderBy(desc(orders.code))
+      .limit(1);
+    let sequence = sequenceFromCode(latest[0]?.code ?? '') + 1;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (sequence > 9999) {
+        await releaseDiscountSlot(db, slot.id, now);
+        return { ok: false, status: 503, error: 'Hết mã đơn trong ngày. Hãy gọi xưởng để đặt.' };
       }
-      return { ok: true, code };
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-      sequence += 1;
+      const code = formatOrderCode(day, sequence);
+      try {
+        const inserted = await db
+          .insert(orders)
+          .values({
+            code,
+            customerName: draft.customerName,
+            phone: draft.phone,
+            address: draft.address,
+            note: draft.note || null,
+            productId: null,
+            productName: draft.productName,
+            unitPrice: 0,
+            quantity: draft.quantity,
+            optionLabel: null,
+            subtotal: draft.subtotal,
+            discountCode: draft.discountCode,
+            discountAmount: draft.discountAmount,
+            discountRestored: 0,
+            totalPrice: draft.totalPrice,
+            costGoods: snapshot?.costGoods ?? null,
+            costExtra: snapshot ? snapshot.costExtra : null,
+            costLines: snapshot ? encodeCostLines(snapshot) : null,
+            paymentMethod: draft.paymentMethod,
+            status: 'new',
+            ipHash,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning({ id: orders.id });
+        const orderId = inserted[0]?.id;
+        if (!orderId) {
+          await releaseDiscountSlot(db, slot.id, now);
+          return { ok: false, status: 503, error: 'Chưa tạo được mã đơn. Thử lại.' };
+        }
+        try {
+          await db.insert(orderItems).values(
+            draft.lines.map((line, index) => ({
+              orderId,
+              productId: line.productId,
+              productName: line.productName,
+              unitPrice: line.unitPrice,
+              quantity: line.quantity,
+              optionLabel: line.optionLabel,
+              lineTotal: line.lineTotal,
+              sortOrder: index,
+            })),
+          );
+        } catch (error) {
+          await db.delete(orders).where(eq(orders.id, orderId));
+          throw error;
+        }
+        return { ok: true, code };
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+        sequence += 1;
+      }
     }
+    await releaseDiscountSlot(db, slot.id, now);
+    return { ok: false, status: 503, error: 'Chưa tạo được mã đơn. Thử lại.' };
+  } catch (error) {
+    await releaseDiscountSlot(db, slot.id, now);
+    throw error;
   }
-  return { ok: false, status: 503, error: 'Chưa tạo được mã đơn. Thử lại.' };
+}
+
+async function takeDiscountSlot(
+  db: AppDb,
+  code: string | null,
+  now: number,
+): Promise<{ ok: true; id: number | null } | { ok: false; error: string }> {
+  if (!code) return { ok: true, id: null };
+  const id = await claimDiscount(db, code, now);
+  if (id === null) return { ok: false, error: 'Mã giảm giá vừa hết lượt hoặc không còn dùng được.' };
+  return { ok: true, id };
+}
+
+async function releaseDiscountSlot(db: AppDb, id: number | null, now: number): Promise<void> {
+  if (id !== null) await releaseDiscount(db, id, now);
 }
 
 export function orderSearchTerm(query: string): { text: string; phone: string } {

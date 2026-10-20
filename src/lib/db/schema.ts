@@ -295,6 +295,12 @@ export const orders = sqliteTable(
     quantity: integer('quantity').notNull(),
     optionLabel: text('option_label'),
     totalPrice: integer('total_price').notNull(),
+    // subtotal: tạm tính trước giảm. NULL ở đơn cũ (khi đó total_price là số phải trả, không có giảm).
+    subtotal: integer('subtotal'),
+    discountCode: text('discount_code'),
+    discountAmount: integer('discount_amount').notNull().default(0),
+    // 1 khi lượt dùng đã được trả lại (hủy hoặc xóa đơn).
+    discountRestored: integer('discount_restored').notNull().default(0),
     // 'cod' (thanh toán khi nhận hàng) | 'bank' (chuyển khoản). Xem features/orders/payment.ts.
     paymentMethod: text('payment_method').notNull().default('cod'),
     // Ảnh chụp chi phí lúc đặt đơn, đổi giá nguyên liệu sau này không làm lệch đơn cũ.
@@ -302,6 +308,8 @@ export const orders = sqliteTable(
     // NULL = đơn cũ chưa có số liệu, không tính lợi nhuận.
     costGoods: integer('cost_goods'),
     costExtra: integer('cost_extra'),
+    // Chi tiết từng khoản lúc đặt: giá vốn từng vòng và từng chi phí đơn. Đơn cũ để trống.
+    costLines: text('cost_lines'),
     status: text('status').notNull(),
     ipHash: text('ip_hash').notNull(),
     landingSlug: text('landing_slug'),
@@ -321,6 +329,8 @@ export const orders = sqliteTable(
     check('orders_payment_method_check', sql`${table.paymentMethod} in ('cod', 'bank')`),
     check('orders_quantity_check', sql`${table.quantity} > 0`),
     check('orders_unit_price_check', sql`${table.unitPrice} >= 0`),
+    check('orders_discount_amount_check', sql`${table.discountAmount} >= 0`),
+    check('orders_discount_restored_check', sql`${table.discountRestored} in (0, 1)`),
   ],
 );
 
@@ -364,6 +374,46 @@ export const adSpend = sqliteTable(
     check('ad_spend_amount_check', sql`${table.amount} >= 0`),
     check('ad_spend_day_check', sql`${table.day} glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`),
   ],
+);
+
+export const discountCodes = sqliteTable(
+  'discount_codes',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    code: text('code').notNull(),
+    kind: text('kind').notNull(),
+    value: integer('value').notNull(),
+    minSubtotal: integer('min_subtotal').notNull().default(0),
+    usageLimit: integer('usage_limit'),
+    usedCount: integer('used_count').notNull().default(0),
+    startsAt: integer('starts_at'),
+    endsAt: integer('ends_at'),
+    active: integer('active').notNull().default(1),
+    note: text('note'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('discount_codes_code_unique').on(table.code),
+    check('discount_codes_kind_check', sql`${table.kind} in ('percent', 'fixed')`),
+    check('discount_codes_value_check', sql`${table.value} > 0`),
+    check('discount_codes_min_check', sql`${table.minSubtotal} >= 0`),
+    check('discount_codes_usage_limit_check', sql`${table.usageLimit} is null or ${table.usageLimit} > 0`),
+    check('discount_codes_used_check', sql`${table.usedCount} >= 0`),
+    check('discount_codes_active_check', sql`${table.active} in (0, 1)`),
+    check('discount_codes_window_check', sql`${table.startsAt} is null or ${table.endsAt} is null or ${table.endsAt} > ${table.startsAt}`),
+  ],
+);
+
+// Đếm lần thử mã theo IP để chặn dò mã. Không lưu mã khách đã gõ.
+export const discountChecks = sqliteTable(
+  'discount_checks',
+  {
+    ipHash: text('ip_hash').primaryKey(),
+    windowStart: integer('window_start').notNull(),
+    hits: integer('hits').notNull(),
+  },
+  (table) => [check('discount_checks_hits_check', sql`${table.hits} >= 0`)],
 );
 
 export const orderItems = sqliteTable(

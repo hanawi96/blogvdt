@@ -1,7 +1,7 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { mutationError } from '../../../features/auth/session';
-import { orderProfit } from '../../../features/costs/order-costs';
+import { formatPercentBp, orderProfit, parseCostLines } from '../../../features/costs/order-costs';
 import { profitOf } from '../../../features/materials/costing';
 import { orderHandoffText } from '../../../features/orders/order';
 import { paymentLabel } from '../../../features/orders/payment';
@@ -28,6 +28,7 @@ let noteError = '';
 const saved = Astro.url.searchParams.get('saved');
 const isAdmin = session.role === 'admin';
 const profit = orderProfit(order);
+const costLines = parseCostLines(order.costLines);
 const margin = profit === null ? null : profitOf(order.totalPrice, order.totalPrice - profit).marginPercent;
 const currentStatus = isOrderStatus(order.status) ? order.status : null;
 const choices = currentStatus ? [currentStatus, ...nextOrderStatuses(currentStatus)] : [];
@@ -82,7 +83,7 @@ const lines =
           unitPrice: order.unitPrice,
           quantity: order.quantity,
           optionLabel: order.optionLabel,
-          lineTotal: order.totalPrice,
+          lineTotal: order.subtotal ?? order.totalPrice,
         },
       ];
 const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
@@ -110,6 +111,7 @@ const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
       <div class="od-head-total">
         <span>Tổng tiền</span>
         <strong>{formatVnd(order.totalPrice)}</strong>
+        {order.discountAmount > 0 && <span class="od-note">Đã giảm {order.discountCode}</span>}
       </div>
     </section>
 
@@ -134,8 +136,14 @@ const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
               ))
             }
           </ul>
+          {order.discountAmount > 0 && (
+            <dl class="od-facts">
+              <div><dt>Tạm tính</dt><dd>{formatVnd(order.subtotal ?? order.totalPrice + order.discountAmount)}</dd></div>
+              <div><dt>Giảm {order.discountCode}</dt><dd>− {formatVnd(order.discountAmount)}</dd></div>
+            </dl>
+          )}
           <div class="od-total">
-            <span>Tổng tiền</span>
+            <span>{order.discountAmount > 0 ? 'Phải trả' : 'Tổng tiền'}</span>
             <strong>{formatVnd(order.totalPrice)}</strong>
           </div>
           <p class="od-note">Giá và tên sản phẩm được giữ tại thời điểm đặt, không đổi khi sửa giá hiện tại.</p>
@@ -145,19 +153,41 @@ const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
           isAdmin && (
             <section class="od-card">
               <h2>Lợi nhuận</h2>
-              {profit === null || order.costGoods === null || order.costExtra === null ? (
-                <p class="od-note">
-                  Chưa có số liệu chi phí cho đơn này: đơn đặt trước khi nhập chi phí, hoặc có sản phẩm chưa có công thức nguyên liệu.
-                </p>
+              {order.costExtra === null ? (
+                <p class="od-note">Đơn này đặt trước khi hệ thống chụp chi phí, nên không tính lợi nhuận.</p>
               ) : (
                 <>
                   <dl class="od-facts">
-                    <div><dt>Tổng tiền đơn</dt><dd>{formatVnd(order.totalPrice)}</dd></div>
-                    <div><dt>Giá vốn các vòng</dt><dd>− {formatVnd(order.costGoods)}</dd></div>
-                    <div><dt>Chi phí đơn (hộp, ship, thuế…)</dt><dd>− {formatVnd(order.costExtra)}</dd></div>
-                    <div><dt>Lợi nhuận{margin !== null ? ` · biên ${margin}%` : ''}</dt><dd><strong>{formatVnd(profit)}</strong></dd></div>
+                    <div><dt>Số khách phải trả</dt><dd>{formatVnd(order.totalPrice)}</dd></div>
+                    {costLines?.goods?.map((line) => (
+                      <div>
+                        <dt>Giá vốn {line.name}</dt>
+                        <dd>− {formatVnd(line.amount)} <span class="od-note">{line.quantity} × {formatVnd(line.unitCost)}</span></dd>
+                      </div>
+                    ))}
+                    {order.costGoods === null && (
+                      <div>
+                        <dt>Giá vốn</dt>
+                        <dd>Chưa đủ{costLines && costLines.missing.length > 0 ? `: ${costLines.missing.join(', ')} chưa có công thức` : ''}</dd>
+                      </div>
+                    )}
+                    {(costLines?.extra ?? []).map((line) => (
+                      <div>
+                        <dt>{line.name}</dt>
+                        <dd>
+                          − {formatVnd(line.amount)}
+                          {line.kind === 'percent' && <span class="od-note">{formatPercentBp(line.rate)}% số phải trả</span>}
+                        </dd>
+                      </div>
+                    ))}
+                    {costLines && costLines.extra.length === 0 && <div><dt>Chi phí đơn</dt><dd>0₫</dd></div>}
+                    {!costLines && <div><dt>Chi phí đơn</dt><dd>− {formatVnd(order.costExtra)}</dd></div>}
+                    <div>
+                      <dt>Lợi nhuận{profit !== null && margin !== null ? ` · biên ${margin}%` : ''}</dt>
+                      <dd>{profit === null ? '—' : <strong class="order-profit" data-sign={profit < 0 ? 'loss' : 'gain'}>{formatVnd(profit)}</strong>}</dd>
+                    </div>
                   </dl>
-                  <p class="od-note">Số liệu được chụp lúc đặt đơn, không đổi khi sửa giá nguyên liệu sau này.</p>
+                  <p class="od-note">Lợi nhuận = số khách phải trả − giá vốn − chi phí đơn. Số được chụp lúc đặt, không đổi khi sửa giá sau này.</p>
                 </>
               )}
             </section>
@@ -219,7 +249,11 @@ const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
 
         <section class="od-card">
           <h2>Thông tin giao hàng</h2>
-          <pre class="order-handoff">{handoff}</pre>
+          <ul class="order-handoff">
+            {handoff.split('\n').map((line) => (
+              <li><span class="handoff-dot" aria-hidden="true"></span>{line}</li>
+            ))}
+          </ul>
           <button class="btn mt-3 w-full" type="button" data-copy-order>Sao chép thông tin giao hàng</button>
           <p class="mt-2 text-primary-strong" data-copy-status role="status" hidden></p>
         </section>

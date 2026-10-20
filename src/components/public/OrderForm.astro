@@ -1,6 +1,7 @@
 ---
 import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
 import { weightOptions, type WeightScale } from '../../features/products/weight';
+import DiscountCodeField from './DiscountCodeField.astro';
 import PaymentField from './PaymentField.astro';
 import { routes } from '../../lib/routes';
 import type { FieldErrors } from '../../lib/validation/errors';
@@ -15,20 +16,26 @@ interface Props {
     quantity: string;
     weight: string;
     paymentMethod: string;
+    discountCode?: string;
   };
   errors?: FieldErrors;
+  quote?: { code: string; discountAmount: number; totalPrice: number } | null;
+  landing?: string;
 }
 
 const {
   product,
-  values = { customerName: '', phone: '', address: '', note: '', quantity: '1', weight: '', paymentMethod: '' },
+  values = { customerName: '', phone: '', address: '', note: '', quantity: '1', weight: '', paymentMethod: '', discountCode: '' },
   errors = {},
+  quote = null,
+  landing = '',
 } = Astro.props;
 const weights = weightOptions(product.weightScale);
 ---
 
 <form class="mt-6" method="post" action={routes.checkout} data-order-form>
   <input type="hidden" name="productSlug" value={product.slug} />
+  {landing && <input type="hidden" name="landing" value={landing} />}
   <div class="absolute -left-[9999px]" aria-hidden="true">
     <label for="company">Công ty</label>
     <input id="company" name="company" tabindex="-1" autocomplete="off" />
@@ -75,16 +82,16 @@ const weights = weightOptions(product.weightScale);
     <textarea id="note" class="field min-h-20" name="note" maxlength="500">{values.note}</textarea>
     {errors.note && <span class="error-text">{errors.note}</span>}
   </label>
+  <DiscountCodeField id="discount-code" value={values.discountCode} error={errors.discountCode} quote={quote} />
   <button class="btn btn-primary mt-6 w-full" type="submit">Gửi đơn</button>
 </form>
 <script>
   document.querySelectorAll('form[data-order-form]').forEach((form) => {
-    form.addEventListener('submit', () => {
-      const button = form.querySelector('button[type="submit"]');
-      if (button instanceof HTMLButtonElement) {
-        button.disabled = true;
-        button.textContent = 'Đang gửi...';
-      }
+    form.addEventListener('submit', (event) => {
+      const button = event instanceof SubmitEvent ? event.submitter : null;
+      if (!(button instanceof HTMLButtonElement) || button.value === 'apply') return;
+      button.disabled = true;
+      button.textContent = 'Đang gửi...';
     });
   });
 </script>

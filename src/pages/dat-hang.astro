@@ -1,7 +1,9 @@
 ---
 import DataError from '../components/public/DataError.astro';
 import OrderForm from '../components/public/OrderForm.astro';
-import { parseOrderSubmission } from '../features/orders/order';
+import { applyDiscount } from '../features/discounts/quote';
+import { priceDiscount } from '../features/discounts/discounts';
+import { ORDER_MAX_QUANTITY, parseOrderSubmission } from '../features/orders/order';
 import { placeOrder } from '../features/orders/orders';
 import { listOrderCatalog } from '../features/products/public';
 import { getPublicSite } from '../features/settings/settings';
@@ -13,6 +15,7 @@ import { formatVnd } from '../lib/money';
 import { buildMeta } from '../lib/seo/meta';
 import { routes } from '../lib/routes';
 import type { FieldErrors } from '../lib/validation/errors';
+import type { DiscountQuote } from '../features/discounts/quote';
 
 let site: Awaited<ReturnType<typeof getPublicSite>> = null;
 let catalog: Awaited<ReturnType<typeof listOrderCatalog>> = [];
@@ -43,9 +46,12 @@ const values = {
   quantity: read('quantity') || '1',
   weight: read('weight'),
   paymentMethod: read('paymentMethod'),
+  discountCode: read('discountCode'),
 };
+const landing = read('landing');
 let errors: FieldErrors = {};
 let formError = '';
+let quote: DiscountQuote | null = null;
 
 if (posted) {
   Astro.response.headers.set('Cache-Control', 'no-store');
@@ -54,13 +60,38 @@ if (posted) {
   } else if (!isSameOrigin(Astro.request)) {
     Astro.response.status = 403;
     formError = 'Nguồn gửi không hợp lệ.';
+  } else if (read('intent') === 'apply') {
+    if (read('company').trim()) {
+      Astro.response.status = 403;
+      formError = 'Không gửi được đơn.';
+    } else if (!selected) {
+      Astro.response.status = 422;
+      errors = { productSlug: 'Chọn sản phẩm đang bán.' };
+    } else {
+      const quantity = Number(values.quantity);
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > ORDER_MAX_QUANTITY) {
+        Astro.response.status = 422;
+        errors = { quantity: `Số lượng là số nguyên từ 1 đến ${ORDER_MAX_QUANTITY}.` };
+      } else if (!db) {
+        Astro.response.status = 503;
+        formError = 'Chưa kiểm được mã. Thử lại sau.';
+      } else {
+        const priced = await priceDiscount(db, selected.price * quantity, values.discountCode, await visitorHash(), Date.now(), true);
+        if (!priced.ok) {
+          Astro.response.status = 422;
+          errors = { discountCode: priced.error };
+        } else {
+          quote = priced.discount;
+        }
+      }
+    }
   } else {
     const parsed = parseOrderSubmission(
-      { ...values, productSlug: selectedSlug, company: read('company'), landing: read('landing') },
+      { ...values, productSlug: selectedSlug, company: read('company'), landing },
       catalog,
     );
     if (!parsed.ok) {
-      Astro.response.status = 422;
+      Astro.response.status = parsed.blocked ? 403 : 422;
       formError = parsed.blocked ? 'Không gửi được đơn.' : '';
       errors = parsed.errors;
     } else if (!db) {
@@ -68,21 +99,21 @@ if (posted) {
       formError = 'Chưa lưu được đơn. Thử lại sau.';
     } else {
       try {
-        let address: string | null = null;
-        try {
-          address = Astro.clientAddress;
-        } catch {
-          address = null;
-        }
-        const ipHash = await hashIp(clientIp(Astro.request, address));
-        const saved = await placeOrder(db, parsed.draft, ipHash);
-        if (!saved.ok) {
-          Astro.response.status = saved.status;
-          formError = saved.error;
+        const ipHash = await visitorHash();
+        const priced = await priceDiscount(db, parsed.draft.subtotal, values.discountCode, ipHash);
+        if (!priced.ok) {
+          Astro.response.status = 422;
+          errors = { discountCode: priced.error };
         } else {
-          const response = Astro.redirect(`${routes.checkoutSuccess}?ma=${saved.code}`, 303);
-          response.headers.set('Cache-Control', 'no-store');
-          return response;
+          const saved = await placeOrder(db, { ...parsed.draft, ...applyDiscount(parsed.draft.subtotal, priced.discount) }, ipHash);
+          if (!saved.ok) {
+            Astro.response.status = saved.status;
+            formError = saved.error;
+          } else {
+            const response = Astro.redirect(`${routes.checkoutSuccess}?ma=${saved.code}`, 303);
+            response.headers.set('Cache-Control', 'no-store');
+            return response;
+          }
         }
       } catch (error) {
         Astro.response.status = 503;
@@ -95,6 +126,16 @@ if (posted) {
   Astro.response.headers.set('Cache-Control', 'public, max-age=60');
 } else {
   Astro.response.headers.set('Cache-Control', 'no-store');
+}
+
+async function visitorHash(): Promise<string> {
+  let address: string | null = null;
+  try {
+    address = Astro.clientAddress;
+  } catch {
+    address = null;
+  }
+  return hashIp(clientIp(Astro.request, address));
 }
 
 const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
@@ -143,7 +184,7 @@ const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
           <section class="mt-8" aria-labelledby="selected-product">
             <h2 id="selected-product" class="text-xl font-semibold">{selected.name}</h2>
             <p class="mt-1 text-primary-strong">{formatVnd(selected.price)}</p>
-            <OrderForm product={selected} values={values} errors={errors} />
+            <OrderForm product={selected} values={values} errors={errors} quote={quote} landing={landing} />
           </section>
         )}
       </main>

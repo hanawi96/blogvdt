@@ -1,8 +1,11 @@
 ---
 import DataError from '../components/public/DataError.astro';
+import DiscountCodeField from '../components/public/DiscountCodeField.astro';
 import PaymentField from '../components/public/PaymentField.astro';
 import { addCartLine, CART_COOKIE, CART_MAX_QUANTITY, cartCookieOptions, parseCart, postedCartLines, serializeCart, type CartLine } from '../features/cart/cart';
-import { parseCartOrder } from '../features/orders/order';
+import { applyDiscount, type DiscountQuote } from '../features/discounts/quote';
+import { priceDiscount } from '../features/discounts/discounts';
+import { parseCartOrder, type CatalogProduct } from '../features/orders/order';
 import { placeCartOrder, placeOrder } from '../features/orders/orders';
 import { listOrderCatalog } from '../features/products/public';
 import { isValidWeight, requiresWeight } from '../features/products/weight';
@@ -20,7 +23,8 @@ const loaded = await loadCart();
 let lines = parseCart(Astro.cookies.get(CART_COOKIE)?.value);
 let formError = '';
 let errors: FieldErrors = {};
-const values = { customerName: '', phone: '', address: '', note: '', paymentMethod: '' };
+const values = { customerName: '', phone: '', address: '', note: '', paymentMethod: '', discountCode: '' };
+let quote: DiscountQuote | null = null;
 Astro.response.headers.set('Cache-Control', 'private, no-store');
 
 if (Astro.request.method === 'POST') {
@@ -35,6 +39,7 @@ if (Astro.request.method === 'POST') {
   values.address = read('address');
   values.note = read('note');
   values.paymentMethod = read('paymentMethod');
+  values.discountCode = read('discountCode');
   if (!loaded.site) {
     Astro.response.status = 503;
   } else if (!isSameOrigin(Astro.request)) {
@@ -58,6 +63,33 @@ if (Astro.request.method === 'POST') {
       remember(posted.lines.filter((line) => loaded.catalog.some((item) => item.slug === line.slug)));
       return Astro.redirect(routes.cart, 303);
     }
+  } else if (intent === 'apply') {
+    const posted = linesFrom(form, intent);
+    if (!posted.ok) {
+      Astro.response.status = 422;
+      formError = posted.error;
+    } else if (read('company').trim()) {
+      Astro.response.status = 403;
+      formError = 'Không gửi được đơn.';
+    } else {
+      lines = posted.lines;
+      const subtotal = merchandiseTotal(posted.lines, loaded.catalog);
+      if (subtotal === null) {
+        Astro.response.status = 422;
+        formError = posted.lines.length === 0 ? 'Giỏ đang trống.' : 'Một mẫu trong giỏ không còn bán.';
+      } else if (!loaded.db) {
+        Astro.response.status = 503;
+        formError = 'Chưa kiểm được mã. Thử lại sau.';
+      } else {
+        const priced = await priceDiscount(loaded.db, subtotal, values.discountCode, await visitorHash(), Date.now(), true);
+        if (!priced.ok) {
+          Astro.response.status = 422;
+          errors = { discountCode: priced.error };
+        } else {
+          quote = priced.discount;
+        }
+      }
+    }
   } else if (intent === 'order') {
     const posted = linesFrom(form, intent);
     if (!posted.ok) {
@@ -75,26 +107,27 @@ if (Astro.request.method === 'POST') {
         formError = 'Chưa lưu được đơn. Thử lại sau.';
       } else {
         try {
-          let address: string | null = null;
-          try {
-            address = Astro.clientAddress;
-          } catch {
-            address = null;
-          }
-          const ipHash = await hashIp(clientIp(Astro.request, address));
-          const saved = parsed.single
-            ? await placeOrder(loaded.db, parsed.single, ipHash)
-            : parsed.cart
-              ? await placeCartOrder(loaded.db, parsed.cart, ipHash)
-              : { ok: false as const, status: 422 as const, error: 'Giỏ đang trống.' };
-          if (!saved.ok) {
-            Astro.response.status = saved.status;
-            formError = saved.error;
+          const ipHash = await visitorHash();
+          const base = parsed.single ?? parsed.cart;
+          const priced = base ? await priceDiscount(loaded.db, base.subtotal, values.discountCode, ipHash) : { ok: true as const, discount: null };
+          if (!priced.ok) {
+            Astro.response.status = 422;
+            errors = { discountCode: priced.error };
           } else {
-            Astro.cookies.set(CART_COOKIE, '', cartCookieOptions(secure, 0));
-            const response = Astro.redirect(`${routes.checkoutSuccess}?ma=${saved.code}`, 303);
-            response.headers.set('Cache-Control', 'private, no-store');
-            return response;
+            const saved = parsed.single
+              ? await placeOrder(loaded.db, { ...parsed.single, ...applyDiscount(parsed.single.subtotal, priced.discount) }, ipHash)
+              : parsed.cart
+                ? await placeCartOrder(loaded.db, { ...parsed.cart, ...applyDiscount(parsed.cart.subtotal, priced.discount) }, ipHash)
+                : { ok: false as const, status: 422 as const, error: 'Giỏ đang trống.' };
+            if (!saved.ok) {
+              Astro.response.status = saved.status;
+              formError = saved.error;
+            } else {
+              Astro.cookies.set(CART_COOKIE, '', cartCookieOptions(secure, 0));
+              const response = Astro.redirect(`${routes.checkoutSuccess}?ma=${saved.code}`, 303);
+              response.headers.set('Cache-Control', 'private, no-store');
+              return response;
+            }
           }
         } catch (error) {
           Astro.response.status = 503;
@@ -148,6 +181,27 @@ function strings(form: FormData, name: string): string[] {
 
 function remember(next: CartLine[]) {
   Astro.cookies.set(CART_COOKIE, next.length ? serializeCart(next) : '', cartCookieOptions(secure, next.length ? undefined : 0));
+}
+
+function merchandiseTotal(cartLines: CartLine[], catalog: CatalogProduct[]): number | null {
+  if (cartLines.length === 0) return null;
+  let total = 0;
+  for (const line of cartLines) {
+    const product = catalog.find((item) => item.slug === line.slug);
+    if (!product || !Number.isInteger(line.quantity) || line.quantity < 1) return null;
+    total += product.price * line.quantity;
+  }
+  return total;
+}
+
+async function visitorHash(): Promise<string> {
+  let address: string | null = null;
+  try {
+    address = Astro.clientAddress;
+  } catch {
+    address = null;
+  }
+  return hashIp(clientIp(Astro.request, address));
 }
 
 async function loadCart() {
@@ -272,6 +326,7 @@ async function loadCart() {
               {errors.note && <span class="error-text">{errors.note}</span>}
             </label>
             <PaymentField value={values.paymentMethod} error={errors.paymentMethod} />
+            <DiscountCodeField id="cart-discount" value={values.discountCode} error={errors.discountCode} quote={quote} />
             <div class="cart-sum">
               <span>Tạm tính</span>
               <strong data-cart-total>{formatVnd(total)}</strong>
@@ -320,10 +375,18 @@ async function loadCart() {
         const next = (Number.isInteger(Number(input.value)) ? Number(input.value) : 1) + Number(button.dataset.qtyStep);
         input.value = String(Math.min(max, Math.max(1, next)));
         recalc();
+        markQuoteStale();
       });
     });
+    const markQuoteStale = () => {
+      const quoteNote = form.querySelector('[data-discount-quote]');
+      if (quoteNote instanceof HTMLElement) quoteNote.textContent = 'Số lượng vừa đổi. Bấm Áp dụng để xem số giảm mới.';
+    };
     form.addEventListener('input', (event) => {
-      if (event.target instanceof HTMLInputElement && event.target.name === 'quantity') recalc();
+      if (event.target instanceof HTMLInputElement && event.target.name === 'quantity') {
+        recalc();
+        markQuoteStale();
+      }
     });
 
     // Chặn bấm "Gửi đơn" hai lần; không vô hiệu hóa nút vì giá trị intent cần được gửi đi.

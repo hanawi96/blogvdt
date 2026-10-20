@@ -63,6 +63,96 @@ export function orderProfit(order: { totalPrice: number; costGoods: number | nul
   return order.totalPrice - order.costGoods - order.costExtra;
 }
 
+export type GoodsCostLine = { name: string; quantity: number; unitCost: number; amount: number };
+export type ExtraCostLine = { name: string; kind: OrderCostKind; rate: number; amount: number };
+
+// costGoods = null khi còn sản phẩm chưa có công thức: không được bịa tổng giá vốn.
+// goods vẫn giữ các dòng đã tính được. extra là các khoản đang bật lúc đặt.
+// Phần trăm tính trên số khách phải trả.
+export type OrderCostSnapshot = {
+  goods: GoodsCostLine[];
+  missing: string[];
+  extra: ExtraCostLine[];
+  costGoods: number | null;
+  costExtra: number;
+};
+
+export function costSnapshotOf(
+  lines: ReadonlyArray<{ name: string; productId: number | null; quantity: number }>,
+  costByProduct: ReadonlyMap<number, number>,
+  costs: ReadonlyArray<{ name: string; kind: OrderCostKind; value: number; active: boolean }>,
+  payable: number,
+): OrderCostSnapshot {
+  const missing: string[] = [];
+  const goods: GoodsCostLine[] = [];
+  for (const line of lines) {
+    const unitCost = line.productId === null ? undefined : costByProduct.get(line.productId);
+    if (unitCost === undefined) missing.push(line.name);
+    else goods.push({ name: line.name, quantity: line.quantity, unitCost, amount: unitCost * line.quantity });
+  }
+  const known = lines.length > 0 && missing.length === 0;
+  const extra = costs
+    .filter((cost) => cost.active)
+    .map((cost) => ({
+      name: cost.name,
+      kind: cost.kind,
+      rate: cost.value,
+      amount: cost.kind === 'percent' ? Math.round((payable * cost.value) / 10_000) : cost.value,
+    }));
+  return {
+    goods,
+    missing,
+    extra,
+    costGoods: known ? goods.reduce((sum, line) => sum + line.amount, 0) : null,
+    costExtra: extra.reduce((sum, line) => sum + line.amount, 0),
+  };
+}
+
+export function encodeCostLines(snapshot: Pick<OrderCostSnapshot, 'goods' | 'missing' | 'extra'>): string {
+  return JSON.stringify({ goods: snapshot.goods, missing: snapshot.missing, extra: snapshot.extra });
+}
+
+function readMoney(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 99_999_999 ? value : null;
+}
+
+export function parseCostLines(raw: string | null): Pick<OrderCostSnapshot, 'goods' | 'missing' | 'extra'> | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  const record = parsed as { goods?: unknown; missing?: unknown; extra?: unknown };
+  const missing = Array.isArray(record.missing) && record.missing.every((name) => typeof name === 'string') ? record.missing : null;
+  if (!missing) return null;
+  if (!Array.isArray(record.goods)) return null;
+  const goods: GoodsCostLine[] = [];
+  for (const line of record.goods) {
+    if (!line || typeof line !== 'object') return null;
+    const item = line as { name?: unknown; quantity?: unknown; unitCost?: unknown; amount?: unknown };
+    const unitCost = readMoney(item.unitCost);
+    const amount = readMoney(item.amount);
+    if (typeof item.name !== 'string' || typeof item.quantity !== 'number' || !Number.isInteger(item.quantity) || item.quantity < 1 || unitCost === null || amount === null) {
+      return null;
+    }
+    goods.push({ name: item.name, quantity: item.quantity, unitCost, amount });
+  }
+  if (!Array.isArray(record.extra)) return null;
+  const extra: ExtraCostLine[] = [];
+  for (const line of record.extra) {
+    if (!line || typeof line !== 'object') return null;
+    const item = line as { name?: unknown; kind?: unknown; rate?: unknown; amount?: unknown };
+    const rate = readMoney(item.rate);
+    const amount = readMoney(item.amount);
+    if (typeof item.name !== 'string' || (item.kind !== 'fixed' && item.kind !== 'percent') || rate === null || amount === null) return null;
+    extra.push({ name: item.name, kind: item.kind, rate, amount });
+  }
+  return { goods, missing, extra };
+}
+
 export async function listOrderCosts(db: AppDb): Promise<OrderCost[]> {
   const rows = await db
     .select({ id: orderCosts.id, name: orderCosts.name, kind: orderCosts.kind, value: orderCosts.value, active: orderCosts.active })
@@ -74,15 +164,15 @@ export async function listOrderCosts(db: AppDb): Promise<OrderCost[]> {
 // Chụp chi phí tại thời điểm đặt đơn. Lỗi đọc chi phí không được làm mất đơn của khách: trả null, đơn vẫn lưu.
 export async function snapshotOrderCosts(
   db: AppDb,
-  lines: ReadonlyArray<{ productId: number | null; quantity: number }>,
-  orderTotal: number,
-): Promise<{ costGoods: number | null; costExtra: number | null }> {
+  lines: ReadonlyArray<{ name: string; productId: number | null; quantity: number }>,
+  payable: number,
+): Promise<OrderCostSnapshot | null> {
   try {
     const [costs, byProduct] = await Promise.all([listOrderCosts(db), loadProductCosts(db)]);
-    return { costGoods: goodsCostOf(lines, byProduct), costExtra: extraCostOf(costs.filter((cost) => cost.active), orderTotal) };
+    return costSnapshotOf(lines, byProduct, costs, payable);
   } catch (error) {
     console.error(JSON.stringify({ event: 'order_cost_snapshot_failed', name: error instanceof Error ? error.name : 'unknown' }));
-    return { costGoods: null, costExtra: null };
+    return null;
   }
 }
 
