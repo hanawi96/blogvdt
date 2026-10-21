@@ -1,0 +1,101 @@
+---
+import { formatPercentBp, type OrderCostKind } from '../../features/costs/order-costs';
+import { ORDER_SOURCES, PAY_STATES, type StaffFlagForm } from '../../features/orders/staff';
+import { formatVnd } from '../../lib/money';
+
+interface Props {
+  value: StaffFlagForm;
+  error?: string;
+  shippingCosts?: ReadonlyArray<{ name: string; kind: OrderCostKind; value: number }>;
+}
+
+const { value, error = '', shippingCosts = [] } = Astro.props;
+
+function shippingText(cost: { kind: OrderCostKind; value: number }): string {
+  return cost.kind === 'percent' ? `${formatPercentBp(cost.value)}% số phải trả` : formatVnd(cost.value);
+}
+---
+
+<div class="staff-meta" data-staff-meta>
+  <fieldset>
+    <legend class="od-label">Thanh toán</legend>
+    <div class="category-presets">
+      {PAY_STATES.map((item) => (
+        <label class="category-preset">
+          <input type="radio" name="payState" value={item.value} checked={value.payState === item.value} required />
+          <span>{item.label}</span>
+        </label>
+      ))}
+    </div>
+  </fieldset>
+  <fieldset class="mt-4">
+    <legend class="od-label">Nguồn khách</legend>
+    <div class="category-presets">
+      {ORDER_SOURCES.map((item) => (
+        <label class="category-preset">
+          <input type="radio" name="source" value={item.value} checked={value.source === item.value} required />
+          <span>{item.label}</span>
+        </label>
+      ))}
+    </div>
+  </fieldset>
+  <label class="staff-flag">
+    <span><input type="checkbox" name="priority" checked={value.priority} /> <strong>Đánh dấu đơn ưu tiên</strong></span>
+    <span class="od-note">Đơn ưu tiên hiện lên đầu danh sách.</span>
+  </label>
+  <label class="staff-flag">
+    <span><input type="checkbox" name="compensation" data-compensation checked={value.compensation} /> <strong>Gửi bù</strong></span>
+    <span class="od-note">Thiếu hàng gửi bù: không thu tiền, không ghi doanh thu. Giá vốn vẫn được giữ.</span>
+  </label>
+  <label class="staff-flag">
+    <span><input type="checkbox" name="shipLater" data-ship-later checked={value.shipLater} /> <strong>Gửi sau</strong></span>
+    <span class="od-note">Chưa tính là đã gửi. Chọn ngày dự kiến gửi.</span>
+  </label>
+  <label class="mt-3 block" data-ship-date hidden={!value.shipLater}>
+    <span class="od-label">Ngày dự kiến gửi</span>
+    <input class="field" type="date" name="shipOn" value={value.shipOn} required={value.shipLater} />
+  </label>
+  <div class="staff-ship mt-4">
+    <label>
+      <span class="od-label">Phí ship khách trả</span>
+      <input class="field" name="shippingFee" data-ship-fee inputmode="numeric" maxlength="8" autocomplete="off" value={value.shippingFee} disabled={value.freeShip || value.compensation} />
+    </label>
+    <label class="staff-flag staff-flag-inline">
+      <span><input type="checkbox" name="freeShip" data-free-ship checked={value.freeShip} /> <strong>Miễn phí ship</strong></span>
+    </label>
+  </div>
+  <p class="od-note mt-2">
+    Phí ship vốn {shippingCosts.length === 0 ? 'chưa khai trong chi phí đơn.' : shippingCosts.map((cost) => `${cost.name}: ${shippingText(cost)}`).join(', ')}.
+    Lấy từ trang Chi phí theo đơn, chụp lúc lưu đơn.
+  </p>
+  {error && <p class="error-text mt-3" role="alert">{error}</p>}
+</div>
+
+<script>
+  function bind(root: HTMLElement) {
+    const later = root.querySelector('[data-ship-later]');
+    const dateField = root.querySelector('[data-ship-date]');
+    const dateInput = dateField?.querySelector('input');
+    const free = root.querySelector('[data-free-ship]');
+    const compensation = root.querySelector('[data-compensation]');
+    const fee = root.querySelector('[data-ship-fee]');
+
+    function paint() {
+      const sendLater = later instanceof HTMLInputElement && later.checked;
+      if (dateField instanceof HTMLElement) dateField.hidden = !sendLater;
+      if (dateInput instanceof HTMLInputElement) dateInput.required = sendLater;
+      const locked = (free instanceof HTMLInputElement && free.checked) || (compensation instanceof HTMLInputElement && compensation.checked);
+      if (fee instanceof HTMLInputElement) {
+        fee.disabled = locked;
+        if (locked) fee.value = '';
+      }
+    }
+
+    root.addEventListener('change', paint);
+    paint();
+  }
+
+  for (const root of document.querySelectorAll('[data-staff-meta]')) {
+    if (root instanceof HTMLElement) bind(root);
+  }
+</script>

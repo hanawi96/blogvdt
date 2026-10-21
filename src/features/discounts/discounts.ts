@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNull, like, lt, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull, like, lt, lte, or, sql } from 'drizzle-orm';
 import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
 import { isUniqueViolation } from '../orders/order';
 import { parseMaterialPrice } from '../materials/costing';
@@ -385,6 +385,52 @@ async function allowDiscountCheck(db: AppDb, ipHash: string, now: number): Promi
     .set({ hits: current.hits + 1 })
     .where(and(eq(discountChecks.ipHash, ipHash), eq(discountChecks.windowStart, current.windowStart)));
   return true;
+}
+
+export type StaffDiscountChoice = {
+  code: string;
+  kind: DiscountKind;
+  value: number;
+  minSubtotal: number;
+};
+
+// Mã đang bật, còn hạn và còn lượt. Trang nhập đơn nhúng danh sách này, không gọi thêm khi chọn.
+export async function listStaffDiscountChoices(db: AppDb, now = Date.now()): Promise<StaffDiscountChoice[]> {
+  const rows = await db
+    .select({
+      code: discountCodes.code,
+      kind: discountCodes.kind,
+      value: discountCodes.value,
+      minSubtotal: discountCodes.minSubtotal,
+    })
+    .from(discountCodes)
+    .where(
+      and(
+        eq(discountCodes.active, 1),
+        or(isNull(discountCodes.startsAt), lte(discountCodes.startsAt, now)),
+        or(isNull(discountCodes.endsAt), gt(discountCodes.endsAt, now)),
+        or(isNull(discountCodes.usageLimit), lt(discountCodes.usedCount, discountCodes.usageLimit)),
+      ),
+    )
+    .orderBy(asc(discountCodes.code))
+    .limit(100);
+  return rows.flatMap((row) => (isDiscountKind(row.kind) ? [{ code: row.code, kind: row.kind, value: row.value, minSubtotal: row.minSubtotal }] : []));
+}
+
+// Nhân viên chọn mã trong danh sách, không bị khóa theo IP như khách thử mã trên trang công khai.
+export async function quoteStaffDiscount(
+  db: AppDb,
+  subtotal: number,
+  rawCode: string,
+  now = Date.now(),
+): Promise<{ ok: true; discount: DiscountQuote | null } | { ok: false; error: string }> {
+  if (!rawCode.trim()) return { ok: true, discount: null };
+  const code = normalizeDiscountCode(rawCode);
+  if (!code) return { ok: false, error: 'Mã giảm giá không hợp lệ.' };
+  const rows = await db.select(codeColumns).from(discountCodes).where(eq(discountCodes.code, code)).limit(1);
+  const quoted = quoteDiscount(rows[0] ? toCode(rows[0]) : null, subtotal, now);
+  if (!quoted.ok) return quoted;
+  return { ok: true, discount: quoted.quote };
 }
 
 export async function priceDiscount(

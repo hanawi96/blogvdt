@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { costSnapshotOf, encodeCostLines, extraCostOf, formatPercentBp, goodsCostOf, orderProfit, parseCostLines, parseOrderCostValue, parsePercentBp } from './order-costs';
+import { costSnapshotOf, encodeCostLines, extraCostOf, formatPercentBp, goodsCostOf, isShippingOrderCost, orderProfit, orderShippingCost, parseCostLines, parseOrderCostValue, parsePercentBp } from './order-costs';
 
 describe('phần trăm', () => {
   it('đọc 1,5% thành 150 phần vạn', () => {
@@ -62,6 +62,7 @@ describe('giá vốn cả đơn', () => {
 describe('lợi nhuận đơn', () => {
   it('doanh thu trừ giá vốn và chi phí đơn', () => {
     expect(orderProfit({ totalPrice: 300000, costGoods: 130000, costExtra: 22470 })).toBe(147530);
+    expect(orderProfit({ totalPrice: 61000, costGoods: 20000, costExtra: 0, shippingCost: 16000 })).toBe(25000);
   });
 
   it('đơn cũ chưa có số liệu thì không tính', () => {
@@ -92,6 +93,27 @@ describe('ảnh chụp chi phí lúc đặt', () => {
     expect(shot.costExtra).toBe(23000);
     expect(orderProfit({ totalPrice: 180000, costGoods: shot.costGoods, costExtra: shot.costExtra })).toBe(77000);
     expect(parseCostLines(encodeCostLines(shot))).toEqual({ goods: shot.goods, missing: [], extra: shot.extra });
+  });
+
+  it('phí vận chuyển tách khỏi chi phí đơn để không trừ hai lần', () => {
+    const shot = costSnapshotOf(
+      [{ name: 'Vòng trơn', productId: 1, quantity: 1 }],
+      new Map([[1, 40000]]),
+      [
+        { name: 'Hộp', kind: 'fixed', value: 5000, active: true },
+        { name: 'Phí vận chuyển', kind: 'fixed', value: 19000, active: true },
+        { name: 'Phí ship', kind: 'fixed', value: 1000, active: false },
+      ],
+      100000,
+    );
+    expect(isShippingOrderCost('Phí vận chuyển')).toBe(true);
+    expect(isShippingOrderCost('Túi đỏ')).toBe(false);
+    expect(shot.extra.map((line) => line.name)).toEqual(['Hộp']);
+    expect(shot.costExtra).toBe(5000);
+    expect(shot.shippingCost).toBe(19000);
+    expect(orderProfit({ totalPrice: 100000, costGoods: shot.costGoods, costExtra: shot.costExtra, shippingCost: shot.shippingCost })).toBe(36000);
+    expect(orderShippingCost(0, [{ name: 'Phí vận chuyển', amount: 19000 }])).toBe(19000);
+    expect(orderShippingCost(19000, [{ name: 'Phí vận chuyển', amount: 19000 }])).toBe(19000);
   });
 
   it('thiếu công thức thì không có lợi nhuận, vẫn giữ chi phí đơn', () => {

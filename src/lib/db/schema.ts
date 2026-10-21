@@ -303,6 +303,17 @@ export const orders = sqliteTable(
     discountRestored: integer('discount_restored').notNull().default(0),
     // 'cod' (thanh toán khi nhận hàng) | 'bank' (chuyển khoản). Xem features/orders/payment.ts.
     paymentMethod: text('payment_method').notNull().default('cod'),
+    // Nguồn khách khi nhân viên nhập đơn. Đơn website là web. Đơn cũ để trống.
+    source: text('source'),
+    // cod | paid (đã chuyển khoản) | deposit (cọc trước). Trống thì hiển thị theo payment_method.
+    payState: text('pay_state'),
+    priority: integer('priority').notNull().default(0),
+    // Gửi bù: không thu tiền, không tính doanh thu. Giá vốn vẫn được giữ để thấy khoản lỗ.
+    compensation: integer('compensation').notNull().default(0),
+    // Ngày dự kiến gửi (mốc 00:00 giờ Việt Nam). Có giá trị và đơn chưa gửi thì là «Gửi sau».
+    shipOn: integer('ship_on'),
+    shippingFee: integer('shipping_fee').notNull().default(0),
+    shippingCost: integer('shipping_cost').notNull().default(0),
     // Ảnh chụp chi phí lúc đặt đơn, đổi giá nguyên liệu sau này không làm lệch đơn cũ.
     // costGoods: tổng giá vốn các vòng (NULL nếu có sản phẩm chưa có công thức); costExtra: hộp, ship, thuế... của đơn.
     // NULL = đơn cũ chưa có số liệu, không tính lợi nhuận.
@@ -327,6 +338,13 @@ export const orders = sqliteTable(
       sql`${table.status} in ('new', 'confirmed', 'preparing', 'shipped', 'completed', 'cancelled')`,
     ),
     check('orders_payment_method_check', sql`${table.paymentMethod} in ('cod', 'bank')`),
+    check('orders_source_check', sql`${table.source} is null or ${table.source} in ('zalo', 'facebook', 'tiktok', 'web')`),
+    check('orders_pay_state_check', sql`${table.payState} is null or ${table.payState} in ('cod', 'paid', 'deposit')`),
+    check('orders_priority_check', sql`${table.priority} in (0, 1)`),
+    check('orders_compensation_check', sql`${table.compensation} in (0, 1)`),
+    check('orders_shipping_fee_check', sql`${table.shippingFee} >= 0`),
+    check('orders_shipping_cost_check', sql`${table.shippingCost} >= 0`),
+    index('orders_priority_idx').on(table.priority, table.createdAt),
     check('orders_quantity_check', sql`${table.quantity} > 0`),
     check('orders_unit_price_check', sql`${table.unitPrice} >= 0`),
     check('orders_discount_amount_check', sql`${table.discountAmount} >= 0`),

@@ -1,0 +1,18 @@
+---
+interface Props {
+  class?: string;
+}
+
+const { class: className } = Astro.props;
+---
+
+<svg class:list={['leaf-sprig', className]} viewBox="0 0 64 64" fill="none" aria-hidden="true" focusable="false">
+  <path d="M10 56C22 44 34 30 52 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
+  <g fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round">
+    <path d="M19 47Q9 46 7 37Q18 37 19 47Z"></path>
+    <path d="M28 37Q36 43 41 36Q34 30 28 37Z"></path>
+    <path d="M37 26Q27 26 27 16Q37 17 37 26Z"></path>
+    <path d="M45 16Q52 21 57 14Q50 9 45 16Z"></path>
+    <path d="M52 8Q53 3 59 2Q58 8 52 8Z"></path>
+  </g>
+</svg>

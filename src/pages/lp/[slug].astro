@@ -1,4 +1,5 @@
 ---
+import AddressField from '../../components/public/AddressField.astro';
 import DataError from '../../components/public/DataError.astro';
 import DiscountCodeField from '../../components/public/DiscountCodeField.astro';
 import NotFound from '../../components/public/NotFound.astro';
@@ -224,10 +225,7 @@ const pageTracking = preview || !landing ? EMPTY_TRACKING : mergeTracking(landin
                   <span class="mb-1 block font-semibold">Số điện thoại</span>
                   <input id="lp-phone" class="field" name="phone" type="tel" required maxlength="20" autocomplete="tel" />
                 </label>
-                <label class="mt-4 block" for="lp-address">
-                  <span class="mb-1 block font-semibold">Địa chỉ nhận hàng</span>
-                  <textarea id="lp-address" class="field min-h-24" name="address" required maxlength="240" autocomplete="street-address"></textarea>
-                </label>
+                <AddressField idPrefix="lp" />
                 <label class="mt-4 block" for="lp-note">
                   <span class="mb-1 block font-semibold">Ghi chú</span>
                   <textarea id="lp-note" class="field min-h-20" name="note" maxlength="500"></textarea>

@@ -1,6 +1,7 @@
 ---
 import type { PublicSite } from '../../features/settings/settings';
 import { routes } from '../../lib/routes';
+import LeafSprig from './LeafSprig.astro';
 
 interface Props {
   site: PublicSite;
@@ -10,14 +11,16 @@ const { site } = Astro.props;
 const path = Astro.url.pathname;
 const items = [
   [routes.home, 'Trang chủ'],
-  [routes.knowledgeList, 'Kiến thức'],
+  [routes.knowledgeList, 'Bài viết'],
   [routes.catalog, 'Mẫu vòng'],
+  [routes.homeAbout, 'Giới thiệu'],
+  [routes.contact, 'Liên hệ'],
 ] as const;
 
 function current(href: string): boolean {
+  if (href.includes('#')) return false;
   if (href === routes.home) return path === routes.home;
   if (href === routes.catalog) return path === href || path.startsWith('/san-pham/');
-  if (href.startsWith('/#')) return false;
   return path === href || path.startsWith(`${href}/`);
 }
 ---
@@ -29,7 +32,7 @@ function current(href: string): boolean {
         site.logoUrl ? (
           <img src={site.logoUrl} alt="" class="site-brand-mark" width="40" height="40" />
         ) : (
-          <span class="site-brand-fallback" aria-hidden="true">{site.siteName.slice(0, 1)}</span>
+          <span class="site-brand-fallback" aria-hidden="true"><LeafSprig /></span>
         )
       }
       <span class="site-brand-text">
@@ -46,17 +49,30 @@ function current(href: string): boolean {
           </a>
         ))
       }
-      <a
-        href={routes.cart}
-        class="site-nav-link site-nav-cart-mobile"
-        data-cart-link-mobile
-        aria-label="Giỏ hàng"
-        aria-current={path === routes.cart ? 'page' : undefined}
-      >
-        Giỏ hàng
-        <span data-cart-count-mobile hidden></span>
-      </a>
     </nav>
+
+    <div class="site-search" id="site-search" data-site-search hidden>
+      <form class="site-search-form" action={routes.search} method="get" role="search" data-site-search-form>
+        <label class="sr-only" for="site-search-q">Tìm bài viết hoặc mẫu vòng</label>
+        <input
+          id="site-search-q"
+          class="site-search-input"
+          type="search"
+          name="q"
+          maxlength="80"
+          placeholder="Tìm bài viết, mẫu vòng…"
+          autocomplete="off"
+          enterkeyhint="search"
+          data-site-search-input
+        />
+        <button class="site-search-submit" type="submit">Tìm</button>
+      </form>
+    <div class="site-search-panel" data-site-search-panel hidden>
+      <p class="site-search-status" data-site-search-status hidden></p>
+      <div data-site-search-groups></div>
+      <a class="site-search-all" data-site-search-all hidden href={routes.search}>Xem tất cả kết quả</a>
+    </div>
+    </div>
 
     <div class="site-header-tools">
       <button
@@ -76,6 +92,10 @@ function current(href: string): boolean {
         aria-label="Giỏ hàng"
         aria-current={path === routes.cart ? 'page' : undefined}
       >
+        <svg class="site-cart-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path d="M6.5 8h11l-.8 11H7.3L6.5 8z"></path>
+          <path d="M9 8V6.8A3 3 0 0 1 12 4a3 3 0 0 1 3 2.8V8"></path>
+        </svg>
         <span class="site-cart-label">Giỏ</span>
         <span class="site-cart-badge" data-cart-count hidden></span>
       </a>
@@ -89,28 +109,6 @@ function current(href: string): boolean {
       >
         <span class="site-nav-toggle-bars" aria-hidden="true"></span>
       </button>
-    </div>
-  </div>
-  <div class="site-search" id="site-search" data-site-search hidden>
-    <form class="site-search-form" action={routes.search} method="get" role="search" data-site-search-form>
-      <label class="sr-only" for="site-search-q">Tìm bài viết hoặc mẫu vòng</label>
-      <input
-        id="site-search-q"
-        class="site-search-input"
-        type="search"
-        name="q"
-        maxlength="80"
-        placeholder="Tìm bài viết hoặc mẫu vòng…"
-        autocomplete="off"
-        enterkeyhint="search"
-        data-site-search-input
-      />
-      <button class="btn btn-primary btn-compact" type="submit">Tìm</button>
-    </form>
-    <div class="site-search-panel" data-site-search-panel hidden>
-      <p class="site-search-status" data-site-search-status hidden></p>
-      <div data-site-search-groups></div>
-      <a class="site-search-all" data-site-search-all hidden href={routes.search}>Xem tất cả kết quả</a>
     </div>
   </div>
   <div class="site-header-scrim" data-site-nav-scrim hidden></div>
@@ -133,12 +131,12 @@ function current(href: string): boolean {
   function paint(lines: CartLine[]) {
     const count = cartCount(lines);
     const label = count > 0 ? `Giỏ hàng, ${count} chiếc` : 'Giỏ hàng';
-    document.querySelectorAll('[data-cart-count], [data-cart-count-mobile]').forEach((node) => {
+    document.querySelectorAll('[data-cart-count]').forEach((node) => {
       if (!(node instanceof HTMLElement)) return;
       node.hidden = count < 1;
       node.textContent = count > 0 ? String(count) : '';
     });
-    document.querySelectorAll('[data-cart-link], [data-cart-link-mobile]').forEach((node) => {
+    document.querySelectorAll('[data-cart-link]').forEach((node) => {
       if (node instanceof HTMLAnchorElement) node.setAttribute('aria-label', label);
     });
   }
@@ -186,19 +184,22 @@ function current(href: string): boolean {
     document.body.classList.toggle('site-nav-lock', open);
   }
 
+  const wideQuery = window.matchMedia('(min-width: 48rem)');
+
   function setSearchOpen(open: boolean) {
     if (!(searchRoot instanceof HTMLElement) || !(searchToggle instanceof HTMLButtonElement)) return;
-    searchRoot.hidden = !open;
-    header?.classList.toggle('is-search-open', open);
-    searchToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-    searchToggle.setAttribute('aria-label', open ? 'Đóng tìm kiếm' : 'Tìm kiếm');
-    if (open) {
+    const wide = wideQuery.matches;
+    searchRoot.hidden = wide ? false : !open;
+    header?.classList.toggle('is-search-open', open && !wide);
+    searchToggle.setAttribute('aria-expanded', !wide && open ? 'true' : 'false');
+    searchToggle.setAttribute('aria-label', !wide && open ? 'Đóng tìm kiếm' : 'Tìm kiếm');
+    if (open && !wide) {
       setNavOpen(false);
       if (searchInput instanceof HTMLInputElement) {
         searchInput.focus();
         searchInput.select();
       }
-    } else {
+    } else if (!open) {
       clearSuggest();
     }
   }
@@ -336,9 +337,11 @@ function current(href: string): boolean {
       setSearchOpen(false);
     }
   });
-  window.matchMedia('(min-width: 48rem)').addEventListener('change', (event) => {
+  wideQuery.addEventListener('change', (event) => {
     if (event.matches) setNavOpen(false);
+    setSearchOpen(false);
   });
+  if (wideQuery.matches) setSearchOpen(false);
 
   paint(readCookie());
   document.querySelectorAll('form[data-cart-form]').forEach((node) => {

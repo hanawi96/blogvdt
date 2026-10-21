@@ -3,7 +3,8 @@ import type { AppDb } from '../../lib/db/client';
 import { routes } from '../../lib/routes';
 import { orderItems, orders } from '../../lib/db/schema';
 import { activityWrite, commitWrites, type ActivityActor } from '../activity/log';
-import { claimDiscount, releaseDiscount, restoreDiscountQuery } from '../discounts/discounts';
+import { claimDiscount, quoteStaffDiscount, releaseDiscount, restoreDiscountQuery } from '../discounts/discounts';
+import { normalizeDiscountCode } from '../discounts/quote';
 import { encodeCostLines, snapshotOrderCosts } from '../costs/order-costs';
 import {
   formatOrderCode,
@@ -17,9 +18,12 @@ import {
   type CartOrderDraft,
   type OrderDraft,
 } from './order';
+import { applyStaffCollection, canEditOrderProducts, capDiscount, orderLineSources, settleStaffTotal, staffOrderColumns, type StaffFlags, type StaffOrderDraft } from './staff';
 import { canTransitionOrder, isOrderStatus, orderCounts, orderTransitionError, type OrderStatus } from './status';
 
 const PAGE_SIZE = 20;
+
+type OrderListLine = { productName: string; quantity: number; optionLabel: string | null; unitPrice: number };
 
 export type OrderListStatus = OrderStatus | '' | 'processing';
 
@@ -78,7 +82,18 @@ export async function listOrders(
         code: orders.code,
         customerName: orders.customerName,
         productName: orders.productName,
+        unitPrice: orders.unitPrice,
+        quantity: orders.quantity,
+        optionLabel: orders.optionLabel,
         totalPrice: orders.totalPrice,
+        paymentMethod: orders.paymentMethod,
+        payState: orders.payState,
+        source: orders.source,
+        priority: orders.priority,
+        compensation: orders.compensation,
+        shipOn: orders.shipOn,
+        shippingFee: orders.shippingFee,
+        shippingCost: orders.shippingCost,
         costGoods: orders.costGoods,
         costExtra: orders.costExtra,
         status: orders.status,
@@ -86,14 +101,37 @@ export async function listOrders(
       })
       .from(orders)
       .where(where)
-      .orderBy(desc(orders.createdAt), desc(orders.id))
+      .orderBy(desc(orders.priority), desc(orders.createdAt), desc(orders.id))
       .limit(PAGE_SIZE)
       .offset((page - 1) * PAGE_SIZE),
   ]);
   const total = totalRows[0]?.value ?? 0;
   const counts = orderCounts(countRows);
+  const orderIds = rows.map((row) => row.id);
+  const itemRows = orderIds.length === 0
+    ? []
+    : await db
+        .select({
+          orderId: orderItems.orderId,
+          productName: orderItems.productName,
+          unitPrice: orderItems.unitPrice,
+          quantity: orderItems.quantity,
+          optionLabel: orderItems.optionLabel,
+        })
+        .from(orderItems)
+        .where(inArray(orderItems.orderId, orderIds))
+        .orderBy(asc(orderItems.sortOrder), asc(orderItems.id));
+  const linesByOrder = new Map<number, OrderListLine[]>();
+  for (const item of itemRows) {
+    const lines = linesByOrder.get(item.orderId) ?? [];
+    lines.push({ productName: item.productName, quantity: item.quantity, optionLabel: item.optionLabel, unitPrice: item.unitPrice });
+    linesByOrder.set(item.orderId, lines);
+  }
   return {
-    rows,
+    rows: rows.map((row) => ({
+      ...row,
+      lines: linesByOrder.get(row.id) ?? [{ productName: row.productName, quantity: row.quantity, optionLabel: row.optionLabel, unitPrice: row.unitPrice }],
+    })),
     total,
     page,
     pageSize: PAGE_SIZE,
@@ -124,6 +162,13 @@ export async function getOrder(db: AppDb, id: number) {
       discountAmount: orders.discountAmount,
       discountRestored: orders.discountRestored,
       paymentMethod: orders.paymentMethod,
+      payState: orders.payState,
+      source: orders.source,
+      priority: orders.priority,
+      compensation: orders.compensation,
+      shipOn: orders.shipOn,
+      shippingFee: orders.shippingFee,
+      shippingCost: orders.shippingCost,
       costGoods: orders.costGoods,
       costExtra: orders.costExtra,
       costLines: orders.costLines,
@@ -300,6 +345,8 @@ export async function placeOrder(
           costExtra: snapshot ? snapshot.costExtra : null,
           costLines: snapshot ? encodeCostLines(snapshot) : null,
           paymentMethod: draft.paymentMethod,
+          source: 'web',
+          shippingCost: snapshot?.shippingCost ?? 0,
           status: 'new',
           ipHash,
           landingSlug: draft.landingSlug,
@@ -387,6 +434,8 @@ export async function placeCartOrder(
             costExtra: snapshot ? snapshot.costExtra : null,
             costLines: snapshot ? encodeCostLines(snapshot) : null,
             paymentMethod: draft.paymentMethod,
+            source: 'web',
+            shippingCost: snapshot?.shippingCost ?? 0,
             status: 'new',
             ipHash,
             createdAt: now,
@@ -442,6 +491,268 @@ async function takeDiscountSlot(
 
 async function releaseDiscountSlot(db: AppDb, id: number | null, now: number): Promise<void> {
   if (id !== null) await releaseDiscount(db, id, now);
+}
+
+// Đơn nhân viên tạo (Zalo, Facebook...): không khóa theo IP và không chặn đơn giống nhau, vì xưởng nhập nhiều đơn liên tiếp.
+export async function createStaffOrder(
+  db: AppDb,
+  draft: StaffOrderDraft,
+  staffUserId: number,
+  now = Date.now(),
+): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  if (draft.lines.length < 1) return { ok: false, error: 'Thêm ít nhất một sản phẩm.' };
+  const columns = staffOrderColumns(draft.lines);
+  const flags = draft.flags;
+  const settled = settleStaffTotal(
+    columns.subtotal,
+    0,
+    flags.compensation ? '' : (draft.orderTotal ?? ''),
+    flags.compensation ? '' : (draft.discountExtra ?? ''),
+  );
+  if (!settled.ok) return settled;
+  const collected = applyStaffCollection(settled.totalPrice, settled.discountAmount, null, flags);
+  if (!collected.ok) return collected;
+  const slot = await takeDiscountSlot(db, collected.discountCode, now);
+  if (!slot.ok) return slot;
+  const discountCode = collected.discountCode;
+  const discountAmount = collected.discountAmount;
+  const totalPrice = collected.totalPrice;
+  const snapshot = await snapshotOrderCosts(
+    db,
+    draft.lines.map((line) => ({ name: line.productName, productId: line.productId, quantity: line.quantity })),
+    totalPrice,
+  );
+  const day = orderDayKey(now);
+  const latest = await db
+    .select({ code: orders.code })
+    .from(orders)
+    .where(like(orders.code, `VD${day}-%`))
+    .orderBy(desc(orders.code))
+    .limit(1);
+  let sequence = sequenceFromCode(latest[0]?.code ?? '') + 1;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (sequence > 9999) {
+      await releaseDiscountSlot(db, slot.id, now);
+      return { ok: false, error: 'Hết mã đơn trong ngày. Hãy thử lại vào ngày mai.' };
+    }
+    const code = formatOrderCode(day, sequence);
+    try {
+      const inserted = await db
+        .insert(orders)
+        .values({
+          code,
+          customerName: draft.customerName,
+          phone: draft.phone,
+          address: draft.address,
+          note: draft.note || null,
+          productId: columns.productId,
+          productName: columns.productName,
+          unitPrice: columns.unitPrice,
+          quantity: columns.quantity,
+          optionLabel: columns.optionLabel,
+          subtotal: columns.subtotal,
+          discountCode,
+          discountAmount,
+          discountRestored: 0,
+          totalPrice,
+          costGoods: snapshot?.costGoods ?? null,
+          costExtra: snapshot ? snapshot.costExtra : null,
+          costLines: snapshot ? encodeCostLines(snapshot) : null,
+          paymentMethod: flags.paymentMethod,
+          source: flags.source,
+          payState: flags.payState,
+          priority: flags.priority ? 1 : 0,
+          compensation: flags.compensation ? 1 : 0,
+          shipOn: flags.shipOn,
+          shippingFee: collected.shippingFee,
+          shippingCost: snapshot?.shippingCost ?? 0,
+          status: 'new',
+          ipHash: `staff:${staffUserId}`,
+          landingSlug: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: orders.id });
+      const orderId = inserted[0]?.id;
+      if (!orderId) {
+        await releaseDiscountSlot(db, slot.id, now);
+        return { ok: false, error: 'Chưa tạo được đơn. Thử lại.' };
+      }
+      if (draft.lines.length > 1) {
+        try {
+          await db.insert(orderItems).values(itemValues(orderId, draft.lines));
+        } catch (error) {
+          await db.delete(orders).where(eq(orders.id, orderId));
+          throw error;
+        }
+      }
+      return { ok: true, id: orderId };
+    } catch (error) {
+      if (!isUniqueViolation(error)) {
+        await releaseDiscountSlot(db, slot.id, now);
+        throw error;
+      }
+      sequence += 1;
+    }
+  }
+  await releaseDiscountSlot(db, slot.id, now);
+  return { ok: false, error: 'Chưa tạo được mã đơn. Thử lại.' };
+}
+
+export async function updateStaffOrderLines(
+  db: AppDb,
+  id: number,
+  lines: StaffOrderDraft['lines'],
+  rawDiscountCode: string,
+  rawTotal: string,
+  rawExtra = '',
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const current = await getOrder(db, id);
+  if (!current) return { ok: false, error: 'Không tìm thấy đơn hàng.' };
+  if (!canEditOrderProducts(current.status)) return { ok: false, error: 'Đơn đã kết thúc, không sửa sản phẩm.' };
+  if (lines.length < 1) return { ok: false, error: 'Thêm ít nhất một sản phẩm.' };
+  const columns = staffOrderColumns(lines);
+  const compensation = current.compensation === 1;
+  const discount = await resolveStaffDiscount(db, current, columns.subtotal, compensation ? '' : rawDiscountCode, now);
+  if (!discount.ok) return discount;
+  const settled = settleStaffTotal(columns.subtotal, discount.amount, compensation ? '' : rawTotal, compensation ? '' : rawExtra);
+  if (!settled.ok) return settled;
+  const baseCode = discount.amount > 0 ? discount.code : null;
+  const collected = applyStaffCollection(settled.totalPrice, settled.discountAmount, baseCode, { compensation, shippingFee: current.shippingFee });
+  if (!collected.ok) return collected;
+  const holdsUse = Boolean(current.discountCode && current.discountAmount > 0 && current.discountRestored === 0);
+  const code = collected.discountCode;
+  const amount = collected.discountAmount;
+  const claim = code ? discount.claim : null;
+  const restore = code ? discount.restore : holdsUse;
+  const totalPrice = collected.totalPrice;
+  const snapshot = await snapshotOrderCosts(
+    db,
+    lines.map((line) => ({ name: line.productName, productId: line.productId, quantity: line.quantity })),
+    totalPrice,
+  );
+  if (!snapshot) return { ok: false, error: 'Chưa tính lại được chi phí. Thử lại.' };
+  const slot = await takeDiscountSlot(db, claim, now);
+  if (!slot.ok) return slot;
+  try {
+    await commitWrites(db, [
+      db
+        .update(orders)
+        .set({
+          productId: columns.productId,
+          productName: columns.productName,
+          unitPrice: columns.unitPrice,
+          quantity: columns.quantity,
+          optionLabel: columns.optionLabel,
+          subtotal: columns.subtotal,
+          discountCode: code,
+          discountAmount: amount,
+          discountRestored: restore && !claim ? 1 : claim ? 0 : current.discountRestored,
+          totalPrice,
+          costGoods: snapshot.costGoods,
+          costExtra: snapshot.costExtra,
+          costLines: encodeCostLines(snapshot),
+          shippingCost: snapshot.shippingCost,
+          updatedAt: now,
+        })
+        .where(eq(orders.id, id)),
+      db.delete(orderItems).where(eq(orderItems.orderId, id)),
+      ...(lines.length > 1 ? [db.insert(orderItems).values(itemValues(id, lines))] : []),
+      ...(restore && current.discountCode ? [restoreDiscountQuery(db, current.discountCode, now)] : []),
+    ]);
+  } catch (error) {
+    await releaseDiscountSlot(db, slot.id, now);
+    throw error;
+  }
+  return { ok: true };
+}
+
+export async function updateStaffOrderMeta(
+  db: AppDb,
+  id: number,
+  flags: StaffFlags,
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const current = await getOrder(db, id);
+  if (!current) return { ok: false, error: 'Không tìm thấy đơn hàng.' };
+  if (!canEditOrderProducts(current.status)) return { ok: false, error: 'Đơn đã kết thúc, không sửa được.' };
+  const subtotal = current.subtotal ?? current.totalPrice + current.discountAmount;
+  const keptDiscount = current.compensation === 1 ? 0 : current.discountAmount;
+  const goodsPayable = Math.max(0, subtotal - keptDiscount);
+  const collected = applyStaffCollection(goodsPayable, keptDiscount, current.compensation === 1 ? null : current.discountCode, flags);
+  if (!collected.ok) return collected;
+  const holdsUse = Boolean(current.discountCode && current.discountAmount > 0 && current.discountRestored === 0);
+  const restore = flags.compensation && holdsUse;
+  const moneyChanged = collected.totalPrice !== current.totalPrice;
+  const snapshot = moneyChanged
+    ? await snapshotOrderCosts(
+        db,
+        orderLineSources(current).map((line) => ({ name: line.productName, productId: line.productId, quantity: line.quantity })),
+        collected.totalPrice,
+      )
+    : null;
+  if (moneyChanged && !snapshot) return { ok: false, error: 'Chưa tính lại được chi phí. Thử lại.' };
+  await commitWrites(db, [
+    db
+      .update(orders)
+      .set({
+        paymentMethod: flags.paymentMethod,
+        source: flags.source,
+        payState: flags.payState,
+        priority: flags.priority ? 1 : 0,
+        compensation: flags.compensation ? 1 : 0,
+        shipOn: flags.shipOn,
+        shippingFee: collected.shippingFee,
+        shippingCost: snapshot ? snapshot.shippingCost : current.shippingCost,
+        discountCode: collected.discountCode,
+        discountAmount: collected.discountAmount,
+        discountRestored: restore ? 1 : current.discountRestored,
+        totalPrice: collected.totalPrice,
+        ...(snapshot ? { costGoods: snapshot.costGoods, costExtra: snapshot.costExtra, costLines: encodeCostLines(snapshot) } : {}),
+        updatedAt: now,
+      })
+      .where(eq(orders.id, id)),
+    ...(restore && current.discountCode ? [restoreDiscountQuery(db, current.discountCode, now)] : []),
+  ]);
+  return { ok: true };
+}
+
+// Giữ mã cũ thì tính lại số giảm nếu mã còn dùng được, không thì giữ số đã lưu và không vượt tạm tính.
+// Đổi mã thì trả lượt mã cũ và lấy lượt mã mới. Bỏ mã thì trả lượt.
+async function resolveStaffDiscount(
+  db: AppDb,
+  current: { discountCode: string | null; discountAmount: number; discountRestored: number },
+  subtotal: number,
+  rawCode: string,
+  now: number,
+): Promise<{ ok: true; code: string | null; amount: number; claim: string | null; restore: boolean } | { ok: false; error: string }> {
+  const holdsUse = Boolean(current.discountCode && current.discountAmount > 0 && current.discountRestored === 0);
+  const typed = rawCode.trim();
+  if (!typed) return { ok: true, code: null, amount: 0, claim: null, restore: holdsUse };
+  const code = normalizeDiscountCode(typed);
+  if (!code) return { ok: false, error: 'Mã giảm giá không hợp lệ.' };
+  if (code === current.discountCode) {
+    const quoted = await quoteStaffDiscount(db, subtotal, code, now);
+    const amount = quoted.ok && quoted.discount ? quoted.discount.discountAmount : capDiscount(subtotal, current.discountAmount).discountAmount;
+    return { ok: true, code, amount, claim: null, restore: false };
+  }
+  const quoted = await quoteStaffDiscount(db, subtotal, code, now);
+  if (!quoted.ok || !quoted.discount) return { ok: false, error: quoted.ok ? 'Mã không dùng được.' : quoted.error };
+  return { ok: true, code: quoted.discount.code, amount: quoted.discount.discountAmount, claim: quoted.discount.code, restore: holdsUse };
+}
+
+function itemValues(orderId: number, lines: StaffOrderDraft['lines']) {
+  return lines.map((line, index) => ({
+    orderId,
+    productId: line.productId,
+    productName: line.productName,
+    unitPrice: line.unitPrice,
+    quantity: line.quantity,
+    optionLabel: line.optionLabel,
+    lineTotal: line.lineTotal,
+    sortOrder: index,
+  }));
 }
 
 export function orderSearchTerm(query: string): { text: string; phone: string } {

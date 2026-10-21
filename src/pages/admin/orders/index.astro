@@ -5,6 +5,7 @@ import { mutationError } from '../../../features/auth/session';
 import { orderProfit } from '../../../features/costs/order-costs';
 import { orderCreatedRange } from '../../../features/orders/order';
 import { deleteOrder, listOrders, orderAdminQuery, orderListStatus } from '../../../features/orders/orders';
+import { collectionLabel, formatShipLabel, sourceLabel } from '../../../features/orders/staff';
 import { isOrderStatus, ORDER_STATUS_LABELS, ORDER_STATUSES } from '../../../features/orders/status';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
@@ -73,6 +74,7 @@ function pageHref(nextPage: number): string {
 ---
 
 <AdminLayout title="Quản lý đơn hàng">
+  <a slot="action" class="btn btn-primary" href={routes.adminOrderNew}>Thêm đơn</a>
   <p slot="lead">{result ? `${result.libraryTotal} đơn hàng` : 'Danh sách đơn hàng'}</p>
   {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
   {notice === 'deleted' && <p class="mb-4 text-primary-strong" role="status">Đã xóa đơn hàng.</p>}
@@ -139,10 +141,45 @@ function pageHref(nextPage: number): string {
               <tbody>
                 {result.rows.map((order) => (
                   <tr>
-                    <td><a class="post-title" href={routes.adminOrder(order.id)}>{order.code}</a></td>
-                    <td data-label="Khách hàng">{order.customerName}</td>
-                    <td data-label="Sản phẩm">{order.productName}</td>
-                    <td data-label="Tổng tiền">{formatVnd(order.totalPrice)}</td>
+                    <td>
+                      <a class="post-title" href={routes.adminOrder(order.id)}>{order.code}</a>
+                      {order.priority === 1 && <span class="od-tag">Ưu tiên</span>}
+                    </td>
+                    <td data-label="Khách hàng">
+                      {order.customerName}
+                      {order.source && <span class="od-note"> · {sourceLabel(order.source)}</span>}
+                    </td>
+                    <td data-label="Sản phẩm">
+                      <ul class="order-products">
+                        {order.lines.map((line) => (
+                          <li class="order-product">
+                            <div class="order-product-head">
+                              <span class="order-product-name">{line.productName}</span>
+                              <span class="order-product-qty">×{line.quantity}</span>
+                            </div>
+                            <div class="order-product-meta">
+                              {line.optionLabel && (
+                                <span class="order-product-chip">
+                                  <span class="order-product-dot" aria-hidden="true"></span>
+                                  {line.optionLabel}
+                                </span>
+                              )}
+                              <span class="order-product-chip">
+                                <span class="order-product-dot" data-tone="price" aria-hidden="true"></span>
+                                {formatVnd(line.unitPrice)}
+                              </span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                    <td data-label="Tổng tiền">
+                      <div class="order-sum">
+                        <span>{formatVnd(order.totalPrice)}</span>
+                        <span class="order-pay">{collectionLabel(order.payState, order.paymentMethod)}</span>
+                        {order.compensation === 1 && <span class="order-pay">Gửi bù</span>}
+                      </div>
+                    </td>
                     <td data-label="Lợi nhuận">
                       {(() => {
                         const profit = orderProfit(order);
@@ -154,6 +191,9 @@ function pageHref(nextPage: number): string {
                       <span class="order-badge" data-status={order.status}>
                         {isOrderStatus(order.status) ? ORDER_STATUS_LABELS[order.status] : order.status}
                       </span>
+                      {order.shipOn !== null && order.status !== 'shipped' && order.status !== 'completed' && order.status !== 'cancelled' && (
+                        <span class="od-note">Gửi sau {formatShipLabel(order.shipOn)}</span>
+                      )}
                     </td>
                     <td data-label="Thời gian">{formatDateTime(order.createdAt)}</td>
                     <td data-label="Thao tác">

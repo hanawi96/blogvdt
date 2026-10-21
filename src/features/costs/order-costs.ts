@@ -58,9 +58,22 @@ export function goodsCostOf(
   return total;
 }
 
-export function orderProfit(order: { totalPrice: number; costGoods: number | null; costExtra: number | null }): number | null {
+export function orderProfit(order: { totalPrice: number; costGoods: number | null; costExtra: number | null; shippingCost?: number | null }): number | null {
   if (order.costGoods === null || order.costExtra === null) return null;
-  return order.totalPrice - order.costGoods - order.costExtra;
+  return order.totalPrice - order.costGoods - order.costExtra - (order.shippingCost ?? 0);
+}
+
+// Phí ship vốn là khoản ship trên trang chi phí đơn, không phải số gõ riêng trên đơn.
+export function isShippingOrderCost(name: string): boolean {
+  const folded = name.normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/gi, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
+  return folded === 'phi van chuyen' || folded === 'phi ship' || folded === 'ship';
+}
+
+// Đơn cũ còn khoản ship nằm trong chi phí đã chụp. Đơn mới lưu riêng ở shipping_cost.
+export function orderShippingCost(stored: number, extra: ReadonlyArray<{ name: string; amount: number }> | null | undefined): number {
+  if (stored > 0) return stored;
+  if (!extra) return 0;
+  return extra.reduce((sum, line) => (isShippingOrderCost(line.name) ? sum + line.amount : sum), 0);
 }
 
 export type GoodsCostLine = { name: string; quantity: number; unitCost: number; amount: number };
@@ -75,6 +88,7 @@ export type OrderCostSnapshot = {
   extra: ExtraCostLine[];
   costGoods: number | null;
   costExtra: number;
+  shippingCost: number;
 };
 
 export function costSnapshotOf(
@@ -91,20 +105,22 @@ export function costSnapshotOf(
     else goods.push({ name: line.name, quantity: line.quantity, unitCost, amount: unitCost * line.quantity });
   }
   const known = lines.length > 0 && missing.length === 0;
-  const extra = costs
-    .filter((cost) => cost.active)
-    .map((cost) => ({
-      name: cost.name,
-      kind: cost.kind,
-      rate: cost.value,
-      amount: cost.kind === 'percent' ? Math.round((payable * cost.value) / 10_000) : cost.value,
-    }));
+  const active = costs.filter((cost) => cost.active);
+  const lineOf = (cost: (typeof active)[number]): ExtraCostLine => ({
+    name: cost.name,
+    kind: cost.kind,
+    rate: cost.value,
+    amount: cost.kind === 'percent' ? Math.round((payable * cost.value) / 10_000) : cost.value,
+  });
+  const shipping = active.filter((cost) => isShippingOrderCost(cost.name)).map(lineOf);
+  const extra = active.filter((cost) => !isShippingOrderCost(cost.name)).map(lineOf);
   return {
     goods,
     missing,
     extra,
     costGoods: known ? goods.reduce((sum, line) => sum + line.amount, 0) : null,
     costExtra: extra.reduce((sum, line) => sum + line.amount, 0),
+    shippingCost: shipping.reduce((sum, line) => sum + line.amount, 0),
   };
 }
 

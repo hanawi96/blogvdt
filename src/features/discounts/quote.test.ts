@@ -3,6 +3,7 @@ import { formatVnd } from '../../lib/money';
 import {
   applyDiscount,
   discountBlockReason,
+  discountSpan,
   formatDiscountTime,
   normalizeDiscountCode,
   parseDiscountTime,
@@ -36,6 +37,16 @@ describe('mã giảm giá', () => {
     expect(time).toBe(Date.parse('2026-10-20T19:00:00+07:00'));
     expect(time !== null && formatDiscountTime(time)).toBe('2026-10-20T19:00');
     expect(parseDiscountTime('2026-10-20')).toBeNull();
+  });
+
+  it('mốc nhanh tính từ phút hiện tại theo giờ Việt Nam', () => {
+    const now = Date.parse('2026-01-31T12:24:40+07:00');
+    expect(discountSpan(now, '1d')).toEqual({ startsAt: '2026-01-31T12:24', endsAt: '2026-02-01T12:24' });
+    expect(discountSpan(now, '7d').endsAt).toBe('2026-02-07T12:24');
+    expect(discountSpan(now, '1m').endsAt).toBe('2026-02-28T12:24');
+    expect(discountSpan(now, '3m').endsAt).toBe('2026-04-30T12:24');
+    expect(discountSpan(now, '6m').endsAt).toBe('2026-07-31T12:24');
+    expect(discountSpan(Date.parse('2024-01-31T08:00:00+07:00'), '1m').endsAt).toBe('2024-02-29T08:00');
   });
 
   it('giảm phần trăm làm tròn xuống và giảm số tiền không vượt tạm tính', () => {

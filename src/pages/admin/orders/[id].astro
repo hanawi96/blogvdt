@@ -1,12 +1,15 @@
 ---
+import OrderLineEditor from '../../../components/admin/OrderLineEditor.astro';
+import StaffOrderMeta from '../../../components/admin/StaffOrderMeta.astro';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { mutationError } from '../../../features/auth/session';
-import { formatPercentBp, orderProfit, parseCostLines } from '../../../features/costs/order-costs';
+import { formatPercentBp, isShippingOrderCost, listOrderCosts, orderProfit, orderShippingCost, parseCostLines } from '../../../features/costs/order-costs';
 import { profitOf } from '../../../features/materials/costing';
 import { orderHandoffText } from '../../../features/orders/order';
-import { paymentLabel } from '../../../features/orders/payment';
-import { getOrder, updateOrderNote, updateOrderStatus } from '../../../features/orders/orders';
+import { getOrder, updateOrderNote, updateOrderStatus, updateStaffOrderLines, updateStaffOrderMeta } from '../../../features/orders/orders';
+import { canEditOrderProducts, collectionLabel, formatShipLabel, orderLineSources, priceStaffLines, readStaffFlags, readStaffLineInputs, sourceLabel, staffFlagForm, type StaffFlagForm, type StaffLineInput } from '../../../features/orders/staff';
 import { isOrderStatus, nextOrderStatuses, ORDER_STATUS_LABELS } from '../../../features/orders/status';
+import { listStaffProductChoices } from '../../../features/products/public';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
 import { formatDateTime } from '../../../lib/datetime';
@@ -25,6 +28,12 @@ if (!order) return Astro.redirect(routes.adminOrders);
 
 let formError = '';
 let noteError = '';
+let lineError = '';
+let postedLines: StaffLineInput[] | null = null;
+let postedTotal: string | null = null;
+let postedExtra: string | null = null;
+let flagError = '';
+let postedFlags: StaffFlagForm | null = null;
 const saved = Astro.url.searchParams.get('saved');
 const isAdmin = session.role === 'admin';
 const profit = orderProfit(order);
@@ -32,6 +41,15 @@ const costLines = parseCostLines(order.costLines);
 const margin = profit === null ? null : profitOf(order.totalPrice, order.totalPrice - profit).marginPercent;
 const currentStatus = isOrderStatus(order.status) ? order.status : null;
 const choices = currentStatus ? [currentStatus, ...nextOrderStatuses(currentStatus)] : [];
+const editable = canEditOrderProducts(order.status);
+const storedBefore = orderLineSources(order);
+const products = editable
+  ? await listStaffProductChoices(
+      db,
+      storedBefore.flatMap((line) => (line.productId ? [line.productId] : [])),
+    )
+  : [];
+const activeCatalog = products.filter((item) => item.active);
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -63,6 +81,73 @@ if (Astro.request.method === 'POST') {
         return Astro.redirect(`${routes.adminOrder(id)}?saved=status`, 303);
       }
     }
+  } else if (intent === 'meta') {
+    const read = (name: string) => {
+      const value = form.get(name);
+      return typeof value === 'string' ? value : '';
+    };
+    postedFlags = {
+      payState: read('payState') || 'cod',
+      source: read('source'),
+      priority: read('priority') === 'on',
+      compensation: read('compensation') === 'on',
+      shipLater: read('shipLater') === 'on',
+      shipOn: read('shipOn'),
+      shippingFee: read('shippingFee'),
+      freeShip: read('freeShip') === 'on',
+    };
+    const flags = readStaffFlags({
+      ...postedFlags,
+      priority: postedFlags.priority ? 'on' : '',
+      compensation: postedFlags.compensation ? 'on' : '',
+      shipLater: postedFlags.shipLater ? 'on' : '',
+      freeShip: postedFlags.freeShip ? 'on' : '',
+    });
+    if (!flags.ok) {
+      Astro.response.status = 422;
+      flagError = flags.error;
+    } else {
+      const result = await updateStaffOrderMeta(db, id, flags.flags);
+      if (!result.ok) {
+        Astro.response.status = 422;
+        flagError = result.error;
+      } else {
+        return Astro.redirect(`${routes.adminOrder(id)}?saved=meta`, 303);
+      }
+    }
+  } else if (intent === 'lines') {
+    const inputs = readStaffLineInputs(form);
+    const priced = inputs && editable ? priceStaffLines(inputs, activeCatalog, storedBefore) : null;
+    if (!editable) {
+      Astro.response.status = 422;
+      lineError = 'Đơn đã kết thúc, không sửa sản phẩm.';
+    } else if (!priced || !priced.ok) {
+      Astro.response.status = 422;
+      lineError = priced && !priced.ok ? priced.error : 'Dòng sản phẩm không hợp lệ.';
+      postedLines = inputs;
+      postedTotal = typeof form.get('orderTotal') === 'string' ? String(form.get('orderTotal')) : '';
+      postedExtra = typeof form.get('discountExtra') === 'string' ? String(form.get('discountExtra')) : '';
+    } else {
+      const orderTotal = form.get('orderTotal');
+      const discountExtra = form.get('discountExtra');
+      const result = await updateStaffOrderLines(
+        db,
+        id,
+        priced.lines,
+        '',
+        typeof orderTotal === 'string' ? orderTotal : '',
+        typeof discountExtra === 'string' ? discountExtra : '',
+      );
+      if (!result.ok) {
+        Astro.response.status = 422;
+        lineError = result.error;
+        postedLines = inputs;
+        postedTotal = typeof form.get('orderTotal') === 'string' ? String(form.get('orderTotal')) : '';
+        postedExtra = typeof form.get('discountExtra') === 'string' ? String(form.get('discountExtra')) : '';
+      } else {
+        return Astro.redirect(`${routes.adminOrder(id)}?saved=lines`, 303);
+      }
+    }
   } else {
     Astro.response.status = 422;
     formError = 'Thao tác không hợp lệ.';
@@ -70,22 +155,25 @@ if (Astro.request.method === 'POST') {
   order = (await getOrder(db, id)) ?? order;
 }
 
+const flagForm = postedFlags ?? staffFlagForm(order);
+const shippingCosts = (await listOrderCosts(db)).filter((cost) => cost.active && isShippingOrderCost(cost.name));
+const shipCapital = orderShippingCost(order.shippingCost, costLines?.extra);
+const goodsTotal = order.compensation === 1 ? (order.subtotal ?? order.totalPrice) : order.totalPrice - order.shippingFee;
+const extraValue = postedExtra ?? (order.discountAmount > 0 ? String(order.discountAmount) : '');
+const sendLater = order.shipOn !== null && order.status !== 'shipped' && order.status !== 'completed' && order.status !== 'cancelled';
+
 const handoff = orderHandoffText(order);
 const statusLabel = isOrderStatus(order.status) ? ORDER_STATUS_LABELS[order.status] : order.status;
-// Đơn một mẫu lưu thẳng trên orders, đơn nhiều mẫu lưu ở order_items: gom về cùng một danh sách để hiển thị.
-const lines =
-  order.items.length > 0
-    ? order.items
-    : [
-        {
-          productId: order.productId,
-          productName: order.productName,
-          unitPrice: order.unitPrice,
-          quantity: order.quantity,
-          optionLabel: order.optionLabel,
-          lineTotal: order.subtotal ?? order.totalPrice,
-        },
-      ];
+const lines = orderLineSources(order);
+const editorLines: StaffLineInput[] =
+  postedLines ??
+  lines.map((line, index) => ({
+    slot: String(index),
+    productId: line.productId ? String(line.productId) : '',
+    name: line.productName,
+    weight: line.optionLabel ?? '',
+    quantity: String(line.quantity),
+  }));
 const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
 ---
 
@@ -93,6 +181,9 @@ const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
   <a slot="action" class="btn" href={routes.adminOrders}>Danh sách</a>
   {saved === 'status' && <p class="mb-4 text-primary-strong" role="status">Đã cập nhật trạng thái.</p>}
   {saved === 'note' && <p class="mb-4 text-primary-strong" role="status">Đã lưu ghi chú nội bộ.</p>}
+  {saved === 'lines' && <p class="mb-4 text-primary-strong" role="status">Đã cập nhật sản phẩm.</p>}
+  {saved === 'created' && <p class="mb-4 text-primary-strong" role="status">Đã tạo đơn.</p>}
+  {saved === 'meta' && <p class="mb-4 text-primary-strong" role="status">Đã lưu thanh toán và giao hàng.</p>}
   {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
   <div class="od-page">
     <section class="od-card od-head" aria-label="Tóm tắt đơn">
@@ -106,49 +197,145 @@ const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
           <span>Cập nhật {formatDateTime(order.updatedAt)}</span>
           <span>{lines.length} mẫu · {pieces} chiếc</span>
         </p>
-        <p class="od-chip-row"><span class="od-chip">{paymentLabel(order.paymentMethod)}</span></p>
+        <p class="od-chip-row">
+          <span class="od-chip">{collectionLabel(order.payState, order.paymentMethod)}</span>
+          {order.source && <span class="od-chip">{sourceLabel(order.source)}</span>}
+          {order.priority === 1 && <span class="od-chip">Ưu tiên</span>}
+          {order.compensation === 1 && <span class="od-chip">Gửi bù</span>}
+          {sendLater && order.shipOn && <span class="od-chip">Gửi sau {formatShipLabel(order.shipOn)}</span>}
+        </p>
       </div>
       <div class="od-head-total">
         <span>Tổng tiền</span>
         <strong>{formatVnd(order.totalPrice)}</strong>
-        {order.discountAmount > 0 && <span class="od-note">Đã giảm {order.discountCode}</span>}
+        {order.discountAmount > 0 && <span class="od-note">Đã giảm{order.discountCode ? ` ${order.discountCode}` : ''}</span>}
+        {order.compensation === 1 && <span class="od-note">Không thu tiền</span>}
+        {order.shippingFee > 0 && <span class="od-note">Gồm ship {formatVnd(order.shippingFee)}</span>}
       </div>
     </section>
 
     <div class="od-columns">
       <div class="od-col">
         <section class="od-card">
-          <h2>Sản phẩm</h2>
-          <ul class="od-lines">
-            {
-              lines.map((line) => (
-                <li>
-                  <div class="od-line-main">
-                    <p class="od-line-name">{line.productName}</p>
-                    <p class="od-line-meta">
-                      {line.optionLabel && <span class="od-tag">{line.optionLabel}</span>}
-                      <span>{line.quantity} × {formatVnd(line.unitPrice)}</span>
-                      {line.productId && <a href={routes.adminProduct(line.productId)}>Xem sản phẩm</a>}
-                    </p>
-                  </div>
-                  <strong class="od-line-total">{formatVnd(line.lineTotal)}</strong>
-                </li>
-              ))
-            }
-          </ul>
-          {order.discountAmount > 0 && (
-            <dl class="od-facts">
-              <div><dt>Tạm tính</dt><dd>{formatVnd(order.subtotal ?? order.totalPrice + order.discountAmount)}</dd></div>
-              <div><dt>Giảm {order.discountCode}</dt><dd>− {formatVnd(order.discountAmount)}</dd></div>
-            </dl>
+          <h2>Khách hàng</h2>
+          <dl class="od-facts">
+            <div><dt>Họ tên</dt><dd>{order.customerName}</dd></div>
+            <div><dt>Số điện thoại</dt><dd><a class="od-phone" href={`tel:${order.phone}`}>{order.phone}</a></dd></div>
+            <div><dt>Địa chỉ nhận hàng</dt><dd>{order.address}</dd></div>
+            <div><dt>Ghi chú của khách</dt><dd>{order.note || '—'}</dd></div>
+          </dl>
+          {editable ? (
+            <form class="mt-4" method="post" action={routes.adminOrder(id)} data-busy autocomplete="off">
+              <input type="hidden" name="csrf" value={session.csrfToken} />
+              <input type="hidden" name="intent" value="meta" />
+              <StaffOrderMeta value={flagForm} error={flagError} shippingCosts={shippingCosts} />
+              <button class="btn btn-primary mt-4" type="submit">Lưu thanh toán và giao hàng</button>
+            </form>
+          ) : (
+            <p class="od-note mt-3">Phí ship vốn {formatVnd(shipCapital)}{order.shippingFee > 0 ? ` · khách trả ${formatVnd(order.shippingFee)}` : ''}.</p>
           )}
-          <div class="od-total">
-            <span>{order.discountAmount > 0 ? 'Phải trả' : 'Tổng tiền'}</span>
-            <strong>{formatVnd(order.totalPrice)}</strong>
-          </div>
-          <p class="od-note">Giá và tên sản phẩm được giữ tại thời điểm đặt, không đổi khi sửa giá hiện tại.</p>
         </section>
 
+        <section class="od-card">
+          <h2>Sản phẩm</h2>
+          {
+            editable ? (
+              <form method="post" action={routes.adminOrder(id)} data-busy autocomplete="off">
+                <input type="hidden" name="csrf" value={session.csrfToken} />
+                <input type="hidden" name="intent" value="lines" />
+                <OrderLineEditor
+                  choices={products}
+                  lines={editorLines}
+                  stored={lines}
+                  orderTotal={postedTotal ?? String(Math.max(0, goodsTotal))}
+                  extraDiscount={extraValue}
+                  error={lineError}
+                />
+                <button class="btn btn-primary mt-3" type="submit">Lưu sản phẩm</button>
+                <p class="od-note mt-3">Sửa tên chỉ đổi tên trên đơn này. Đổi cân nặng thì đơn giá về giá đang bán.</p>
+              </form>
+            ) : (
+              <>
+                <ul class="od-lines">
+                  {
+                    lines.map((line) => (
+                      <li>
+                        <div class="od-line-main">
+                          <p class="od-line-name">{line.productName}</p>
+                          <p class="od-line-meta">
+                            {line.optionLabel && <span class="od-tag">{line.optionLabel}</span>}
+                            <span>{line.quantity} × {formatVnd(line.unitPrice)}</span>
+                            {line.productId && <a href={routes.adminProduct(line.productId)}>Xem sản phẩm</a>}
+                          </p>
+                        </div>
+                        <strong class="od-line-total">{formatVnd(line.lineTotal)}</strong>
+                      </li>
+                    ))
+                  }
+                </ul>
+                <p class="od-note">Đơn đã kết thúc, không sửa sản phẩm.</p>
+              </>
+            )
+          }
+          {!editable && order.discountAmount > 0 && (
+            <dl class="od-facts">
+              <div><dt>Tạm tính</dt><dd>{formatVnd(order.subtotal ?? order.totalPrice + order.discountAmount)}</dd></div>
+              <div><dt>Giảm {order.discountCode || 'giá'}</dt><dd>− {formatVnd(order.discountAmount)}</dd></div>
+            </dl>
+          )}
+          {!editable && (
+            <div class="od-total">
+              <span>{order.discountAmount > 0 ? 'Phải trả' : 'Tổng tiền'}</span>
+              <strong>{formatVnd(order.totalPrice)}</strong>
+            </div>
+          )}
+        </section>
+
+        <section class="od-card">
+          <h2>Xử lý đơn</h2>
+          {choices.length > 1 ? (
+            <form method="post" action={routes.adminOrder(id)} data-order-status data-busy>
+              <input type="hidden" name="csrf" value={session.csrfToken} />
+              <input type="hidden" name="intent" value="status" />
+              <label>
+                <span class="od-label">Trạng thái</span>
+                <select class="field" name="status">
+                  {choices.map((item) => <option value={item} selected={order.status === item}>{ORDER_STATUS_LABELS[item]}</option>)}
+                </select>
+              </label>
+              <button class="btn btn-primary mt-3 w-full" type="submit">Lưu trạng thái</button>
+            </form>
+          ) : (
+            <p class="od-note">Đơn {statusLabel.toLowerCase()} không đổi trạng thái nữa. Lịch sử đơn vẫn được giữ.</p>
+          )}
+        </section>
+
+        <section class="od-card">
+          <h2>Thanh toán</h2>
+          <dl class="od-facts">
+            <div><dt>Hình thức</dt><dd>{collectionLabel(order.payState, order.paymentMethod)}</dd></div>
+            <div><dt>Phí ship khách trả</dt><dd>{order.shippingFee > 0 ? formatVnd(order.shippingFee) : 'Miễn phí'}</dd></div>
+            <div><dt>Phí ship vốn</dt><dd>{formatVnd(shipCapital)}</dd></div>
+          </dl>
+          <p class="od-note">Chưa ghi nhận thanh toán. Trạng thái xử lý đơn không có nghĩa đã thu tiền.</p>
+        </section>
+
+        <section class="od-card">
+          <h2>Ghi chú nội bộ</h2>
+          <form method="post" action={routes.adminOrder(id)} data-busy>
+            <input type="hidden" name="csrf" value={session.csrfToken} />
+            <input type="hidden" name="intent" value="note" />
+            <label>
+              <span class="sr-only">Ghi chú nội bộ</span>
+              <textarea class="field min-h-28" name="internalNote" maxlength="1000" placeholder="Chỉ nhân viên thấy ghi chú này">{order.internalNote ?? ''}</textarea>
+            </label>
+            {noteError && <p class="error-text mt-2" role="alert">{noteError}</p>}
+            <button class="btn mt-3 w-full" type="submit">Lưu ghi chú</button>
+          </form>
+        </section>
+      </div>
+
+      <aside class="od-col od-aside">
         {
           isAdmin && (
             <section class="od-card">
@@ -180,72 +367,25 @@ const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
                         </dd>
                       </div>
                     ))}
-                    {costLines && costLines.extra.length === 0 && <div><dt>Chi phí đơn</dt><dd>0₫</dd></div>}
+                    {costLines && costLines.extra.length === 0 && order.shippingCost === 0 && <div><dt>Chi phí đơn</dt><dd>0₫</dd></div>}
                     {!costLines && <div><dt>Chi phí đơn</dt><dd>− {formatVnd(order.costExtra)}</dd></div>}
+                    {order.shippingCost > 0 && (
+                      <div>
+                        <dt>Phí ship vốn</dt>
+                        <dd>− {formatVnd(order.shippingCost)}</dd>
+                      </div>
+                    )}
                     <div>
                       <dt>Lợi nhuận{profit !== null && margin !== null ? ` · biên ${margin}%` : ''}</dt>
                       <dd>{profit === null ? '—' : <strong class="order-profit" data-sign={profit < 0 ? 'loss' : 'gain'}>{formatVnd(profit)}</strong>}</dd>
                     </div>
                   </dl>
-                  <p class="od-note">Lợi nhuận = số khách phải trả − giá vốn − chi phí đơn. Số được chụp lúc đặt, không đổi khi sửa giá sau này.</p>
+                  <p class="od-note">Lợi nhuận = số khách phải trả − giá vốn − chi phí đơn − phí ship vốn. Phí ship vốn lấy từ khoản phí vận chuyển trong chi phí đơn, chụp lúc lưu đơn.</p>
                 </>
               )}
             </section>
           )
         }
-
-        <section class="od-card">
-          <h2>Khách hàng</h2>
-          <dl class="od-facts">
-            <div><dt>Họ tên</dt><dd>{order.customerName}</dd></div>
-            <div><dt>Số điện thoại</dt><dd><a class="od-phone" href={`tel:${order.phone}`}>{order.phone}</a></dd></div>
-            <div><dt>Địa chỉ nhận hàng</dt><dd>{order.address}</dd></div>
-            <div><dt>Ghi chú của khách</dt><dd>{order.note || '—'}</dd></div>
-          </dl>
-        </section>
-
-        <section class="od-card">
-          <h2>Thanh toán</h2>
-          <dl class="od-facts">
-            <div><dt>Hình thức khách chọn</dt><dd>{paymentLabel(order.paymentMethod)}</dd></div>
-          </dl>
-          <p class="od-note">Chưa ghi nhận thanh toán. Trạng thái xử lý đơn không có nghĩa đã thu tiền.</p>
-        </section>
-      </div>
-
-      <aside class="od-col od-aside">
-        <section class="od-card">
-          <h2>Xử lý đơn</h2>
-          {choices.length > 1 ? (
-            <form method="post" action={routes.adminOrder(id)} data-order-status data-busy>
-              <input type="hidden" name="csrf" value={session.csrfToken} />
-              <input type="hidden" name="intent" value="status" />
-              <label>
-                <span class="od-label">Trạng thái</span>
-                <select class="field" name="status">
-                  {choices.map((item) => <option value={item} selected={order.status === item}>{ORDER_STATUS_LABELS[item]}</option>)}
-                </select>
-              </label>
-              <button class="btn btn-primary mt-3 w-full" type="submit">Lưu trạng thái</button>
-            </form>
-          ) : (
-            <p class="od-note">Đơn {statusLabel.toLowerCase()} không đổi trạng thái nữa. Lịch sử đơn vẫn được giữ.</p>
-          )}
-        </section>
-
-        <section class="od-card">
-          <h2>Ghi chú nội bộ</h2>
-          <form method="post" action={routes.adminOrder(id)} data-busy>
-            <input type="hidden" name="csrf" value={session.csrfToken} />
-            <input type="hidden" name="intent" value="note" />
-            <label>
-              <span class="sr-only">Ghi chú nội bộ</span>
-              <textarea class="field min-h-28" name="internalNote" maxlength="1000" placeholder="Chỉ nhân viên thấy ghi chú này">{order.internalNote ?? ''}</textarea>
-            </label>
-            {noteError && <p class="error-text mt-2" role="alert">{noteError}</p>}
-            <button class="btn mt-3 w-full" type="submit">Lưu ghi chú</button>
-          </form>
-        </section>
 
         <section class="od-card">
           <h2>Thông tin giao hàng</h2>

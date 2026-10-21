@@ -1,0 +1,183 @@
+---
+interface Props {
+  idPrefix?: string;
+  error?: string;
+  address?: string;
+  provinceCode?: string;
+  wardCode?: string;
+  line?: string;
+  compact?: boolean;
+  paired?: boolean;
+}
+
+const {
+  idPrefix = 'address',
+  error = '',
+  address = '',
+  provinceCode = '',
+  wardCode = '',
+  line = '',
+  compact = false,
+  paired = false,
+} = Astro.props;
+---
+
+<div class:list={['address-fields', compact ? 'mt-3 text-sm' : 'mt-4']} data-address data-province={provinceCode} data-ward={wardCode}>
+  <p class="mb-1 font-semibold">Địa chỉ nhận hàng</p>
+  <div class:list={[paired && 'form-pair mt-2']}>
+    <label class:list={[paired ? 'block' : 'mt-2 block']} for={`${idPrefix}-province`}>
+      <span class="mb-1 block">Tỉnh, thành phố</span>
+      <select id={`${idPrefix}-province`} class="field" data-province-select>
+        <option value="">Đang tải danh sách...</option>
+      </select>
+    </label>
+    <label class:list={[paired ? 'block' : 'mt-3 block']} for={`${idPrefix}-ward`}>
+      <span class="mb-1 block">Phường, xã</span>
+      <select id={`${idPrefix}-ward`} class="field" data-ward-select disabled>
+        <option value="">Chọn tỉnh trước</option>
+      </select>
+    </label>
+  </div>
+  <label class="mt-3 block" for={`${idPrefix}-line`}>
+    <span class="mb-1 block">Số nhà, đường</span>
+    <input id={`${idPrefix}-line`} class="field" name="addressLine" data-line maxlength="80" autocomplete="address-line1" value={line} />
+  </label>
+  <input type="hidden" data-address-value value={address} />
+  <input type="hidden" name="provinceCode" data-province-value value={provinceCode} />
+  <input type="hidden" name="wardCode" data-ward-value value={wardCode} />
+  <p class="error-text mt-2" data-address-status hidden></p>
+  {error && <span class="error-text">{error}</span>}
+</div>
+<noscript>
+  <label class:list={['block', compact ? 'mt-3 text-sm font-semibold' : 'mt-4']} for={`${idPrefix}-fallback`}>
+    <span class="mb-1 block font-semibold">Địa chỉ nhận hàng</span>
+    <textarea id={`${idPrefix}-fallback`} class="field min-h-24" name="address" required maxlength="240" autocomplete="street-address">{address}</textarea>
+  </label>
+</noscript>
+
+<script>
+  type AddressRow = [string, string, [string, string][]];
+
+  let rowsPromise: Promise<AddressRow[]> | null = null;
+
+  function loadRows(): Promise<AddressRow[]> {
+    if (!rowsPromise) {
+      rowsPromise = fetch('/data/address-select.json')
+        .then((response) => {
+          if (!response.ok) throw new Error('address');
+          return response.json() as Promise<AddressRow[]>;
+        })
+        .catch((error) => {
+          rowsPromise = null;
+          throw error;
+        });
+    }
+    return rowsPromise;
+  }
+
+  function option(value: string, label: string, selected = false): HTMLOptionElement {
+    const item = document.createElement('option');
+    item.value = value;
+    item.textContent = label;
+    item.selected = selected;
+    return item;
+  }
+
+  function fill(select: HTMLSelectElement, placeholder: string, entries: ReadonlyArray<readonly [string, string]>, selected: string): void {
+    const fragment = document.createDocumentFragment();
+    fragment.append(option('', placeholder, selected === ''));
+    for (const [code, name] of entries) fragment.append(option(code, name, code === selected));
+    select.replaceChildren(fragment);
+  }
+
+  document.querySelectorAll('[data-address]').forEach((root) => {
+    if (!(root instanceof HTMLElement)) return;
+    const form = root.closest('form');
+    const province = root.querySelector('[data-province-select]');
+    const ward = root.querySelector('[data-ward-select]');
+    const line = root.querySelector('[data-line]');
+    const address = root.querySelector('[data-address-value]');
+    const provinceValue = root.querySelector('[data-province-value]');
+    const wardValue = root.querySelector('[data-ward-value]');
+    const status = root.querySelector('[data-address-status]');
+    if (!(form instanceof HTMLFormElement) || !(province instanceof HTMLSelectElement) || !(ward instanceof HTMLSelectElement) || !(line instanceof HTMLInputElement) || !(address instanceof HTMLInputElement) || !(provinceValue instanceof HTMLInputElement) || !(wardValue instanceof HTMLInputElement) || !(status instanceof HTMLElement)) return;
+
+    let rows: AddressRow[] = [];
+    let ready = false;
+    address.name = 'address';
+    line.required = true;
+
+    const write = () => {
+      const provinceName = province.selectedOptions[0]?.textContent ?? '';
+      const wardName = ward.selectedOptions[0]?.textContent ?? '';
+      const house = line.value.trim();
+      provinceValue.value = province.value;
+      wardValue.value = ward.value;
+      if (!province.value || !ward.value || !house) {
+        address.value = '';
+        line.setCustomValidity('');
+        return;
+      }
+      const composed = `${house}, ${wardName}, ${provinceName}`;
+      if (composed.length > 240) {
+        address.value = '';
+        line.setCustomValidity('Địa chỉ dài quá 240 ký tự. Hãy rút số nhà, đường.');
+        return;
+      }
+      line.setCustomValidity('');
+      address.value = composed;
+    };
+
+    const showWards = () => {
+      const match = rows.find((row) => row[0] === province.value);
+      fill(ward, province.value ? 'Chọn phường, xã' : 'Chọn tỉnh trước', match?.[2] ?? [], wardValue.value);
+      ward.disabled = !province.value;
+      if (ward.value !== wardValue.value) wardValue.value = ward.value;
+      write();
+    };
+
+    province.addEventListener('change', () => {
+      wardValue.value = '';
+      showWards();
+    });
+    ward.addEventListener('change', write);
+    line.addEventListener('input', write);
+    form.addEventListener(
+      'submit',
+      (event) => {
+        const submitter = event.submitter;
+        if (submitter instanceof HTMLButtonElement && submitter.value === 'apply') return;
+        if (!ready) {
+          event.preventDefault();
+          event.stopPropagation();
+          status.hidden = false;
+          status.textContent = 'Danh sách địa chỉ chưa tải xong. Hãy thử lại.';
+          return;
+        }
+        write();
+        if (!address.value) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      },
+      true,
+    );
+
+    loadRows()
+      .then((loaded) => {
+        rows = loaded;
+        ready = true;
+        province.required = true;
+        ward.required = true;
+        fill(province, 'Chọn tỉnh, thành phố', rows.map((row) => [row[0], row[1]]), root.dataset.province ?? '');
+        provinceValue.value = province.value;
+        showWards();
+        status.hidden = true;
+      })
+      .catch(() => {
+        fill(province, 'Không tải được danh sách', [], '');
+        status.hidden = false;
+        status.textContent = 'Không tải được danh sách địa chỉ. Tải lại trang.';
+      });
+  });
+</script>

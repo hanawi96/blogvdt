@@ -1,4 +1,5 @@
 ---
+import AddressField from './AddressField.astro';
 import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
 import { weightOptions, type WeightScale } from '../../features/products/weight';
 import DiscountCodeField from './DiscountCodeField.astro';
@@ -12,6 +13,9 @@ interface Props {
     customerName: string;
     phone: string;
     address: string;
+    provinceCode?: string;
+    wardCode?: string;
+    addressLine?: string;
     note: string;
     quantity: string;
     weight: string;
@@ -72,11 +76,14 @@ const weights = weightOptions(product.weightScale);
     <input id="phone" class="field" name="phone" type="tel" required maxlength="20" autocomplete="tel" value={values.phone} />
     {errors.phone && <span class="error-text">{errors.phone}</span>}
   </label>
-  <label class="mt-4 block" for="address">
-    <span class="mb-1 block font-semibold">Địa chỉ nhận hàng</span>
-    <textarea id="address" class="field min-h-24" name="address" required maxlength="240" autocomplete="street-address">{values.address}</textarea>
-    {errors.address && <span class="error-text">{errors.address}</span>}
-  </label>
+  <AddressField
+    idPrefix="address"
+    error={errors.address}
+    address={values.address}
+    provinceCode={values.provinceCode}
+    wardCode={values.wardCode}
+    line={values.addressLine}
+  />
   <label class="mt-4 block" for="note">
     <span class="mb-1 block font-semibold">Ghi chú</span>
     <textarea id="note" class="field min-h-20" name="note" maxlength="500">{values.note}</textarea>

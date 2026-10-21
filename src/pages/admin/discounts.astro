@@ -171,15 +171,26 @@ function windowText(row: DiscountCode): string {
         <span class="mb-1 block font-semibold">Giới hạn lượt</span>
         <input class="field" name="usageLimit" maxlength="6" value={values.usageLimit} inputmode="numeric" placeholder="Để trống nếu không giới hạn" />
       </label>
-      <label class="mt-4 block">
-        <span class="mb-1 block font-semibold">Bắt đầu</span>
-        <input class="field" type="datetime-local" name="startsAt" value={values.startsAt} />
-      </label>
-      <label class="mt-4 block">
-        <span class="mb-1 block font-semibold">Kết thúc</span>
-        <input class="field" type="datetime-local" name="endsAt" value={values.endsAt} />
-        <span class="seo-hint">Giờ Việt Nam. Hết hạn đúng thời điểm kết thúc. Để trống nếu không giới hạn ngày.</span>
-      </label>
+      <div class="mt-4">
+        <div class="discount-window">
+          <label>
+            <span class="mb-1 block font-semibold">Bắt đầu</span>
+            <input class="field" type="datetime-local" name="startsAt" value={values.startsAt} />
+          </label>
+          <label>
+            <span class="mb-1 block font-semibold">Kết thúc</span>
+            <input class="field" type="datetime-local" name="endsAt" value={values.endsAt} />
+          </label>
+        </div>
+        <div class="category-presets mt-2" role="group" aria-label="Chọn nhanh thời hạn">
+          <button class="category-preset" type="button" data-discount-span="1d"><span>1 ngày</span></button>
+          <button class="category-preset" type="button" data-discount-span="7d"><span>1 tuần</span></button>
+          <button class="category-preset" type="button" data-discount-span="1m"><span>1 tháng</span></button>
+          <button class="category-preset" type="button" data-discount-span="3m"><span>3 tháng</span></button>
+          <button class="category-preset" type="button" data-discount-span="6m"><span>6 tháng</span></button>
+        </div>
+        <span class="seo-hint">Giờ Việt Nam. Mốc nhanh lấy giờ hiện tại làm lúc bắt đầu. Hết hạn đúng thời điểm kết thúc. Để trống nếu không giới hạn ngày.</span>
+      </div>
       <label class="mt-4 block">
         <span class="mb-1 block font-semibold">Ghi chú nội bộ</span>
         <input class="field" name="note" maxlength="200" value={values.note} />
@@ -265,6 +276,33 @@ function windowText(row: DiscountCode): string {
   </div>
 </AdminLayout>
 <script>
+  import { discountSpan } from '../../features/discounts/quote';
+
+  const startField = document.querySelector('[name="startsAt"]');
+  const endField = document.querySelector('[name="endsAt"]');
+  const spanButtons = document.querySelectorAll('[data-discount-span]');
+  if (startField instanceof HTMLInputElement && endField instanceof HTMLInputElement) {
+    const clearSpan = () => {
+      spanButtons.forEach((button) => {
+        if (button instanceof HTMLButtonElement) button.setAttribute('aria-pressed', 'false');
+      });
+    };
+    spanButtons.forEach((button) => {
+      if (!(button instanceof HTMLButtonElement)) return;
+      button.setAttribute('aria-pressed', 'false');
+      button.addEventListener('click', () => {
+        const span = button.dataset.discountSpan;
+        if (span !== '1d' && span !== '7d' && span !== '1m' && span !== '3m' && span !== '6m') return;
+        const range = discountSpan(Date.now(), span);
+        startField.value = range.startsAt;
+        endField.value = range.endsAt;
+        clearSpan();
+        button.setAttribute('aria-pressed', 'true');
+      });
+    });
+    startField.addEventListener('input', clearSpan);
+    endField.addEventListener('input', clearSpan);
+  }
   const codeField = document.querySelector('[data-discount-code]');
   if (codeField instanceof HTMLInputElement) {
     const keep = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);

@@ -44,6 +44,39 @@ export function parseDiscountTime(value: string): number | null {
   return Number.isFinite(time) ? time : null;
 }
 
+function vnClock(timestamp: number): { year: number; month: number; day: number; hour: number; minute: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(timestamp));
+  const read = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
+  return { year: read('year'), month: read('month'), day: read('day'), hour: read('hour'), minute: read('minute') };
+}
+
+function padTime(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+// Bắt đầu là phút hiện tại. Ngày cộng theo lịch, tháng cộng theo lịch và giữ ngày nếu tháng đó có đủ ngày.
+export function discountSpan(now: number, span: '1d' | '7d' | '1m' | '3m' | '6m'): { startsAt: string; endsAt: string } {
+  const startsAt = formatDiscountTime(now);
+  if (span === '1d' || span === '7d') {
+    return { startsAt, endsAt: formatDiscountTime(now + (span === '1d' ? 1 : 7) * 24 * 60 * 60 * 1000) };
+  }
+  const start = vnClock(now);
+  const months = span === '1m' ? 1 : span === '3m' ? 3 : 6;
+  const index = start.year * 12 + (start.month - 1) + months;
+  const year = Math.floor(index / 12);
+  const month = (index % 12) + 1;
+  const day = Math.min(start.day, new Date(Date.UTC(year, month, 0)).getUTCDate());
+  return { startsAt, endsAt: `${year}-${padTime(month)}-${padTime(day)}T${padTime(start.hour)}:${padTime(start.minute)}` };
+}
+
 export function formatDiscountTime(timestamp: number): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Ho_Chi_Minh',

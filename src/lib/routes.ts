@@ -1,5 +1,7 @@
 export const routes = {
   home: '/',
+  homeAbout: '/#gioi-thieu',
+  contact: '#lien-he',
   admin: '/admin',
   adminLogin: '/admin/login',
   adminLogout: '/admin/logout',
@@ -16,6 +18,7 @@ export const routes = {
   adminProductNew: '/admin/products/new',
   adminProductsBulk: '/admin/products/bulk',
   adminOrders: '/admin/orders',
+  adminOrderNew: '/admin/orders/new',
   adminCustomers: '/admin/customers',
   adminMaterials: '/admin/materials',
   adminPricing: '/admin/pricing',

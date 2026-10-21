@@ -19,10 +19,8 @@ const { id, value = '', error = '', quote = null } = Astro.props;
     <input id={id} class="field" name="discountCode" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" value={value} placeholder="Nếu có" />
     <button class="btn" type="submit" name="intent" value="apply" formnovalidate>Áp dụng</button>
   </div>
-  {error && <span class="error-text">{error}</span>}
-  {quote && !error && (
-    <p class="discount-quote" data-discount-quote role="status">
-      Giảm {quote.code}: −{formatVnd(quote.discountAmount)}. Còn {formatVnd(quote.totalPrice)}.
-    </p>
-  )}
+  <p class="error-text" data-discount-error role="alert" hidden={!error}>{error}</p>
+  <p class="discount-quote" data-discount-quote role="status" hidden={!quote || Boolean(error)}>
+    {quote && !error ? `Giảm ${quote.code}: −${formatVnd(quote.discountAmount)}. Còn ${formatVnd(quote.totalPrice)}.` : ''}
+  </p>
 </div>

@@ -29,7 +29,7 @@ function pushPayable(
 ): void {
   if (order.discountAmount && order.discountAmount > 0) {
     lines.push(`Tạm tính: ${formatVnd(order.subtotal ?? order.totalPrice + order.discountAmount)}`);
-    lines.push(`Giảm ${order.discountCode ?? ''}: −${formatVnd(order.discountAmount)}`);
+    lines.push(`Giảm ${order.discountCode || 'giá'}: −${formatVnd(order.discountAmount)}`);
   }
   lines.push(`Tổng: ${formatVnd(order.totalPrice)}`);
 }
@@ -316,7 +316,7 @@ export function parseCartOrder(
   };
 }
 
-function readCustomer(input: { customerName: string; phone: string; address: string; note: string }): {
+export function readCustomer(input: { customerName: string; phone: string; address: string; note: string }): {
   errors: FieldErrors;
   customerName: string;
   phone: string | null;

@@ -2,6 +2,7 @@
 import CatalogCard from '../components/public/CatalogCard.astro';
 import DataError from '../components/public/DataError.astro';
 import Pagination from '../components/public/Pagination.astro';
+import ProductStory from '../components/public/ProductStory.astro';
 import { listSellableProductCategories } from '../features/products/categories';
 import {
   catalogFiltered,
@@ -71,38 +72,47 @@ async function loadCatalog() {
       </main>
     ) : (
       <main class="mx-auto max-w-6xl px-4 py-10">
-        <h1 class="text-3xl font-semibold">Mẫu vòng dâu tằm</h1>
-        <p class="mt-3 max-w-2xl text-muted">Vòng làm thủ công, đang nhận đặt. Giá là giá từng chiếc, chưa gồm phí giao.</p>
-        <div class="catalog-filters">
-          <form class="catalog-search" method="get" action={routes.catalog} role="search">
-            {query.category && <input type="hidden" name="danh-muc" value={query.category} />}
-            {query.sort !== 'mac-dinh' && <input type="hidden" name="sap-xep" value={query.sort} />}
-            <label class="sr-only" for="catalog-q">Tìm mẫu vòng</label>
-            <input id="catalog-q" class="field" type="search" name="q" value={query.q} placeholder="Tìm tên mẫu vòng..." maxlength="80" />
-            <button class="btn btn-primary" type="submit">Tìm</button>
-            {query.q && <a class="btn" href={catalogPath({ ...query, q: '' }, 1)}>Xóa</a>}
-          </form>
-          {loaded.categories.length > 0 && (
-            <nav class="catalog-chips" aria-label="Lọc theo danh mục">
-              <a class="chip" href={catalogPath({ ...query, category: '' }, 1)} aria-current={query.category === '' ? 'true' : undefined}>Tất cả</a>
-              {loaded.categories.map((category) => (
-                <a class="chip" href={catalogPath({ ...query, category: category.slug }, 1)} aria-current={query.category === category.slug ? 'true' : undefined}>
-                  {category.name}
-                </a>
-              ))}
-            </nav>
-          )}
-          <a
-            class="chip chip-sort"
-            href={catalogPath({ ...query, sort: bestSelling ? 'mac-dinh' : 'ban-chay' }, 1)}
-            aria-current={bestSelling ? 'true' : undefined}
-          >
-            Bán chạy nhất
-          </a>
-        </div>
-        <p class="mt-4 text-muted">
-          {loaded.total === 0 ? (filtered ? 'Không có mẫu khớp.' : 'Chưa có mẫu đang bán.') : loaded.total === 1 ? '1 mẫu' : `${loaded.total} mẫu`}
-        </p>
+        <header class="catalog-head">
+          <div class="catalog-head-top">
+            <h1>Mẫu vòng dâu tằm</h1>
+            <p class="catalog-count">
+              {loaded.total === 0 ? (filtered ? 'Không có mẫu khớp' : 'Chưa có mẫu đang bán') : loaded.total === 1 ? '1 mẫu' : `${loaded.total} mẫu`}
+            </p>
+          </div>
+          <p class="catalog-lead">Vòng làm thủ công, đang nhận đặt. Giá là giá từng chiếc, chưa gồm phí giao.</p>
+          <div class="catalog-bar">
+            <form class="catalog-search" method="get" action={routes.catalog} role="search">
+              {query.category && <input type="hidden" name="danh-muc" value={query.category} />}
+              {query.sort !== 'mac-dinh' && <input type="hidden" name="sap-xep" value={query.sort} />}
+              <label class="sr-only" for="catalog-q">Tìm mẫu vòng</label>
+              <input id="catalog-q" class="field" type="search" name="q" value={query.q} placeholder="Tìm tên mẫu vòng..." maxlength="80" />
+              <button class="btn btn-primary" type="submit">Tìm</button>
+              {query.q && <a class="btn" href={catalogPath({ ...query, q: '' }, 1)}>Xóa</a>}
+            </form>
+            <div class="catalog-tools">
+              {loaded.categories.length > 0 && (
+                <div class="catalog-group">
+                  <span class="catalog-label" id="catalog-cats">Danh mục</span>
+                  <nav class="catalog-chips" aria-labelledby="catalog-cats">
+                    <a class="chip" href={catalogPath({ ...query, category: '' }, 1)} aria-current={query.category === '' ? 'true' : undefined}>Tất cả</a>
+                    {loaded.categories.map((category) => (
+                      <a class="chip" href={catalogPath({ ...query, category: category.slug }, 1)} aria-current={query.category === category.slug ? 'true' : undefined}>
+                        {category.name}
+                      </a>
+                    ))}
+                  </nav>
+                </div>
+              )}
+              <div class="catalog-group">
+                <span class="catalog-label" id="catalog-sort">Sắp xếp</span>
+                <div class="catalog-segment" role="group" aria-labelledby="catalog-sort">
+                  <a class="chip" href={catalogPath({ ...query, sort: 'mac-dinh' }, 1)} aria-current={bestSelling ? undefined : 'true'}>Mặc định</a>
+                  <a class="chip" href={catalogPath({ ...query, sort: 'ban-chay' }, 1)} aria-current={bestSelling ? 'true' : undefined}>Bán chạy</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
         {loaded.products.length > 0 && (
           <ul class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {loaded.products.map((product, index) => (
@@ -111,6 +121,9 @@ async function loadCatalog() {
           </ul>
         )}
         <Pagination page={page} pageCount={loaded.pageCount} hrefFor={(next) => catalogPath(query, next)} />
+        <div class="catalog-story">
+          <ProductStory />
+        </div>
         {loaded.products.length > 0 && <OrderDialog />}
       </main>
     )

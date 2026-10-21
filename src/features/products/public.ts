@@ -1,6 +1,6 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, ne, notExists, or, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
-import { media, productCategories, productMedia, products } from '../../lib/db/schema';
+import { media, orderItems, orders, productCategories, productMedia, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { readWeightScale } from './weight';
 
@@ -127,6 +127,118 @@ export async function listOrderCatalog(db: AppDb) {
     coverUrl: coverKey ? routes.media(coverKey) : null,
     coverAlt: coverAlt ?? '',
   }));
+}
+
+// Sản phẩm cho form đơn của nhân viên: mẫu đang bán, cộng thêm mẫu đã có trên đơn dù đã ngừng bán.
+export async function listStaffProductChoices(db: AppDb, extraIds: number[]) {
+  const extras = [...new Set(extraIds.filter((id) => Number.isInteger(id) && id > 0))];
+  const rows = await db
+    .select({
+      id: products.id,
+      name: products.name,
+      price: products.price,
+      status: products.status,
+      weightScale: productCategories.weightScale,
+    })
+    .from(products)
+    .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+    .where(extras.length > 0 ? or(eq(products.status, 'active'), inArray(products.id, extras)) : eq(products.status, 'active'))
+    .orderBy(asc(products.status), asc(products.sortOrder), asc(products.id));
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    price: row.price,
+    weightScale: readWeightScale(row.weightScale),
+    active: row.status === 'active',
+  }));
+}
+
+export type StaffPickerProduct = {
+  id: number;
+  name: string;
+  price: number;
+  weightScale: ReturnType<typeof readWeightScale>;
+  active: true;
+  categoryId: number | null;
+  categoryName: string;
+  sold: number;
+  coverUrl: string | null;
+  coverAlt: string;
+};
+
+export type StaffPickerCategory = { id: number; name: string };
+
+// Danh sách mẫu cho trang tạo đơn: đang bán, kèm danh mục và số chiếc đã bán (trừ đơn hủy).
+export async function listStaffPickerProducts(db: AppDb): Promise<{ products: StaffPickerProduct[]; categories: StaffPickerCategory[] }> {
+  const [rows, itemSold, singleSold] = await Promise.all([
+    db
+      .select({
+        id: products.id,
+        name: products.name,
+        price: products.price,
+        weightScale: productCategories.weightScale,
+        categoryId: productCategories.id,
+        categoryName: productCategories.name,
+        categorySort: productCategories.sortOrder,
+        coverKey: media.r2Key,
+        coverAlt: media.altText,
+      })
+      .from(products)
+      .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+      .leftJoin(media, eq(products.coverMediaId, media.id))
+      .where(eq(products.status, 'active')),
+    db
+      .select({
+        productId: orderItems.productId,
+        sold: sql<number>`coalesce(sum(${orderItems.quantity}), 0)`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orderItems.orderId, orders.id))
+      .where(and(isNotNull(orderItems.productId), ne(orders.status, 'cancelled')))
+      .groupBy(orderItems.productId),
+    db
+      .select({
+        productId: orders.productId,
+        sold: sql<number>`coalesce(sum(${orders.quantity}), 0)`,
+      })
+      .from(orders)
+      .where(
+        and(
+          isNotNull(orders.productId),
+          ne(orders.status, 'cancelled'),
+          notExists(db.select({ id: orderItems.id }).from(orderItems).where(eq(orderItems.orderId, orders.id))),
+        ),
+      )
+      .groupBy(orders.productId),
+  ]);
+  const soldByProduct = new Map<number, number>();
+  for (const row of [...itemSold, ...singleSold]) {
+    if (row.productId == null) continue;
+    soldByProduct.set(row.productId, (soldByProduct.get(row.productId) ?? 0) + Number(row.sold));
+  }
+  const listed: StaffPickerProduct[] = rows
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      price: row.price,
+      weightScale: readWeightScale(row.weightScale),
+      active: true as const,
+      categoryId: row.categoryId,
+      categoryName: row.categoryName ?? '',
+      sold: soldByProduct.get(row.id) ?? 0,
+      coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
+      coverAlt: row.coverAlt ?? '',
+    }))
+    .sort((a, b) => b.sold - a.sold || a.name.localeCompare(b.name, 'vi'));
+  const seen = new Map<number, { name: string; sort: number }>();
+  for (const row of rows) {
+    if (row.categoryId == null || seen.has(row.categoryId)) continue;
+    seen.set(row.categoryId, { name: row.categoryName ?? '', sort: row.categorySort ?? 0 });
+  }
+  const categories = [...seen.entries()]
+    .sort((a, b) => a[1].sort - b[1].sort || a[1].name.localeCompare(b[1].name, 'vi'))
+    .map(([id, category]) => ({ id, name: category.name }));
+  return { products: listed, categories };
 }
 
 export async function listSitemapProducts(db: AppDb) {

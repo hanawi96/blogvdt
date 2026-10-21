@@ -21,6 +21,9 @@ pnpm-debug.log*
 # local Cloudflare state
 .wrangler/
 
+# order exports (customer data)
+*.xlsx
+
 # playwright
 test-results/
 playwright-report/

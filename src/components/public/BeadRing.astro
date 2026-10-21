@@ -1,0 +1,17 @@
+---
+interface Props {
+  class?: string;
+}
+
+const { class: className } = Astro.props;
+const BEADS = 16;
+const beads = Array.from({ length: BEADS }, (_, index) => {
+  const angle = (index / BEADS) * Math.PI * 2;
+  return { cx: (60 + Math.cos(angle) * 42).toFixed(2), cy: (60 + Math.sin(angle) * 42).toFixed(2) };
+});
+---
+
+<svg class:list={['bead-ring', className]} viewBox="0 0 120 120" fill="none" aria-hidden="true" focusable="false">
+  <circle cx="60" cy="60" r="42" stroke="currentColor" stroke-opacity="0.35" stroke-width="1"></circle>
+  {beads.map((bead) => <circle cx={bead.cx} cy={bead.cy} r="7.6" fill="currentColor" fill-opacity="0.18" stroke="currentColor" stroke-width="1.2"></circle>)}
+</svg>

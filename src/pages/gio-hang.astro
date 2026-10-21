@@ -1,4 +1,5 @@
 ---
+import AddressField from '../components/public/AddressField.astro';
 import DataError from '../components/public/DataError.astro';
 import DiscountCodeField from '../components/public/DiscountCodeField.astro';
 import PaymentField from '../components/public/PaymentField.astro';
@@ -23,7 +24,7 @@ const loaded = await loadCart();
 let lines = parseCart(Astro.cookies.get(CART_COOKIE)?.value);
 let formError = '';
 let errors: FieldErrors = {};
-const values = { customerName: '', phone: '', address: '', note: '', paymentMethod: '', discountCode: '' };
+const values = { customerName: '', phone: '', address: '', provinceCode: '', wardCode: '', addressLine: '', note: '', paymentMethod: '', discountCode: '' };
 let quote: DiscountQuote | null = null;
 Astro.response.headers.set('Cache-Control', 'private, no-store');
 
@@ -34,9 +35,18 @@ if (Astro.request.method === 'POST') {
     return typeof value === 'string' ? value : '';
   };
   const intent = read('intent');
+  const wantsJson = Astro.request.headers.get('accept')?.includes('application/json') ?? false;
+  const discountJson = (status: number, body: { ok: true; quote: DiscountQuote } | { ok: false; error: string }) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store' },
+    });
   values.customerName = read('customerName');
   values.phone = read('phone');
   values.address = read('address');
+  values.provinceCode = read('provinceCode');
+  values.wardCode = read('wardCode');
+  values.addressLine = read('addressLine');
   values.note = read('note');
   values.paymentMethod = read('paymentMethod');
   values.discountCode = read('discountCode');
@@ -65,28 +75,39 @@ if (Astro.request.method === 'POST') {
     }
   } else if (intent === 'apply') {
     const posted = linesFrom(form, intent);
+    const fail = (status: number, error: string, field = false) => {
+      if (wantsJson) return discountJson(status, { ok: false, error });
+      Astro.response.status = status;
+      if (field) errors = { discountCode: error };
+      else formError = error;
+      return null;
+    };
     if (!posted.ok) {
-      Astro.response.status = 422;
-      formError = posted.error;
+      const denied = fail(422, posted.error);
+      if (denied) return denied;
     } else if (read('company').trim()) {
-      Astro.response.status = 403;
-      formError = 'Không gửi được đơn.';
+      const denied = fail(403, 'Không gửi được đơn.');
+      if (denied) return denied;
     } else {
       lines = posted.lines;
       const subtotal = merchandiseTotal(posted.lines, loaded.catalog);
       if (subtotal === null) {
-        Astro.response.status = 422;
-        formError = posted.lines.length === 0 ? 'Giỏ đang trống.' : 'Một mẫu trong giỏ không còn bán.';
+        const denied = fail(422, posted.lines.length === 0 ? 'Giỏ đang trống.' : 'Một mẫu trong giỏ không còn bán.');
+        if (denied) return denied;
       } else if (!loaded.db) {
-        Astro.response.status = 503;
-        formError = 'Chưa kiểm được mã. Thử lại sau.';
+        const denied = fail(503, 'Chưa kiểm được mã. Thử lại sau.');
+        if (denied) return denied;
       } else {
         const priced = await priceDiscount(loaded.db, subtotal, values.discountCode, await visitorHash(), Date.now(), true);
         if (!priced.ok) {
-          Astro.response.status = 422;
-          errors = { discountCode: priced.error };
-        } else {
+          const denied = fail(422, priced.error, true);
+          if (denied) return denied;
+        } else if (priced.discount) {
           quote = priced.discount;
+          if (wantsJson) return discountJson(200, { ok: true, quote: priced.discount });
+        } else {
+          const denied = fail(422, 'Nhập mã giảm giá.', true);
+          if (denied) return denied;
         }
       }
     }
@@ -251,7 +272,7 @@ async function loadCart() {
           </section>
         ) : (
           <form class="cart-layout" method="post" action={routes.cart} data-cart-page>
-            <button class="sr-only" type="submit" name="intent" value="save" tabindex="-1" aria-hidden="true">Cập nhật giỏ</button>
+            <button class="sr-only" type="submit" data-cart-noop tabindex="-1" aria-hidden="true">Giỏ hàng</button>
             <section class="cart-card" aria-label="Sản phẩm trong giỏ">
               <ul class="cart-list">
                 {resolved.map((line, index) => (
@@ -296,7 +317,6 @@ async function loadCart() {
               </ul>
               <div class="cart-tools">
                 <a href={routes.catalog}>← Xem thêm mẫu</a>
-                <button class="btn" type="submit" name="intent" value="save">Cập nhật giỏ</button>
               </div>
             </section>
             <section class="cart-card cart-checkout" aria-labelledby="cart-checkout-title">
@@ -315,11 +335,14 @@ async function loadCart() {
               <input id="phone" class="field" name="phone" type="tel" required maxlength="20" autocomplete="tel" value={values.phone} />
               {errors.phone && <span class="error-text">{errors.phone}</span>}
             </label>
-            <label class="mt-4 block" for="address">
-              <span class="mb-1 block font-semibold">Địa chỉ nhận hàng</span>
-              <textarea id="address" class="field min-h-24" name="address" required maxlength="240" autocomplete="street-address">{values.address}</textarea>
-              {errors.address && <span class="error-text">{errors.address}</span>}
-            </label>
+            <AddressField
+              idPrefix="cart-address"
+              error={errors.address}
+              address={values.address}
+              provinceCode={values.provinceCode}
+              wardCode={values.wardCode}
+              line={values.addressLine}
+            />
             <label class="mt-4 block" for="note">
               <span class="mb-1 block font-semibold">Ghi chú</span>
               <textarea id="note" class="field min-h-20" name="note" maxlength="500">{values.note}</textarea>
@@ -328,8 +351,8 @@ async function loadCart() {
             <PaymentField value={values.paymentMethod} error={errors.paymentMethod} />
             <DiscountCodeField id="cart-discount" value={values.discountCode} error={errors.discountCode} quote={quote} />
             <div class="cart-sum">
-              <span>Tạm tính</span>
-              <strong data-cart-total>{formatVnd(total)}</strong>
+              <span data-cart-sum-label>{quote ? 'Phải trả' : 'Tạm tính'}</span>
+              <strong data-cart-total>{formatVnd(quote?.totalPrice ?? total)}</strong>
             </div>
             <p class="cart-sum-note">Chưa gồm phí giao. Xưởng gọi lại để chốt đơn, website không thu tiền trực tuyến.</p>
             <button class="btn btn-accent mt-4 w-full" type="submit" name="intent" value="order">Gửi đơn</button>
@@ -341,6 +364,8 @@ async function loadCart() {
   }
 </PublicLayout>
 <script>
+  import { CART_COOKIE, CART_MAX_AGE, cartCount, postedCartLines, serializeCart, type CartLine } from '../features/cart/cart';
+
   const form = document.querySelector('form[data-cart-page]');
   if (form instanceof HTMLFormElement) {
     const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
@@ -376,23 +401,139 @@ async function loadCart() {
         input.value = String(Math.min(max, Math.max(1, next)));
         recalc();
         markQuoteStale();
+        persist();
       });
     });
+    const store = (lines: CartLine[]) => {
+      const secure = location.protocol === 'https:' ? '; Secure' : '';
+      const maxAge = lines.length === 0 ? 0 : CART_MAX_AGE;
+      const value = lines.length === 0 ? '' : encodeURIComponent(serializeCart(lines));
+      document.cookie = `${CART_COOKIE}=${value}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`;
+      const count = cartCount(lines);
+      const label = count > 0 ? `Giỏ hàng, ${count} chiếc` : 'Giỏ hàng';
+      document.querySelectorAll('[data-cart-count], [data-cart-count-mobile]').forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        node.hidden = count < 1;
+        node.textContent = count > 0 ? String(count) : '';
+      });
+      document.querySelectorAll('[data-cart-link], [data-cart-link-mobile]').forEach((node) => {
+        if (node instanceof HTMLAnchorElement) node.setAttribute('aria-label', label);
+      });
+    };
+    const persist = () => {
+      const slugs = [...form.querySelectorAll<HTMLInputElement>('input[name="slug"]')].map((input) => input.value);
+      const quantities = [...form.querySelectorAll<HTMLInputElement>('input[name="quantity"]')].map((input) => input.value);
+      const weights = [...form.querySelectorAll<HTMLInputElement>('input[name="weight"]')].map((input) => input.value);
+      const posted = postedCartLines(slugs, quantities, weights);
+      if (posted.ok) store(posted.lines);
+    };
+    let saveTimer = 0;
+    let applySerial = 0;
     const markQuoteStale = () => {
+      applySerial += 1;
+      const applyButton = form.querySelector('button[name="intent"][value="apply"]');
+      if (applyButton instanceof HTMLButtonElement) {
+        applyButton.disabled = false;
+        applyButton.textContent = 'Áp dụng';
+      }
+      const label = form.querySelector('[data-cart-sum-label]');
+      if (label) label.textContent = 'Tạm tính';
       const quoteNote = form.querySelector('[data-discount-quote]');
-      if (quoteNote instanceof HTMLElement) quoteNote.textContent = 'Số lượng vừa đổi. Bấm Áp dụng để xem số giảm mới.';
+      if (quoteNote instanceof HTMLElement && !quoteNote.hidden && quoteNote.textContent) {
+        quoteNote.textContent = 'Số lượng vừa đổi. Bấm Áp dụng để xem số giảm mới.';
+      }
+    };
+    const showDiscount = (message: string, isError: boolean) => {
+      const error = form.querySelector('[data-discount-error]');
+      const quoteNote = form.querySelector('[data-discount-quote]');
+      if (error instanceof HTMLElement) {
+        error.hidden = !isError;
+        error.textContent = isError ? message : '';
+      }
+      if (quoteNote instanceof HTMLElement) {
+        quoteNote.hidden = isError || !message;
+        quoteNote.textContent = isError ? '' : message;
+      }
+    };
+    const previewDiscount = async (button: HTMLButtonElement) => {
+      const serial = ++applySerial;
+      const body = new FormData(form);
+      body.set('intent', 'apply');
+      button.disabled = true;
+      button.textContent = 'Đang áp dụng...';
+      try {
+        const response = await fetch(form.action, { method: 'POST', body, headers: { accept: 'application/json' } });
+        const payload: unknown = await response.json();
+        if (serial !== applySerial) return;
+        const row = payload && typeof payload === 'object' ? payload as { ok?: boolean; error?: string; quote?: { code?: string; discountAmount?: number; totalPrice?: number } } : null;
+        const quoteRow = row?.quote;
+        const discountAmount = quoteRow?.discountAmount;
+        const totalPrice = quoteRow?.totalPrice;
+        if (
+          !response.ok ||
+          !row?.ok ||
+          typeof quoteRow?.code !== 'string' ||
+          typeof discountAmount !== 'number' ||
+          typeof totalPrice !== 'number' ||
+          !Number.isInteger(discountAmount) ||
+          !Number.isInteger(totalPrice)
+        ) {
+          showDiscount(typeof row?.error === 'string' ? row.error : 'Chưa kiểm được mã. Thử lại sau.', true);
+          const sumLabel = form.querySelector('[data-cart-sum-label]');
+          if (sumLabel) sumLabel.textContent = 'Tạm tính';
+          recalc();
+          return;
+        }
+        const codeField = form.querySelector('[name="discountCode"]');
+        if (codeField instanceof HTMLInputElement) codeField.value = quoteRow.code;
+        showDiscount(`Giảm ${quoteRow.code}: −${money.format(discountAmount)}. Còn ${money.format(totalPrice)}.`, false);
+        const sumLabel = form.querySelector('[data-cart-sum-label]');
+        if (sumLabel) sumLabel.textContent = 'Phải trả';
+        const totalOut = form.querySelector('[data-cart-total]');
+        if (totalOut) totalOut.textContent = money.format(totalPrice);
+      } catch {
+        if (serial !== applySerial) return;
+        showDiscount('Chưa kiểm được mã. Thử lại sau.', true);
+      } finally {
+        if (serial === applySerial) {
+          button.disabled = false;
+          button.textContent = 'Áp dụng';
+        }
+      }
     };
     form.addEventListener('input', (event) => {
-      if (event.target instanceof HTMLInputElement && event.target.name === 'quantity') {
-        recalc();
-        markQuoteStale();
-      }
+      if (!(event.target instanceof HTMLInputElement) || event.target.name !== 'quantity') return;
+      recalc();
+      markQuoteStale();
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(persist, 250);
     });
 
     // Chặn bấm "Gửi đơn" hai lần; không vô hiệu hóa nút vì giá trị intent cần được gửi đi.
     let sending = false;
     form.addEventListener('submit', (event) => {
       const submitter = event instanceof SubmitEvent ? event.submitter : null;
+      if (!(submitter instanceof HTMLButtonElement) || submitter.hasAttribute('data-cart-noop')) {
+        event.preventDefault();
+        return;
+      }
+      if (submitter.value.startsWith('remove:')) {
+        event.preventDefault();
+        submitter.closest('[data-cart-item]')?.remove();
+        const linesOut = document.querySelector('[data-cart-sum-lines]');
+        const remaining = form.querySelectorAll('[data-cart-item]').length;
+        if (linesOut) linesOut.textContent = `${remaining} mẫu`;
+        recalc();
+        markQuoteStale();
+        persist();
+        if (remaining === 0) location.reload();
+        return;
+      }
+      if (submitter.value === 'apply') {
+        event.preventDefault();
+        void previewDiscount(submitter);
+        return;
+      }
       if (!(submitter instanceof HTMLButtonElement) || submitter.value !== 'order') return;
       if (sending) {
         event.preventDefault();

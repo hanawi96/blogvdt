@@ -1,0 +1,476 @@
+---
+import { CART_MAX_LINES } from '../../features/cart/cart';
+import type { StaffLineInput, StoredOrderLine } from '../../features/orders/staff';
+import { weightOptions, type WeightScale } from '../../features/products/weight';
+import { formatVnd } from '../../lib/money';
+
+interface Props {
+  choices: { id: number; name: string; price: number; weightScale: WeightScale; active: boolean }[];
+  lines: StaffLineInput[];
+  stored: StoredOrderLine[];
+  orderTotal?: string;
+  extraDiscount?: string;
+  error?: string;
+  allowEmpty?: boolean;
+}
+
+const {
+  choices,
+  lines,
+  stored,
+  orderTotal = '',
+  extraDiscount = '',
+  error = '',
+  allowEmpty = false,
+} = Astro.props;
+const active = choices.filter((choice) => choice.active);
+const canAdd = active.length > 0;
+const totalAmount = Number(orderTotal.replace(/\D/g, ''));
+const totalLabel = orderTotal.trim() && Number.isSafeInteger(totalAmount) ? formatVnd(totalAmount) : formatVnd(0);
+const extraAmount = Number(extraDiscount.replace(/\D/g, ''));
+const extraLabel = extraDiscount.trim() && Number.isSafeInteger(extraAmount) && extraAmount > 0 ? formatVnd(extraAmount) : formatVnd(0);
+
+function choiceOf(productId: string) {
+  return choices.find((choice) => String(choice.id) === productId);
+}
+
+function weightsFor(line: StaffLineInput): string[] {
+  const choice = choiceOf(line.productId);
+  const labels = choice ? [...weightOptions(choice.weightScale)] : [];
+  if (line.weight && !labels.includes(line.weight)) labels.unshift(line.weight);
+  return labels;
+}
+
+function shownName(line: StaffLineInput): string {
+  if (typeof line.name === 'string') return line.name;
+  const source = /^\d+$/.test(line.slot) ? stored[Number(line.slot)] : undefined;
+  if (source) return source.productName;
+  return choiceOf(line.productId)?.name ?? '';
+}
+
+function keptPrice(line: StaffLineInput): number | null {
+  if (!/^\d+$/.test(line.slot)) return null;
+  const source = stored[Number(line.slot)];
+  if (!source) return null;
+  const productId = line.productId.trim() ? Number(line.productId) : null;
+  if (source.productId !== productId || (source.optionLabel ?? '') !== line.weight.trim()) return null;
+  return source.unitPrice;
+}
+---
+
+<div
+  class="staff-lines-wrap"
+  data-order-lines
+  data-max={CART_MAX_LINES}
+  data-add={canAdd ? '1' : '0'}
+  data-allow-empty={allowEmpty ? '1' : undefined}
+>
+  <pre hidden data-order-choices>{JSON.stringify(choices).replace(/</g, '\\u003c')}</pre>
+  <ul class="staff-lines" data-line-list>
+    {
+      lines.map((line) => {
+        const labels = weightsFor(line);
+        const source = /^\d+$/.test(line.slot) ? stored[Number(line.slot)] : undefined;
+        const name = shownName(line);
+        const pickProduct = line.productId === '' && name === '';
+        const automatic = keptPrice(line) ?? choiceOf(line.productId)?.price ?? null;
+        const priceText = line.price?.trim() || (automatic !== null ? String(automatic) : '');
+        const priceAmount = Number(priceText.replace(/\D/g, ''));
+        const priceLabel = priceText && Number.isSafeInteger(priceAmount) ? `Đơn giá ${formatVnd(priceAmount)}` : 'Đơn giá';
+        return (
+          <li
+            class="staff-line"
+            data-line
+            data-keep={source ? '1' : undefined}
+            data-frozen-product={source ? (source.productId ? String(source.productId) : 'none') : undefined}
+            data-frozen-weight={source ? (source.optionLabel ?? '') : undefined}
+            data-frozen-price={source ? String(source.unitPrice) : undefined}
+          >
+            <input type="hidden" name="lineSlot" value={line.slot} />
+            <input type="hidden" name="lineProduct" data-product value={line.productId} />
+            <label data-product-pick hidden={!pickProduct}>
+              <span class="od-label">Sản phẩm</span>
+              <select class="field" data-product-select>
+                <option value="">Chọn sản phẩm</option>
+                {active.map((choice) => <option value={choice.id}>{choice.name}</option>)}
+              </select>
+            </label>
+            <label data-name-field hidden={pickProduct}>
+              <span class="od-label">Sản phẩm</span>
+              <input class="field" name="lineName" data-line-name maxlength="160" autocomplete="off" value={name} hidden={pickProduct} />
+            </label>
+            <label data-weight-field hidden={labels.length === 0}>
+              <span class="od-label">Cân nặng</span>
+              <select class="field" name="lineWeight" data-weight>
+                <option value="">Chọn cân nặng</option>
+                {labels.map((label) => <option value={label} selected={line.weight === label}>{label}</option>)}
+              </select>
+            </label>
+            <div class="staff-line-qty">
+              <label>
+                <span class="od-label">Số lượng</span>
+                <input class="field" type="number" name="lineQuantity" data-qty min="1" max="20" required value={line.quantity || '1'} />
+              </label>
+              <button class="staff-line-remove" type="button" data-remove-line aria-label="Xóa sản phẩm" hidden={lines.length < 2 && !allowEmpty}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12" /></svg>
+              </button>
+            </div>
+            <div class="staff-line-price">
+              <button class="staff-money-text" type="button" data-money-text>{priceLabel}</button>
+              <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value={priceText} hidden />
+            </div>
+          </li>
+        );
+      })
+    }
+  </ul>
+  <template data-line-template>
+    <li class="staff-line" data-line>
+      <input type="hidden" name="lineSlot" value="" />
+      <input type="hidden" name="lineProduct" data-product value="" />
+      <label data-product-pick>
+        <span class="od-label">Sản phẩm</span>
+        <select class="field" data-product-select>
+          <option value="" selected>Chọn sản phẩm</option>
+          {active.map((choice) => <option value={choice.id}>{choice.name}</option>)}
+        </select>
+      </label>
+      <label data-name-field hidden>
+        <span class="od-label">Sản phẩm</span>
+        <input class="field" name="lineName" data-line-name maxlength="160" autocomplete="off" value="" hidden />
+      </label>
+      <label data-weight-field hidden>
+        <span class="od-label">Cân nặng</span>
+        <select class="field" name="lineWeight" data-weight>
+          <option value="">Chọn cân nặng</option>
+        </select>
+      </label>
+      <div class="staff-line-qty">
+        <label>
+          <span class="od-label">Số lượng</span>
+          <input class="field" type="number" name="lineQuantity" data-qty min="1" max="20" required value="1" />
+        </label>
+        <button class="staff-line-remove" type="button" data-remove-line aria-label="Xóa sản phẩm">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12" /></svg>
+        </button>
+      </div>
+      <div class="staff-line-price">
+        <button class="staff-money-text" type="button" data-money-text>Đơn giá</button>
+        <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value="" hidden />
+      </div>
+    </li>
+  </template>
+  {allowEmpty && <p class="od-note" data-lines-empty hidden={lines.length > 0}>Chưa có sản phẩm. Chọn mẫu bên phải rồi bấm Thêm đã chọn.</p>}
+  <button class="btn mt-3" type="button" data-add-line hidden={allowEmpty || !canAdd || lines.length >= CART_MAX_LINES}>Thêm mẫu</button>
+  <div class="staff-pay">
+    <div class="staff-extra">
+      <span class="od-label">Giảm giá</span>
+      <button class="staff-money-text staff-extra-text" type="button" data-money-text>{extraLabel}</button>
+      <input class="field" name="discountExtra" data-discount-extra inputmode="numeric" maxlength="8" autocomplete="off" value={extraDiscount} hidden />
+    </div>
+    <p class="od-note" data-pay-sub hidden></p>
+    <div class="staff-pay-total">
+      <span data-pay-label>Tổng tiền</span>
+      <button class="staff-money-text" type="button" data-money-text>{totalLabel}</button>
+      <input class="field staff-pay-input" name="orderTotal" data-order-total inputmode="numeric" maxlength="9" autocomplete="off" value={orderTotal} data-lock={orderTotal ? '1' : undefined} hidden />
+    </div>
+  </div>
+  {error && <p class="error-text mt-3" role="alert">{error}</p>}
+</div>
+
+<script>
+  import { WEIGHT_SCALES } from '../../features/products/weight';
+  import { groupDigits } from '../../lib/group-digits';
+  import { formatVnd } from '../../lib/money';
+
+  const lineEditor = document.querySelector('[data-order-lines]');
+  if (lineEditor instanceof HTMLElement) {
+    const root = lineEditor;
+    const choices = JSON.parse(root.querySelector('[data-order-choices]')?.textContent || '[]') as {
+      id: number;
+      name?: string;
+      price: number;
+      scale?: string;
+      weightScale?: string;
+    }[];
+    const max = Number(root.dataset.max || '8');
+    const allowAdd = root.dataset.add === '1';
+    const allowEmpty = root.dataset.allowEmpty === '1';
+    const list = root.querySelector('[data-line-list]');
+    const template = root.querySelector('template');
+    const add = root.querySelector('[data-add-line]');
+
+    function rows(): HTMLElement[] {
+      if (!(list instanceof HTMLElement)) return [];
+      return [...list.querySelectorAll<HTMLElement>('[data-line]')];
+    }
+
+    function labelsFor(scale: string): readonly string[] {
+      if (scale in WEIGHT_SCALES) return WEIGHT_SCALES[scale as keyof typeof WEIGHT_SCALES];
+      return [];
+    }
+
+    function unitOf(row: HTMLElement): number | null {
+      const product = row.querySelector('[data-product]');
+      const weight = row.querySelector('[data-weight]');
+      if (!(product instanceof HTMLInputElement) || !(weight instanceof HTMLSelectElement)) return null;
+      const choice = choices.find((item) => String(item.id) === product.value);
+      const productKey = product.value || 'none';
+      const frozen = Number(row.dataset.frozenPrice ?? '');
+      const keep =
+        row.dataset.keep === '1' &&
+        row.dataset.frozenProduct === productKey &&
+        (row.dataset.frozenWeight ?? '') === weight.value &&
+        Number.isInteger(frozen);
+      if (keep) return frozen;
+      return typeof choice?.price === 'number' ? choice.price : null;
+    }
+
+    function moneyButton(input: HTMLInputElement): HTMLElement | null {
+      const node = input.parentElement?.querySelector('[data-money-text]');
+      return node instanceof HTMLElement ? node : null;
+    }
+
+    function paintMoneyText(input: HTMLInputElement) {
+      const text = moneyButton(input);
+      if (!text || !input.hidden) return;
+      const amount = digits(input.value);
+      text.textContent = input.matches('[data-line-price]') ? (input.value.trim() ? `Đơn giá ${formatVnd(amount)}` : 'Đơn giá') : formatVnd(amount);
+    }
+
+    function editMoney(input: HTMLInputElement) {
+      const text = moneyButton(input);
+      if (!text) return;
+      input.dataset.previous = input.value;
+      text.hidden = true;
+      input.hidden = false;
+      input.focus();
+      input.select();
+    }
+
+    function closeMoney(input: HTMLInputElement) {
+      input.hidden = true;
+      const text = moneyButton(input);
+      if (text) text.hidden = false;
+      paintMoneyText(input);
+    }
+
+    function fillPrice(row: HTMLElement) {
+      const input = row.querySelector('[data-line-price]');
+      if (!(input instanceof HTMLInputElement)) return;
+      const amount = unitOf(row);
+      input.value = amount === null ? '' : groupDigits(String(amount), 8);
+      closeMoney(input);
+    }
+
+    function digits(value: string): number {
+      const text = value.replace(/\D/g, '');
+      if (!text) return 0;
+      const amount = Number(text);
+      return Number.isSafeInteger(amount) ? amount : 0;
+    }
+
+    function paintPay() {
+      const subtotal = rows().reduce((sum, row) => {
+        const price = row.querySelector('[data-line-price]');
+        const qty = row.querySelector('[data-qty]');
+        if (!(price instanceof HTMLInputElement) || !(qty instanceof HTMLInputElement)) return sum;
+        const quantity = Number(qty.value);
+        if (!Number.isInteger(quantity) || quantity < 1) return sum;
+        const unit = price.value.trim() ? digits(price.value) : (unitOf(row) ?? 0);
+        return sum + unit * quantity;
+      }, 0);
+      const totalInput = root.querySelector('[data-order-total]');
+      const extraInput = root.querySelector('[data-discount-extra]');
+      const locked = totalInput instanceof HTMLInputElement && totalInput.dataset.lock === '1';
+      const room = subtotal;
+      const editingExtra = extraInput instanceof HTMLInputElement && !extraInput.hidden;
+      let extra = extraInput instanceof HTMLInputElement ? digits(extraInput.value) : 0;
+      let over = '';
+      if (locked && totalInput instanceof HTMLInputElement) {
+        const shownTotal = digits(totalInput.value);
+        if (shownTotal > subtotal) over = 'Tổng lớn hơn tạm tính. Hãy tăng đơn giá.';
+        else extra = room - shownTotal;
+      } else {
+        extra = Math.min(extra, room);
+        if (totalInput instanceof HTMLInputElement) totalInput.value = groupDigits(String(room - extra), 9);
+      }
+      if (extraInput instanceof HTMLInputElement && !editingExtra && !over) {
+        extraInput.value = extra > 0 ? groupDigits(String(extra), 8) : '';
+        paintMoneyText(extraInput);
+      }
+      const sub = root.querySelector('[data-pay-sub]');
+      if (sub instanceof HTMLElement) {
+        const parts: string[] = [];
+        if (extra > 0 || over) parts.push(`Tạm tính ${formatVnd(subtotal)}`);
+        if (extra > 0) parts.push(`Giảm −${formatVnd(extra)}`);
+        if (over) parts.push(over);
+        sub.hidden = parts.length === 0;
+        sub.textContent = parts.join(' · ');
+      }
+      if (totalInput instanceof HTMLInputElement) paintMoneyText(totalInput);
+    }
+
+    function revealName(row: HTMLElement, productId: string) {
+      const product = row.querySelector('[data-product]');
+      const name = row.querySelector('[data-line-name]');
+      const pick = row.querySelector('[data-product-pick]');
+      const nameField = row.querySelector('[data-name-field]');
+      if (!(product instanceof HTMLInputElement)) return;
+      product.value = productId;
+      const choice = choices.find((item) => String(item.id) === productId);
+      if (name instanceof HTMLInputElement && choice?.name) name.value = choice.name;
+      if (name instanceof HTMLInputElement) name.hidden = false;
+      if (nameField instanceof HTMLElement) nameField.hidden = false;
+      if (pick instanceof HTMLElement) pick.hidden = true;
+    }
+
+    function refill(row: HTMLElement) {
+      const product = row.querySelector('[data-product]');
+      const weight = row.querySelector('[data-weight]');
+      const field = row.querySelector('[data-weight-field]');
+      if (!(product instanceof HTMLInputElement) || !(weight instanceof HTMLSelectElement) || !(field instanceof HTMLElement)) return;
+      const choice = choices.find((item) => String(item.id) === product.value);
+      const labels = labelsFor(choice?.weightScale ?? choice?.scale ?? '');
+      const selected = weight.value;
+      weight.replaceChildren();
+      if (labels.length === 0) {
+        field.hidden = true;
+        weight.value = '';
+        return;
+      }
+      field.hidden = false;
+      weight.add(new Option('Chọn cân nặng', ''));
+      for (const label of labels) weight.add(new Option(label, label, false, label === selected));
+    }
+
+    function syncAdd() {
+      const count = rows().length;
+      if (add instanceof HTMLButtonElement) add.hidden = allowEmpty || !allowAdd || count >= max;
+      for (const row of rows()) {
+        const remove = row.querySelector('[data-remove-line]');
+        if (remove instanceof HTMLButtonElement) remove.hidden = !allowEmpty && count < 2;
+      }
+      const empty = root.querySelector('[data-lines-empty]');
+      if (empty instanceof HTMLElement) empty.hidden = count > 0;
+    }
+
+    function unlockTotal() {
+      const total = root.querySelector('[data-order-total]');
+      if (total instanceof HTMLInputElement) delete total.dataset.lock;
+    }
+
+    function appendLine(productId: string, weightValue = '', focus = true): boolean {
+      if (!(list instanceof HTMLElement) || !(template instanceof HTMLTemplateElement) || rows().length >= max) return false;
+      const source = template.content.querySelector('[data-line]');
+      if (!(source instanceof HTMLElement)) return false;
+      const copy = source.cloneNode(true);
+      if (!(copy instanceof HTMLElement)) return false;
+      list.appendChild(copy);
+      const weight = copy.querySelector('[data-weight]');
+      if (productId) {
+        revealName(copy, productId);
+        refill(copy);
+        if (weight instanceof HTMLSelectElement && weightValue) weight.value = weightValue;
+        fillPrice(copy);
+      }
+      syncAdd();
+      unlockTotal();
+      paintPay();
+      if (!focus) return true;
+      const weightField = copy.querySelector('[data-weight-field]');
+      const name = copy.querySelector('[data-line-name]');
+      if (weightField instanceof HTMLElement && !weightField.hidden && weight instanceof HTMLSelectElement && !weightValue) weight.focus();
+      else if (name instanceof HTMLInputElement && !name.hidden) name.focus();
+      else {
+        const pick = copy.querySelector('[data-product-select]');
+        if (pick instanceof HTMLSelectElement) pick.focus();
+      }
+      return true;
+    }
+
+    root.addEventListener('change', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const row = target.closest('[data-line]');
+      if (row instanceof HTMLElement) {
+        if (target.matches('[data-product-select]') && target instanceof HTMLSelectElement && target.value) {
+          revealName(row, target.value);
+          refill(row);
+          fillPrice(row);
+        } else if (target.matches('[data-weight]')) fillPrice(row);
+      }
+      if (!(target instanceof HTMLInputElement && target.matches('[data-order-total]'))) unlockTotal();
+      paintPay();
+    });
+
+    root.addEventListener('input', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      if (target.matches('[data-order-total]')) {
+        target.dataset.lock = '1';
+        paintPay();
+        return;
+      }
+      if (target.matches('[data-line-price]') || target.matches('[data-qty]') || target.matches('[data-discount-extra]')) {
+        unlockTotal();
+        paintPay();
+      }
+    });
+
+    root.addEventListener('keydown', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      if (!target.matches('[data-line-price]') && !target.matches('[data-order-total]') && !target.matches('[data-discount-extra]')) return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        target.blur();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        if (typeof target.dataset.previous === 'string') target.value = target.dataset.previous;
+        target.blur();
+      }
+    });
+
+    root.addEventListener('focusout', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      if (!target.matches('[data-line-price]') && !target.matches('[data-order-total]') && !target.matches('[data-discount-extra]')) return;
+      closeMoney(target);
+      paintPay();
+    });
+
+    root.addEventListener('click', (event) => {
+      const button = event.target instanceof Element ? event.target.closest('button') : null;
+      if (!(button instanceof HTMLButtonElement)) return;
+      if (button.hasAttribute('data-money-text')) {
+        const input = button.parentElement?.querySelector('input');
+        if (input instanceof HTMLInputElement) editMoney(input);
+        return;
+      }
+      if (button.hasAttribute('data-remove-line')) {
+        if (!allowEmpty && rows().length < 2) return;
+        button.closest('[data-line]')?.remove();
+        syncAdd();
+        unlockTotal();
+        paintPay();
+        return;
+      }
+      if (button.hasAttribute('data-add-line')) appendLine('');
+    });
+
+    document.addEventListener('staff-add-product', (event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const detail = event.detail;
+      if (typeof detail === 'string') appendLine(detail);
+      else if (detail && typeof detail === 'object' && 'id' in detail && typeof detail.id === 'string') {
+        const weight = 'weight' in detail && typeof detail.weight === 'string' ? detail.weight : '';
+        const focus = !('focus' in detail) || detail.focus !== false;
+        appendLine(detail.id, weight, focus);
+      }
+    });
+
+    syncAdd();
+    paintPay();
+  }
+</script>
