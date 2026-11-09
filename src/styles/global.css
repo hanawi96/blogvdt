@@ -4331,6 +4331,9 @@
     display: grid;
     gap: 0.15rem;
   }
+  .order-sum-value {
+    font-weight: 650;
+  }
   .order-pay {
     color: var(--color-muted);
     font-size: 0.75rem;
@@ -4342,6 +4345,205 @@
   }
   .order-profit[data-sign='loss'] {
     color: var(--color-danger);
+  }
+  .order-check-col {
+    width: 2.75rem;
+    vertical-align: top;
+  }
+  .order-check-cell {
+    display: grid;
+    justify-items: center;
+    gap: 0.35rem;
+  }
+  .order-stt {
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+  }
+  .order-code-cell {
+    display: grid;
+    gap: 0.35rem;
+    min-width: 8.5rem;
+  }
+  .order-code-row {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .order-code-link {
+    color: var(--color-ink);
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .order-code-link:hover {
+    color: var(--color-primary-strong);
+  }
+  .order-customer-cell {
+    display: grid;
+    gap: 0.3rem;
+    min-width: 12rem;
+    max-width: 18rem;
+  }
+  .order-customer-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .order-customer-name {
+    font-weight: 650;
+  }
+  .order-chip {
+    display: inline-flex;
+    border-radius: 999px;
+    background: var(--color-canvas);
+    padding: 0.05rem 0.45rem;
+    color: var(--color-muted);
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+  .order-chip[data-tone='source'] {
+    background: color-mix(in oklab, var(--color-primary) 14%, var(--color-surface));
+    color: var(--color-primary-strong);
+  }
+  .order-chip[data-tone='new'] {
+    background: color-mix(in oklab, var(--color-accent) 16%, var(--color-surface));
+    color: var(--color-accent);
+  }
+  .order-customer-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+  .order-customer-line svg {
+    flex: none;
+    margin-top: 0.1rem;
+  }
+  .order-customer-address span {
+    white-space: pre-line;
+  }
+  .order-products-wrap {
+    display: grid;
+    gap: 0.45rem;
+    min-width: 14rem;
+  }
+  .order-line-note {
+    border-radius: var(--radius-md);
+    background: color-mix(in oklab, var(--color-accent) 10%, var(--color-surface));
+    padding: 0.4rem 0.55rem;
+  }
+  .order-line-note[data-tone='internal'] {
+    background: color-mix(in oklab, var(--color-primary) 10%, var(--color-surface));
+  }
+  .order-line-note-label {
+    display: block;
+    color: var(--color-muted);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .order-line-note p {
+    margin: 0.15rem 0 0;
+    color: var(--color-ink);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+  .order-product-demos {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .order-demo-btn {
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    padding: 0.2rem 0.55rem;
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .order-demo-btn:hover {
+    border-color: var(--color-ink);
+    color: var(--color-ink);
+  }
+  .order-demo-msg {
+    flex: 1 1 100%;
+    color: var(--color-muted);
+    font-size: 0.75rem;
+  }
+  .order-profit-cell {
+    display: grid;
+    gap: 0.2rem;
+  }
+  .order-profit-link {
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 0.12em;
+  }
+  .order-profit-link:hover {
+    color: var(--color-primary-strong);
+  }
+  .order-date-cell {
+    display: grid;
+    gap: 0.15rem;
+    white-space: nowrap;
+  }
+  .order-date-time {
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+  .order-date-day {
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+  }
+  .order-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .order-row-actions form {
+    display: inline-flex;
+    margin: 0;
+  }
+  .order-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.85rem;
+    height: 1.85rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--color-muted);
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .order-icon-btn:hover {
+    border-color: var(--color-line);
+    background: var(--color-canvas);
+    color: var(--color-ink);
+  }
+  .order-icon-btn.is-view:hover {
+    color: var(--color-primary-strong);
+  }
+  .order-icon-btn.is-delete:hover {
+    color: var(--color-danger);
+  }
+  .order-icon-btn[data-copied='1'] {
+    color: var(--color-primary-strong);
+  }
+  .order-table td {
+    vertical-align: top;
   }
   .recipe {
     margin-top: 1rem;
@@ -6604,8 +6806,133 @@
     color: var(--color-ink);
   }
   [data-product-results]:has(.bulk-bar:not([hidden])),
-  [data-post-results]:has(.bulk-bar:not([hidden])) {
+  [data-post-results]:has(.bulk-bar:not([hidden])),
+  [data-order-results]:has(.bulk-bar:not([hidden])) {
     padding-bottom: 5rem;
+  }
+  .order-table tr:has(input[name='ids']:checked) {
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  }
+  .order-bulk-bar {
+    gap: 0.4rem;
+    border: 0;
+    background: linear-gradient(90deg, #6d4aff 0%, #a855f7 45%, #ec4899 100%);
+    padding: 0.55rem 0.65rem;
+    box-shadow: 0 12px 28px color-mix(in srgb, #6d4aff 35%, transparent);
+    color: #fff;
+  }
+  .order-bulk-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-right: 0.15rem;
+    padding-right: 0.65rem;
+    border-right: 1px solid color-mix(in srgb, #fff 35%, transparent);
+    font-size: 0.875rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .order-bulk-check {
+    display: grid;
+    place-items: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, #fff 22%, transparent);
+    font-size: 0.7rem;
+    line-height: 1;
+  }
+  .order-bulk-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, #fff 18%, transparent);
+    padding: 0.45rem 0.75rem;
+    color: #fff;
+    font: inherit;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .order-bulk-btn svg {
+    width: 0.95rem;
+    height: 0.95rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .order-bulk-btn.is-priority {
+    background: #f59e0b;
+    color: #1f1300;
+  }
+  .order-bulk-btn.is-priority svg {
+    fill: currentColor;
+    stroke: none;
+  }
+  .order-bulk-btn.is-soft {
+    background: color-mix(in srgb, #fff 14%, transparent);
+  }
+  .order-bulk-btn.is-export {
+    background: color-mix(in srgb, #fb7185 70%, #a855f7);
+  }
+  .order-bulk-btn.is-invoice {
+    background: #14b8a6;
+  }
+  .order-bulk-btn.is-delete {
+    background: #ef4444;
+  }
+  .order-bulk-btn:hover {
+    filter: brightness(1.06);
+  }
+  .order-bulk-btn:focus-visible,
+  .order-bulk-close:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+  }
+  .order-bulk-close {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    margin-left: 0.1rem;
+    border: 0;
+    border-radius: 0.55rem;
+    background: color-mix(in srgb, #fff 16%, transparent);
+    color: #fff;
+    cursor: pointer;
+  }
+  .order-bulk-close svg {
+    width: 0.95rem;
+    height: 0.95rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  .order-bulk-demo,
+  .order-bulk-error {
+    flex: 1 1 100%;
+    margin: 0.15rem 0 0;
+    color: #fff;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .order-bulk-error {
+    color: #fee2e2;
+  }
+  @media (max-width: 720px) {
+    .order-bulk-bar {
+      justify-content: flex-start;
+    }
+    .order-bulk-btn span,
+    .order-bulk-btn {
+      font-size: 0.75rem;
+    }
   }
   .post-filters a[aria-current='page'] {
     border-color: var(--color-ink);

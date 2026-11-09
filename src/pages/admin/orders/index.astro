@@ -9,7 +9,7 @@ import { collectionLabel, formatShipLabel, sourceLabel } from '../../../features
 import { isOrderStatus, ORDER_STATUS_LABELS, ORDER_STATUSES } from '../../../features/orders/status';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
-import { formatDateTime } from '../../../lib/datetime';
+import { formatDateShort, formatTimeHms } from '../../../lib/datetime';
 import { formatVnd } from '../../../lib/money';
 import { routes } from '../../../lib/routes';
 
@@ -24,6 +24,8 @@ const page = Number(Astro.url.searchParams.get('page') ?? '1');
 const range = orderCreatedRange(from, to);
 let loadError = range.invalid ? 'Khoảng ngày không hợp lệ.' : '';
 const notice = Astro.url.searchParams.get('notice');
+const bulkCount = Math.max(0, Number(Astro.url.searchParams.get('n')) || 0);
+const canBulkDelete = session.role === 'admin';
 
 if (Astro.request.method === 'POST') {
   if (session.role !== 'admin') {
@@ -41,8 +43,17 @@ if (Astro.request.method === 'POST') {
   } else {
     const db = createDb(getDbBinding());
     const removed = await deleteOrder(db, id, await activityActor(db, session.userId));
-    const back = orderAdminQuery({ query, status, from, to, page: Number.isInteger(page) ? page : 1 });
-    return Astro.redirect(`${back}${back.includes('?') ? '&' : '?'}notice=${removed.ok ? 'deleted' : 'missing'}`, 303);
+    return Astro.redirect(
+      orderAdminQuery({
+        query,
+        status,
+        from,
+        to,
+        page: Number.isInteger(page) ? page : 1,
+        notice: removed.ok ? 'deleted' : 'missing',
+      }),
+      303,
+    );
   }
 }
 let result: Awaited<ReturnType<typeof listOrders>> | null = null;
@@ -78,7 +89,13 @@ function pageHref(nextPage: number): string {
   <p slot="lead">{result ? `${result.libraryTotal} đơn hàng` : 'Danh sách đơn hàng'}</p>
   {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
   {notice === 'deleted' && <p class="mb-4 text-primary-strong" role="status">Đã xóa đơn hàng.</p>}
+  {notice === 'bulk-deleted' && (
+    <p class="mb-4 text-primary-strong" role="status">
+      {bulkCount > 0 ? `Đã xóa ${bulkCount} đơn hàng.` : 'Không có đơn nào được xóa.'}
+    </p>
+  )}
   {notice === 'missing' && <p class="error-text mb-4" role="alert">Không tìm thấy đơn hàng cần xóa.</p>}
+  {notice === 'bulk-error' && <p class="error-text mb-4" role="alert">Không thực hiện được thao tác hàng loạt. Thử lại.</p>}
   {
     result && result.libraryTotal === 0 && !query && !from && !to && status === '' ? (
       <section class="cms-empty">
@@ -121,105 +138,249 @@ function pageHref(nextPage: number): string {
           <label class="sr-only" for="order-to">Đến ngày</label>
           <input id="order-to" class="field" type="date" name="to" value={to} />
         </form>
-        <div data-order-list>
+        <div data-order-results>
+          <form
+            id="order-bulk"
+            class="bulk-bar order-bulk-bar"
+            method="post"
+            action={routes.adminOrdersBulk}
+            aria-label="Thao tác hàng loạt"
+            data-order-bulk
+            data-busy
+            data-confirm-title="Xóa các đơn đã chọn?"
+            data-confirm="Các đơn sẽ bị xóa vĩnh viễn cùng dòng sản phẩm và không khôi phục được."
+            data-confirm-ok="Xóa"
+            data-confirm-tone="danger"
+            hidden
+          >
+            <input type="hidden" name="csrf" value={session.csrfToken} />
+            <input type="hidden" name="q" value={query} />
+            <input type="hidden" name="status" value={status} />
+            <input type="hidden" name="from" value={from} />
+            <input type="hidden" name="to" value={to} />
+            <input type="hidden" name="page" value={String(result.page)} />
+            <span class="order-bulk-count" aria-live="polite" data-bulk-count>
+              <span class="order-bulk-check" aria-hidden="true">✓</span>
+              <span data-bulk-count-text>0 đơn</span>
+            </span>
+            <button class="order-bulk-btn" type="button" data-bulk-demo="status">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L18 10l-4-4L4 16v4z" /></svg>
+              Trạng thái
+            </button>
+            <button class="order-bulk-btn is-priority" type="button" data-bulk-demo="priority">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 15.9 7.2 18l.9-5.4L4.2 8.7l5.4-.8z" /></svg>
+              Ưu tiên
+            </button>
+            <button class="order-bulk-btn is-soft" type="button" data-bulk-demo="unpriority">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 15.9 7.2 18l.9-5.4L4.2 8.7l5.4-.8z" /></svg>
+              Bỏ ưu tiên
+            </button>
+            <button class="order-bulk-btn is-export" type="button" data-bulk-demo="export">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" /></svg>
+              Export
+            </button>
+            <button class="order-bulk-btn is-invoice" type="button" data-bulk-demo="invoice">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h8l4 4v14H7V3zM15 3v5h5M9 12h6M9 16h6" /></svg>
+              Xuất HĐ
+            </button>
+            {canBulkDelete ? (
+              <button class="order-bulk-btn is-delete" type="submit" name="bulk" value="delete" data-bulk-delete>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2m-6 3v8m4-8v8M7 7l1 12h8l1-12" /></svg>
+                Xóa
+              </button>
+            ) : null}
+            <button class="order-bulk-close" type="button" data-bulk-clear aria-label="Bỏ chọn">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+            </button>
+            <span class="error-text order-bulk-error" role="alert" data-bulk-error hidden></span>
+            <span class="order-bulk-demo" role="status" data-bulk-demo-msg hidden></span>
+          </form>
+          <div data-order-list>
           {result.rows.length === 0 ? (
             <p class="post-empty">Không có đơn khớp bộ lọc.</p>
           ) : (
             <table class="post-table order-table">
               <thead>
                 <tr>
+                  <th class="product-check order-check-col">
+                    <input type="checkbox" aria-label="Chọn tất cả đơn đang hiện" data-bulk-all />
+                  </th>
                   <th>Mã đơn</th>
-                  <th>Khách hàng</th>
+                  <th>Khách & giao hàng</th>
                   <th>Sản phẩm</th>
-                  <th>Tổng tiền</th>
-                  <th>Lợi nhuận</th>
-                  <th>Trạng thái</th>
-                  <th>Thời gian</th>
+                  <th>Giá trị</th>
+                  <th>Lãi ròng</th>
+                  <th>Ngày đặt</th>
                   <th>Thao tác</th>
                 </tr>
               </thead>
               <tbody>
-                {result.rows.map((order) => (
+                {result.rows.map((order, index) => {
+                  const stt = (result.page - 1) * result.pageSize + index + 1;
+                  const profit = orderProfit(order);
+                  const shipLater =
+                    order.shipOn !== null &&
+                    order.status !== 'shipped' &&
+                    order.status !== 'completed' &&
+                    order.status !== 'cancelled';
+                  const source = sourceLabel(order.source);
+                  return (
                   <tr>
-                    <td>
-                      <a class="post-title" href={routes.adminOrder(order.id)}>{order.code}</a>
-                      {order.priority === 1 && <span class="od-tag">Ưu tiên</span>}
+                    <td class="product-check order-check-col" data-label="Chọn">
+                      <div class="order-check-cell">
+                        <input type="checkbox" form="order-bulk" name="ids" value={order.id} aria-label={`Chọn đơn ${order.code}`} />
+                        <span class="order-stt" aria-hidden="true">{stt}</span>
+                      </div>
                     </td>
-                    <td data-label="Khách hàng">
-                      {order.customerName}
-                      {order.source && <span class="od-note"> · {sourceLabel(order.source)}</span>}
+                    <td data-label="Mã đơn">
+                      <div class="order-code-cell">
+                        <div class="order-code-row">
+                          <a class="order-code-link" href={routes.adminOrder(order.id)}>{order.code}</a>
+                          <button
+                            class="order-icon-btn"
+                            type="button"
+                            data-copy-code={order.code}
+                            aria-label={`Sao chép mã ${order.code}`}
+                            title="Sao chép mã"
+                          >
+                            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                              <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M8 8h10v12H8zM6 16H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+                            </svg>
+                          </button>
+                        </div>
+                        <span class="order-badge" data-status={order.status}>
+                          {isOrderStatus(order.status) ? ORDER_STATUS_LABELS[order.status] : order.status}
+                        </span>
+                        {order.priority === 1 && <span class="od-tag">Ưu tiên</span>}
+                        {shipLater && order.shipOn !== null && (
+                          <span class="od-note">Gửi sau {formatShipLabel(order.shipOn)}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td data-label="Khách & giao hàng">
+                      <div class="order-customer-cell">
+                        <div class="order-customer-head">
+                          <span class="order-customer-name">{order.customerName}</span>
+                          {source && <span class="order-chip" data-tone="source">{source}</span>}
+                          {order.status === 'new' && <span class="order-chip" data-tone="new">Mới</span>}
+                        </div>
+                        <div class="order-customer-line">
+                          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M6.5 4.5h3l1.2 3.2-1.8 1.1a12 12 0 0 0 5.3 5.3l1.1-1.8 3.2 1.2v3a1.5 1.5 0 0 1-1.5 1.5A13.5 13.5 0 0 1 5 6a1.5 1.5 0 0 1 1.5-1.5z" />
+                          </svg>
+                          <span>{order.phone}</span>
+                        </div>
+                        <div class="order-customer-line order-customer-address">
+                          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 21s6-5.2 6-10a6 6 0 1 0-12 0c0 4.8 6 10 6 10z" />
+                            <circle cx="12" cy="11" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8" />
+                          </svg>
+                          <span>{order.address}</span>
+                        </div>
+                      </div>
                     </td>
                     <td data-label="Sản phẩm">
-                      <ul class="order-products">
-                        {order.lines.map((line) => (
-                          <li class="order-product">
-                            <div class="order-product-head">
-                              <span class="order-product-name">{line.productName}</span>
-                              <span class="order-product-qty">×{line.quantity}</span>
-                            </div>
-                            <div class="order-product-meta">
-                              {line.optionLabel && (
+                      <div class="order-products-wrap">
+                        <ul class="order-products">
+                          {order.lines.map((line) => (
+                            <li class="order-product">
+                              <div class="order-product-head">
+                                <span class="order-product-name">{line.productName}</span>
+                                <span class="order-product-qty">×{line.quantity}</span>
+                              </div>
+                              <div class="order-product-meta">
+                                {line.optionLabel && (
+                                  <span class="order-product-chip">
+                                    <span class="order-product-dot" aria-hidden="true"></span>
+                                    {line.optionLabel}
+                                  </span>
+                                )}
                                 <span class="order-product-chip">
-                                  <span class="order-product-dot" aria-hidden="true"></span>
-                                  {line.optionLabel}
+                                  <span class="order-product-dot" data-tone="price" aria-hidden="true"></span>
+                                  {formatVnd(line.unitPrice)}
                                 </span>
-                              )}
-                              <span class="order-product-chip">
-                                <span class="order-product-dot" data-tone="price" aria-hidden="true"></span>
-                                {formatVnd(line.unitPrice)}
-                              </span>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                        {order.note && (
+                          <div class="order-line-note" data-tone="customer">
+                            <span class="order-line-note-label">Ghi chú KH</span>
+                            <p>{order.note}</p>
+                          </div>
+                        )}
+                        {order.internalNote && (
+                          <div class="order-line-note" data-tone="internal">
+                            <span class="order-line-note-label">Nội bộ</span>
+                            <p>{order.internalNote}</p>
+                          </div>
+                        )}
+                        <div class="order-product-demos">
+                          <button class="order-demo-btn" type="button" data-order-demo="add-line">+ Thêm SP</button>
+                          <button class="order-demo-btn" type="button" data-order-demo="note">Ghi chú</button>
+                          <span class="order-demo-msg" role="status" data-order-demo-msg hidden></span>
+                        </div>
+                      </div>
                     </td>
-                    <td data-label="Tổng tiền">
+                    <td data-label="Giá trị">
                       <div class="order-sum">
-                        <span>{formatVnd(order.totalPrice)}</span>
+                        <span class="order-sum-value">{formatVnd(order.totalPrice)}</span>
                         <span class="order-pay">{collectionLabel(order.payState, order.paymentMethod)}</span>
                         {order.compensation === 1 && <span class="order-pay">Gửi bù</span>}
                       </div>
                     </td>
-                    <td data-label="Lợi nhuận">
-                      {(() => {
-                        const profit = orderProfit(order);
-                        if (profit === null) return <span class="text-muted">—</span>;
-                        return <span class="order-profit" data-sign={profit < 0 ? 'loss' : 'gain'}>{formatVnd(profit)}</span>;
-                      })()}
+                    <td data-label="Lãi ròng">
+                      <div class="order-profit-cell">
+                        {profit === null ? (
+                          <span class="text-muted">—</span>
+                        ) : (
+                          <span class="order-profit" data-sign={profit < 0 ? 'loss' : 'gain'}>{formatVnd(profit)}</span>
+                        )}
+                        <a class="order-profit-link" href={routes.adminOrder(order.id)}>Chi tiết</a>
+                      </div>
                     </td>
-                    <td data-label="Trạng thái">
-                      <span class="order-badge" data-status={order.status}>
-                        {isOrderStatus(order.status) ? ORDER_STATUS_LABELS[order.status] : order.status}
-                      </span>
-                      {order.shipOn !== null && order.status !== 'shipped' && order.status !== 'completed' && order.status !== 'cancelled' && (
-                        <span class="od-note">Gửi sau {formatShipLabel(order.shipOn)}</span>
-                      )}
+                    <td data-label="Ngày đặt">
+                      <div class="order-date-cell">
+                        <span class="order-date-time">{formatTimeHms(order.createdAt)}</span>
+                        <span class="order-date-day">{formatDateShort(order.createdAt)}</span>
+                      </div>
                     </td>
-                    <td data-label="Thời gian">{formatDateTime(order.createdAt)}</td>
                     <td data-label="Thao tác">
-                      <div class="post-actions">
-                        <a href={routes.adminOrder(order.id)}>Xem</a>
-                        <span class="post-actions-sep" aria-hidden="true">|</span>
-                        <form
-                          method="post"
-                          data-busy
-                          data-confirm-title={`Xóa đơn ${order.code}?`}
-                          data-confirm="Đơn sẽ bị xóa vĩnh viễn cùng các dòng sản phẩm và không khôi phục được. Nếu chỉ muốn bỏ đơn, hãy đổi trạng thái sang Hủy đơn."
-                          data-confirm-ok="Xóa"
-                          data-confirm-tone="danger"
-                        >
-                          <input type="hidden" name="csrf" value={session.csrfToken} />
-                          <input type="hidden" name="intent" value="delete" />
-                          <input type="hidden" name="id" value={order.id} />
-                          <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
-                        </form>
+                      <div class="order-row-actions">
+                        <a class="order-icon-btn is-view" href={routes.adminOrder(order.id)} aria-label={`Xem đơn ${order.code}`} title="Xem">
+                          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z" />
+                            <circle cx="12" cy="12" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8" />
+                          </svg>
+                        </a>
+                        {canBulkDelete ? (
+                          <form
+                            method="post"
+                            data-busy
+                            data-confirm-title={`Xóa đơn ${order.code}?`}
+                            data-confirm="Đơn sẽ bị xóa vĩnh viễn cùng các dòng sản phẩm và không khôi phục được. Nếu chỉ muốn bỏ đơn, hãy đổi trạng thái sang Hủy đơn."
+                            data-confirm-ok="Xóa"
+                            data-confirm-tone="danger"
+                          >
+                            <input type="hidden" name="csrf" value={session.csrfToken} />
+                            <input type="hidden" name="intent" value="delete" />
+                            <input type="hidden" name="id" value={order.id} />
+                            <button class="order-icon-btn is-delete" type="submit" aria-label={`Xóa đơn ${order.code}`} title="Xóa">
+                              <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                                <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M5 7h14M10 7V5h4v2m-6 3v8m4-8v8M7 7l1 12h8l1-12" />
+                              </svg>
+                            </button>
+                          </form>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}
+          </div>
         </div>
         {result.pageCount > 1 && (
           <nav class="post-pager" aria-label="Phân trang">
@@ -235,6 +396,7 @@ function pageHref(nextPage: number): string {
 
 <script>
   const form = document.querySelector('[data-order-search]');
+  const results = document.querySelector('[data-order-results]');
   const list = document.querySelector('[data-order-list]');
   if (form instanceof HTMLFormElement) {
     const input = form.querySelector('input[name="q"]');
@@ -275,5 +437,111 @@ function pageHref(nextPage: number): string {
       window.clearTimeout(timer);
       go();
     });
+  }
+
+  if (results instanceof HTMLElement) {
+    const root = results;
+    const bar = root.querySelector('[data-order-bulk]');
+    const all = root.querySelector('[data-bulk-all]');
+    const countText = bar?.querySelector('[data-bulk-count-text]');
+    const demoMsg = bar?.querySelector('[data-bulk-demo-msg]');
+    const error = bar?.querySelector('[data-bulk-error]');
+    const demoLabels: Record<string, string> = {
+      status: 'Đổi trạng thái hàng loạt sắp có.',
+      priority: 'Gắn ưu tiên hàng loạt sắp có.',
+      unpriority: 'Bỏ ưu tiên hàng loạt sắp có.',
+      export: 'Export đơn hàng sắp có.',
+      invoice: 'Xuất hóa đơn hàng loạt sắp có.',
+    };
+
+    function boxes(): HTMLInputElement[] {
+      return [...root.querySelectorAll<HTMLInputElement>('input[name="ids"]')];
+    }
+
+    function selected(): HTMLInputElement[] {
+      return boxes().filter((box) => box.checked);
+    }
+
+    function paint() {
+      if (!(bar instanceof HTMLFormElement) || !(countText instanceof HTMLElement)) return;
+      const picked = selected();
+      const total = boxes().length;
+      countText.textContent = `${picked.length} đơn`;
+      bar.hidden = picked.length === 0;
+      if (all instanceof HTMLInputElement) {
+        all.checked = total > 0 && picked.length === total;
+        all.indeterminate = picked.length > 0 && picked.length < total;
+      }
+      if (demoMsg instanceof HTMLElement) demoMsg.hidden = true;
+      if (error instanceof HTMLElement) error.hidden = true;
+    }
+
+    function pick(on: boolean) {
+      for (const box of boxes()) box.checked = on;
+      paint();
+    }
+
+    root.addEventListener('change', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      if (target.hasAttribute('data-bulk-all')) return pick(target.checked);
+      if (target.name === 'ids') paint();
+    });
+
+    const orderDemoLabels: Record<string, string> = {
+      'add-line': 'Thêm sản phẩm từ danh sách sắp có.',
+      note: 'Thêm ghi chú từ danh sách sắp có.',
+    };
+
+    root.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target.closest('button') : null;
+      if (!(target instanceof HTMLButtonElement)) return;
+      if (target.hasAttribute('data-bulk-clear')) {
+        pick(false);
+        return;
+      }
+      const code = target.dataset.copyCode;
+      if (code) {
+        void navigator.clipboard.writeText(code).then(
+          () => {
+            target.dataset.copied = '1';
+            window.setTimeout(() => {
+              delete target.dataset.copied;
+            }, 1200);
+          },
+          () => undefined,
+        );
+        return;
+      }
+      const orderDemo = target.dataset.orderDemo;
+      if (orderDemo) {
+        const wrap = target.closest('.order-product-demos');
+        const msg = wrap?.querySelector('[data-order-demo-msg]');
+        if (msg instanceof HTMLElement) {
+          msg.hidden = false;
+          msg.textContent = orderDemoLabels[orderDemo] ?? 'Chức năng sắp có.';
+        }
+        return;
+      }
+      const demo = target.dataset.bulkDemo;
+      if (demo && demoMsg instanceof HTMLElement) {
+        demoMsg.hidden = false;
+        demoMsg.textContent = demoLabels[demo] ?? 'Chức năng sắp có.';
+        return;
+      }
+      if (target.hasAttribute('data-bulk-delete') && bar instanceof HTMLFormElement) {
+        const n = selected().length;
+        bar.dataset.confirmTitle = `Xóa ${n} đơn đã chọn?`;
+        bar.dataset.confirm = `${n} đơn sẽ bị xóa vĩnh viễn cùng dòng sản phẩm và không khôi phục được.`;
+        bar.dataset.confirmOk = `Xóa ${n} đơn`;
+      }
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+      if (selected().length > 0) pick(false);
+    });
+
+    paint();
   }
 </script>

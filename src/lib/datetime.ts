@@ -33,3 +33,28 @@ export function formatTimeHm(timestamp: number): string {
   const minute = parts.find((part) => part.type === 'minute')?.value ?? '00';
   return `${hour}:${minute}`;
 }
+
+/** Giờ:phút:giây VN — `HH:mm:ss` cho danh sách đơn. */
+export function formatTimeHms(timestamp: number): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(timestamp));
+  const hour = parts.find((part) => part.type === 'hour')?.value ?? '00';
+  const minute = parts.find((part) => part.type === 'minute')?.value ?? '00';
+  const second = parts.find((part) => part.type === 'second')?.value ?? '00';
+  return `${hour}:${minute}:${second}`;
+}
+
+/** Ngày ngắn VN — `dd/MM/yyyy`. */
+export function formatDateShort(timestamp: number): string {
+  return new Intl.DateTimeFormat('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(new Date(timestamp));
+}

@@ -23,6 +23,9 @@ import { applyStaffCollection, canEditOrderProducts, capDiscount, orderLineSourc
 import { canTransitionOrder, isOrderStatus, orderCounts, orderTransitionError, type OrderStatus } from './status';
 
 const PAGE_SIZE = 20;
+export const ORDER_BULK_MAX = PAGE_SIZE;
+export const ORDER_BULK_ACTIONS = ['delete'] as const;
+export type OrderBulkAction = (typeof ORDER_BULK_ACTIONS)[number];
 
 type OrderListLine = { productName: string; quantity: number; optionLabel: string | null; unitPrice: number };
 
@@ -34,20 +37,54 @@ export function orderListStatus(value: string | null | undefined): OrderListStat
   return '';
 }
 
-export function orderAdminQuery(input: { query?: string; status?: string; from?: string; to?: string; page?: number }): string {
+export function orderAdminQuery(input: {
+  query?: string;
+  status?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  notice?: string;
+  n?: number;
+}): string {
   const params = new URLSearchParams();
   const query = (input.query ?? '').replace(/[%_]/g, '').trim().slice(0, 80);
   const status = orderListStatus(input.status);
   const from = dayParam(input.from);
   const to = dayParam(input.to);
   const page = input.page && Number.isInteger(input.page) && input.page > 1 ? input.page : 0;
+  const notice = (input.notice ?? '').trim();
+  const count = input.n && Number.isInteger(input.n) && input.n > 0 ? input.n : 0;
   if (query) params.set('q', query);
   if (status) params.set('status', status);
   if (from) params.set('from', from);
   if (to) params.set('to', to);
   if (page) params.set('page', String(page));
+  if (notice) params.set('notice', notice);
+  if (count) params.set('n', String(count));
   const text = params.toString();
   return text ? `${routes.adminOrders}?${text}` : routes.adminOrders;
+}
+
+export function readOrderBulk(form: FormData): { action: OrderBulkAction; ids: number[] } | null {
+  const action = ORDER_BULK_ACTIONS.find((item) => item === form.get('bulk'));
+  const ids = [...new Set(form.getAll('ids').map(Number))].filter((id) => Number.isInteger(id) && id > 0);
+  if (!action || ids.length === 0 || ids.length > ORDER_BULK_MAX) return null;
+  return { action, ids };
+}
+
+export function readOrderListContext(form: FormData): { query: string; status: string; from: string; to: string; page: number } {
+  const read = (name: string) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value : '';
+  };
+  const page = Number(read('page'));
+  return {
+    query: read('q'),
+    status: read('status'),
+    from: read('from'),
+    to: read('to'),
+    page: Number.isInteger(page) && page > 0 ? page : 1,
+  };
 }
 
 function dayParam(value: string | undefined): string {
@@ -82,6 +119,10 @@ export async function listOrders(
         id: orders.id,
         code: orders.code,
         customerName: orders.customerName,
+        phone: orders.phone,
+        address: orders.address,
+        note: orders.note,
+        internalNote: orders.internalNote,
         productName: orders.productName,
         unitPrice: orders.unitPrice,
         quantity: orders.quantity,
@@ -265,6 +306,21 @@ export async function deleteOrder(
       : []),
   ]);
   return { ok: true };
+}
+
+// Xóa nhiều đơn; mỗi đơn đi đủ luồng deleteOrder (trả mã giảm, xóa dòng, nhật ký).
+export async function deleteOrders(
+  db: AppDb,
+  ids: number[],
+  actor?: ActivityActor,
+  now = Date.now(),
+): Promise<number> {
+  let deleted = 0;
+  for (const id of ids) {
+    const result = await deleteOrder(db, id, actor, now);
+    if (result.ok) deleted += 1;
+  }
+  return deleted;
 }
 
 export async function updateOrderNote(
