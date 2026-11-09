@@ -1,0 +1,204 @@
+---
+import StaffOrderForm from '../../../../components/admin/StaffOrderForm.astro';
+import AdminLayout from '../../../../layouts/AdminLayout.astro';
+import { mutationError } from '../../../../features/auth/session';
+import { listStaffDiscountChoices, quoteStaffDiscount } from '../../../../features/discounts/discounts';
+import { getOrder, updateStaffOrder } from '../../../../features/orders/orders';
+import {
+  canEditOrderProducts,
+  orderLineSources,
+  parseStaffCustomer,
+  priceStaffLines,
+  readStaffFlags,
+  readStaffLineInputs,
+  staffFlagForm,
+  type StaffFlagForm,
+  type StaffLineInput,
+} from '../../../../features/orders/staff';
+import { isShippingOrderCost, listOrderCosts } from '../../../../features/costs/order-costs';
+import { baseCustomerShippingFee, qualifiesFreeShip, shipGroupOf } from '../../../../features/shipping/customer-fee';
+import { listStaffPickerProducts, listStaffProductChoices } from '../../../../features/products/public';
+import { createDb } from '../../../../lib/db/client';
+import { getDbBinding } from '../../../../lib/cloudflare/env';
+import { groupDigits } from '../../../../lib/group-digits';
+import { routes } from '../../../../lib/routes';
+import type { FieldErrors } from '../../../../lib/validation/errors';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+
+const id = Number(Astro.params.id);
+if (!Number.isInteger(id) || id < 1) return Astro.redirect(routes.adminOrders);
+
+const db = createDb(getDbBinding());
+const order = await getOrder(db, id);
+if (!order) return Astro.redirect(routes.adminOrders);
+if (!canEditOrderProducts(order.status)) {
+  return Astro.redirect(`${routes.adminOrder(id)}?notice=locked`, 303);
+}
+
+const stored = orderLineSources(order);
+const picker = await listStaffPickerProducts(db);
+const products = picker.products;
+const keepIds = stored.flatMap((line) => (line.productId ? [line.productId] : []));
+const keptChoices = await listStaffProductChoices(db, keepIds);
+const pickerIds = new Set(products.map((product) => product.id));
+const editorChoices = [
+  ...products,
+  ...keptChoices.filter((choice) => !pickerIds.has(choice.id)),
+];
+const discountChoices = await listStaffDiscountChoices(db, Date.now(), order.discountCode ? [order.discountCode] : []);
+const shippingCosts = (await listOrderCosts(db)).filter((cost) => cost.active && isShippingOrderCost(cost.name));
+const defaultShippingFeeAmount = baseCustomerShippingFee(shippingCosts);
+const defaultShippingFee = defaultShippingFeeAmount > 0 ? groupDigits(String(defaultShippingFeeAmount), 8) : '';
+
+const goodsTotal = order.compensation === 1 ? (order.subtotal ?? order.totalPrice) : order.totalPrice - order.shippingFee;
+const goodsSubtotal = order.subtotal ?? order.totalPrice + order.discountAmount - order.shippingFee;
+
+let formError = '';
+let lineError = '';
+let flagError = '';
+let errors: FieldErrors = {};
+let postedLines: StaffLineInput[] | null = null;
+const values = {
+  customerName: order.customerName,
+  phone: order.phone,
+  address: order.address,
+  note: order.note ?? '',
+  provinceCode: '',
+  wardCode: '',
+  addressLine: '',
+  orderTotal: String(Math.max(0, goodsTotal)),
+  discountCode: order.discountCode ?? '',
+  discountExtra: '',
+};
+const flagForm: StaffFlagForm = staffFlagForm(order);
+
+if (order.compensation === 1 || order.discountAmount <= 0) {
+  values.discountExtra = '';
+} else if (order.discountCode) {
+  const quoted = await quoteStaffDiscount(db, Math.max(0, goodsSubtotal), order.discountCode);
+  const codeAmount = quoted.ok && quoted.discount ? quoted.discount.discountAmount : Math.min(order.discountAmount, Math.max(0, goodsSubtotal));
+  const extra = Math.max(0, order.discountAmount - codeAmount);
+  values.discountExtra = extra > 0 ? String(extra) : '';
+} else {
+  values.discountExtra = String(order.discountAmount);
+}
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const blocked = mutationError(Astro.request, session, form);
+  const read = (name: string) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value : '';
+  };
+  values.customerName = read('customerName');
+  values.phone = read('phone');
+  values.address = read('address');
+  values.note = read('note');
+  values.provinceCode = read('provinceCode');
+  values.wardCode = read('wardCode');
+  values.addressLine = read('addressLine');
+  values.orderTotal = read('orderTotal');
+  values.discountCode = read('discountCode');
+  values.discountExtra = read('discountExtra');
+  flagForm.payState = read('payState') || 'cod';
+  flagForm.source = read('source');
+  flagForm.priority = read('priority') === 'on';
+  flagForm.compensation = read('compensation') === 'on';
+  flagForm.shipLater = read('shipLater') === 'on';
+  flagForm.shipOn = read('shipOn');
+  flagForm.shippingFee = read('shippingFee');
+  flagForm.freeShip = read('freeShip') === 'on';
+  postedLines = readStaffLineInputs(form);
+  const flags = readStaffFlags({
+    ...flagForm,
+    priority: flagForm.priority ? 'on' : '',
+    compensation: flagForm.compensation ? 'on' : '',
+    shipLater: flagForm.shipLater ? 'on' : '',
+    freeShip: flagForm.freeShip ? 'on' : '',
+  });
+  if (blocked) {
+    Astro.response.status = 403;
+    formError = blocked;
+  } else {
+    if (!flags.ok) flagError = flags.error;
+    const customer = parseStaffCustomer({ ...values, paymentMethod: flags.ok ? flags.flags.paymentMethod : 'cod' });
+    const priced = postedLines ? priceStaffLines(postedLines, editorChoices, stored) : null;
+    if (!customer.ok) errors = customer.errors;
+    if (!priced || !priced.ok) {
+      lineError =
+        !postedLines && form.getAll('lineSlot').length === 0
+          ? 'Thêm ít nhất một sản phẩm.'
+          : priced && !priced.ok
+            ? priced.error
+            : 'Dòng sản phẩm không hợp lệ.';
+    }
+    let staffFlags = flags.ok ? flags.flags : null;
+    if (priced?.ok && staffFlags) {
+      const freeShip = qualifiesFreeShip(
+        priced.lines.map((line) => ({
+          group: shipGroupOf(products.find((product) => product.id === line.productId)?.categorySlug),
+          lineTotal: line.lineTotal,
+        })),
+      );
+      if (freeShip) {
+        staffFlags = { ...staffFlags, shippingFee: 0 };
+        flagForm.freeShip = true;
+        flagForm.shippingFee = '';
+      }
+    }
+    if (customer.ok && priced && priced.ok && staffFlags) {
+      const updated = await updateStaffOrder(db, id, {
+        ...customer.value,
+        lines: priced.lines,
+        discountCode: values.discountCode.trim() ? values.discountCode : null,
+        orderTotal: values.orderTotal,
+        discountExtra: values.discountExtra,
+        flags: staffFlags,
+      });
+      if (!updated.ok) {
+        Astro.response.status = 422;
+        formError = updated.error;
+      } else {
+        return Astro.redirect(`${routes.adminOrder(id)}?saved=edited`, 303);
+      }
+    } else {
+      Astro.response.status = 422;
+    }
+  }
+}
+
+const editorLines: StaffLineInput[] =
+  postedLines ??
+  stored.map((line, index) => ({
+    slot: String(index),
+    productId: line.productId ? String(line.productId) : '',
+    name: line.productName,
+    weight: line.optionLabel ?? '',
+    quantity: String(line.quantity),
+  }));
+---
+
+<AdminLayout title={`Sửa đơn ${order.code}`}>
+  <a slot="action" class="btn" href={routes.adminOrder(id)}>Chi tiết</a>
+  <p slot="lead">Cùng form với thêm đơn — lưu sẽ cập nhật đơn {order.code}.</p>
+  {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
+  <StaffOrderForm
+    csrfToken={session.csrfToken}
+    submitLabel="Lưu đơn"
+    values={values}
+    flagForm={flagForm}
+    flagError={flagError}
+    errors={errors}
+    lineError={lineError}
+    editorLines={editorLines}
+    stored={stored}
+    editorChoices={editorChoices}
+    pickerProducts={products}
+    pickerCategories={picker.categories}
+    discountChoices={discountChoices}
+    shippingCosts={shippingCosts}
+    defaultShippingFee={defaultShippingFee}
+  />
+</AdminLayout>

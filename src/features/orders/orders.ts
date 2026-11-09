@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, gt, inArray, isNull, like, lt, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, gt, inArray, isNotNull, isNull, like, lt, ne, notInArray, or } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { routes } from '../../lib/routes';
 import { orderItems, orders, productCategories, products } from '../../lib/db/schema';
@@ -15,12 +15,36 @@ import {
   ORDER_IP_LIMIT,
   ORDER_IP_WINDOW_MS,
   orderDayKey,
+  readCustomer,
   sequenceFromCode,
   type CartOrderDraft,
   type OrderDraft,
 } from './order';
-import { applyStaffCollection, canEditOrderProducts, capDiscount, orderLineSources, settleStaffTotal, staffOrderColumns, type StaffFlags, type StaffOrderDraft } from './staff';
-import { canTransitionOrder, isOrderStatus, orderCounts, orderTransitionError, type OrderStatus } from './status';
+import type { FieldErrors } from '../../lib/validation/errors';
+import { isPaymentMethod, type PaymentMethod } from './payment';
+import {
+  applyStaffCollection,
+  canEditOrderProducts,
+  capDiscount,
+  isOrderSource,
+  orderLineSources,
+  settleStaffTotal,
+  staffOrderColumns,
+  type OrderSource,
+  type StaffFlags,
+  type StaffOrderDraft,
+} from './staff';
+import {
+  canTransitionOrder,
+  isFulfillStatus,
+  isOrderListFilter,
+  isOrderStatus,
+  orderCounts,
+  orderTransitionError,
+  type FulfillStatus,
+  type OrderListFilter,
+  type OrderStatus,
+} from './status';
 
 const PAGE_SIZE = 20;
 export const ORDER_BULK_MAX = PAGE_SIZE;
@@ -29,17 +53,32 @@ export type OrderBulkAction = (typeof ORDER_BULK_ACTIONS)[number];
 
 type OrderListLine = { productName: string; quantity: number; optionLabel: string | null; unitPrice: number };
 
-export type OrderListStatus = OrderStatus | '' | 'processing';
+/** Lọc list theo giao hàng. `processing` giữ cho link dashboard cũ. `''` = tất cả (`status=all`). */
+export type OrderListStatus = OrderListFilter | 'processing';
 
+/** Mặc định «Chưa gửi hàng»: gồm chưa gửi, gửi sau, chờ gửi lại. `all` / `''` = mọi trạng thái. */
 export function orderListStatus(value: string | null | undefined): OrderListStatus {
   if (value === 'processing') return 'processing';
-  if (value && isOrderStatus(value)) return value;
-  return '';
+  if (value === 'all' || value === '') return '';
+  if (value && isOrderListFilter(value)) return value;
+  return 'unshipped';
+}
+
+/** Lọc list theo nguồn khách; `''` = tất cả. */
+export function orderListSource(value: string | null | undefined): OrderSource | '' {
+  return value && isOrderSource(value) ? value : '';
+}
+
+/** Lọc list theo hình thức thanh toán (COD / chuyển khoản); `''` = tất cả. */
+export function orderListPayment(value: string | null | undefined): PaymentMethod | '' {
+  return value && isPaymentMethod(value) ? value : '';
 }
 
 export function orderAdminQuery(input: {
   query?: string;
   status?: string;
+  source?: string;
+  payment?: string;
   from?: string;
   to?: string;
   page?: number;
@@ -49,13 +88,18 @@ export function orderAdminQuery(input: {
   const params = new URLSearchParams();
   const query = (input.query ?? '').replace(/[%_]/g, '').trim().slice(0, 80);
   const status = orderListStatus(input.status);
+  const source = orderListSource(input.source);
+  const payment = orderListPayment(input.payment);
   const from = dayParam(input.from);
   const to = dayParam(input.to);
   const page = input.page && Number.isInteger(input.page) && input.page > 1 ? input.page : 0;
   const notice = (input.notice ?? '').trim();
   const count = input.n && Number.isInteger(input.n) && input.n > 0 ? input.n : 0;
   if (query) params.set('q', query);
-  if (status) params.set('status', status);
+  if (status === '') params.set('status', 'all');
+  else if (status && status !== 'unshipped') params.set('status', status);
+  if (source) params.set('source', source);
+  if (payment) params.set('payment', payment);
   if (from) params.set('from', from);
   if (to) params.set('to', to);
   if (page) params.set('page', String(page));
@@ -72,7 +116,15 @@ export function readOrderBulk(form: FormData): { action: OrderBulkAction; ids: n
   return { action, ids };
 }
 
-export function readOrderListContext(form: FormData): { query: string; status: string; from: string; to: string; page: number } {
+export function readOrderListContext(form: FormData): {
+  query: string;
+  status: string;
+  source: string;
+  payment: string;
+  from: string;
+  to: string;
+  page: number;
+} {
   const read = (name: string) => {
     const value = form.get(name);
     return typeof value === 'string' ? value : '';
@@ -81,6 +133,8 @@ export function readOrderListContext(form: FormData): { query: string; status: s
   return {
     query: read('q'),
     status: read('status'),
+    source: read('source'),
+    payment: read('payment'),
     from: read('from'),
     to: read('to'),
     page: Number.isInteger(page) && page > 0 ? page : 1,
@@ -93,7 +147,15 @@ function dayParam(value: string | undefined): string {
 
 export async function listOrders(
   db: AppDb,
-  filters: { query: string; status: OrderListStatus; page: number; start: number | null; end: number | null },
+  filters: {
+    query: string;
+    status: OrderListStatus;
+    source: OrderSource | '';
+    payment: PaymentMethod | '';
+    page: number;
+    start: number | null;
+    end: number | null;
+  },
 ) {
   const term = orderSearchTerm(filters.query);
   const shared = [];
@@ -103,13 +165,37 @@ export async function listOrders(
   }
   if (filters.start !== null) shared.push(gte(orders.createdAt, filters.start));
   if (filters.end !== null) shared.push(lt(orders.createdAt, filters.end));
+  if (filters.source) shared.push(eq(orders.source, filters.source));
+  if (filters.payment) shared.push(eq(orders.paymentMethod, filters.payment));
   const conditions = [...shared];
-  if (filters.status === 'processing') conditions.push(inArray(orders.status, ['confirmed', 'preparing', 'shipped']));
-  else if (filters.status) conditions.push(eq(orders.status, filters.status));
+  const openShip = notInArray(orders.status, ['shipped', 'completed', 'cancelled']);
+  if (filters.status === 'processing') {
+    conditions.push(inArray(orders.status, ['confirmed', 'preparing', 'shipped']));
+  } else if (filters.status === 'unshipped') {
+    // Mặc định «Chưa gửi hàng»: chưa gửi + gửi sau + chờ gửi lại (ẩn đã gửi).
+    conditions.push(
+      or(
+        eq(orders.fulfillStatus, 'reship'),
+        and(openShip, or(isNull(orders.fulfillStatus), eq(orders.fulfillStatus, 'unshipped'))),
+      ),
+    );
+  } else if (filters.status === 'shipped') {
+    conditions.push(or(eq(orders.fulfillStatus, 'shipped'), and(isNull(orders.fulfillStatus), eq(orders.status, 'shipped'))));
+  } else if (filters.status === 'later') {
+    conditions.push(
+      openShip,
+      isNotNull(orders.shipOn),
+      or(isNull(orders.fulfillStatus), eq(orders.fulfillStatus, 'unshipped')),
+    );
+  } else if (filters.status === 'reship') {
+    conditions.push(eq(orders.fulfillStatus, 'reship'));
+  }
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const countWhere = shared.length > 0 ? and(...shared) : undefined;
   const page = Math.max(1, filters.page);
-  const narrowed = Boolean(filters.status || term.text || term.phone || filters.start !== null || filters.end !== null);
+  const narrowed = Boolean(
+    filters.status || filters.source || filters.payment || term.text || term.phone || filters.start !== null || filters.end !== null,
+  );
   const [totalRows, countRows, libraryRows, rows] = await Promise.all([
     db.select({ value: count() }).from(orders).where(where),
     db.select({ status: orders.status, value: count() }).from(orders).where(countWhere).groupBy(orders.status),
@@ -139,6 +225,7 @@ export async function listOrders(
         costGoods: orders.costGoods,
         costExtra: orders.costExtra,
         status: orders.status,
+        fulfillStatus: orders.fulfillStatus,
         createdAt: orders.createdAt,
       })
       .from(orders)
@@ -169,9 +256,20 @@ export async function listOrders(
     lines.push({ productName: item.productName, quantity: item.quantity, optionLabel: item.optionLabel, unitPrice: item.unitPrice });
     linesByOrder.set(item.orderId, lines);
   }
+  const phones = [...new Set(rows.map((row) => row.phone))];
+  const phoneCountRows =
+    phones.length === 0
+      ? []
+      : await db
+          .select({ phone: orders.phone, value: count() })
+          .from(orders)
+          .where(and(inArray(orders.phone, phones), ne(orders.status, 'cancelled')))
+          .groupBy(orders.phone);
+  const ordersByPhone = new Map(phoneCountRows.map((row) => [row.phone, row.value]));
   return {
     rows: rows.map((row) => ({
       ...row,
+      customerOrderCount: ordersByPhone.get(row.phone) ?? 0,
       lines: linesByOrder.get(row.id) ?? [{ productName: row.productName, quantity: row.quantity, optionLabel: row.optionLabel, unitPrice: row.unitPrice }],
     })),
     total,
@@ -215,6 +313,7 @@ export async function getOrder(db: AppDb, id: number) {
       costExtra: orders.costExtra,
       costLines: orders.costLines,
       status: orders.status,
+      fulfillStatus: orders.fulfillStatus,
       createdAt: orders.createdAt,
       updatedAt: orders.updatedAt,
     })
@@ -337,6 +436,80 @@ export async function updateOrderNote(
   if (current.internalNote !== next) {
     await db.update(orders).set({ internalNote: next, updatedAt: now }).where(eq(orders.id, id));
   }
+  return { ok: true };
+}
+
+export async function updateStaffOrderCustomer(
+  db: AppDb,
+  id: number,
+  input: { customerName: string; phone: string; address: string; note: string },
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string; errors?: FieldErrors }> {
+  const current = await getOrder(db, id);
+  if (!current) return { ok: false, error: 'Không tìm thấy đơn hàng.' };
+  if (!canEditOrderProducts(current.status)) return { ok: false, error: 'Đơn đã kết thúc, không sửa được.' };
+  const parsed = readCustomer(input);
+  if (Object.keys(parsed.errors).length > 0 || !parsed.phone) {
+    return { ok: false, error: 'Thông tin khách chưa hợp lệ.', errors: parsed.errors };
+  }
+  await db
+    .update(orders)
+    .set({
+      customerName: parsed.customerName,
+      phone: parsed.phone,
+      address: parsed.address,
+      note: parsed.note || null,
+      updatedAt: now,
+    })
+    .where(eq(orders.id, id));
+  return { ok: true };
+}
+
+export async function updateOrderFulfillStatus(
+  db: AppDb,
+  id: number,
+  fulfill: FulfillStatus,
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const current = await getOrder(db, id);
+  if (!current) return { ok: false, error: 'Không tìm thấy đơn hàng.' };
+  if (!canEditOrderProducts(current.status)) return { ok: false, error: 'Đơn đã kết thúc, không sửa được.' };
+  if (!isFulfillStatus(fulfill)) return { ok: false, error: 'Trạng thái giao không hợp lệ.' };
+  const patch: { fulfillStatus: FulfillStatus; status?: OrderStatus; updatedAt: number; shipOn?: null } = {
+    fulfillStatus: fulfill,
+    updatedAt: now,
+  };
+  // Đồng bộ status xử lý tối thiểu để list/filter/detail không lệch với trạng thái giao.
+  if (fulfill === 'shipped' && current.status !== 'shipped') {
+    patch.status = 'shipped';
+    patch.shipOn = null;
+  } else if (fulfill === 'unshipped' && current.status === 'shipped') {
+    patch.status = 'preparing';
+  }
+  await db.update(orders).set(patch).where(eq(orders.id, id));
+  return { ok: true };
+}
+
+// Bật ưu tiên thì bỏ gửi sau (hai cờ không dùng cùng lúc).
+export async function updateOrderPriority(
+  db: AppDb,
+  id: number,
+  priority: boolean,
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const current = await getOrder(db, id);
+  if (!current) return { ok: false, error: 'Không tìm thấy đơn hàng.' };
+  if (!canEditOrderProducts(current.status)) return { ok: false, error: 'Đơn đã kết thúc, không sửa được.' };
+  const next = priority ? 1 : 0;
+  if (current.priority === next && !(priority && current.shipOn !== null)) return { ok: true };
+  await db
+    .update(orders)
+    .set({
+      priority: next,
+      ...(priority ? { shipOn: null } : {}),
+      updatedAt: now,
+    })
+    .where(eq(orders.id, id));
   return { ok: true };
 }
 
@@ -700,6 +873,90 @@ export async function createStaffOrder(
   }
   await releaseDiscountSlot(db, slot.id, now);
   return { ok: false, error: 'Chưa tạo được mã đơn. Thử lại.' };
+}
+
+// Cập nhật đủ khách + dòng SP + cờ thu/giao như form thêm đơn.
+export async function updateStaffOrder(
+  db: AppDb,
+  id: number,
+  draft: StaffOrderDraft,
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const current = await getOrder(db, id);
+  if (!current) return { ok: false, error: 'Không tìm thấy đơn hàng.' };
+  if (!canEditOrderProducts(current.status)) return { ok: false, error: 'Đơn đã kết thúc, không sửa được.' };
+  if (draft.lines.length < 1) return { ok: false, error: 'Thêm ít nhất một sản phẩm.' };
+  const columns = staffOrderColumns(draft.lines);
+  const flags = draft.flags;
+  const rawCode = flags.compensation ? '' : (draft.discountCode ?? '');
+  const discount = await resolveStaffDiscount(db, current, columns.subtotal, rawCode, now);
+  if (!discount.ok) return discount;
+  const settled = settleStaffTotal(
+    columns.subtotal,
+    discount.amount,
+    flags.compensation ? '' : (draft.orderTotal ?? ''),
+    flags.compensation ? '' : (draft.discountExtra ?? ''),
+  );
+  if (!settled.ok) return settled;
+  const baseCode = discount.amount > 0 ? discount.code : null;
+  const collected = applyStaffCollection(settled.totalPrice, settled.discountAmount, baseCode, flags);
+  if (!collected.ok) return collected;
+  const holdsUse = Boolean(current.discountCode && current.discountAmount > 0 && current.discountRestored === 0);
+  const code = collected.discountCode;
+  const amount = collected.discountAmount;
+  const claim = code ? discount.claim : null;
+  const restore = code ? discount.restore : holdsUse;
+  const totalPrice = collected.totalPrice;
+  const snapshot = await snapshotOrderCosts(
+    db,
+    draft.lines.map((line) => ({ name: line.productName, productId: line.productId, quantity: line.quantity })),
+    totalPrice,
+  );
+  if (!snapshot) return { ok: false, error: 'Chưa tính lại được chi phí. Thử lại.' };
+  const slot = await takeDiscountSlot(db, claim, now);
+  if (!slot.ok) return slot;
+  try {
+    await commitWrites(db, [
+      db
+        .update(orders)
+        .set({
+          customerName: draft.customerName,
+          phone: draft.phone,
+          address: draft.address,
+          note: draft.note || null,
+          productId: columns.productId,
+          productName: columns.productName,
+          unitPrice: columns.unitPrice,
+          quantity: columns.quantity,
+          optionLabel: columns.optionLabel,
+          subtotal: columns.subtotal,
+          discountCode: code,
+          discountAmount: amount,
+          discountRestored: restore && !claim ? 1 : claim ? 0 : current.discountRestored,
+          totalPrice,
+          costGoods: snapshot.costGoods,
+          costExtra: snapshot.costExtra,
+          costLines: encodeCostLines(snapshot),
+          paymentMethod: flags.paymentMethod,
+          source: flags.source,
+          payState: flags.payState,
+          priority: flags.priority ? 1 : 0,
+          compensation: flags.compensation ? 1 : 0,
+          shipOn: flags.shipOn,
+          shippingFee: collected.shippingFee,
+          shippingCost: snapshot.shippingCost,
+          updatedAt: now,
+        })
+        .where(eq(orders.id, id)),
+      db.delete(orderItems).where(eq(orderItems.orderId, id)),
+      ...(draft.lines.length > 1 ? [db.insert(orderItems).values(itemValues(id, draft.lines))] : []),
+      ...(restore && current.discountCode ? [restoreDiscountQuery(db, current.discountCode, now)] : []),
+    ]);
+  } catch (error) {
+    await releaseDiscountSlot(db, slot.id, now);
+    throw error;
+  }
+  return { ok: true };
 }
 
 export async function updateStaffOrderLines(

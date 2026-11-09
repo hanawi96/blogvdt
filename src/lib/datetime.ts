@@ -13,6 +13,96 @@ function vnDayStart(value: string): number | null {
   return Number.isFinite(time) ? time : null;
 }
 
+const VN_TZ = 'Asia/Ho_Chi_Minh';
+
+export type VnDayParts = { year: number; month: number; day: number };
+
+/** Ngày hiện tại theo lịch Việt Nam (không theo timezone máy client). */
+export function vnTodayParts(now = Date.now()): VnDayParts {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: VN_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(now));
+  const year = Number(parts.find((part) => part.type === 'year')?.value);
+  const month = Number(parts.find((part) => part.type === 'month')?.value);
+  const day = Number(parts.find((part) => part.type === 'day')?.value);
+  return { year, month, day };
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+function ymd(year: number, month: number, day: number): string {
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+}
+
+/** Số ngày trong tháng (1–12), lịch Gregorian. */
+export function daysInMonth(year: number, month: number): number {
+  if (month < 1 || month > 12) return 0;
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/**
+ * Khoảng lọc một tháng theo giờ VN: từ ngày 1 đến hết tháng,
+ * hoặc đến hôm nay nếu là tháng hiện tại.
+ */
+export function vnMonthRange(year: number, month: number, now = Date.now()): { from: string; to: string } | null {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return null;
+  const last = daysInMonth(year, month);
+  if (last < 1) return null;
+  const today = vnTodayParts(now);
+  if (year > today.year || (year === today.year && month > today.month)) return null;
+  const from = ymd(year, month, 1);
+  const to =
+    year === today.year && month === today.month
+      ? ymd(today.year, today.month, today.day)
+      : ymd(year, month, last);
+  return { from, to };
+}
+
+function parseYmd(value: string): VnDayParts | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) return null;
+  return { year, month, day };
+}
+
+function formatDm(value: string): string {
+  const parts = parseYmd(value);
+  if (!parts) return value;
+  return `${pad2(parts.day)}/${pad2(parts.month)}`;
+}
+
+/** Nhãn nút lọc ngày trên list đơn. */
+export function formatOrderDateFilterLabel(from: string, to: string, now = Date.now()): string {
+  if (!from && !to) return 'Chọn ngày';
+  const start = from || to;
+  const end = to || from;
+  if (from && to) {
+    const startParts = parseYmd(from);
+    if (startParts) {
+      const monthRange = vnMonthRange(startParts.year, startParts.month, now);
+      if (monthRange && from === monthRange.from && to === monthRange.to) {
+        return `Tháng ${startParts.month}`;
+      }
+    }
+    if (from === to) return formatDm(from);
+    const a = parseYmd(from);
+    const b = parseYmd(to);
+    if (a && b && a.year === b.year && a.month === b.month) {
+      return `${pad2(a.day)}–${formatDm(to)}`;
+    }
+    return `${formatDm(from)}–${formatDm(to)}`;
+  }
+  return formatDm(start || end);
+}
+
 export function formatDateTime(timestamp: number): string {
   return new Intl.DateTimeFormat('vi-VN', {
     timeZone: 'Asia/Ho_Chi_Minh',

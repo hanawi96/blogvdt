@@ -47,6 +47,40 @@ export function isProcessingOrder(status: string): boolean {
   return status === 'confirmed' || status === 'preparing' || status === 'shipped';
 }
 
+/** Trạng thái giao nhanh trên danh sách đơn — khớp UI «Chưa gửi / Đã gửi / Chờ gửi lại». */
+export const FULFILL_STATUSES = ['unshipped', 'shipped', 'reship'] as const;
+export type FulfillStatus = (typeof FULFILL_STATUSES)[number];
+
+export const FULFILL_STATUS_LABELS: Record<FulfillStatus, string> = {
+  unshipped: 'Chưa gửi hàng',
+  shipped: 'Đã gửi hàng',
+  reship: 'Chờ gửi lại',
+};
+
+/** Bộ lọc giao hàng trên danh sách đơn. */
+export const ORDER_LIST_FILTERS = [
+  { value: 'unshipped', label: 'Chưa gửi hàng' },
+  { value: 'shipped', label: 'Đã gửi hàng' },
+  { value: 'later', label: 'Gửi sau' },
+  { value: 'reship', label: 'Chờ gửi lại' },
+] as const;
+export type OrderListFilter = '' | (typeof ORDER_LIST_FILTERS)[number]['value'];
+
+export function isOrderListFilter(value: string): value is Exclude<OrderListFilter, ''> {
+  return ORDER_LIST_FILTERS.some((item) => item.value === value);
+}
+
+export function isFulfillStatus(value: string): value is FulfillStatus {
+  return FULFILL_STATUSES.some((status) => status === value);
+}
+
+export function fulfillStatusOf(order: { status: string; fulfillStatus: string | null }): FulfillStatus | null {
+  if (order.status === 'completed' || order.status === 'cancelled') return null;
+  if (isFulfillStatus(order.fulfillStatus ?? '')) return order.fulfillStatus as FulfillStatus;
+  if (order.status === 'shipped') return 'shipped';
+  return 'unshipped';
+}
+
 export function orderCounts(rows: { status: string; value: number }[]) {
   let all = 0;
   let incoming = 0;

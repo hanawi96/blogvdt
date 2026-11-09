@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { canTransitionOrder, isOrderStatus, orderCounts, ORDER_STATUSES } from './status';
+import { canTransitionOrder, fulfillStatusOf, isOrderListFilter, isOrderStatus, orderCounts, ORDER_STATUSES } from './status';
+import { orderListPayment, orderListSource, orderListStatus } from './orders';
+import { isPaymentMethod } from './payment';
+import { isOrderSource } from './staff';
 import {
   formatOrderCode,
   isRecentDuplicate,
@@ -33,6 +36,47 @@ describe('đơn hàng', () => {
   it('chỉ nhận sáu trạng thái đã định', () => {
     expect(ORDER_STATUSES).toEqual(['new', 'confirmed', 'preparing', 'shipped', 'completed', 'cancelled']);
     expect(isOrderStatus('pending')).toBe(false);
+  });
+
+  it('suy ra trạng thái giao nhanh theo ảnh list', () => {
+    expect(fulfillStatusOf({ status: 'new', fulfillStatus: null })).toBe('unshipped');
+    expect(fulfillStatusOf({ status: 'shipped', fulfillStatus: null })).toBe('shipped');
+    expect(fulfillStatusOf({ status: 'preparing', fulfillStatus: 'reship' })).toBe('reship');
+    expect(fulfillStatusOf({ status: 'completed', fulfillStatus: null })).toBeNull();
+  });
+
+  it('bộ lọc list chỉ nhận trạng thái giao hàng', () => {
+    expect(isOrderListFilter('unshipped')).toBe(true);
+    expect(isOrderListFilter('later')).toBe(true);
+    expect(isOrderListFilter('new')).toBe(false);
+    expect(orderListStatus(null)).toBe('unshipped');
+    expect(orderListStatus(undefined)).toBe('unshipped');
+    expect(orderListStatus('all')).toBe('');
+    expect(orderListStatus('')).toBe('');
+    expect(orderListStatus('shipped')).toBe('shipped');
+    expect(orderListStatus('reship')).toBe('reship');
+    expect(orderListStatus('processing')).toBe('processing');
+    expect(orderListStatus('new')).toBe('unshipped');
+  });
+
+  it('bộ lọc list chỉ nhận nguồn khách hợp lệ', () => {
+    expect(isOrderSource('zalo')).toBe(true);
+    expect(isOrderSource('web')).toBe(true);
+    expect(isOrderSource('instagram')).toBe(false);
+    expect(orderListSource('facebook')).toBe('facebook');
+    expect(orderListSource('tiktok')).toBe('tiktok');
+    expect(orderListSource(null)).toBe('');
+    expect(orderListSource('other')).toBe('');
+  });
+
+  it('bộ lọc list chỉ nhận thanh toán COD hoặc chuyển khoản', () => {
+    expect(isPaymentMethod('cod')).toBe(true);
+    expect(isPaymentMethod('bank')).toBe(true);
+    expect(isPaymentMethod('momo')).toBe(false);
+    expect(orderListPayment('cod')).toBe('cod');
+    expect(orderListPayment('bank')).toBe('bank');
+    expect(orderListPayment(null)).toBe('');
+    expect(orderListPayment('paid')).toBe('');
   });
 
   it('chuẩn hóa số điện thoại và lập mã theo ngày Việt Nam', () => {

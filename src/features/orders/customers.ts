@@ -1,4 +1,4 @@
-import { asc, count, desc, inArray, like, sql } from 'drizzle-orm';
+import { asc, desc, inArray, like, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { orders } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
@@ -12,6 +12,21 @@ export const CUSTOMER_SORTS = [
 ] as const;
 
 export type CustomerSort = (typeof CUSTOMER_SORTS)[number]['value'];
+
+/** Phân loại theo số đơn chưa hủy: 1 = mới, 2 = quen, ≥3 = VIP. */
+export const CUSTOMER_TIERS = ['new', 'regular', 'vip'] as const;
+export type CustomerTier = (typeof CUSTOMER_TIERS)[number];
+export const CUSTOMER_TIER_LABELS: Record<CustomerTier, string> = {
+  new: 'Mới',
+  regular: 'Khách quen',
+  vip: 'Khách VIP',
+};
+
+export function customerTierOf(orderCount: number): CustomerTier {
+  if (orderCount >= 3) return 'vip';
+  if (orderCount >= 2) return 'regular';
+  return 'new';
+}
 
 export function customerSort(value: string | null | undefined): CustomerSort {
   return CUSTOMER_SORTS.find((sort) => sort.value === value)?.value ?? 'recent';
@@ -41,7 +56,8 @@ export async function listCustomers(db: AppDb, filters: { query: string; sort: C
       ? inArray(orders.phone, db.select({ phone: orders.phone }).from(orders).where(like(orders.customerName, `%${term.text}%`)))
       : undefined;
   const page = Math.max(1, filters.page);
-  const orderCount = count();
+  // Số đơn xếp hạng: không tính đơn hủy. Tổng đơn hiển thị vẫn dùng cùng số này để khớp cấp khách.
+  const orderCount = sql<number>`coalesce(sum(case when ${orders.status} <> 'cancelled' then 1 else 0 end), 0)`;
   // SQLite lấy cột không gộp từ đúng dòng có max() khi truy vấn chỉ có một min()/max(): tên, địa chỉ là của đơn mới nhất.
   const lastOrderAt = sql<number>`max(${orders.createdAt})`;
   const spent = sql<number>`coalesce(sum(case when ${orders.status} <> 'cancelled' then ${orders.totalPrice} else 0 end), 0)`;
@@ -73,7 +89,7 @@ export async function listCustomers(db: AppDb, filters: { query: string; sort: C
   ]);
   const total = totalRows[0]?.value ?? 0;
   return {
-    rows,
+    rows: rows.map((row) => ({ ...row, tier: customerTierOf(Number(row.orderCount) || 0) })),
     total,
     libraryTotal: libraryRows[0]?.value ?? 0,
     page,

@@ -73,6 +73,10 @@ export const PAY_STATES = [
 export type OrderSource = (typeof ORDER_SOURCES)[number]['value'];
 export type PayState = (typeof PAY_STATES)[number]['value'];
 
+export function isOrderSource(value: string): value is OrderSource {
+  return ORDER_SOURCES.some((item) => item.value === value);
+}
+
 export type StaffFlags = {
   source: OrderSource;
   payState: PayState;

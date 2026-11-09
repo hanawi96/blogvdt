@@ -7,7 +7,7 @@ import { listStaffDiscountChoices, quoteStaffDiscount } from '../../../features/
 import { formatPercentBp, isShippingOrderCost, listOrderCosts, orderProfit, orderShippingCost, parseCostLines } from '../../../features/costs/order-costs';
 import { profitOf } from '../../../features/materials/costing';
 import { orderHandoffText } from '../../../features/orders/order';
-import { getOrder, updateOrderNote, updateOrderStatus, updateStaffOrderLines, updateStaffOrderMeta } from '../../../features/orders/orders';
+import { getOrder, updateOrderNote, updateOrderStatus, updateStaffOrderCustomer, updateStaffOrderLines, updateStaffOrderMeta } from '../../../features/orders/orders';
 import { canEditOrderProducts, collectionLabel, formatShipLabel, orderLineSources, priceStaffLines, readStaffFlags, readStaffLineInputs, sourceLabel, staffFlagForm, type StaffFlagForm, type StaffLineInput } from '../../../features/orders/staff';
 import { isOrderStatus, nextOrderStatuses, ORDER_STATUS_LABELS } from '../../../features/orders/status';
 import { listStaffProductChoices } from '../../../features/products/public';
@@ -16,6 +16,7 @@ import { getDbBinding } from '../../../lib/cloudflare/env';
 import { formatDateTime } from '../../../lib/datetime';
 import { formatVnd } from '../../../lib/money';
 import { routes } from '../../../lib/routes';
+import type { FieldErrors } from '../../../lib/validation/errors';
 
 const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
@@ -36,6 +37,13 @@ let postedExtra: string | null = null;
 let postedCode: string | null = null;
 let flagError = '';
 let postedFlags: StaffFlagForm | null = null;
+let customerErrors: FieldErrors = {};
+let customerValues = {
+  customerName: order.customerName,
+  phone: order.phone,
+  address: order.address,
+  note: order.note ?? '',
+};
 const saved = Astro.url.searchParams.get('saved');
 const isAdmin = session.role === 'admin';
 const profit = orderProfit(order);
@@ -68,6 +76,30 @@ if (Astro.request.method === 'POST') {
       noteError = result.error;
     } else {
       return Astro.redirect(`${routes.adminOrder(id)}?saved=note`, 303);
+    }
+  } else if (intent === 'customer') {
+    const read = (name: string) => {
+      const value = form.get(name);
+      return typeof value === 'string' ? value : '';
+    };
+    customerValues = {
+      customerName: read('customerName'),
+      phone: read('phone'),
+      address: read('address'),
+      note: read('note'),
+    };
+    if (!editable) {
+      Astro.response.status = 422;
+      formError = 'Đơn đã kết thúc, không sửa được.';
+    } else {
+      const result = await updateStaffOrderCustomer(db, id, customerValues);
+      if (!result.ok) {
+        Astro.response.status = 422;
+        formError = result.error;
+        customerErrors = result.errors ?? {};
+      } else {
+        return Astro.redirect(`${routes.adminOrder(id)}?saved=customer`, 303);
+      }
     }
   } else if (intent === 'status') {
     const status = form.get('status');
@@ -198,12 +230,20 @@ const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
 ---
 
 <AdminLayout title={`Đơn ${order.code}`}>
-  <a slot="action" class="btn" href={routes.adminOrders}>Danh sách</a>
+  <div slot="action" class="dash-quick">
+    {editable && <a class="btn btn-primary" href={routes.adminOrderEdit(id)}>Sửa đơn</a>}
+    <a class="btn" href={routes.adminOrders}>Danh sách</a>
+  </div>
   {saved === 'status' && <p class="mb-4 text-primary-strong" role="status">Đã cập nhật trạng thái.</p>}
   {saved === 'note' && <p class="mb-4 text-primary-strong" role="status">Đã lưu ghi chú nội bộ.</p>}
   {saved === 'lines' && <p class="mb-4 text-primary-strong" role="status">Đã cập nhật sản phẩm.</p>}
   {saved === 'created' && <p class="mb-4 text-primary-strong" role="status">Đã tạo đơn.</p>}
+  {saved === 'edited' && <p class="mb-4 text-primary-strong" role="status">Đã cập nhật đơn hàng.</p>}
+  {saved === 'customer' && <p class="mb-4 text-primary-strong" role="status">Đã lưu thông tin khách.</p>}
   {saved === 'meta' && <p class="mb-4 text-primary-strong" role="status">Đã lưu thanh toán và giao hàng.</p>}
+  {Astro.url.searchParams.get('notice') === 'locked' && (
+    <p class="error-text mb-4" role="alert">Đơn đã kết thúc, không sửa được.</p>
+  )}
   {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
   <div class="od-page">
     <section class="od-card od-head" aria-label="Tóm tắt đơn">
@@ -238,21 +278,56 @@ const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
       <div class="od-col">
         <section class="od-card">
           <h2>Khách hàng</h2>
-          <dl class="od-facts">
-            <div><dt>Họ tên</dt><dd>{order.customerName}</dd></div>
-            <div><dt>Số điện thoại</dt><dd><a class="od-phone" href={`tel:${order.phone}`}>{order.phone}</a></dd></div>
-            <div><dt>Địa chỉ nhận hàng</dt><dd>{order.address}</dd></div>
-            <div><dt>Ghi chú của khách</dt><dd>{order.note || '—'}</dd></div>
-          </dl>
           {editable ? (
-            <form class="mt-4" method="post" action={routes.adminOrder(id)} data-busy autocomplete="off">
-              <input type="hidden" name="csrf" value={session.csrfToken} />
-              <input type="hidden" name="intent" value="meta" />
-              <StaffOrderMeta value={flagForm} error={flagError} shippingCosts={shippingCosts} />
-              <button class="btn btn-primary mt-4" type="submit">Lưu thanh toán và giao hàng</button>
-            </form>
+            <>
+              <form method="post" action={routes.adminOrder(id)} data-busy autocomplete="off">
+                <input type="hidden" name="csrf" value={session.csrfToken} />
+                <input type="hidden" name="intent" value="customer" />
+                <div class="form-pair">
+                  <div>
+                    <label class="block">
+                      <span class="od-label">Họ tên</span>
+                      <input class="field" name="customerName" required maxlength="80" autocomplete="name" value={customerValues.customerName} />
+                    </label>
+                    {customerErrors.customerName && <p class="error-text mt-2">{customerErrors.customerName}</p>}
+                  </div>
+                  <div>
+                    <label class="block">
+                      <span class="od-label">Số điện thoại</span>
+                      <input class="field" type="tel" name="phone" required maxlength="20" inputmode="tel" autocomplete="tel" value={customerValues.phone} />
+                    </label>
+                    {customerErrors.phone && <p class="error-text mt-2">{customerErrors.phone}</p>}
+                  </div>
+                </div>
+                <label class="mt-4 block">
+                  <span class="od-label">Địa chỉ nhận hàng</span>
+                  <textarea class="field min-h-24" name="address" required maxlength="240" autocomplete="street-address">{customerValues.address}</textarea>
+                </label>
+                {customerErrors.address && <p class="error-text mt-2">{customerErrors.address}</p>}
+                <label class="mt-4 block">
+                  <span class="od-label">Ghi chú của khách</span>
+                  <input class="field" name="note" maxlength="500" placeholder="Ví dụ: giao giờ hành chính" value={customerValues.note} />
+                </label>
+                {customerErrors.note && <p class="error-text mt-2">{customerErrors.note}</p>}
+                <button class="btn btn-primary mt-4" type="submit">Lưu thông tin khách</button>
+              </form>
+              <form class="mt-4" method="post" action={routes.adminOrder(id)} data-busy autocomplete="off">
+                <input type="hidden" name="csrf" value={session.csrfToken} />
+                <input type="hidden" name="intent" value="meta" />
+                <StaffOrderMeta value={flagForm} error={flagError} shippingCosts={shippingCosts} />
+                <button class="btn btn-primary mt-4" type="submit">Lưu thanh toán và giao hàng</button>
+              </form>
+            </>
           ) : (
-            <p class="od-note mt-3">Phí ship vốn {formatVnd(shipCapital)}{order.shippingFee > 0 ? ` · khách trả ${formatVnd(order.shippingFee)}` : ''}.</p>
+            <>
+              <dl class="od-facts">
+                <div><dt>Họ tên</dt><dd>{order.customerName}</dd></div>
+                <div><dt>Số điện thoại</dt><dd><a class="od-phone" href={`tel:${order.phone}`}>{order.phone}</a></dd></div>
+                <div><dt>Địa chỉ nhận hàng</dt><dd>{order.address}</dd></div>
+                <div><dt>Ghi chú của khách</dt><dd>{order.note || '—'}</dd></div>
+              </dl>
+              <p class="od-note mt-3">Phí ship vốn {formatVnd(shipCapital)}{order.shippingFee > 0 ? ` · khách trả ${formatVnd(order.shippingFee)}` : ''}.</p>
+            </>
           )}
         </section>
 

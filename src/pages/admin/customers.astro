@@ -1,7 +1,7 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { userInitials } from '../../features/auth/users';
-import { CUSTOMER_SORTS, customerAdminQuery, customerSort, listCustomers } from '../../features/orders/customers';
+import { CUSTOMER_SORTS, CUSTOMER_TIER_LABELS, customerAdminQuery, customerSort, listCustomers } from '../../features/orders/customers';
 import { orderAdminQuery } from '../../features/orders/orders';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
@@ -79,7 +79,10 @@ try {
                       <div class="user-cell">
                         <span class="user-avatar" aria-hidden="true">{userInitials(customer.customerName)}</span>
                         <div class="min-w-0">
-                          <p class="post-title truncate">{customer.customerName}</p>
+                          <p class="post-title truncate">
+                            {customer.customerName}
+                            <span class="order-chip ml-1 align-middle" data-tone={customer.tier}>{CUSTOMER_TIER_LABELS[customer.tier]}</span>
+                          </p>
                           <a class="text-sm text-muted" href={`tel:${customer.phone}`}>{customer.phone}</a>
                         </div>
                       </div>
@@ -89,7 +92,7 @@ try {
                     <td data-label="Tổng chi tiêu">{formatVnd(customer.spent)}</td>
                     <td data-label="Đơn gần nhất">{formatDateTime(customer.lastOrderAt)}</td>
                     <td data-label="Thao tác">
-                      <a class="font-semibold underline" href={orderAdminQuery({ query: customer.phone })}>Xem đơn</a>
+                      <a class="font-semibold underline" href={orderAdminQuery({ query: customer.phone, status: 'all' })}>Xem đơn</a>
                     </td>
                   </tr>
                 ))}

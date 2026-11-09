@@ -6,6 +6,12 @@ export const PAYMENT_METHODS = [
 
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number]['value'];
 
+/** Nhãn ngắn cho bộ lọc list đơn. */
+export const ORDER_PAYMENT_FILTERS = [
+  { value: 'cod', label: 'COD' },
+  { value: 'bank', label: 'Chuyển khoản' },
+] as const satisfies ReadonlyArray<{ value: PaymentMethod; label: string }>;
+
 export const DEFAULT_PAYMENT_METHOD: PaymentMethod = 'cod';
 
 export function isPaymentMethod(value: unknown): value is PaymentMethod {

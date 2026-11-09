@@ -1,0 +1,464 @@
+---
+import AddressField from '../public/AddressField.astro';
+import OrderLineEditor from './OrderLineEditor.astro';
+import StaffOrderMeta from './StaffOrderMeta.astro';
+import type { StaffDiscountChoice } from '../../features/discounts/discounts';
+import { STAFF_MAX_LINES, type StaffFlagForm, type StaffLineInput, type StoredOrderLine } from '../../features/orders/staff';
+import type { OrderCostKind } from '../../features/costs/order-costs';
+import type { StaffPickerCategory, StaffPickerProduct } from '../../features/products/public';
+import { requiresWeight, weightOptions, type WeightScale } from '../../features/products/weight';
+import { formatVnd } from '../../lib/money';
+import type { FieldErrors } from '../../lib/validation/errors';
+
+interface Props {
+  csrfToken: string;
+  submitLabel: string;
+  values: {
+    customerName: string;
+    phone: string;
+    address: string;
+    note: string;
+    provinceCode: string;
+    wardCode: string;
+    addressLine: string;
+    orderTotal: string;
+    discountCode: string;
+    discountExtra: string;
+  };
+  flagForm: StaffFlagForm;
+  flagError?: string;
+  errors?: FieldErrors;
+  lineError?: string;
+  editorLines: StaffLineInput[];
+  stored?: StoredOrderLine[];
+  editorChoices: { id: number; name: string; price: number; weightScale: WeightScale; active: boolean; coverUrl?: string | null; categorySlug?: string }[];
+  pickerProducts: StaffPickerProduct[];
+  pickerCategories: StaffPickerCategory[];
+  discountChoices: StaffDiscountChoice[];
+  shippingCosts: ReadonlyArray<{ name: string; kind: OrderCostKind; value: number }>;
+  defaultShippingFee: string;
+}
+
+const {
+  csrfToken,
+  submitLabel,
+  values,
+  flagForm,
+  flagError = '',
+  errors = {},
+  lineError = '',
+  editorLines,
+  stored = [],
+  editorChoices,
+  pickerProducts,
+  pickerCategories,
+  discountChoices,
+  shippingCosts,
+  defaultShippingFee,
+} = Astro.props;
+
+const uncategorized = pickerProducts.some((product) => product.categoryId == null);
+const weightPresets = weightOptions('baby').filter((label) => label.endsWith('kg'));
+---
+
+<form class="staff-order" method="post" data-busy autocomplete="off">
+  <input type="hidden" name="csrf" value={csrfToken} />
+  <section class="od-card staff-order-customer">
+    <h2>Khách hàng</h2>
+    <div class="form-pair">
+      <div>
+        <label class="block">
+          <span class="od-label">Họ tên</span>
+          <input class="field" name="customerName" required maxlength="80" autocomplete="name" value={values.customerName} />
+        </label>
+        {errors.customerName && <p class="error-text mt-2">{errors.customerName}</p>}
+      </div>
+      <div>
+        <label class="block">
+          <span class="od-label">Số điện thoại</span>
+          <input class="field" type="tel" name="phone" required maxlength="20" inputmode="tel" autocomplete="tel" value={values.phone} />
+        </label>
+        {errors.phone && <p class="error-text mt-2">{errors.phone}</p>}
+      </div>
+    </div>
+    <AddressField
+      idPrefix="staff"
+      error={errors.address}
+      address={values.address}
+      provinceCode={values.provinceCode}
+      wardCode={values.wardCode}
+      line={values.addressLine}
+      paired
+    />
+    <div class="mt-4">
+      <StaffOrderMeta value={flagForm} error={flagError} shippingCosts={shippingCosts} defaultShipFee={defaultShippingFee} />
+    </div>
+    <label class="mt-4 block">
+      <span class="od-label">Ghi chú của khách</span>
+      <input class="field" name="note" maxlength="500" placeholder="Ví dụ: đặt qua Zalo" value={values.note} />
+    </label>
+    {errors.note && <p class="error-text mt-2">{errors.note}</p>}
+  </section>
+
+  <div class="staff-order-side">
+    <section class="od-card staff-order-cart">
+      {
+        pickerProducts.length === 0 && editorLines.length === 0 ? (
+          <>
+            <h2>Sản phẩm trong đơn</h2>
+            <p class="od-note">Chưa có sản phẩm đang bán.</p>
+          </>
+        ) : (
+          <div class="staff-cart-panel">
+            <h2>Sản phẩm trong đơn</h2>
+            <OrderLineEditor
+              choices={editorChoices}
+              lines={editorLines}
+              stored={stored}
+              orderTotal={values.orderTotal}
+              discountCode={values.discountCode}
+              discountChoices={discountChoices}
+              extraDiscount={values.discountExtra}
+              error={lineError}
+              allowEmpty
+              cart
+            />
+          </div>
+        )
+      }
+      <button class="btn btn-primary mt-4 w-full" type="submit">{submitLabel}</button>
+    </section>
+
+    <aside class="od-card staff-picker">
+      <h2>Danh sách sản phẩm</h2>
+      {
+        pickerProducts.length === 0 ? (
+          <p class="od-note">Chưa có sản phẩm đang bán.</p>
+        ) : (
+          <>
+            <label class="staff-pick-search">
+              <span class="sr-only">Tìm sản phẩm</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+              <input class="field" type="search" placeholder="Tìm sản phẩm" aria-label="Tìm sản phẩm" data-pick-query />
+            </label>
+            <div class="category-presets mt-3" data-pick-filters>
+              <button class="category-preset" type="button" data-category="" aria-pressed="true"><span>Tất cả</span></button>
+              {pickerCategories.map((category) => (
+                <button class="category-preset" type="button" data-category={category.id} aria-pressed="false"><span>{category.name}</span></button>
+              ))}
+              {uncategorized && <button class="category-preset" type="button" data-category="none" aria-pressed="false"><span>Khác</span></button>}
+            </div>
+            <ul class="staff-pick-list" data-pick-list>
+              {pickerProducts.map((product) => (
+                <li
+                  class="staff-pick"
+                  data-pick
+                  data-category={product.categoryId ?? 'none'}
+                  data-name={product.name}
+                  data-id={product.id}
+                  data-price={product.price}
+                  data-weigh={requiresWeight(product.weightScale) ? '1' : '0'}
+                >
+                  <button class="staff-pick-toggle" type="button" data-pick-toggle aria-pressed="false">
+                    {product.coverUrl ? (
+                      <img class="staff-pick-photo" src={product.coverUrl} alt="" width="52" height="52" loading="lazy" decoding="async" />
+                    ) : (
+                      <span class="staff-pick-photo" aria-hidden="true"></span>
+                    )}
+                    <span class="staff-pick-copy">
+                      <span class="staff-pick-name">{product.name}</span>
+                      <span class="staff-pick-meta">
+                        {product.categoryName || 'Khác'} · {formatVnd(product.price)} · Đã bán {product.sold}
+                      </span>
+                    </span>
+                  </button>
+                  <div class="staff-pick-panel" data-pick-panel hidden>
+                    {requiresWeight(product.weightScale) && (
+                      <>
+                        <div class="staff-pick-weights" data-weights>
+                          {weightPresets.map((label) => (
+                            <button class="category-preset" type="button" data-weight-choice={label} aria-pressed="false"><span>{label}</span></button>
+                          ))}
+                          <div class="staff-pick-add-slot" data-weight-add-slot>
+                            <button class="category-preset staff-pick-add-weight" type="button" data-weight-add><span>Thêm cân</span></button>
+                            <label class="staff-pick-weight-edit" data-weight-custom hidden>
+                              <span class="sr-only">Cân nặng tùy chỉnh</span>
+                              <input type="text" maxlength="40" placeholder="16kg" data-weight-custom-input />
+                              <button class="staff-pick-custom-close" type="button" data-weight-custom-close aria-label="Đóng thêm cân">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                              </button>
+                            </label>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    <div class="staff-pick-compose">
+                      <div class="staff-qty">
+                        <span class="od-label">Số lượng</span>
+                        <div class="staff-qty-stepper" data-qty-stepper>
+                          <button class="staff-qty-btn" type="button" data-qty-dec aria-label="Giảm số lượng">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+                          </button>
+                          <input class="field staff-qty-input" type="number" min="1" max="20" value="1" inputmode="numeric" data-pick-qty aria-label="Số lượng" />
+                          <button class="staff-qty-btn" type="button" data-qty-inc aria-label="Tăng số lượng">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                          </button>
+                        </div>
+                      </div>
+                      <label class="staff-pick-note">
+                        <span class="od-label">Lưu ý</span>
+                        <input class="field" type="text" maxlength="160" placeholder="Không bắt buộc" data-pick-note />
+                      </label>
+                      <button class="btn btn-primary" type="button" data-pick-add disabled>Thêm vào đơn</button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <p class="od-note mt-3" data-pick-empty hidden>Không có sản phẩm khớp.</p>
+            <p class="od-note" data-pick-limit hidden>Một đơn tối đa {STAFF_MAX_LINES} mẫu.</p>
+          </>
+        )
+      }
+    </aside>
+  </div>
+</form>
+
+<script>
+  const root = document.querySelector('.staff-picker');
+  const lineEditor = document.querySelector('[data-order-lines]');
+  if (root instanceof HTMLElement && lineEditor instanceof HTMLElement) {
+    const editor = lineEditor;
+    const query = root.querySelector('[data-pick-query]');
+    const list = [...root.querySelectorAll<HTMLElement>('[data-pick]')].map((row) => ({
+      row,
+      name: fold(row.dataset.name ?? ''),
+      category: row.dataset.category ?? 'none',
+    }));
+    const empty = root.querySelector('[data-pick-empty]');
+    const limit = root.querySelector('[data-pick-limit]');
+    const ALL_TOP = 20;
+    let category = '';
+    let text = '';
+
+    function fold(value: string) {
+      return value.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/g, 'd');
+    }
+
+    function needsWeight(row: HTMLElement) {
+      return row.dataset.weigh === '1';
+    }
+
+    function ready(row: HTMLElement) {
+      return !needsWeight(row) || (row.dataset.weight ?? '') !== '';
+    }
+
+    function paintAdd(row: HTMLElement) {
+      const add = row.querySelector('[data-pick-add]');
+      if (add instanceof HTMLButtonElement) add.disabled = !ready(row);
+    }
+
+    function collapse(row: HTMLElement) {
+      row.dataset.selected = '0';
+      const toggle = row.querySelector('[data-pick-toggle]');
+      if (toggle instanceof HTMLButtonElement) toggle.setAttribute('aria-pressed', 'false');
+      const panel = row.querySelector('[data-pick-panel]');
+      if (panel instanceof HTMLElement) panel.hidden = true;
+      delete row.dataset.weight;
+      for (const button of row.querySelectorAll('[data-weight-choice]')) button.setAttribute('aria-pressed', 'false');
+      closeCustomWeight(row);
+      paintAdd(row);
+    }
+
+    function expand(row: HTMLElement) {
+      for (const item of list) {
+        if (item.row !== row) collapse(item.row);
+      }
+      row.dataset.selected = '1';
+      const toggle = row.querySelector('[data-pick-toggle]');
+      if (toggle instanceof HTMLButtonElement) toggle.setAttribute('aria-pressed', 'true');
+      const panel = row.querySelector('[data-pick-panel]');
+      if (panel instanceof HTMLElement) panel.hidden = false;
+      paintAdd(row);
+    }
+
+    function openCustomWeight(row: HTMLElement) {
+      const custom = row.querySelector('[data-weight-custom]');
+      const input = row.querySelector('[data-weight-custom-input]');
+      const add = row.querySelector('[data-weight-add]');
+      if (custom instanceof HTMLElement) custom.hidden = false;
+      if (add instanceof HTMLButtonElement) add.hidden = true;
+      if (input instanceof HTMLInputElement) {
+        input.value = '';
+        input.focus();
+        input.select();
+      }
+    }
+
+    function closeCustomWeight(row: HTMLElement) {
+      const custom = row.querySelector('[data-weight-custom]');
+      const input = row.querySelector('[data-weight-custom-input]');
+      const add = row.querySelector('[data-weight-add]');
+      if (custom instanceof HTMLElement) custom.hidden = true;
+      if (add instanceof HTMLButtonElement) add.hidden = false;
+      if (input instanceof HTMLInputElement) input.value = '';
+    }
+
+    function commitCustomWeight(row: HTMLElement) {
+      const input = row.querySelector('[data-weight-custom-input]');
+      if (!(input instanceof HTMLInputElement)) return;
+      const label = input.value.replace(/\s+/g, ' ').trim();
+      if (label) ensureWeightChip(row, label);
+      else input.focus();
+    }
+
+    function chooseWeight(row: HTMLElement, label: string) {
+      row.dataset.weight = label;
+      for (const button of row.querySelectorAll<HTMLButtonElement>('[data-weight-choice]')) {
+        button.setAttribute('aria-pressed', String(button.dataset.weightChoice === label));
+      }
+      paintAdd(row);
+    }
+
+    function ensureWeightChip(row: HTMLElement, label: string) {
+      const weights = row.querySelector('[data-weights]');
+      if (!(weights instanceof HTMLElement)) return;
+      const existing = [...weights.querySelectorAll<HTMLButtonElement>('[data-weight-choice]')].find((button) => button.dataset.weightChoice === label);
+      if (existing) {
+        chooseWeight(row, label);
+        closeCustomWeight(row);
+        return;
+      }
+      const button = document.createElement('button');
+      button.className = 'category-preset';
+      button.type = 'button';
+      button.dataset.weightChoice = label;
+      button.setAttribute('aria-pressed', 'false');
+      button.innerHTML = `<span></span>`;
+      const span = button.querySelector('span');
+      if (span) span.textContent = label;
+      const slot = weights.querySelector('[data-weight-add-slot]');
+      if (slot) weights.insertBefore(button, slot);
+      else weights.appendChild(button);
+      chooseWeight(row, label);
+      closeCustomWeight(row);
+    }
+
+    function room() {
+      const count = editor.querySelectorAll('[data-line-list] > [data-line]').length;
+      return Number(editor.dataset.max || '8') - count;
+    }
+
+    function addRow(row: HTMLElement) {
+      if (!ready(row)) return;
+      if (room() <= 0) {
+        if (limit instanceof HTMLElement) limit.hidden = false;
+        return;
+      }
+      if (limit instanceof HTMLElement) limit.hidden = true;
+      const qty = row.querySelector('[data-pick-qty]');
+      const note = row.querySelector('[data-pick-note]');
+      document.dispatchEvent(
+        new CustomEvent('staff-add-product', {
+          detail: {
+            id: row.dataset.id ?? '',
+            weight: row.dataset.weight ?? '',
+            quantity: qty instanceof HTMLInputElement ? qty.value : '1',
+            note: note instanceof HTMLInputElement ? note.value : '',
+            cover: row.querySelector('.staff-pick-photo') instanceof HTMLImageElement ? row.querySelector<HTMLImageElement>('.staff-pick-photo')?.src ?? '' : '',
+            focus: true,
+          },
+        }),
+      );
+      if (qty instanceof HTMLInputElement) qty.value = '1';
+      if (note instanceof HTMLInputElement) note.value = '';
+      collapse(row);
+    }
+
+    function apply() {
+      const needle = fold(text.trim());
+      const topOnly = category === '' && needle === '';
+      let shown = 0;
+      for (const item of list) {
+        const match = (category === '' || item.category === category) && (needle === '' || item.name.includes(needle));
+        const visible = match && (!topOnly || shown < ALL_TOP);
+        item.row.hidden = !visible;
+        if (visible) shown += 1;
+        else if (item.row.dataset.selected === '1') collapse(item.row);
+      }
+      if (empty instanceof HTMLElement) empty.hidden = shown > 0;
+    }
+
+    root.addEventListener('click', (event) => {
+      const button = event.target instanceof Element ? event.target.closest('button') : null;
+      if (!(button instanceof HTMLButtonElement)) return;
+      if (button.hasAttribute('data-category')) {
+        category = button.dataset.category ?? '';
+        for (const item of root.querySelectorAll<HTMLButtonElement>('button[data-category]')) item.setAttribute('aria-pressed', String(item === button));
+        apply();
+        return;
+      }
+      const row = button.closest('[data-pick]');
+      if (!(row instanceof HTMLElement)) return;
+      if (button.hasAttribute('data-weight-choice')) {
+        chooseWeight(row, button.dataset.weightChoice ?? '');
+        return;
+      }
+      if (button.hasAttribute('data-qty-dec') || button.hasAttribute('data-qty-inc')) {
+        const input = row.querySelector('[data-pick-qty]');
+        if (!(input instanceof HTMLInputElement)) return;
+        const min = Number(input.min || '1');
+        const max = Number(input.max || '20');
+        let next = Number(input.value);
+        if (!Number.isInteger(next)) next = min;
+        next = button.hasAttribute('data-qty-inc') ? next + 1 : next - 1;
+        input.value = String(Math.min(max, Math.max(min, next)));
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+      }
+      if (button.hasAttribute('data-weight-add')) {
+        openCustomWeight(row);
+        return;
+      }
+      if (button.hasAttribute('data-weight-custom-close')) {
+        closeCustomWeight(row);
+        return;
+      }
+      if (button.hasAttribute('data-pick-add')) {
+        addRow(row);
+        return;
+      }
+      if (button.hasAttribute('data-pick-toggle')) {
+        if (row.dataset.selected === '1') collapse(row);
+        else expand(row);
+      }
+    });
+
+    root.addEventListener('keydown', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || !target.hasAttribute('data-weight-custom-input')) return;
+      const row = target.closest('[data-pick]');
+      if (!(row instanceof HTMLElement)) return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        commitCustomWeight(row);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeCustomWeight(row);
+      }
+    });
+
+    if (query instanceof HTMLInputElement) {
+      query.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') event.preventDefault();
+      });
+      query.addEventListener('input', () => {
+        text = query.value;
+        apply();
+      });
+    }
+    apply();
+  }
+</script>

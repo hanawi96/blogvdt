@@ -327,6 +327,8 @@ export const orders = sqliteTable(
     // Chi tiết từng khoản lúc đặt: giá vốn từng vòng và từng chi phí đơn. Đơn cũ để trống.
     costLines: text('cost_lines'),
     status: text('status').notNull(),
+    // Trạng thái giao nhanh trên list: chưa gửi / đã gửi / chờ gửi lại. NULL = suy ra từ status.
+    fulfillStatus: text('fulfill_status'),
     ipHash: text('ip_hash').notNull(),
     landingSlug: text('landing_slug'),
     createdAt: integer('created_at').notNull(),
@@ -341,6 +343,10 @@ export const orders = sqliteTable(
     check(
       'orders_status_check',
       sql`${table.status} in ('new', 'confirmed', 'preparing', 'shipped', 'completed', 'cancelled')`,
+    ),
+    check(
+      'orders_fulfill_status_check',
+      sql`${table.fulfillStatus} is null or ${table.fulfillStatus} in ('unshipped', 'shipped', 'reship')`,
     ),
     check('orders_payment_method_check', sql`${table.paymentMethod} in ('cod', 'bank')`),
     check('orders_source_check', sql`${table.source} is null or ${table.source} in ('zalo', 'facebook', 'tiktok', 'web')`),
