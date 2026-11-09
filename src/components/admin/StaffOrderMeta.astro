@@ -1,22 +1,23 @@
 ---
 import { formatPercentBp, type OrderCostKind } from '../../features/costs/order-costs';
-import { ORDER_SOURCES, PAY_STATES, type StaffFlagForm } from '../../features/orders/staff';
+import { ORDER_SOURCES, PAY_STATES, STAFF_SHIP_DAY_PRESETS, type StaffFlagForm } from '../../features/orders/staff';
 import { formatVnd } from '../../lib/money';
 
 interface Props {
   value: StaffFlagForm;
   error?: string;
   shippingCosts?: ReadonlyArray<{ name: string; kind: OrderCostKind; value: number }>;
+  defaultShipFee?: string;
 }
 
-const { value, error = '', shippingCosts = [] } = Astro.props;
+const { value, error = '', shippingCosts = [], defaultShipFee = '' } = Astro.props;
 
 function shippingText(cost: { kind: OrderCostKind; value: number }): string {
   return cost.kind === 'percent' ? `${formatPercentBp(cost.value)}% số phải trả` : formatVnd(cost.value);
 }
 ---
 
-<div class="staff-meta" data-staff-meta>
+<div class="staff-meta" data-staff-meta data-default-ship-fee={defaultShipFee}>
   <fieldset>
     <legend class="od-label">Thanh toán</legend>
     <div class="category-presets">
@@ -40,7 +41,7 @@ function shippingText(cost: { kind: OrderCostKind; value: number }): string {
     </div>
   </fieldset>
   <label class="staff-flag">
-    <input type="checkbox" name="priority" checked={value.priority} />
+    <input type="checkbox" name="priority" data-priority checked={value.priority} disabled={value.shipLater && !value.priority} />
     <span class="staff-flag-copy">
       <strong>Đánh dấu đơn ưu tiên</strong>
       <span class="od-note">Đơn ưu tiên hiện lên đầu danh sách.</span>
@@ -54,16 +55,25 @@ function shippingText(cost: { kind: OrderCostKind; value: number }): string {
     </span>
   </label>
   <label class="staff-flag">
-    <input type="checkbox" name="shipLater" data-ship-later checked={value.shipLater} />
+    <input type="checkbox" name="shipLater" data-ship-later checked={value.shipLater} disabled={value.priority && !value.shipLater} />
     <span class="staff-flag-copy">
       <strong>Gửi sau</strong>
       <span class="od-note">Chưa tính là đã gửi. Chọn ngày dự kiến gửi.</span>
     </span>
   </label>
-  <label class="mt-3 block" data-ship-date hidden={!value.shipLater}>
-    <span class="od-label">Ngày dự kiến gửi</span>
-    <input class="field" type="date" name="shipOn" value={value.shipOn} required={value.shipLater} />
-  </label>
+  <div class="mt-3" data-ship-date hidden={!value.shipLater}>
+    <label class="block">
+      <span class="od-label">Ngày dự kiến gửi</span>
+      <input class="field" type="date" name="shipOn" value={value.shipOn} required={value.shipLater} data-ship-on />
+    </label>
+    <div class="category-presets mt-2" role="group" aria-label="Chọn nhanh ngày gửi">
+      {STAFF_SHIP_DAY_PRESETS.map((days) => (
+        <button class="category-preset" type="button" data-ship-preset={days}>
+          <span>{days} ngày</span>
+        </button>
+      ))}
+    </div>
+  </div>
   <div class="staff-ship mt-4">
     <label>
       <span class="od-label">Phí ship khách trả</span>
@@ -82,26 +92,73 @@ function shippingText(cost: { kind: OrderCostKind; value: number }): string {
 </div>
 
 <script>
+  import { staffShipDayAfter } from '../../features/orders/staff';
+
   function bind(root: HTMLElement) {
+    const priority = root.querySelector('[data-priority]');
     const later = root.querySelector('[data-ship-later]');
     const dateField = root.querySelector('[data-ship-date]');
-    const dateInput = dateField?.querySelector('input');
+    const dateInput = root.querySelector('[data-ship-on]');
     const free = root.querySelector('[data-free-ship]');
     const compensation = root.querySelector('[data-compensation]');
     const fee = root.querySelector('[data-ship-fee]');
+    const defaultFee = root.dataset.defaultShipFee ?? '';
 
-    function paint() {
-      const sendLater = later instanceof HTMLInputElement && later.checked;
-      if (dateField instanceof HTMLElement) dateField.hidden = !sendLater;
-      if (dateInput instanceof HTMLInputElement) dateInput.required = sendLater;
+    function syncShipPresets() {
+      if (!(dateInput instanceof HTMLInputElement)) return;
+      for (const button of root.querySelectorAll<HTMLButtonElement>('[data-ship-preset]')) {
+        const days = Number(button.dataset.shipPreset);
+        const match = Number.isInteger(days) && dateInput.value === staffShipDayAfter(days);
+        button.setAttribute('aria-pressed', match ? 'true' : 'false');
+      }
+    }
+
+    function paint(event?: Event) {
+      if (priority instanceof HTMLInputElement && later instanceof HTMLInputElement) {
+        const target = event?.target;
+        if (target === priority && priority.checked) later.checked = false;
+        else if (target === later && later.checked) priority.checked = false;
+        else if (priority.checked && later.checked) later.checked = false;
+        priority.disabled = later.checked;
+        later.disabled = priority.checked;
+      }
+      const laterOn = later instanceof HTMLInputElement && later.checked;
+      if (dateField instanceof HTMLElement) dateField.hidden = !laterOn;
+      if (dateInput instanceof HTMLInputElement) dateInput.required = laterOn;
       const locked = (free instanceof HTMLInputElement && free.checked) || (compensation instanceof HTMLInputElement && compensation.checked);
       if (fee instanceof HTMLInputElement) {
         fee.disabled = locked;
         if (locked) fee.value = '';
+        else if (!fee.value.trim() && defaultFee) fee.value = defaultFee;
       }
+      syncShipPresets();
     }
 
-    root.addEventListener('change', paint);
+    function applyRule(freeShip: boolean) {
+      if (!(free instanceof HTMLInputElement)) return;
+      if (compensation instanceof HTMLInputElement && compensation.checked) return;
+      if (free.checked === freeShip) {
+        paint();
+        return;
+      }
+      free.checked = freeShip;
+      paint();
+    }
+
+    root.addEventListener('change', (event) => paint(event));
+    root.addEventListener('click', (event) => {
+      const button = event.target instanceof Element ? event.target.closest('[data-ship-preset]') : null;
+      if (!(button instanceof HTMLButtonElement) || !(dateInput instanceof HTMLInputElement)) return;
+      const days = Number(button.dataset.shipPreset);
+      if (!Number.isInteger(days) || days < 1) return;
+      dateInput.value = staffShipDayAfter(days);
+      dateInput.dispatchEvent(new Event('change', { bubbles: true }));
+      syncShipPresets();
+    });
+    document.addEventListener('staff-ship-recalc', (event) => {
+      if (!(event instanceof CustomEvent)) return;
+      applyRule(event.detail?.free === true);
+    });
     paint();
   }
 

@@ -136,11 +136,29 @@ const {
       write();
     };
 
+    const openSelect = (select: HTMLSelectElement) => {
+      if (select.disabled) return;
+      select.focus({ preventScroll: false });
+      const picker = select as HTMLSelectElement & { showPicker?: () => void };
+      if (typeof picker.showPicker !== 'function') return;
+      try {
+        picker.showPicker();
+      } catch {
+        // Một số trình duyệt chỉ mở picker trong cử chỉ người dùng; focus vẫn đủ để chọn tiếp.
+      }
+    };
+
     province.addEventListener('change', () => {
       wardValue.value = '';
       showWards();
+      if (!province.value) return;
+      requestAnimationFrame(() => openSelect(ward));
     });
-    ward.addEventListener('change', write);
+    ward.addEventListener('change', () => {
+      write();
+      if (!ward.value) return;
+      line.focus({ preventScroll: false });
+    });
     line.addEventListener('input', write);
     form.addEventListener(
       'submit',

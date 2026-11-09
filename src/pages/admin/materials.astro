@@ -418,7 +418,17 @@ function pageHref(next: number): string {
                           {!row.active && <span class="material-off">Ngừng dùng</span>}
                           <p class="catalog-slug"><span class="truncate">{row.code}</span></p>
                         </td>
-                        <td data-label="Đơn giá"><span class="material-price">{formatVnd(row.unitCost)}</span></td>
+                        <td data-label="Đơn giá">
+                          <button
+                            type="button"
+                            class="material-price material-price-edit"
+                            data-material-price-edit
+                            data-unit-cost={row.unitCost}
+                            title="Sửa nhanh đơn giá"
+                          >
+                            {formatVnd(row.unitCost)}
+                          </button>
+                        </td>
                         <td data-label="Số sản phẩm">
                           <span class="catalog-count" class:list={[{ 'is-empty': row.usedBy === 0 }]}>{row.usedBy} sản phẩm</span>
                         </td>
@@ -888,6 +898,17 @@ function pageHref(next: number): string {
       }
     };
 
+    const priceEditButton = (unitCost: number) => {
+      const price = document.createElement('button');
+      price.type = 'button';
+      price.className = 'material-price material-price-edit';
+      price.dataset.materialPriceEdit = '';
+      price.dataset.unitCost = String(unitCost);
+      price.title = 'Sửa nhanh đơn giá';
+      price.textContent = money.format(unitCost);
+      return price;
+    };
+
     const buildRow = (material: SavedMaterial) => {
       const tr = document.createElement('tr');
       tr.dataset.materialRow = String(material.id);
@@ -914,10 +935,7 @@ function pageHref(next: number): string {
 
       const priceTd = document.createElement('td');
       priceTd.dataset.label = 'Đơn giá';
-      const price = document.createElement('span');
-      price.className = 'material-price';
-      price.textContent = money.format(material.unitCost);
-      priceTd.append(price);
+      priceTd.append(priceEditButton(material.unitCost));
 
       const usedTd = document.createElement('td');
       usedTd.dataset.label = 'Số sản phẩm';
@@ -1113,9 +1131,157 @@ function pageHref(next: number): string {
     for (const button of modal.querySelectorAll('[data-groups-open]')) {
       button.addEventListener('click', () => modal.close());
     }
+
+    // Sửa nhanh đơn giá ngay trên bảng: click số → gõ → Enter/blur lưu; Esc hủy. Đổi giá vẫn đi luồng reprice.
+    type PriceEdit = { row: HTMLTableRowElement; input: HTMLInputElement; original: number; skipBlur: boolean };
+    let priceEdit: PriceEdit | null = null;
+
+    const renderPriceCell = (td: HTMLTableCellElement, unitCost: number) => {
+      td.replaceChildren(priceEditButton(unitCost));
+    };
+
+    const cancelPriceEdit = () => {
+      if (!priceEdit) return;
+      const { row, original } = priceEdit;
+      priceEdit = null;
+      const td = row.querySelector<HTMLTableCellElement>('td[data-label="Đơn giá"]');
+      if (td) renderPriceCell(td, original);
+    };
+
+    const commitPriceEdit = async () => {
+      if (!priceEdit || priceEdit.input.dataset.saving === '1') return;
+      const edit = priceEdit;
+      const id = Number(edit.row.dataset.materialRow);
+      const draft = drafts.find((item) => item.id === id);
+      if (!draft || draft.id === null) {
+        cancelPriceEdit();
+        return;
+      }
+      const next = parseMaterialPrice(edit.input.value);
+      if (next === null) {
+        edit.skipBlur = false;
+        edit.input.setCustomValidity('Đơn giá là số nguyên VND, từ 0 đến 99.999.999.');
+        edit.input.reportValidity();
+        edit.input.focus();
+        return;
+      }
+      edit.input.setCustomValidity('');
+      if (next === edit.original) {
+        cancelPriceEdit();
+        return;
+      }
+      edit.input.dataset.saving = '1';
+      edit.input.disabled = true;
+      const body = new FormData();
+      body.set('csrf', csrf());
+      body.set('intent', 'save');
+      body.set('id', String(draft.id));
+      body.set('name', draft.name);
+      body.set('code', draft.code);
+      body.set('groupId', draft.groupId);
+      body.set('unitCost', String(next));
+      if (draft.active) body.set('active', '1');
+      try {
+        const response = await fetch(location.pathname, {
+          method: 'POST',
+          body,
+          headers: { 'x-requested-with': 'fetch' },
+        });
+        const data = (await response.json()) as {
+          ok?: boolean;
+          error?: string;
+          notice?: string;
+          reprice?: boolean;
+          id?: number;
+          previous?: number;
+          material?: SavedMaterial;
+        };
+        if (!response.ok || !data.ok || !data.material) {
+          edit.skipBlur = false;
+          edit.input.disabled = false;
+          delete edit.input.dataset.saving;
+          edit.input.setCustomValidity(data.error || 'Chưa lưu được đơn giá.');
+          edit.input.reportValidity();
+          edit.input.focus();
+          return;
+        }
+        if (data.reprice && data.id != null && data.previous != null) {
+          const url = new URL(location.href);
+          url.searchParams.set('reprice', String(data.id));
+          url.searchParams.set('truoc', String(data.previous));
+          location.assign(url);
+          return;
+        }
+        priceEdit = null;
+        upsertMaterial(data.material, false);
+        showFlash(data.notice || 'Đã cập nhật đơn giá.');
+      } catch {
+        edit.skipBlur = false;
+        edit.input.disabled = false;
+        delete edit.input.dataset.saving;
+        edit.input.setCustomValidity('Không kết nối được máy chủ.');
+        edit.input.reportValidity();
+        edit.input.focus();
+      }
+    };
+
+    const openPriceEdit = (button: HTMLButtonElement) => {
+      if (priceEdit?.input.dataset.saving === '1') return;
+      if (priceEdit) cancelPriceEdit();
+      const row = button.closest<HTMLTableRowElement>('tr[data-material-row]');
+      const td = button.closest<HTMLTableCellElement>('td[data-label="Đơn giá"]');
+      if (!row || !td) return;
+      const id = Number(row.dataset.materialRow);
+      const draft = drafts.find((item) => item.id === id);
+      if (!draft) return;
+      const original = Number(button.dataset.unitCost);
+      const baseline = Number.isFinite(original) ? original : (parseMaterialPrice(draft.unitCost) ?? 0);
+      const input = document.createElement('input');
+      input.className = 'field material-price-input';
+      input.type = 'text';
+      input.inputMode = 'numeric';
+      input.autocomplete = 'off';
+      input.value = String(baseline);
+      input.setAttribute('aria-label', `Đơn giá ${draft.name}`);
+      const state: PriceEdit = { row, input, original: baseline, skipBlur: false };
+      priceEdit = state;
+      td.replaceChildren(input);
+      input.focus();
+      input.select();
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          state.skipBlur = true;
+          void commitPriceEdit();
+          return;
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          state.skipBlur = true;
+          cancelPriceEdit();
+        }
+      });
+      input.addEventListener('blur', () => {
+        if (state.skipBlur) {
+          state.skipBlur = false;
+          return;
+        }
+        void commitPriceEdit();
+      });
+      input.addEventListener('input', () => input.setCustomValidity(''));
+    };
+
     document.addEventListener('click', (event) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const link = event.target instanceof Element ? event.target.closest('a[data-material-edit]') : null;
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      const priceBtn = target.closest<HTMLButtonElement>('[data-material-price-edit]');
+      if (priceBtn) {
+        event.preventDefault();
+        openPriceEdit(priceBtn);
+        return;
+      }
+      const link = target.closest('a[data-material-edit]');
       if (!(link instanceof HTMLAnchorElement)) return;
       const draft = drafts.find((item) => String(item.id) === link.dataset.materialEdit);
       if (!draft) return;

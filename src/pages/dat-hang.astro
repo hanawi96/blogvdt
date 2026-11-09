@@ -1,12 +1,14 @@
 ---
 import DataError from '../components/public/DataError.astro';
 import OrderForm from '../components/public/OrderForm.astro';
+import { listOrderCosts } from '../features/costs/order-costs';
 import { applyDiscount } from '../features/discounts/quote';
 import { priceDiscount } from '../features/discounts/discounts';
 import { ORDER_MAX_QUANTITY, parseOrderSubmission } from '../features/orders/order';
 import { placeOrder } from '../features/orders/orders';
 import { listOrderCatalog } from '../features/products/public';
 import { getPublicSite } from '../features/settings/settings';
+import { baseCustomerShippingFee, resolveCustomerShippingFee, shipGroupOf } from '../features/shipping/customer-fee';
 import PublicLayout from '../layouts/PublicLayout.astro';
 import { createDb } from '../lib/db/client';
 import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
@@ -19,12 +21,16 @@ import type { DiscountQuote } from '../features/discounts/quote';
 
 let site: Awaited<ReturnType<typeof getPublicSite>> = null;
 let catalog: Awaited<ReturnType<typeof listOrderCatalog>> = [];
+let shipBaseFee = 0;
 let failed = false;
 let db: ReturnType<typeof createDb> | null = null;
 try {
   db = createDb(getDbBinding());
   site = await getPublicSite(db);
-  if (site) catalog = await listOrderCatalog(db);
+  if (site) {
+    catalog = await listOrderCatalog(db);
+    shipBaseFee = baseCustomerShippingFee(await listOrderCosts(db));
+  }
 } catch (error) {
   failed = true;
   console.error(JSON.stringify({ event: 'checkout_load_failed', name: error instanceof Error ? error.name : 'unknown' }));
@@ -148,6 +154,16 @@ const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
   siteName: site?.siteName,
   robots: site ? 'index,follow' : 'noindex,nofollow',
 });
+
+const selectedQty = Number(values.quantity);
+const goodsTotal =
+  selected && Number.isInteger(selectedQty) && selectedQty > 0 ? selected.price * selectedQty : selected ? selected.price : 0;
+const shipping = selected
+  ? resolveCustomerShippingFee({
+      lines: [{ group: shipGroupOf(selected.categorySlug), lineTotal: goodsTotal }],
+      baseFee: shipBaseFee,
+    })
+  : null;
 ---
 
 <PublicLayout
@@ -187,7 +203,7 @@ const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
           <section class="mt-8" aria-labelledby="selected-product">
             <h2 id="selected-product" class="text-xl font-semibold">{selected.name}</h2>
             <p class="mt-1 text-primary-strong">{formatVnd(selected.price)}</p>
-            <OrderForm product={selected} values={values} errors={errors} quote={quote} landing={landing} />
+            <OrderForm product={selected} values={values} errors={errors} quote={quote} landing={landing} shipping={shipping} goodsTotal={goodsTotal} />
           </section>
         )}
       </main>

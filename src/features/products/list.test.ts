@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseProductForm, ratingFormValue } from './form';
-import { productAdminQuery, productListCord, productListSort, readProductBulk } from './products';
+import { DEFAULT_PRODUCT_LIST_SORT, productAdminQuery, productListCord, productListSort, readProductBulk } from './products';
 import { canFeatureProduct } from './status';
 
 describe('danh sách sản phẩm', () => {
@@ -8,8 +8,9 @@ describe('danh sách sản phẩm', () => {
     expect(productListSort('price-desc')).toBe('price-desc');
     expect(productListSort('stock-asc')).toBe('stock-asc');
     expect(productListSort('stock-desc')).toBe('stock-desc');
-    expect(productListSort('updated')).toBe('newest');
-    expect(productListSort(null)).toBe('newest');
+    expect(productListSort('sold-desc')).toBe('sold-desc');
+    expect(productListSort('updated')).toBe(DEFAULT_PRODUCT_LIST_SORT);
+    expect(productListSort(null)).toBe('sold-desc');
   });
 
   it('giữ tham số lọc hợp lệ và bỏ giá trị lạ', () => {
@@ -21,6 +22,7 @@ describe('danh sách sản phẩm', () => {
     expect(productAdminQuery({ cord: 'Dây rút', sort: 'stock-desc' })).toBe(
       '/admin/products?cord=D%C3%A2y+r%C3%BAt&sort=stock-desc',
     );
+    expect(productAdminQuery({ sort: 'sold-desc' })).toBe('/admin/products');
     expect(productListCord('Dây co giãn')).toBe('Dây co giãn');
     expect(productListCord('Chun')).toBe('');
     expect(productAdminQuery({ status: 'archived', sort: 'random', notice: 'feature-error' })).toBe(

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WeightScale } from '../products/weight';
-import { applyStaffCollection, capDiscount, orderLineSources, parseStaffCustomer, priceStaffLines, readStaffFlags, settleStaffTotal, staffOrderColumns, type StoredOrderLine } from './staff';
+import { applyStaffCollection, capDiscount, orderLineSources, parseStaffCustomer, priceStaffLines, readStaffFlags, settleStaffTotal, staffExtraRoundPresets, staffOrderColumns, staffShipDayAfter, type StoredOrderLine } from './staff';
 
 const catalog: { id: number; name: string; price: number; weightScale: WeightScale }[] = [
   { id: 1, name: 'Vòng tơ tằm trơn', price: 150000, weightScale: 'none' },
@@ -75,8 +75,9 @@ describe('đơn nhân viên nhập', () => {
       ok: true, totalPrice: 0, discountAmount: 0, discountCode: null, shippingFee: 0,
     });
     expect(applyStaffCollection(45_000, 0, null, { compensation: false, shippingFee: 16_000 })).toMatchObject({ ok: true, totalPrice: 61_000, shippingFee: 16_000 });
-    const free = readStaffFlags({ payState: 'cod', source: 'zalo', priority: 'on', compensation: '', shipLater: 'on', shipOn: '2026-10-25', shippingFee: '16.000', freeShip: 'on' });
-    expect(free.ok && free.flags).toMatchObject({ source: 'zalo', payState: 'cod', paymentMethod: 'cod', priority: true, shippingFee: 0, shipOn: Date.parse('2026-10-25T00:00:00+07:00') });
+    const free = readStaffFlags({ payState: 'cod', source: 'zalo', priority: '', compensation: '', shipLater: 'on', shipOn: '2026-10-25', shippingFee: '16.000', freeShip: 'on' });
+    expect(free.ok && free.flags).toMatchObject({ source: 'zalo', payState: 'cod', paymentMethod: 'cod', priority: false, shippingFee: 0, shipOn: Date.parse('2026-10-25T00:00:00+07:00') });
+    expect(readStaffFlags({ payState: 'cod', source: 'zalo', priority: 'on', compensation: '', shipLater: 'on', shipOn: '2026-10-25', shippingFee: '', freeShip: '' }).ok).toBe(false);
     expect(readStaffFlags({ payState: 'paid', source: '', priority: '', compensation: '', shipLater: '', shipOn: '', shippingFee: '', freeShip: '' }).ok).toBe(false);
     expect(readStaffFlags({ payState: 'deposit', source: 'tiktok', priority: '', compensation: '', shipLater: 'on', shipOn: '', shippingFee: '', freeShip: '' }).ok).toBe(false);
   });
@@ -92,6 +93,20 @@ describe('đơn nhân viên nhập', () => {
     expect(settleStaffTotal(50_000, 10_000, '45.000').ok).toBe(false);
     expect(settleStaffTotal(50_000, 0, 'abc').ok).toBe(false);
     expect(settleStaffTotal(50_000, 0, '', 'abc').ok).toBe(false);
+  });
+
+  it('preset giảm thêm làm tròn tổng về mốc 10.000', () => {
+    expect(staffExtraRoundPresets(298_000)).toEqual([8_000, 18_000, 28_000]);
+    expect(staffExtraRoundPresets(200_000)).toEqual([10_000, 20_000, 30_000]);
+    expect(staffExtraRoundPresets(305_000)).toEqual([5_000, 15_000, 25_000]);
+    expect(staffExtraRoundPresets(8_000)).toEqual([]);
+  });
+
+  it('preset gửi sau cộng đúng số ngày theo lịch VN', () => {
+    const noon = Date.parse('2026-11-09T12:00:00+07:00');
+    expect(staffShipDayAfter(10, noon)).toBe('2026-11-19');
+    expect(staffShipDayAfter(30, noon)).toBe('2026-12-09');
+    expect(staffShipDayAfter(60, Date.parse('2026-01-15T08:00:00+07:00'))).toBe('2026-03-16');
   });
 
   it('giảm giá không vượt tạm tính mới, một mẫu và nhiều mẫu lưu khác nhau', () => {

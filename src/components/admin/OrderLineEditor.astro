@@ -1,14 +1,17 @@
 ---
 import { CART_MAX_LINES } from '../../features/cart/cart';
+import type { StaffDiscountChoice } from '../../features/discounts/discounts';
 import type { StaffLineInput, StoredOrderLine } from '../../features/orders/staff';
 import { weightOptions, type WeightScale } from '../../features/products/weight';
 import { formatVnd } from '../../lib/money';
 
 interface Props {
-  choices: { id: number; name: string; price: number; weightScale: WeightScale; active: boolean; coverUrl?: string | null }[];
+  choices: { id: number; name: string; price: number; weightScale: WeightScale; active: boolean; coverUrl?: string | null; categorySlug?: string }[];
   lines: StaffLineInput[];
   stored: StoredOrderLine[];
   orderTotal?: string;
+  discountCode?: string;
+  discountChoices?: StaffDiscountChoice[];
   extraDiscount?: string;
   error?: string;
   allowEmpty?: boolean;
@@ -20,6 +23,8 @@ const {
   lines,
   stored,
   orderTotal = '',
+  discountCode = '',
+  discountChoices = [],
   extraDiscount = '',
   error = '',
   allowEmpty = false,
@@ -31,6 +36,17 @@ const totalAmount = Number(orderTotal.replace(/\D/g, ''));
 const totalLabel = orderTotal.trim() && Number.isSafeInteger(totalAmount) ? formatVnd(totalAmount) : formatVnd(0);
 const extraAmount = Number(extraDiscount.replace(/\D/g, ''));
 const extraLabel = extraDiscount.trim() && Number.isSafeInteger(extraAmount) && extraAmount > 0 ? formatVnd(extraAmount) : formatVnd(0);
+const selectedCode = discountCode.trim().toUpperCase();
+const codeOptions =
+  selectedCode && !discountChoices.some((choice) => choice.code === selectedCode)
+    ? [{ code: selectedCode, kind: 'fixed' as const, value: 0, minSubtotal: 0 }, ...discountChoices]
+    : discountChoices;
+
+function discountOptionLabel(choice: StaffDiscountChoice): string {
+  if (choice.value <= 0 && choice.kind === 'fixed') return choice.code;
+  const deal = choice.kind === 'percent' ? `−${choice.value}%` : `−${formatVnd(choice.value)}`;
+  return choice.minSubtotal > 0 ? `${choice.code} · ${deal} · từ ${formatVnd(choice.minSubtotal)}` : `${choice.code} · ${deal}`;
+}
 
 function choiceOf(productId: string) {
   return choices.find((choice) => String(choice.id) === productId);
@@ -73,6 +89,7 @@ function coverOf(line: StaffLineInput): string {
   data-cart={cart ? '1' : undefined}
 >
   <pre hidden data-order-choices>{JSON.stringify(choices).replace(/</g, '\\u003c')}</pre>
+  <pre hidden data-discount-choices>{JSON.stringify(discountChoices).replace(/</g, '\\u003c')}</pre>
   <ul class="staff-lines" data-line-list>
     {
       lines.map((line) => {
@@ -98,11 +115,13 @@ function coverOf(line: StaffLineInput): string {
             <input type="hidden" name="lineProduct" data-product value={line.productId} />
             {cart ? (
               <div class="staff-line-card">
-                {cover ? (
-                  <img class="staff-line-photo" src={cover} alt="" width="56" height="56" loading="lazy" decoding="async" data-line-photo />
-                ) : (
-                  <span class="staff-line-photo" aria-hidden="true" data-line-photo></span>
-                )}
+                <div class="staff-line-photo-wrap">
+                  {cover ? (
+                    <img class="staff-line-photo" src={cover} alt="" width="56" height="56" loading="lazy" decoding="async" data-line-photo />
+                  ) : (
+                    <span class="staff-line-photo" aria-hidden="true" data-line-photo></span>
+                  )}
+                </div>
                 <div class="staff-line-main">
                   <div class="staff-line-top">
                     <label data-product-pick hidden={!pickProduct}>
@@ -117,30 +136,53 @@ function coverOf(line: StaffLineInput): string {
                       <input class="field staff-line-name-input" name="lineName" data-line-name maxlength="160" autocomplete="off" value={name} hidden={pickProduct} />
                     </label>
                     <button class="staff-line-remove" type="button" data-remove-line aria-label="Xóa sản phẩm" hidden={lines.length < 2 && !allowEmpty}>
-                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12" /></svg>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
                     </button>
                   </div>
-                  <div class="staff-line-tags">
-                    <label class="staff-line-chip" data-weight-field hidden={labels.length === 0}>
-                      <span class="sr-only">Cân nặng</span>
-                      <select class="field staff-line-chip-select" name="lineWeight" data-weight>
-                        <option value="">Cân</option>
-                        {labels.map((label) => <option value={label} selected={line.weight === label}>{label}</option>)}
-                      </select>
-                    </label>
-                    <label class="staff-line-chip">
-                      <span class="sr-only">Số lượng</span>
-                      <span class="staff-line-chip-prefix" aria-hidden="true">x</span>
-                      <input class="field staff-line-chip-qty" type="number" name="lineQuantity" data-qty min="1" max="20" required value={line.quantity || '1'} />
-                    </label>
-                  </div>
-                  <div class="staff-line-price">
-                    <button class="staff-money-text" type="button" data-money-text>{priceLabel}</button>
-                    <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value={priceText} hidden />
+                  <div class="staff-line-mid">
+                    <div class="staff-line-tags">
+                      <label class="staff-line-chip" data-weight-field hidden={labels.length === 0}>
+                        <span class="sr-only">Cân nặng</span>
+                        <input
+                          class="field staff-line-chip-weight"
+                          type="text"
+                          name="lineWeight"
+                          data-weight
+                          maxlength="40"
+                          autocomplete="off"
+                          placeholder="Cân"
+                          value={line.weight}
+                        />
+                      </label>
+                      <div class="staff-line-chip staff-line-qty-chip" data-qty-stepper>
+                        <button class="staff-line-qty-btn" type="button" data-qty-dec aria-label="Giảm số lượng">
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+                        </button>
+                        <input
+                          class="field staff-line-chip-qty"
+                          type="number"
+                          name="lineQuantity"
+                          data-qty
+                          min="1"
+                          max="20"
+                          required
+                          inputmode="numeric"
+                          aria-label="Số lượng"
+                          value={line.quantity || '1'}
+                        />
+                        <button class="staff-line-qty-btn" type="button" data-qty-inc aria-label="Tăng số lượng">
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="staff-line-price">
+                      <button class="staff-money-text" type="button" data-money-text>{priceLabel}</button>
+                      <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value={priceText} hidden />
+                    </div>
                   </div>
                   <label class="staff-line-note">
                     <span class="sr-only">Lưu ý dòng</span>
-                    <input class="field" name="lineNote" data-line-note maxlength="160" placeholder="Lưu ý cho dòng này, không bắt buộc" value={line.note ?? ''} />
+                    <input class="field" name="lineNote" data-line-note maxlength="160" placeholder="Lưu ý sản phẩm" value={line.note ?? ''} />
                   </label>
                 </div>
               </div>
@@ -170,7 +212,7 @@ function coverOf(line: StaffLineInput): string {
                     <input class="field" type="number" name="lineQuantity" data-qty min="1" max="20" required value={line.quantity || '1'} />
                   </label>
                   <button class="staff-line-remove" type="button" data-remove-line aria-label="Xóa sản phẩm" hidden={lines.length < 2 && !allowEmpty}>
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12" /></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
                   </button>
                 </div>
                 <div class="staff-line-price">
@@ -191,7 +233,9 @@ function coverOf(line: StaffLineInput): string {
       <input type="hidden" name="lineProduct" data-product value="" />
       {cart ? (
         <div class="staff-line-card">
-          <span class="staff-line-photo" aria-hidden="true" data-line-photo></span>
+          <div class="staff-line-photo-wrap">
+            <span class="staff-line-photo" aria-hidden="true" data-line-photo></span>
+          </div>
           <div class="staff-line-main">
             <div class="staff-line-top">
               <label data-product-pick>
@@ -206,29 +250,33 @@ function coverOf(line: StaffLineInput): string {
                 <input class="field staff-line-name-input" name="lineName" data-line-name maxlength="160" autocomplete="off" value="" hidden />
               </label>
               <button class="staff-line-remove" type="button" data-remove-line aria-label="Xóa sản phẩm">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12" /></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
               </button>
             </div>
-            <div class="staff-line-tags">
-              <label class="staff-line-chip" data-weight-field hidden>
-                <span class="sr-only">Cân nặng</span>
-                <select class="field staff-line-chip-select" name="lineWeight" data-weight>
-                  <option value="">Cân</option>
-                </select>
-              </label>
-              <label class="staff-line-chip">
-                <span class="sr-only">Số lượng</span>
-                <span class="staff-line-chip-prefix" aria-hidden="true">x</span>
-                <input class="field staff-line-chip-qty" type="number" name="lineQuantity" data-qty min="1" max="20" required value="1" />
-              </label>
-            </div>
-            <div class="staff-line-price">
-              <button class="staff-money-text" type="button" data-money-text>Đơn giá</button>
-              <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value="" hidden />
+            <div class="staff-line-mid">
+              <div class="staff-line-tags">
+                <label class="staff-line-chip" data-weight-field hidden>
+                  <span class="sr-only">Cân nặng</span>
+                  <input class="field staff-line-chip-weight" type="text" name="lineWeight" data-weight maxlength="40" autocomplete="off" placeholder="Cân" value="" />
+                </label>
+                <div class="staff-line-chip staff-line-qty-chip" data-qty-stepper>
+                  <button class="staff-line-qty-btn" type="button" data-qty-dec aria-label="Giảm số lượng">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+                  </button>
+                  <input class="field staff-line-chip-qty" type="number" name="lineQuantity" data-qty min="1" max="20" required inputmode="numeric" aria-label="Số lượng" value="1" />
+                  <button class="staff-line-qty-btn" type="button" data-qty-inc aria-label="Tăng số lượng">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="staff-line-price">
+                <button class="staff-money-text" type="button" data-money-text>Đơn giá</button>
+                <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value="" hidden />
+              </div>
             </div>
             <label class="staff-line-note">
               <span class="sr-only">Lưu ý dòng</span>
-              <input class="field" name="lineNote" data-line-note maxlength="160" placeholder="Lưu ý cho dòng này, không bắt buộc" value="" />
+              <input class="field" name="lineNote" data-line-note maxlength="160" placeholder="Lưu ý sản phẩm" value="" />
             </label>
           </div>
         </div>
@@ -257,7 +305,7 @@ function coverOf(line: StaffLineInput): string {
               <input class="field" type="number" name="lineQuantity" data-qty min="1" max="20" required value="1" />
             </label>
             <button class="staff-line-remove" type="button" data-remove-line aria-label="Xóa sản phẩm">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12" /></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
             </button>
           </div>
           <div class="staff-line-price">
@@ -269,18 +317,45 @@ function coverOf(line: StaffLineInput): string {
       )}
     </li>
   </template>
-  {allowEmpty && !cart && <p class="od-note" data-lines-empty hidden={lines.length > 0}>Chưa có sản phẩm. Chọn mẫu bên phải rồi bấm Thêm vào đơn.</p>}
+  {
+    allowEmpty && (
+      <p class="od-note" data-lines-empty hidden={lines.length > 0}>
+        {cart ? 'Chưa có sản phẩm. Chọn mẫu bên phải, rồi thêm vào đơn.' : 'Chưa có sản phẩm. Chọn mẫu bên phải rồi bấm Thêm vào đơn.'}
+      </p>
+    )
+  }
   <button class="btn mt-3" type="button" data-add-line hidden={allowEmpty || !canAdd || lines.length >= CART_MAX_LINES}>Thêm mẫu</button>
   <div class="staff-pay">
-    <div class="staff-extra">
-      <span class="od-label">Giảm giá</span>
-      <button class="staff-money-text staff-extra-text" type="button" data-money-text>{extraLabel}</button>
-      <input class="field" name="discountExtra" data-discount-extra inputmode="numeric" maxlength="8" autocomplete="off" value={extraDiscount} hidden />
+    <div class="staff-discount" data-staff-discount>
+      <label class="staff-discount-code">
+        <span class="od-label">Mã giảm giá</span>
+        <select class="field" name="discountCode" data-discount-code>
+          <option value="">Không dùng mã</option>
+          {codeOptions.map((choice) => (
+            <option value={choice.code} selected={choice.code === selectedCode}>
+              {discountOptionLabel(choice)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p class="error-text" data-discount-code-msg role="alert" hidden></p>
+      <div class="staff-extra" data-staff-extra>
+        <span class="od-label">Giảm thêm</span>
+        <button class="staff-money-text staff-extra-text" type="button" data-money-text>{extraLabel}</button>
+        <div class="staff-extra-edit" data-extra-edit hidden>
+          <input class="field staff-extra-input" name="discountExtra" data-discount-extra inputmode="numeric" maxlength="8" autocomplete="off" value={extraDiscount} aria-label="Số tiền giảm thêm" />
+          <div class="staff-extra-presets" data-extra-presets></div>
+        </div>
+      </div>
     </div>
     <p class="od-note" data-pay-sub hidden></p>
-    <div class="staff-pay-total">
+    <div class="staff-pay-ship" data-pay-ship hidden={!cart || lines.length === 0}>
+      <span class="od-label">Phí ship</span>
+      <strong data-pay-ship-fee>Miễn phí</strong>
+    </div>
+    <div class="staff-pay-total" data-pay-total hidden={cart && lines.length === 0}>
       <span data-pay-label>Tổng tiền</span>
-      <button class="staff-money-text" type="button" data-money-text>{totalLabel}</button>
+      <button class="staff-money-text" type="button" data-money-text data-pay-payable>{totalLabel}</button>
       <input class="field staff-pay-input" name="orderTotal" data-order-total inputmode="numeric" maxlength="9" autocomplete="off" value={orderTotal} data-lock={orderTotal ? '1' : undefined} hidden />
     </div>
   </div>
@@ -288,6 +363,9 @@ function coverOf(line: StaffLineInput): string {
 </div>
 
 <script>
+  import { quoteDiscount, type DiscountRule } from '../../features/discounts/quote';
+  import { staffExtraRoundPresets } from '../../features/orders/staff';
+  import { qualifiesFreeShip, shipGroupOf } from '../../features/shipping/customer-fee';
   import { WEIGHT_SCALES } from '../../features/products/weight';
   import { groupDigits } from '../../lib/group-digits';
   import { formatVnd } from '../../lib/money';
@@ -302,6 +380,13 @@ function coverOf(line: StaffLineInput): string {
       scale?: string;
       weightScale?: string;
       coverUrl?: string | null;
+      categorySlug?: string;
+    }[];
+    const discountChoices = JSON.parse(root.querySelector('[data-discount-choices]')?.textContent || '[]') as {
+      code: string;
+      kind: 'percent' | 'fixed';
+      value: number;
+      minSubtotal: number;
     }[];
     const max = Number(root.dataset.max || '8');
     const allowAdd = root.dataset.add === '1';
@@ -309,6 +394,37 @@ function coverOf(line: StaffLineInput): string {
     const list = root.querySelector('[data-line-list]');
     const template = root.querySelector('template');
     const add = root.querySelector('[data-add-line]');
+
+    function codeRule(code: string): DiscountRule | null {
+      const choice = discountChoices.find((item) => item.code === code);
+      if (!choice) return null;
+      return {
+        code: choice.code,
+        kind: choice.kind,
+        value: choice.value,
+        minSubtotal: choice.minSubtotal,
+        usageLimit: null,
+        usedCount: 0,
+        startsAt: null,
+        endsAt: null,
+        active: true,
+      };
+    }
+
+    function readCodeQuote(subtotal: number): { amount: number; label: string | null; error: string } {
+      const select = root.querySelector('[data-discount-code]');
+      if (!(select instanceof HTMLSelectElement) || !select.value) return { amount: 0, label: null, error: '' };
+      const quoted = quoteDiscount(codeRule(select.value), subtotal, Date.now());
+      if (!quoted.ok) return { amount: 0, label: null, error: quoted.error };
+      return { amount: quoted.quote.discountAmount, label: quoted.quote.code, error: '' };
+    }
+
+    function syncCompensationDiscount() {
+      const box = document.querySelector('[data-compensation]');
+      const block = root.querySelector('[data-staff-discount]');
+      if (!(block instanceof HTMLElement)) return;
+      block.hidden = box instanceof HTMLInputElement && box.checked;
+    }
 
     function rows(): HTMLElement[] {
       if (!(list instanceof HTMLElement)) return [];
@@ -320,10 +436,15 @@ function coverOf(line: StaffLineInput): string {
       return [];
     }
 
+    function weightControl(row: HTMLElement): HTMLInputElement | HTMLSelectElement | null {
+      const weight = row.querySelector('[data-weight]');
+      return weight instanceof HTMLInputElement || weight instanceof HTMLSelectElement ? weight : null;
+    }
+
     function unitOf(row: HTMLElement): number | null {
       const product = row.querySelector('[data-product]');
-      const weight = row.querySelector('[data-weight]');
-      if (!(product instanceof HTMLInputElement) || !(weight instanceof HTMLSelectElement)) return null;
+      const weight = weightControl(row);
+      if (!(product instanceof HTMLInputElement) || !weight) return null;
       const choice = choices.find((item) => String(item.id) === product.value);
       const productKey = product.value || 'none';
       const frozen = Number(row.dataset.frozenPrice ?? '');
@@ -337,15 +458,47 @@ function coverOf(line: StaffLineInput): string {
     }
 
     function moneyButton(input: HTMLInputElement): HTMLElement | null {
-      const node = input.parentElement?.querySelector('[data-money-text]');
+      const scope = input.closest('[data-staff-extra], .staff-line-price, .staff-pay-total') ?? input.parentElement;
+      const node = scope?.querySelector('[data-money-text]');
       return node instanceof HTMLElement ? node : null;
+    }
+
+    function extraEditPanel(): HTMLElement | null {
+      const node = root.querySelector('[data-extra-edit]');
+      return node instanceof HTMLElement ? node : null;
+    }
+
+    function isEditingExtra(): boolean {
+      const edit = extraEditPanel();
+      return Boolean(edit && !edit.hidden);
     }
 
     function paintMoneyText(input: HTMLInputElement) {
       const text = moneyButton(input);
-      if (!text || !input.hidden) return;
+      if (!text) return;
+      if (input.matches('[data-discount-extra]')) {
+        if (isEditingExtra()) return;
+      } else if (!input.hidden) return;
       const amount = digits(input.value);
       text.textContent = input.matches('[data-line-price]') ? (input.value.trim() ? `Đơn giá ${formatVnd(amount)}` : 'Đơn giá') : formatVnd(amount);
+    }
+
+    function paintExtraPresets(room: number) {
+      const box = root.querySelector('[data-extra-presets]');
+      const input = root.querySelector('[data-discount-extra]');
+      if (!(box instanceof HTMLElement)) return;
+      const selected = input instanceof HTMLInputElement ? digits(input.value) : 0;
+      box.replaceChildren();
+      for (const amount of staffExtraRoundPresets(room)) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'staff-extra-preset';
+        button.dataset.extraPreset = String(amount);
+        button.textContent = formatVnd(amount);
+        button.setAttribute('aria-label', `Giảm thêm ${formatVnd(amount)}`);
+        if (amount === selected) button.setAttribute('aria-pressed', 'true');
+        box.appendChild(button);
+      }
     }
 
     function editMoney(input: HTMLInputElement) {
@@ -353,16 +506,45 @@ function coverOf(line: StaffLineInput): string {
       if (!text) return;
       input.dataset.previous = input.value;
       text.hidden = true;
+      if (input.matches('[data-discount-extra]')) {
+        const edit = extraEditPanel();
+        if (edit) edit.hidden = false;
+        paintExtraPresets(goodsRoom());
+        input.focus();
+        input.select();
+        return;
+      }
       input.hidden = false;
       input.focus();
       input.select();
     }
 
     function closeMoney(input: HTMLInputElement) {
+      if (input.matches('[data-discount-extra]')) {
+        const edit = extraEditPanel();
+        if (edit) edit.hidden = true;
+        const text = moneyButton(input);
+        if (text) text.hidden = false;
+        paintMoneyText(input);
+        return;
+      }
       input.hidden = true;
       const text = moneyButton(input);
       if (text) text.hidden = false;
       paintMoneyText(input);
+    }
+
+    function goodsRoom(): number {
+      const subtotal = rows().reduce((sum, row) => {
+        const price = row.querySelector('[data-line-price]');
+        const qty = row.querySelector('[data-qty]');
+        if (!(price instanceof HTMLInputElement) || !(qty instanceof HTMLInputElement)) return sum;
+        const quantity = Number(qty.value);
+        if (!Number.isInteger(quantity) || quantity < 1) return sum;
+        const unit = price.value.trim() ? digits(price.value) : (unitOf(row) ?? 0);
+        return sum + unit * quantity;
+      }, 0);
+      return Math.max(0, subtotal - readCodeQuote(subtotal).amount);
     }
 
     function fillPrice(row: HTMLElement) {
@@ -380,45 +562,104 @@ function coverOf(line: StaffLineInput): string {
       return Number.isSafeInteger(amount) ? amount : 0;
     }
 
-    function paintPay() {
-      const subtotal = rows().reduce((sum, row) => {
+    function emitShipRule() {
+      if (root.dataset.cart !== '1') return;
+      const shipLines = rows().flatMap((row) => {
+        const product = row.querySelector('[data-product]');
         const price = row.querySelector('[data-line-price]');
         const qty = row.querySelector('[data-qty]');
-        if (!(price instanceof HTMLInputElement) || !(qty instanceof HTMLInputElement)) return sum;
+        if (!(product instanceof HTMLInputElement) || !(price instanceof HTMLInputElement) || !(qty instanceof HTMLInputElement)) return [];
+        if (!product.value) return [];
         const quantity = Number(qty.value);
-        if (!Number.isInteger(quantity) || quantity < 1) return sum;
+        if (!Number.isInteger(quantity) || quantity < 1) return [];
         const unit = price.value.trim() ? digits(price.value) : (unitOf(row) ?? 0);
-        return sum + unit * quantity;
-      }, 0);
-      const totalInput = root.querySelector('[data-order-total]');
-      const extraInput = root.querySelector('[data-discount-extra]');
-      const locked = totalInput instanceof HTMLInputElement && totalInput.dataset.lock === '1';
-      const room = subtotal;
-      const editingExtra = extraInput instanceof HTMLInputElement && !extraInput.hidden;
-      let extra = extraInput instanceof HTMLInputElement ? digits(extraInput.value) : 0;
-      let over = '';
-      if (locked && totalInput instanceof HTMLInputElement) {
-        const shownTotal = digits(totalInput.value);
-        if (shownTotal > subtotal) over = 'Tổng lớn hơn tạm tính. Hãy tăng đơn giá.';
-        else extra = room - shownTotal;
-      } else {
-        extra = Math.min(extra, room);
-        if (totalInput instanceof HTMLInputElement) totalInput.value = groupDigits(String(room - extra), 9);
+        const choice = choices.find((item) => String(item.id) === product.value);
+        return [{ group: shipGroupOf(choice?.categorySlug), lineTotal: unit * quantity }];
+      });
+      document.dispatchEvent(new CustomEvent('staff-ship-recalc', { detail: { free: qualifiesFreeShip(shipLines) } }));
+    }
+
+    function readShipState(): { free: boolean; fee: number } {
+      const free = document.querySelector('[data-free-ship]');
+      const fee = document.querySelector('[data-ship-fee]');
+      const freeOn = free instanceof HTMLInputElement && free.checked;
+      if (freeOn) return { free: true, fee: 0 };
+      const amount = fee instanceof HTMLInputElement ? digits(fee.value) : 0;
+      return { free: false, fee: amount };
+    }
+
+    let paintingPay = false;
+    function paintPay() {
+      if (paintingPay) return;
+      paintingPay = true;
+      try {
+        const subtotal = rows().reduce((sum, row) => {
+          const price = row.querySelector('[data-line-price]');
+          const qty = row.querySelector('[data-qty]');
+          if (!(price instanceof HTMLInputElement) || !(qty instanceof HTMLInputElement)) return sum;
+          const quantity = Number(qty.value);
+          if (!Number.isInteger(quantity) || quantity < 1) return sum;
+          const unit = price.value.trim() ? digits(price.value) : (unitOf(row) ?? 0);
+          return sum + unit * quantity;
+        }, 0);
+        const totalInput = root.querySelector('[data-order-total]');
+        const extraInput = root.querySelector('[data-discount-extra]');
+        const codeMsg = root.querySelector('[data-discount-code-msg]');
+        const locked = totalInput instanceof HTMLInputElement && totalInput.dataset.lock === '1';
+        const code = readCodeQuote(subtotal);
+        if (codeMsg instanceof HTMLElement) {
+          codeMsg.hidden = !code.error;
+          codeMsg.textContent = code.error;
+        }
+        const room = Math.max(0, subtotal - code.amount);
+        const editingExtra = isEditingExtra();
+        let extra = extraInput instanceof HTMLInputElement ? digits(extraInput.value) : 0;
+        let over = '';
+        if (locked && totalInput instanceof HTMLInputElement) {
+          const shownTotal = digits(totalInput.value);
+          if (shownTotal > subtotal) over = 'Tổng lớn hơn tạm tính. Hãy tăng đơn giá.';
+          else if (shownTotal > room) over = 'Tổng lớn hơn số sau mã giảm giá.';
+          else extra = room - shownTotal;
+        } else {
+          extra = Math.min(extra, room);
+          if (totalInput instanceof HTMLInputElement) totalInput.value = groupDigits(String(room - extra), 9);
+        }
+        if (extraInput instanceof HTMLInputElement && !editingExtra && !over) {
+          extraInput.value = extra > 0 ? groupDigits(String(extra), 8) : '';
+          paintMoneyText(extraInput);
+        }
+        if (editingExtra) paintExtraPresets(room);
+        const sub = root.querySelector('[data-pay-sub]');
+        if (sub instanceof HTMLElement) {
+          // Mã/giảm thêm đã hiện ở hàng riêng và tổng tiền; chỉ báo khi tổng gõ tay lệch.
+          sub.hidden = !over;
+          sub.textContent = over;
+        }
+        // Quy tắc ship cập nhật checkbox/phí trước, rồi mới cộng vào tổng hiển thị.
+        // orderTotal gửi lên server vẫn là tiền hàng (ship cộng lúc lưu đơn).
+        emitShipRule();
+        const ship = readShipState();
+        const goodsPayable = totalInput instanceof HTMLInputElement ? digits(totalInput.value) : Math.max(0, room - extra);
+        const hasLines = rows().some((row) => {
+          const product = row.querySelector('[data-product]');
+          return product instanceof HTMLInputElement && product.value !== '';
+        });
+        const shipRow = root.querySelector('[data-pay-ship]');
+        const totalRow = root.querySelector('[data-pay-total]');
+        const shipFeeOut = root.querySelector('[data-pay-ship-fee]');
+        const showShipSummary = root.dataset.cart === '1' && hasLines;
+        if (shipRow instanceof HTMLElement) shipRow.hidden = !showShipSummary;
+        if (totalRow instanceof HTMLElement) totalRow.hidden = root.dataset.cart === '1' && !hasLines;
+        if (shipFeeOut) shipFeeOut.textContent = ship.free ? 'Miễn phí' : formatVnd(ship.fee);
+        const payableOut = root.querySelector('[data-pay-payable]');
+        if (payableOut instanceof HTMLElement && (!(totalInput instanceof HTMLInputElement) || totalInput.hidden)) {
+          payableOut.textContent = formatVnd(goodsPayable + (showShipSummary ? ship.fee : 0));
+        } else if (totalInput instanceof HTMLInputElement) {
+          paintMoneyText(totalInput);
+        }
+      } finally {
+        paintingPay = false;
       }
-      if (extraInput instanceof HTMLInputElement && !editingExtra && !over) {
-        extraInput.value = extra > 0 ? groupDigits(String(extra), 8) : '';
-        paintMoneyText(extraInput);
-      }
-      const sub = root.querySelector('[data-pay-sub]');
-      if (sub instanceof HTMLElement) {
-        const parts: string[] = [];
-        if (extra > 0 || over) parts.push(`Tạm tính ${formatVnd(subtotal)}`);
-        if (extra > 0) parts.push(`Giảm −${formatVnd(extra)}`);
-        if (over) parts.push(over);
-        sub.hidden = parts.length === 0;
-        sub.textContent = parts.join(' · ');
-      }
-      if (totalInput instanceof HTMLInputElement) paintMoneyText(totalInput);
     }
 
     function setCover(row: HTMLElement, url: string) {
@@ -467,12 +708,22 @@ function coverOf(line: StaffLineInput): string {
 
     function refill(row: HTMLElement, preferred = '') {
       const product = row.querySelector('[data-product]');
-      const weight = row.querySelector('[data-weight]');
+      const weight = weightControl(row);
       const field = row.querySelector('[data-weight-field]');
-      if (!(product instanceof HTMLInputElement) || !(weight instanceof HTMLSelectElement) || !(field instanceof HTMLElement)) return;
+      if (!(product instanceof HTMLInputElement) || !weight || !(field instanceof HTMLElement)) return;
       const choice = choices.find((item) => String(item.id) === product.value);
       const labels = [...labelsFor(choice?.weightScale ?? choice?.scale ?? '')];
       const selected = preferred || weight.value;
+      if (weight instanceof HTMLInputElement) {
+        if (labels.length === 0 && !selected) {
+          field.hidden = true;
+          weight.value = '';
+          return;
+        }
+        field.hidden = false;
+        weight.value = selected;
+        return;
+      }
       if (selected && !labels.includes(selected)) labels.unshift(selected);
       weight.replaceChildren();
       if (labels.length === 0 && !selected) {
@@ -481,7 +732,7 @@ function coverOf(line: StaffLineInput): string {
         return;
       }
       field.hidden = false;
-      weight.add(new Option(root.dataset.cart === '1' ? 'Cân' : 'Chọn cân nặng', ''));
+      weight.add(new Option('Chọn cân nặng', ''));
       for (const label of labels) weight.add(new Option(label, label, false, label === selected));
       if (selected) weight.value = selected;
     }
@@ -514,13 +765,13 @@ function coverOf(line: StaffLineInput): string {
       const copy = source.cloneNode(true);
       if (!(copy instanceof HTMLElement)) return false;
       list.appendChild(copy);
-      const weight = copy.querySelector('[data-weight]');
+      const weight = weightControl(copy);
       const qty = copy.querySelector('[data-qty]');
       const note = copy.querySelector('[data-line-note]') ?? copy.querySelector('input[name="lineNote"]');
       if (productId) {
         revealName(copy, productId);
         refill(copy, weightValue);
-        if (weight instanceof HTMLSelectElement && weightValue) weight.value = weightValue;
+        if (weight && weightValue) weight.value = weightValue;
         fillPrice(copy);
         if (extras.cover) setCover(copy, extras.cover);
       }
@@ -531,10 +782,10 @@ function coverOf(line: StaffLineInput): string {
       paintPay();
       if (!focus) return true;
       const weightField = copy.querySelector('[data-weight-field]');
-      const name = copy.querySelector('[data-line-name]');
-      if (weightField instanceof HTMLElement && !weightField.hidden && weight instanceof HTMLSelectElement && !weightValue) weight.focus();
-      else if (name instanceof HTMLInputElement && !name.hidden) name.focus();
-      else {
+      if (weightField instanceof HTMLElement && !weightField.hidden && weight && !weightValue) {
+        weight.focus();
+        if (weight instanceof HTMLInputElement) weight.select();
+      } else if (!productId) {
         const pick = copy.querySelector('[data-product-select]');
         if (pick instanceof HTMLSelectElement) pick.focus();
       }
@@ -568,6 +819,12 @@ function coverOf(line: StaffLineInput): string {
         unlockTotal();
         paintPay();
       }
+      if (target.matches('[data-weight]')) {
+        const row = target.closest('[data-line]');
+        if (row instanceof HTMLElement) fillPrice(row);
+        unlockTotal();
+        paintPay();
+      }
     });
 
     root.addEventListener('keydown', (event) => {
@@ -588,16 +845,50 @@ function coverOf(line: StaffLineInput): string {
       const target = event.target;
       if (!(target instanceof HTMLInputElement)) return;
       if (!target.matches('[data-line-price]') && !target.matches('[data-order-total]') && !target.matches('[data-discount-extra]')) return;
+      if (target.matches('[data-discount-extra]')) {
+        const next = event.relatedTarget;
+        if (next instanceof Node && target.closest('[data-staff-extra]')?.contains(next)) return;
+      }
       closeMoney(target);
       paintPay();
+    });
+
+    root.addEventListener('mousedown', (event) => {
+      const button = event.target instanceof Element ? event.target.closest('[data-extra-preset]') : null;
+      if (button instanceof HTMLButtonElement) event.preventDefault();
     });
 
     root.addEventListener('click', (event) => {
       const button = event.target instanceof Element ? event.target.closest('button') : null;
       if (!(button instanceof HTMLButtonElement)) return;
       if (button.hasAttribute('data-money-text')) {
-        const input = button.parentElement?.querySelector('input');
+        const scope = button.closest('[data-staff-extra], .staff-line-price, .staff-pay-total') ?? button.parentElement;
+        const input = scope?.querySelector('input');
         if (input instanceof HTMLInputElement) editMoney(input);
+        return;
+      }
+      if (button.hasAttribute('data-extra-preset')) {
+        const input = root.querySelector('[data-discount-extra]');
+        if (!(input instanceof HTMLInputElement)) return;
+        const amount = Number(button.dataset.extraPreset);
+        if (!Number.isSafeInteger(amount) || amount < 1) return;
+        input.value = groupDigits(String(amount), 8);
+        unlockTotal();
+        closeMoney(input);
+        paintPay();
+        return;
+      }
+      if (button.hasAttribute('data-qty-dec') || button.hasAttribute('data-qty-inc')) {
+        const row = button.closest('[data-line]');
+        const input = row?.querySelector('[data-qty]');
+        if (!(input instanceof HTMLInputElement)) return;
+        const min = Number(input.min || '1');
+        const max = Number(input.max || '20');
+        let next = Number(input.value);
+        if (!Number.isInteger(next)) next = min;
+        next = button.hasAttribute('data-qty-inc') ? next + 1 : next - 1;
+        input.value = String(Math.min(max, Math.max(min, next)));
+        input.dispatchEvent(new Event('input', { bubbles: true }));
         return;
       }
       if (button.hasAttribute('data-remove-line')) {
@@ -625,6 +916,15 @@ function coverOf(line: StaffLineInput): string {
       }
     });
 
+    document.addEventListener('change', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (!target.matches('[data-free-ship], [data-ship-fee], [data-compensation]')) return;
+      syncCompensationDiscount();
+      paintPay();
+    });
+
+    syncCompensationDiscount();
     syncAdd();
     paintPay();
   }

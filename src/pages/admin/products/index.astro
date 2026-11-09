@@ -80,6 +80,8 @@ try {
 }
 
 const sorts: { id: ProductListSort; label: string }[] = [
+  { id: 'sold-desc', label: 'Bán nhiều → ít' },
+  { id: 'sold-asc', label: 'Bán ít → nhiều' },
   { id: 'newest', label: 'Mới cập nhật' },
   { id: 'oldest', label: 'Cũ nhất' },
   { id: 'name', label: 'Tên A–Z' },
@@ -214,7 +216,6 @@ function pageHref(next: { page?: number }): string {
                       <th>Danh mục</th>
                       <th>Kiểu dây</th>
                       <th>Trạng thái</th>
-                      <th>Nổi bật</th>
                       <th>Cập nhật</th>
                       <th>Thao tác</th>
                     </tr>
@@ -276,9 +277,6 @@ function pageHref(next: { page?: number }): string {
                             <span class="post-status" data-status={active ? 'active' : 'inactive'}>
                               {isProductStatus(product.status) ? PRODUCT_STATUS_LABELS[product.status] : product.status}
                             </span>
-                          </td>
-                          <td data-label="Nổi bật">
-                            <span class="product-flag" data-on={product.isFeatured ? 'true' : 'false'}>{product.isFeatured ? 'Nổi bật' : '—'}</span>
                           </td>
                           <td data-label="Cập nhật">{formatDateTime(product.updatedAt)}</td>
                           <td data-label="Thao tác">
@@ -723,7 +721,7 @@ function pageHref(next: { page?: number }): string {
     if (status === 'active' || status === 'inactive') params.set('status', status);
     if (Number.isInteger(categoryId) && categoryId > 0) params.set('category', String(categoryId));
     if (cord === 'Dây rút' || cord === 'Dây co giãn') params.set('cord', cord);
-    if (sort && sort !== 'newest') params.set('sort', sort);
+    if (sort && sort !== 'sold-desc') params.set('sort', sort);
     const text = params.toString();
     return text ? `/admin/products?${text}` : '/admin/products';
   }

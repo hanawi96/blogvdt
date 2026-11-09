@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, like, ne } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, like, ne, sql } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
 import { runBatch } from '../../lib/db/batch';
 import type { AppDb } from '../../lib/db/client';
@@ -15,13 +15,24 @@ import { canFeatureProduct, isProductStatus, type ProductStatus } from './status
 export const PRODUCT_PAGE_SIZE = 20;
 /** Giới hạn chọn hàng loạt (khớp một trang; tránh payload quá lớn). */
 export const PRODUCT_BULK_MAX = PRODUCT_PAGE_SIZE;
-const PRODUCT_SORTS = ['newest', 'oldest', 'name', 'price-asc', 'price-desc', 'stock-asc', 'stock-desc'] as const;
+export const DEFAULT_PRODUCT_LIST_SORT = 'sold-desc' as const;
+const PRODUCT_SORTS = [
+  'sold-desc',
+  'sold-asc',
+  'newest',
+  'oldest',
+  'name',
+  'price-asc',
+  'price-desc',
+  'stock-asc',
+  'stock-desc',
+] as const;
 
 export type ProductListSort = (typeof PRODUCT_SORTS)[number];
 export type ProductListCord = (typeof CORD_TYPES)[number] | '';
 
 export function productListSort(value: string | null | undefined): ProductListSort {
-  return PRODUCT_SORTS.find((sort) => sort === value) ?? 'newest';
+  return PRODUCT_SORTS.find((sort) => sort === value) ?? DEFAULT_PRODUCT_LIST_SORT;
 }
 
 export function productListCord(value: string | null | undefined): ProductListCord {
@@ -49,7 +60,7 @@ export function productAdminQuery(input: {
   if (status) params.set('status', status);
   if (category) params.set('category', String(category));
   if (cord) params.set('cord', cord);
-  if (sort !== 'newest') params.set('sort', sort);
+  if (sort !== DEFAULT_PRODUCT_LIST_SORT) params.set('sort', sort);
   if (page) params.set('page', String(page));
   if (input.notice === 'deleted') params.set('deleted', '1');
   if (input.notice === 'featured-on') params.set('featured', '1');
@@ -190,7 +201,23 @@ export async function listProducts(
   };
 }
 
+// Số lượng đã bán = đơn một mẫu (không có order_items) + dòng order_items; bỏ đơn hủy.
+const soldQty = sql<number>`(
+  coalesce((
+    select sum(o.quantity) from orders o
+    where o.product_id = ${products.id} and o.status <> 'cancelled'
+      and not exists (select 1 from order_items i where i.order_id = o.id)
+  ), 0)
+  + coalesce((
+    select sum(i.quantity) from order_items i
+    join orders o2 on o2.id = i.order_id
+    where i.product_id = ${products.id} and o2.status <> 'cancelled'
+  ), 0)
+)`;
+
 function productOrder(sort: ProductListSort) {
+  if (sort === 'sold-desc') return [desc(soldQty), desc(products.updatedAt), desc(products.id)] as const;
+  if (sort === 'sold-asc') return [asc(soldQty), desc(products.updatedAt), desc(products.id)] as const;
   if (sort === 'oldest') return [asc(products.updatedAt), asc(products.id)] as const;
   if (sort === 'name') return [asc(products.name), desc(products.id)] as const;
   if (sort === 'price-asc') return [asc(products.price), desc(products.id)] as const;

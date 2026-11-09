@@ -113,6 +113,7 @@ export async function listOrderCatalog(db: AppDb) {
       name: products.name,
       price: products.price,
       weightScale: productCategories.weightScale,
+      categorySlug: productCategories.slug,
       coverKey: media.r2Key,
       coverAlt: media.altText,
     })
@@ -121,9 +122,10 @@ export async function listOrderCatalog(db: AppDb) {
     .leftJoin(media, eq(products.coverMediaId, media.id))
     .where(eq(products.status, 'active'))
     .orderBy(asc(products.sortOrder), asc(products.id));
-  return rows.map(({ weightScale, coverKey, coverAlt, ...row }) => ({
+  return rows.map(({ weightScale, coverKey, coverAlt, categorySlug, ...row }) => ({
     ...row,
     weightScale: readWeightScale(weightScale),
+    categorySlug: categorySlug ?? '',
     coverUrl: coverKey ? routes.media(coverKey) : null,
     coverAlt: coverAlt ?? '',
   }));
@@ -161,6 +163,7 @@ export type StaffPickerProduct = {
   active: true;
   categoryId: number | null;
   categoryName: string;
+  categorySlug: string;
   sold: number;
   coverUrl: string | null;
   coverAlt: string;
@@ -179,6 +182,7 @@ export async function listStaffPickerProducts(db: AppDb): Promise<{ products: St
         weightScale: productCategories.weightScale,
         categoryId: productCategories.id,
         categoryName: productCategories.name,
+        categorySlug: productCategories.slug,
         categorySort: productCategories.sortOrder,
         coverKey: media.r2Key,
         coverAlt: media.altText,
@@ -225,6 +229,7 @@ export async function listStaffPickerProducts(db: AppDb): Promise<{ products: St
       active: true as const,
       categoryId: row.categoryId,
       categoryName: row.categoryName ?? '',
+      categorySlug: row.categorySlug ?? '',
       sold: soldByProduct.get(row.id) ?? 0,
       coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
       coverAlt: row.coverAlt ?? '',

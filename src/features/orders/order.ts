@@ -17,6 +17,7 @@ export type CatalogProduct = {
   name: string;
   price: number;
   weightScale: WeightScale;
+  categorySlug?: string;
 };
 
 export function orderCreatedRange(from: string, to: string): { start: number | null; end: number | null; invalid: boolean } {
@@ -25,12 +26,20 @@ export function orderCreatedRange(from: string, to: string): { start: number | n
 
 function pushPayable(
   lines: string[],
-  order: { subtotal?: number | null; discountCode?: string | null; discountAmount?: number; totalPrice: number },
+  order: {
+    subtotal?: number | null;
+    discountCode?: string | null;
+    discountAmount?: number;
+    shippingFee?: number;
+    totalPrice: number;
+  },
 ): void {
   if (order.discountAmount && order.discountAmount > 0) {
-    lines.push(`Tạm tính: ${formatVnd(order.subtotal ?? order.totalPrice + order.discountAmount)}`);
+    lines.push(`Tạm tính: ${formatVnd(order.subtotal ?? order.totalPrice + order.discountAmount - (order.shippingFee ?? 0))}`);
     lines.push(`Giảm ${order.discountCode || 'giá'}: −${formatVnd(order.discountAmount)}`);
   }
+  if ((order.shippingFee ?? 0) > 0) lines.push(`Ship: ${formatVnd(order.shippingFee ?? 0)}`);
+  else if (order.shippingFee === 0) lines.push('Ship: miễn phí');
   lines.push(`Tổng: ${formatVnd(order.totalPrice)}`);
 }
 
@@ -50,6 +59,7 @@ export function orderHandoffText(order: {
   subtotal?: number | null;
   discountCode?: string | null;
   discountAmount?: number;
+  shippingFee?: number;
   items?: { productName: string; optionLabel: string | null; quantity: number; lineTotal: number }[];
 }): string {
   const lines = [
@@ -92,6 +102,7 @@ export type OrderDraft = {
   discountCode: string | null;
   discountAmount: number;
   totalPrice: number;
+  shippingFee?: number;
   paymentMethod: PaymentMethod;
   landingSlug: string | null;
 };
@@ -123,6 +134,7 @@ export type CartOrderDraft = {
   discountCode: string | null;
   discountAmount: number;
   totalPrice: number;
+  shippingFee?: number;
   paymentMethod: PaymentMethod;
 };
 

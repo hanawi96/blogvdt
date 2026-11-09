@@ -6,11 +6,13 @@ import PaymentField from '../components/public/PaymentField.astro';
 import { addCartLine, CART_COOKIE, CART_MAX_QUANTITY, cartCookieOptions, parseCart, postedCartLines, serializeCart, type CartLine } from '../features/cart/cart';
 import { applyDiscount, type DiscountQuote } from '../features/discounts/quote';
 import { priceDiscount } from '../features/discounts/discounts';
+import { listOrderCosts } from '../features/costs/order-costs';
 import { parseCartOrder, type CatalogProduct } from '../features/orders/order';
 import { placeCartOrder, placeOrder } from '../features/orders/orders';
 import { listOrderCatalog } from '../features/products/public';
 import { isValidWeight, requiresWeight } from '../features/products/weight';
 import { getPublicSite } from '../features/settings/settings';
+import { baseCustomerShippingFee, resolveCustomerShippingFee, shipGroupOf } from '../features/shipping/customer-fee';
 import PublicLayout from '../layouts/PublicLayout.astro';
 import { createDb } from '../lib/db/client';
 import { getDbBinding } from '../lib/cloudflare/env';
@@ -27,6 +29,7 @@ let errors: FieldErrors = {};
 const values = { customerName: '', phone: '', address: '', provinceCode: '', wardCode: '', addressLine: '', note: '', paymentMethod: '', discountCode: '' };
 let quote: DiscountQuote | null = null;
 Astro.response.headers.set('Cache-Control', 'private, no-store');
+const shipBaseFee = loaded.db ? baseCustomerShippingFee(await listOrderCosts(loaded.db)) : 0;
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -173,6 +176,8 @@ const resolved = lines.flatMap((line) => {
       price: product.price,
       coverUrl: product.coverUrl,
       coverAlt: product.coverAlt,
+      categorySlug: product.categorySlug ?? '',
+      shipGroup: shipGroupOf(product.categorySlug),
       lineTotal: product.price * line.quantity,
     },
   ];
@@ -181,6 +186,12 @@ const dropped = resolved.length !== lines.length;
 if (dropped && Astro.request.method === 'GET') remember(resolved.map(({ slug, quantity, weight }) => ({ slug, quantity, weight })));
 const total = resolved.reduce((sum, line) => sum + line.lineTotal, 0);
 const pieces = resolved.reduce((sum, line) => sum + line.quantity, 0);
+const goodsPayable = quote?.totalPrice ?? total;
+const shipping = resolveCustomerShippingFee({
+  lines: resolved.map((line) => ({ group: line.shipGroup, lineTotal: line.lineTotal })),
+  baseFee: shipBaseFee,
+});
+const payable = goodsPayable + shipping.fee;
 
 function linesFrom(form: FormData, intent: string): { ok: true; lines: CartLine[] } | { ok: false; error: string } {
   const slugs = strings(form, 'slug');
@@ -276,7 +287,7 @@ async function loadCart() {
             <section class="cart-card" aria-label="Sản phẩm trong giỏ">
               <ul class="cart-list">
                 {resolved.map((line, index) => (
-                  <li class="cart-item" data-cart-item data-price={line.price}>
+                  <li class="cart-item" data-cart-item data-price={line.price} data-ship-group={line.shipGroup}>
                     {line.coverUrl ? (
                       <img class="cart-thumb" src={line.coverUrl} alt={line.coverAlt || line.name} width="80" height="80" loading="lazy" />
                     ) : (
@@ -350,11 +361,31 @@ async function loadCart() {
             </label>
             <PaymentField value={values.paymentMethod} error={errors.paymentMethod} />
             <DiscountCodeField id="cart-discount" value={values.discountCode} error={errors.discountCode} quote={quote} />
-            <div class="cart-sum">
-              <span data-cart-sum-label>{quote ? 'Phải trả' : 'Tạm tính'}</span>
-              <strong data-cart-total>{formatVnd(quote?.totalPrice ?? total)}</strong>
+            <div class="cart-sum-stack" data-cart-ship data-ship-base={shipBaseFee} data-ship-goods={goodsPayable}>
+              <div class="cart-sum">
+                <span>Tạm tính</span>
+                <strong data-cart-goods>{formatVnd(total)}</strong>
+              </div>
+              {quote && quote.discountAmount > 0 && (
+                <div class="cart-sum cart-sum-muted">
+                  <span>Giảm giá</span>
+                  <strong>−{formatVnd(quote.discountAmount)}</strong>
+                </div>
+              )}
+              <div class="cart-sum cart-sum-muted">
+                <span data-cart-ship-label>{shipping.free ? 'Phí vận chuyển' : 'Phí vận chuyển'}</span>
+                <strong data-cart-ship-fee>{shipping.free ? 'Miễn phí' : formatVnd(shipping.fee)}</strong>
+              </div>
+              <div class="cart-sum">
+                <span data-cart-sum-label>Phải trả</span>
+                <strong data-cart-total>{formatVnd(payable)}</strong>
+              </div>
             </div>
-            <p class="cart-sum-note">Chưa gồm phí giao. Xưởng gọi lại để chốt đơn, website không thu tiền trực tuyến.</p>
+            <p class="cart-sum-note">
+              {shipping.free
+                ? 'Đơn đủ điều kiện miễn phí ship. Xưởng gọi lại để chốt, website không thu tiền trực tuyến.'
+                : 'Phí ship theo quy tắc cửa hàng. Xưởng gọi lại để chốt đơn, website không thu tiền trực tuyến.'}
+            </p>
             <button class="btn btn-accent mt-4 w-full" type="submit" name="intent" value="order">Gửi đơn</button>
             </section>
           </form>
@@ -365,28 +396,42 @@ async function loadCart() {
 </PublicLayout>
 <script>
   import { CART_COOKIE, CART_MAX_AGE, cartCount, postedCartLines, serializeCart, type CartLine } from '../features/cart/cart';
+  import { resolveCustomerShippingFee, type ShipGroup } from '../features/shipping/customer-fee';
 
   const form = document.querySelector('form[data-cart-page]');
   if (form instanceof HTMLFormElement) {
     const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
+    const shipRoot = form.querySelector('[data-cart-ship]');
+    const shipBase = shipRoot instanceof HTMLElement ? Number(shipRoot.dataset.shipBase || '0') : 0;
 
-    // Tính lại tiền từng dòng và tổng ngay khi đổi số lượng (server vẫn tính lại khi gửi).
-    const recalc = () => {
+    // Tính lại tiền từng dòng, phí ship và tổng ngay khi đổi số lượng (server vẫn tính lại khi gửi).
+    const recalc = (goodsPayable?: number) => {
       let total = 0;
       let pieces = 0;
+      const shipLines: { group: ShipGroup; lineTotal: number }[] = [];
       form.querySelectorAll<HTMLElement>('[data-cart-item]').forEach((item) => {
         const input = item.querySelector('input[name="quantity"]');
         if (!(input instanceof HTMLInputElement)) return;
         const price = Number(item.dataset.price);
         const quantity = Number(input.value);
         if (!Number.isInteger(quantity) || quantity < 1 || quantity > (Number(input.max) || 20)) return;
-        total += price * quantity;
+        const lineTotal = price * quantity;
+        total += lineTotal;
         pieces += quantity;
+        const group = (item.dataset.shipGroup || 'other') as ShipGroup;
+        shipLines.push({ group, lineTotal });
         const out = item.querySelector('[data-line-total]');
-        if (out) out.textContent = money.format(price * quantity);
+        if (out) out.textContent = money.format(lineTotal);
       });
+      const shipping = resolveCustomerShippingFee({ lines: shipLines, baseFee: shipBase });
+      const payableGoods = typeof goodsPayable === 'number' && Number.isFinite(goodsPayable) ? goodsPayable : total;
+      if (shipRoot instanceof HTMLElement) shipRoot.dataset.shipGoods = String(payableGoods);
+      const goodsOut = form.querySelector('[data-cart-goods]');
+      if (goodsOut) goodsOut.textContent = money.format(total);
+      const shipFeeOut = form.querySelector('[data-cart-ship-fee]');
+      if (shipFeeOut) shipFeeOut.textContent = shipping.free ? 'Miễn phí' : money.format(shipping.fee);
       const totalOut = form.querySelector('[data-cart-total]');
-      if (totalOut) totalOut.textContent = money.format(total);
+      if (totalOut) totalOut.textContent = money.format(payableGoods + shipping.fee);
       const countOut = document.querySelector('[data-cart-sum-count]');
       if (countOut) countOut.textContent = String(pieces);
     };
@@ -486,11 +531,10 @@ async function loadCart() {
         }
         const codeField = form.querySelector('[name="discountCode"]');
         if (codeField instanceof HTMLInputElement) codeField.value = quoteRow.code;
-        showDiscount(`Giảm ${quoteRow.code}: −${money.format(discountAmount)}. Còn ${money.format(totalPrice)}.`, false);
+        showDiscount(`Giảm ${quoteRow.code}: −${money.format(discountAmount)}. Còn ${money.format(totalPrice)} trước ship.`, false);
         const sumLabel = form.querySelector('[data-cart-sum-label]');
         if (sumLabel) sumLabel.textContent = 'Phải trả';
-        const totalOut = form.querySelector('[data-cart-total]');
-        if (totalOut) totalOut.textContent = money.format(totalPrice);
+        recalc(totalPrice);
       } catch {
         if (serial !== applySerial) return;
         showDiscount('Chưa kiểm được mã. Thử lại sau.', true);

@@ -4,13 +4,16 @@ import OrderLineEditor from '../../../components/admin/OrderLineEditor.astro';
 import StaffOrderMeta from '../../../components/admin/StaffOrderMeta.astro';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { mutationError } from '../../../features/auth/session';
+import { listStaffDiscountChoices } from '../../../features/discounts/discounts';
 import { createStaffOrder } from '../../../features/orders/orders';
 import { parseStaffCustomer, priceStaffLines, readStaffFlags, readStaffLineInputs, STAFF_MAX_LINES, type StaffFlagForm, type StaffLineInput } from '../../../features/orders/staff';
 import { isShippingOrderCost, listOrderCosts } from '../../../features/costs/order-costs';
+import { baseCustomerShippingFee, qualifiesFreeShip, shipGroupOf } from '../../../features/shipping/customer-fee';
 import { listStaffPickerProducts } from '../../../features/products/public';
 import { requiresWeight, weightOptions } from '../../../features/products/weight';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
+import { groupDigits } from '../../../lib/group-digits';
 import { formatVnd } from '../../../lib/money';
 import { routes } from '../../../lib/routes';
 import type { FieldErrors } from '../../../lib/validation/errors';
@@ -21,7 +24,10 @@ if (!session) return Astro.redirect(routes.adminLogin);
 const db = createDb(getDbBinding());
 const picker = await listStaffPickerProducts(db);
 const products = picker.products;
+const discountChoices = await listStaffDiscountChoices(db);
 const shippingCosts = (await listOrderCosts(db)).filter((cost) => cost.active && isShippingOrderCost(cost.name));
+const defaultShippingFeeAmount = baseCustomerShippingFee(shippingCosts);
+const defaultShippingFee = defaultShippingFeeAmount > 0 ? groupDigits(String(defaultShippingFeeAmount), 8) : '';
 const uncategorized = products.some((product) => product.categoryId == null);
 const weightPresets = weightOptions('baby').filter((label) => label.endsWith('kg'));
 let formError = '';
@@ -29,8 +35,17 @@ let lineError = '';
 let flagError = '';
 let errors: FieldErrors = {};
 let postedLines: StaffLineInput[] | null = null;
-const values = { customerName: '', phone: '', address: '', note: '', paymentMethod: '', provinceCode: '', wardCode: '', addressLine: '', orderTotal: '', discountExtra: '' };
-const flagForm: StaffFlagForm = { payState: 'cod', source: '', priority: false, compensation: false, shipLater: false, shipOn: '', shippingFee: '', freeShip: false };
+const values = { customerName: '', phone: '', address: '', note: '', paymentMethod: '', provinceCode: '', wardCode: '', addressLine: '', orderTotal: '', discountCode: '', discountExtra: '' };
+const flagForm: StaffFlagForm = {
+  payState: 'cod',
+  source: '',
+  priority: false,
+  compensation: false,
+  shipLater: false,
+  shipOn: '',
+  shippingFee: defaultShippingFee,
+  freeShip: false,
+};
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -48,6 +63,7 @@ if (Astro.request.method === 'POST') {
   values.wardCode = read('wardCode');
   values.addressLine = read('addressLine');
   values.orderTotal = read('orderTotal');
+  values.discountCode = read('discountCode');
   values.discountExtra = read('discountExtra');
   flagForm.payState = read('payState') || 'cod';
   flagForm.source = read('source');
@@ -74,8 +90,33 @@ if (Astro.request.method === 'POST') {
           ? priced.error
           : 'Dòng sản phẩm không hợp lệ.';
     }
-    if (customer.ok && priced && priced.ok && flags.ok) {
-      const created = await createStaffOrder(db, { ...customer.value, lines: priced.lines, discountCode: null, orderTotal: values.orderTotal, discountExtra: values.discountExtra, flags: flags.flags }, session.userId);
+    let staffFlags = flags.ok ? flags.flags : null;
+    if (priced?.ok && staffFlags) {
+      const freeShip = qualifiesFreeShip(
+        priced.lines.map((line) => ({
+          group: shipGroupOf(products.find((product) => product.id === line.productId)?.categorySlug),
+          lineTotal: line.lineTotal,
+        })),
+      );
+      if (freeShip) {
+        staffFlags = { ...staffFlags, shippingFee: 0 };
+        flagForm.freeShip = true;
+        flagForm.shippingFee = '';
+      }
+    }
+    if (customer.ok && priced && priced.ok && staffFlags) {
+      const created = await createStaffOrder(
+        db,
+        {
+          ...customer.value,
+          lines: priced.lines,
+          discountCode: values.discountCode.trim() ? values.discountCode : null,
+          orderTotal: values.orderTotal,
+          discountExtra: values.discountExtra,
+          flags: staffFlags,
+        },
+        session.userId,
+      );
       if (!created.ok) {
         Astro.response.status = 422;
         formError = created.error;
@@ -125,7 +166,7 @@ const editorLines: StaffLineInput[] = postedLines ?? [];
         paired
       />
       <div class="mt-4">
-        <StaffOrderMeta value={flagForm} error={flagError} shippingCosts={shippingCosts} />
+        <StaffOrderMeta value={flagForm} error={flagError} shippingCosts={shippingCosts} defaultShipFee={defaultShippingFee} />
       </div>
       <label class="mt-4 block">
         <span class="od-label">Ghi chú của khách</span>
@@ -136,21 +177,28 @@ const editorLines: StaffLineInput[] = postedLines ?? [];
 
     <div class="staff-order-side">
       <section class="od-card staff-order-cart">
-        <h2>Sản phẩm trong đơn</h2>
         {
           products.length === 0 ? (
-            <p class="od-note">Chưa có sản phẩm đang bán.</p>
+            <>
+              <h2>Sản phẩm trong đơn</h2>
+              <p class="od-note">Chưa có sản phẩm đang bán.</p>
+            </>
           ) : (
-            <OrderLineEditor
-              choices={products}
-              lines={editorLines}
-              stored={[]}
-              orderTotal={values.orderTotal}
-              extraDiscount={values.discountExtra}
-              error={lineError}
-              allowEmpty
-              cart
-            />
+            <div class="staff-cart-panel">
+              <h2>Sản phẩm trong đơn</h2>
+              <OrderLineEditor
+                choices={products}
+                lines={editorLines}
+                stored={[]}
+                orderTotal={values.orderTotal}
+                discountCode={values.discountCode}
+                discountChoices={discountChoices}
+                extraDiscount={values.discountExtra}
+                error={lineError}
+                allowEmpty
+                cart
+              />
+            </div>
           )
         }
         <button class="btn btn-primary mt-4 w-full" type="submit">Tạo đơn</button>
@@ -206,14 +254,16 @@ const editorLines: StaffLineInput[] = postedLines ?? [];
                             {weightPresets.map((label) => (
                               <button class="category-preset" type="button" data-weight-choice={label} aria-pressed="false"><span>{label}</span></button>
                             ))}
-                            <button class="category-preset staff-pick-add-weight" type="button" data-weight-add><span>Thêm cân</span></button>
-                          </div>
-                          <div class="staff-pick-custom" data-weight-custom hidden>
-                            <input class="field" type="text" maxlength="40" placeholder="Ví dụ: 16kg" data-weight-custom-input aria-label="Cân nặng tùy chỉnh" />
-                            <button class="btn btn-compact" type="button" data-weight-custom-ok>Dùng</button>
-                            <button class="staff-pick-custom-close" type="button" data-weight-custom-close aria-label="Đóng thêm cân">
-                              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
-                            </button>
+                            <div class="staff-pick-add-slot" data-weight-add-slot>
+                              <button class="category-preset staff-pick-add-weight" type="button" data-weight-add><span>Thêm cân</span></button>
+                              <label class="staff-pick-weight-edit" data-weight-custom hidden>
+                                <span class="sr-only">Cân nặng tùy chỉnh</span>
+                                <input type="text" maxlength="40" placeholder="16kg" data-weight-custom-input />
+                                <button class="staff-pick-custom-close" type="button" data-weight-custom-close aria-label="Đóng thêm cân">
+                                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                                </button>
+                              </label>
+                            </div>
                           </div>
                         </>
                       )}
@@ -263,6 +313,7 @@ const editorLines: StaffLineInput[] = postedLines ?? [];
     }));
     const empty = root.querySelector('[data-pick-empty]');
     const limit = root.querySelector('[data-pick-limit]');
+    const ALL_TOP = 20;
     let category = '';
     let text = '';
 
@@ -316,6 +367,7 @@ const editorLines: StaffLineInput[] = postedLines ?? [];
       if (input instanceof HTMLInputElement) {
         input.value = '';
         input.focus();
+        input.select();
       }
     }
 
@@ -326,6 +378,14 @@ const editorLines: StaffLineInput[] = postedLines ?? [];
       if (custom instanceof HTMLElement) custom.hidden = true;
       if (add instanceof HTMLButtonElement) add.hidden = false;
       if (input instanceof HTMLInputElement) input.value = '';
+    }
+
+    function commitCustomWeight(row: HTMLElement) {
+      const input = row.querySelector('[data-weight-custom-input]');
+      if (!(input instanceof HTMLInputElement)) return;
+      const label = input.value.replace(/\s+/g, ' ').trim();
+      if (label) ensureWeightChip(row, label);
+      else input.focus();
     }
 
     function chooseWeight(row: HTMLElement, label: string) {
@@ -353,8 +413,8 @@ const editorLines: StaffLineInput[] = postedLines ?? [];
       button.innerHTML = `<span></span>`;
       const span = button.querySelector('span');
       if (span) span.textContent = label;
-      const add = weights.querySelector('[data-weight-add]');
-      if (add) weights.insertBefore(button, add);
+      const slot = weights.querySelector('[data-weight-add-slot]');
+      if (slot) weights.insertBefore(button, slot);
       else weights.appendChild(button);
       chooseWeight(row, label);
       closeCustomWeight(row);
@@ -393,18 +453,20 @@ const editorLines: StaffLineInput[] = postedLines ?? [];
 
     function apply() {
       const needle = fold(text.trim());
+      const topOnly = category === '' && needle === '';
       let shown = 0;
       for (const item of list) {
         const match = (category === '' || item.category === category) && (needle === '' || item.name.includes(needle));
-        item.row.hidden = !match;
-        if (match) shown += 1;
+        const visible = match && (!topOnly || shown < ALL_TOP);
+        item.row.hidden = !visible;
+        if (visible) shown += 1;
         else if (item.row.dataset.selected === '1') collapse(item.row);
       }
       if (empty instanceof HTMLElement) empty.hidden = shown > 0;
     }
 
     root.addEventListener('click', (event) => {
-      const button = event.target instanceof HTMLElement ? event.target.closest('button') : null;
+      const button = event.target instanceof Element ? event.target.closest('button') : null;
       if (!(button instanceof HTMLButtonElement)) return;
       if (button.hasAttribute('data-category')) {
         category = button.dataset.category ?? '';
@@ -438,15 +500,6 @@ const editorLines: StaffLineInput[] = postedLines ?? [];
         closeCustomWeight(row);
         return;
       }
-      if (button.hasAttribute('data-weight-custom-ok')) {
-        const input = row.querySelector('[data-weight-custom-input]');
-        if (input instanceof HTMLInputElement) {
-          const label = input.value.replace(/\s+/g, ' ').trim();
-          if (label) ensureWeightChip(row, label);
-          else input.focus();
-        }
-        return;
-      }
       if (button.hasAttribute('data-pick-add')) {
         addRow(row);
         return;
@@ -464,8 +517,7 @@ const editorLines: StaffLineInput[] = postedLines ?? [];
       if (!(row instanceof HTMLElement)) return;
       if (event.key === 'Enter') {
         event.preventDefault();
-        const ok = row.querySelector('[data-weight-custom-ok]');
-        if (ok instanceof HTMLButtonElement) ok.click();
+        commitCustomWeight(row);
         return;
       }
       if (event.key === 'Escape') {
@@ -483,5 +535,6 @@ const editorLines: StaffLineInput[] = postedLines ?? [];
         apply();
       });
     }
+    apply();
   }
 </script>

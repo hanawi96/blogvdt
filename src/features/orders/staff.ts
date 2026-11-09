@@ -253,7 +253,9 @@ export function readStaffFlags(input: {
   if (!pay) return { ok: false, error: 'Chọn hình thức thanh toán.' };
   const source = ORDER_SOURCES.find((item) => item.value === input.source.trim());
   if (!source) return { ok: false, error: 'Chọn nguồn khách.' };
+  const priority = checked(input.priority);
   const shipLater = checked(input.shipLater);
+  if (priority && shipLater) return { ok: false, error: 'Đơn ưu tiên và gửi sau không chọn cùng lúc.' };
   const shipOn = shipLater ? parseShipDay(input.shipOn) : null;
   if (shipLater && shipOn === null) return { ok: false, error: 'Chọn ngày dự kiến gửi.' };
   const compensation = checked(input.compensation);
@@ -266,7 +268,7 @@ export function readStaffFlags(input: {
       source: source.value,
       payState: pay.value,
       paymentMethod: pay.paymentMethod,
-      priority: checked(input.priority),
+      priority,
       compensation,
       shipOn,
       shippingFee,
@@ -317,9 +319,41 @@ export function formatShipLabel(timestamp: number): string {
   return new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit' }).format(new Date(timestamp));
 }
 
+export const STAFF_SHIP_DAY_PRESETS = [10, 15, 20, 25, 30, 45, 60] as const;
+
+// Ngày dự kiến gửi = hôm nay (giờ VN) + N ngày, dạng YYYY-MM-DD cho input type=date.
+export function staffShipDayAfter(days: number, now = Date.now()): string {
+  if (!Number.isInteger(days) || days < 1) return formatShipDay(now);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(now));
+  const year = Number(parts.find((part) => part.type === 'year')?.value);
+  const month = Number(parts.find((part) => part.type === 'month')?.value);
+  const day = Number(parts.find((part) => part.type === 'day')?.value);
+  if (![year, month, day].every((value) => Number.isInteger(value) && value > 0)) return formatShipDay(now);
+  const next = new Date(Date.UTC(year, month - 1, day + days));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`;
+}
+
 export function capDiscount(subtotal: number, discountAmount: number): { discountAmount: number; totalPrice: number } {
   const discount = Math.min(Math.max(0, discountAmount), subtotal);
   return { discountAmount: discount, totalPrice: subtotal - discount };
+}
+
+// Preset giảm thêm để tổng phải trả về mốc 10.000 (vd 298k → giảm 8k/18k/28k).
+export function staffExtraRoundPresets(room: number, count = 3, step = 10_000): number[] {
+  if (!Number.isSafeInteger(room) || !Number.isSafeInteger(count) || count < 1 || step < 1 || room <= step) return [];
+  let target = room % step === 0 ? room - step : Math.floor(room / step) * step;
+  const out: number[] = [];
+  while (out.length < count && target > 0) {
+    const discount = room - target;
+    if (discount > 0 && discount < room) out.push(discount);
+    target -= step;
+  }
+  return out;
 }
 
 // Một mẫu lưu trên đơn. Từ hai mẫu thì đơn chỉ giữ tên tóm tắt, chi tiết nằm ở order_items — cùng cách với giỏ hàng.

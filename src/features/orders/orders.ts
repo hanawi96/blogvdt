@@ -1,11 +1,12 @@
 import { and, asc, count, desc, eq, gte, gt, inArray, isNull, like, lt, or } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { routes } from '../../lib/routes';
-import { orderItems, orders } from '../../lib/db/schema';
+import { orderItems, orders, productCategories, products } from '../../lib/db/schema';
 import { activityWrite, commitWrites, type ActivityActor } from '../activity/log';
 import { claimDiscount, quoteStaffDiscount, releaseDiscount, restoreDiscountQuery } from '../discounts/discounts';
 import { normalizeDiscountCode } from '../discounts/quote';
-import { encodeCostLines, snapshotOrderCosts } from '../costs/order-costs';
+import { encodeCostLines, listOrderCosts, snapshotOrderCosts } from '../costs/order-costs';
+import { baseCustomerShippingFee, resolveCustomerShippingFee, shipGroupOf } from '../shipping/customer-fee';
 import {
   formatOrderCode,
   isRecentDuplicate,
@@ -283,6 +284,31 @@ export async function updateOrderNote(
   return { ok: true };
 }
 
+async function resolvePublicShippingFee(
+  db: AppDb,
+  lines: ReadonlyArray<{ productId: number; lineTotal: number }>,
+): Promise<{ free: boolean; fee: number }> {
+  const costs = await listOrderCosts(db);
+  const baseFee = baseCustomerShippingFee(costs);
+  const ids = [...new Set(lines.map((line) => line.productId).filter((id) => Number.isInteger(id) && id > 0))];
+  const rows =
+    ids.length === 0
+      ? []
+      : await db
+          .select({ id: products.id, categorySlug: productCategories.slug })
+          .from(products)
+          .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+          .where(inArray(products.id, ids));
+  const slugById = new Map(rows.map((row) => [row.id, row.categorySlug ?? '']));
+  return resolveCustomerShippingFee({
+    lines: lines.map((line) => ({
+      group: shipGroupOf(slugById.get(line.productId)),
+      lineTotal: line.lineTotal,
+    })),
+    baseFee,
+  });
+}
+
 export async function placeOrder(
   db: AppDb,
   draft: OrderDraft,
@@ -306,9 +332,12 @@ export async function placeOrder(
   if (duplicate[0] && isRecentDuplicate(duplicate[0].createdAt, now)) {
     return { ok: false, status: 409, error: 'Đơn cùng sản phẩm và lựa chọn vừa được gửi. Nếu cần đổi, hãy gọi xưởng.' };
   }
+  const ship = await resolvePublicShippingFee(db, [{ productId: draft.productId, lineTotal: draft.subtotal }]);
+  const shippingFee = ship.fee;
+  const totalPrice = draft.totalPrice + shippingFee;
   const slot = await takeDiscountSlot(db, draft.discountCode, now);
   if (!slot.ok) return { ok: false, status: 409, error: slot.error };
-  const snapshot = await snapshotOrderCosts(db, [{ name: draft.productName, productId: draft.productId, quantity: draft.quantity }], draft.totalPrice);
+  const snapshot = await snapshotOrderCosts(db, [{ name: draft.productName, productId: draft.productId, quantity: draft.quantity }], totalPrice);
   try {
     const day = orderDayKey(now);
     const latest = await db
@@ -340,12 +369,13 @@ export async function placeOrder(
           discountCode: draft.discountCode,
           discountAmount: draft.discountAmount,
           discountRestored: 0,
-          totalPrice: draft.totalPrice,
+          totalPrice,
           costGoods: snapshot?.costGoods ?? null,
           costExtra: snapshot ? snapshot.costExtra : null,
           costLines: snapshot ? encodeCostLines(snapshot) : null,
           paymentMethod: draft.paymentMethod,
           source: 'web',
+          shippingFee,
           shippingCost: snapshot?.shippingCost ?? 0,
           status: 'new',
           ipHash,
@@ -380,10 +410,16 @@ export async function placeCartOrder(
   if ((recent[0]?.value ?? 0) >= ORDER_IP_LIMIT) {
     return { ok: false, status: 429, error: 'Đặt hàng tạm khóa. Thử lại sau ít phút.' };
   }
+  const ship = await resolvePublicShippingFee(
+    db,
+    draft.lines.map((line) => ({ productId: line.productId, lineTotal: line.lineTotal })),
+  );
+  const shippingFee = ship.fee;
+  const totalPrice = draft.totalPrice + shippingFee;
   const duplicate = await db
     .select({ createdAt: orders.createdAt })
     .from(orders)
-    .where(and(eq(orders.phone, draft.phone), isNull(orders.productId), eq(orders.productName, draft.productName), eq(orders.totalPrice, draft.totalPrice)))
+    .where(and(eq(orders.phone, draft.phone), isNull(orders.productId), eq(orders.productName, draft.productName), eq(orders.totalPrice, totalPrice)))
     .orderBy(desc(orders.createdAt))
     .limit(1);
   if (duplicate[0] && isRecentDuplicate(duplicate[0].createdAt, now)) {
@@ -394,7 +430,7 @@ export async function placeCartOrder(
   const snapshot = await snapshotOrderCosts(
     db,
     draft.lines.map((line) => ({ name: line.productName, productId: line.productId, quantity: line.quantity })),
-    draft.totalPrice,
+    totalPrice,
   );
   try {
     const day = orderDayKey(now);
@@ -429,12 +465,13 @@ export async function placeCartOrder(
             discountCode: draft.discountCode,
             discountAmount: draft.discountAmount,
             discountRestored: 0,
-            totalPrice: draft.totalPrice,
+            totalPrice,
             costGoods: snapshot?.costGoods ?? null,
             costExtra: snapshot ? snapshot.costExtra : null,
             costLines: snapshot ? encodeCostLines(snapshot) : null,
             paymentMethod: draft.paymentMethod,
             source: 'web',
+            shippingFee,
             shippingCost: snapshot?.shippingCost ?? 0,
             status: 'new',
             ipHash,
@@ -503,14 +540,24 @@ export async function createStaffOrder(
   if (draft.lines.length < 1) return { ok: false, error: 'Thêm ít nhất một sản phẩm.' };
   const columns = staffOrderColumns(draft.lines);
   const flags = draft.flags;
+  const rawCode = flags.compensation ? '' : (draft.discountCode ?? '');
+  let codeAmount = 0;
+  let codeLabel: string | null = null;
+  if (rawCode.trim()) {
+    const quoted = await quoteStaffDiscount(db, columns.subtotal, rawCode, now);
+    if (!quoted.ok) return quoted;
+    if (!quoted.discount) return { ok: false, error: 'Mã không dùng được.' };
+    codeAmount = quoted.discount.discountAmount;
+    codeLabel = quoted.discount.code;
+  }
   const settled = settleStaffTotal(
     columns.subtotal,
-    0,
+    codeAmount,
     flags.compensation ? '' : (draft.orderTotal ?? ''),
     flags.compensation ? '' : (draft.discountExtra ?? ''),
   );
   if (!settled.ok) return settled;
-  const collected = applyStaffCollection(settled.totalPrice, settled.discountAmount, null, flags);
+  const collected = applyStaffCollection(settled.totalPrice, settled.discountAmount, codeLabel, flags);
   if (!collected.ok) return collected;
   const slot = await takeDiscountSlot(db, collected.discountCode, now);
   if (!slot.ok) return slot;

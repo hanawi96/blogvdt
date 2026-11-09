@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, isNull, like, lt, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, like, lt, lte, or, sql } from 'drizzle-orm';
 import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
 import { isUniqueViolation } from '../orders/order';
 import { parseMaterialPrice } from '../materials/costing';
@@ -394,8 +394,14 @@ export type StaffDiscountChoice = {
   minSubtotal: number;
 };
 
+function toStaffChoice(row: { code: string; kind: string; value: number; minSubtotal: number }): StaffDiscountChoice | null {
+  if (!isDiscountKind(row.kind)) return null;
+  return { code: row.code, kind: row.kind, value: row.value, minSubtotal: row.minSubtotal };
+}
+
 // Mã đang bật, còn hạn và còn lượt. Trang nhập đơn nhúng danh sách này, không gọi thêm khi chọn.
-export async function listStaffDiscountChoices(db: AppDb, now = Date.now()): Promise<StaffDiscountChoice[]> {
+// keepCodes: mã đang gắn trên đơn (có thể hết hạn) vẫn hiện trong select để sửa tiếp.
+export async function listStaffDiscountChoices(db: AppDb, now = Date.now(), keepCodes: string[] = []): Promise<StaffDiscountChoice[]> {
   const rows = await db
     .select({
       code: discountCodes.code,
@@ -414,7 +420,33 @@ export async function listStaffDiscountChoices(db: AppDb, now = Date.now()): Pro
     )
     .orderBy(asc(discountCodes.code))
     .limit(100);
-  return rows.flatMap((row) => (isDiscountKind(row.kind) ? [{ code: row.code, kind: row.kind, value: row.value, minSubtotal: row.minSubtotal }] : []));
+  const choices = rows.flatMap((row) => {
+    const choice = toStaffChoice(row);
+    return choice ? [choice] : [];
+  });
+  const missing = [
+    ...new Set(
+      keepCodes
+        .map((code) => normalizeDiscountCode(code))
+        .filter((code): code is string => Boolean(code) && !choices.some((choice) => choice.code === code)),
+    ),
+  ];
+  if (missing.length === 0) return choices;
+  const kept = await db
+    .select({
+      code: discountCodes.code,
+      kind: discountCodes.kind,
+      value: discountCodes.value,
+      minSubtotal: discountCodes.minSubtotal,
+    })
+    .from(discountCodes)
+    .where(inArray(discountCodes.code, missing))
+    .orderBy(asc(discountCodes.code));
+  for (const row of kept) {
+    const choice = toStaffChoice(row);
+    if (choice) choices.push(choice);
+  }
+  return choices;
 }
 
 // Nhân viên chọn mã trong danh sách, không bị khóa theo IP như khách thử mã trên trang công khai.

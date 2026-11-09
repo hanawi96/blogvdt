@@ -3,6 +3,7 @@ import OrderLineEditor from '../../../components/admin/OrderLineEditor.astro';
 import StaffOrderMeta from '../../../components/admin/StaffOrderMeta.astro';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { mutationError } from '../../../features/auth/session';
+import { listStaffDiscountChoices, quoteStaffDiscount } from '../../../features/discounts/discounts';
 import { formatPercentBp, isShippingOrderCost, listOrderCosts, orderProfit, orderShippingCost, parseCostLines } from '../../../features/costs/order-costs';
 import { profitOf } from '../../../features/materials/costing';
 import { orderHandoffText } from '../../../features/orders/order';
@@ -32,6 +33,7 @@ let lineError = '';
 let postedLines: StaffLineInput[] | null = null;
 let postedTotal: string | null = null;
 let postedExtra: string | null = null;
+let postedCode: string | null = null;
 let flagError = '';
 let postedFlags: StaffFlagForm | null = null;
 const saved = Astro.url.searchParams.get('saved');
@@ -126,15 +128,17 @@ if (Astro.request.method === 'POST') {
       lineError = priced && !priced.ok ? priced.error : 'Dòng sản phẩm không hợp lệ.';
       postedLines = inputs;
       postedTotal = typeof form.get('orderTotal') === 'string' ? String(form.get('orderTotal')) : '';
+      postedCode = typeof form.get('discountCode') === 'string' ? String(form.get('discountCode')) : '';
       postedExtra = typeof form.get('discountExtra') === 'string' ? String(form.get('discountExtra')) : '';
     } else {
       const orderTotal = form.get('orderTotal');
+      const discountCode = form.get('discountCode');
       const discountExtra = form.get('discountExtra');
       const result = await updateStaffOrderLines(
         db,
         id,
         priced.lines,
-        '',
+        typeof discountCode === 'string' ? discountCode : '',
         typeof orderTotal === 'string' ? orderTotal : '',
         typeof discountExtra === 'string' ? discountExtra : '',
       );
@@ -143,6 +147,7 @@ if (Astro.request.method === 'POST') {
         lineError = result.error;
         postedLines = inputs;
         postedTotal = typeof form.get('orderTotal') === 'string' ? String(form.get('orderTotal')) : '';
+        postedCode = typeof form.get('discountCode') === 'string' ? String(form.get('discountCode')) : '';
         postedExtra = typeof form.get('discountExtra') === 'string' ? String(form.get('discountExtra')) : '';
       } else {
         return Astro.redirect(`${routes.adminOrder(id)}?saved=lines`, 303);
@@ -159,7 +164,22 @@ const flagForm = postedFlags ?? staffFlagForm(order);
 const shippingCosts = (await listOrderCosts(db)).filter((cost) => cost.active && isShippingOrderCost(cost.name));
 const shipCapital = orderShippingCost(order.shippingCost, costLines?.extra);
 const goodsTotal = order.compensation === 1 ? (order.subtotal ?? order.totalPrice) : order.totalPrice - order.shippingFee;
-const extraValue = postedExtra ?? (order.discountAmount > 0 ? String(order.discountAmount) : '');
+const goodsSubtotal = order.subtotal ?? order.totalPrice + order.discountAmount - order.shippingFee;
+const discountChoices = editable ? await listStaffDiscountChoices(db, Date.now(), order.discountCode ? [order.discountCode] : []) : [];
+let extraValue = postedExtra ?? '';
+if (postedExtra == null) {
+  if (order.compensation === 1 || order.discountAmount <= 0) {
+    extraValue = '';
+  } else if (order.discountCode) {
+    const quoted = await quoteStaffDiscount(db, Math.max(0, goodsSubtotal), order.discountCode);
+    const codeAmount = quoted.ok && quoted.discount ? quoted.discount.discountAmount : Math.min(order.discountAmount, Math.max(0, goodsSubtotal));
+    const extra = Math.max(0, order.discountAmount - codeAmount);
+    extraValue = extra > 0 ? String(extra) : '';
+  } else {
+    extraValue = String(order.discountAmount);
+  }
+}
+const codeValue = postedCode ?? order.discountCode ?? '';
 const sendLater = order.shipOn !== null && order.status !== 'shipped' && order.status !== 'completed' && order.status !== 'cancelled';
 
 const handoff = orderHandoffText(order);
@@ -248,6 +268,8 @@ const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
                   lines={editorLines}
                   stored={lines}
                   orderTotal={postedTotal ?? String(Math.max(0, goodsTotal))}
+                  discountCode={codeValue}
+                  discountChoices={discountChoices}
                   extraDiscount={extraValue}
                   error={lineError}
                 />
