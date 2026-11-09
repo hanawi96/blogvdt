@@ -5,7 +5,7 @@ import { mutationError } from '../../../features/auth/session';
 import { parseRecipe, resolveRecipeLines, type RecipeLine } from '../../../features/materials/costing';
 import { listRecipeOptions, loadRecipe } from '../../../features/materials/recipes';
 import { listProductCategories } from '../../../features/products/categories';
-import { parseProductForm } from '../../../features/products/form';
+import { parseProductForm, ratingFormValue } from '../../../features/products/form';
 import { getProduct, productPhotoViews, updateProduct } from '../../../features/products/products';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
@@ -38,6 +38,8 @@ let values = {
   status: product.status,
   featured: product.isFeatured,
   sortOrder: String(product.sortOrder),
+  stockQty: String(product.stockQty ?? 0),
+  rating: ratingFormValue(product.rating ?? 0),
   seoTitle: product.seoTitle ?? '',
   metaDescription: product.metaDescription ?? '',
 };
@@ -102,6 +104,8 @@ function valuesFrom(form: FormData) {
     status: read('status') || 'active',
     featured: form.get('featured') === '1',
     sortOrder: read('sortOrder') || '0',
+    stockQty: read('stockQty') || '0',
+    rating: read('rating'),
     seoTitle: read('seoTitle'),
     metaDescription: read('metaDescription'),
   };
@@ -109,7 +113,7 @@ function valuesFrom(form: FormData) {
 ---
 
 <AdminLayout title="Sửa sản phẩm">
-  {saved && <p class="mb-4 text-primary-strong" role="status">Đã lưu sản phẩm.</p>}
+  {saved && <p class="mb-4 text-primary-strong" role="status" data-product-saved-flash>Đã lưu sản phẩm.</p>}
   <ProductForm
     csrf={session.csrfToken}
     action={routes.adminProduct(id)}
@@ -123,3 +127,20 @@ function valuesFrom(form: FormData) {
     {recipeLines}
   />
 </AdminLayout>
+
+{saved && (
+  <script>
+    const flash = document.querySelector('[data-product-saved-flash]');
+    if (flash instanceof HTMLElement) {
+      window.setTimeout(() => {
+        flash.hidden = true;
+        flash.textContent = '';
+      }, 2000);
+    }
+    const url = new URL(location.href);
+    if (url.searchParams.has('saved')) {
+      url.searchParams.delete('saved');
+      history.replaceState(null, '', url);
+    }
+  </script>
+)}

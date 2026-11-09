@@ -28,6 +28,11 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
 const db = createDb(getDbBinding());
 const notice = Astro.url.searchParams.get('notice') ?? '';
 const errorCode = Astro.url.searchParams.get('error') ?? '';
+const tabs = ['costs', 'ads'] as const;
+type Tab = (typeof tabs)[number];
+function isTab(value: string | null): value is Tab {
+  return value === 'costs' || value === 'ads';
+}
 
 let formError = '';
 let adError = '';
@@ -38,6 +43,35 @@ const values = { id: '', name: '', kind: 'fixed', value: '', active: true };
 function amountText(cost: Pick<OrderCost, 'kind' | 'value'>): string {
   return cost.kind === 'percent' ? formatPercentBp(cost.value) : String(cost.value);
 }
+
+function costsUrl(params: Record<string, string>): string {
+  const query = new URLSearchParams(params);
+  return `${routes.adminCosts}?${query.toString()}`;
+}
+
+function costSummary(rows: OrderCost[]): string {
+  const active = rows.filter((cost) => cost.active);
+  const fixed = extraCostOf(active.filter((cost) => cost.kind === 'fixed'), 0);
+  const percent = active.filter((cost) => cost.kind === 'percent').reduce((sum, cost) => sum + cost.value, 0);
+  return `Đang bật: ${formatVnd(fixed)} cố định mỗi đơn${percent > 0 ? ` + ${formatPercentBp(percent)}% tổng tiền đơn` : ''}.`;
+}
+
+function costPayload(cost: OrderCost) {
+  return {
+    id: cost.id,
+    name: cost.name,
+    kind: cost.kind,
+    value: cost.value,
+    active: cost.active,
+    valueText: amountText(cost),
+    kindLabel: cost.kind === 'percent' ? 'Phần trăm tổng đơn' : 'Số tiền mỗi đơn',
+    amountLabel: cost.kind === 'percent' ? `${formatPercentBp(cost.value)}%` : formatVnd(cost.value),
+    statusLabel: cost.active ? 'Đang tính' : 'Tạm tắt',
+  };
+}
+
+const wantsJson = Astro.request.headers.get('x-requested-with') === 'fetch';
+const jsonHeaders = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -50,20 +84,26 @@ if (Astro.request.method === 'POST') {
   const id = Number.isSafeInteger(idValue) && idValue > 0 ? idValue : undefined;
   const intent = read('intent');
   if (blocked) {
+    if (wantsJson) return new Response(JSON.stringify({ ok: false, error: blocked }), { status: 403, headers: jsonHeaders });
     Astro.response.status = 403;
     formError = blocked;
   } else if (intent === 'delete' && id) {
     const removed = await deleteOrderCost(db, id, await activityActor(db, session.userId));
-    return Astro.redirect(`${routes.adminCosts}?${removed.ok ? 'notice=deleted' : 'error=missing'}`, 303);
+    if (wantsJson) {
+      if (!removed.ok) return new Response(JSON.stringify({ ok: false, error: removed.error }), { status: 422, headers: jsonHeaders });
+      const rows = await listOrderCosts(db);
+      return new Response(JSON.stringify({ ok: true, notice: 'Đã xóa chi phí thành công.', id, summary: costSummary(rows), drafts: rows.map((row) => ({ id: row.id, name: row.name, kind: row.kind, value: amountText(row), active: row.active })) }), { headers: jsonHeaders });
+    }
+    return Astro.redirect(costsUrl({ tab: 'costs', ...(removed.ok ? { notice: 'deleted' } : { error: 'missing' }) }), 303);
   } else if (intent === 'ad-delete' && id) {
     const removed = await deleteAdSpend(db, id, await activityActor(db, session.userId));
-    return Astro.redirect(`${routes.adminCosts}?${removed.ok ? 'notice=ad-deleted' : 'error=missing'}`, 303);
+    return Astro.redirect(costsUrl({ tab: 'ads', ...(removed.ok ? { notice: 'ad-deleted' } : { error: 'missing' }) }), 303);
   } else if (intent === 'ad-save') {
     adValues.kind = read('kind');
     adValues.day = read('day');
     adValues.amount = read('amount');
     const saved = await saveAdSpend(db, adValues, Date.now(), await activityActor(db, session.userId));
-    if (saved.ok) return Astro.redirect(`${routes.adminCosts}?notice=ad-saved`, 303);
+    if (saved.ok) return Astro.redirect(costsUrl({ tab: 'ads', notice: 'ad-saved' }), 303);
     Astro.response.status = 422;
     adError = saved.error;
   } else if (intent === 'save') {
@@ -78,11 +118,26 @@ if (Astro.request.method === 'POST') {
       Date.now(),
       await activityActor(db, session.userId),
     );
-    if (saved.ok) return Astro.redirect(`${routes.adminCosts}?notice=saved`, 303);
+    if (wantsJson) {
+      if (!saved.ok) return new Response(JSON.stringify({ ok: false, error: saved.error }), { status: 422, headers: jsonHeaders });
+      const rows = await listOrderCosts(db);
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          notice: id ? 'Đã cập nhật chi phí.' : 'Đã thêm chi phí thành công.',
+          cost: costPayload(saved.cost),
+          summary: costSummary(rows),
+          drafts: rows.map((row) => ({ id: row.id, name: row.name, kind: row.kind, value: amountText(row), active: row.active })),
+        }),
+        { headers: jsonHeaders },
+      );
+    }
+    if (saved.ok) return Astro.redirect(costsUrl({ tab: 'costs', notice: 'saved' }), 303);
     Astro.response.status = 422;
     formError = saved.error;
     saveFailed = true;
   } else {
+    if (wantsJson) return new Response(JSON.stringify({ ok: false, error: 'Thao tác không hợp lệ.' }), { status: 422, headers: jsonHeaders });
     Astro.response.status = 422;
     formError = 'Thao tác không hợp lệ.';
   }
@@ -127,149 +182,165 @@ const noticeText =
           ? 'Đã xóa mục quảng cáo.'
           : '';
 const errorText = errorCode === 'missing' ? 'Không tìm thấy chi phí.' : '';
+
+const requestedTab = Astro.url.searchParams.get('tab');
+const activeTab: Tab = adError || notice.startsWith('ad-') ? 'ads' : isTab(requestedTab) ? requestedTab : 'costs';
 ---
 
 <AdminLayout title="Chi phí theo đơn">
-  <p slot="lead">
-    Khoản tính một lần cho mỗi đơn, dù đơn có bao nhiêu vòng: hộp, túi, thiệp, ship, thuế… Quảng cáo nhập ở phần dưới.
-  </p>
-  <button slot="action" class="btn btn-primary" type="button" data-cost-new>Thêm chi phí</button>
-  {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
-  {noticeText && !formError && <p class="mb-4 text-primary-strong" role="status">{noticeText}</p>}
-  {errorText && !formError && <p class="error-text mb-4" role="alert">{errorText}</p>}
-  {formError && !dialogOpen && <p class="error-text mb-4" role="alert">{formError}</p>}
-  {
-    costs.length === 0 && !loadError ? (
-      <section class="cms-empty">
-        <h2 class="cms-empty-title">Chưa có chi phí theo đơn nào</h2>
-        <p class="cms-empty-text">Thêm hộp đựng, ship, thuế… để hệ thống tính lợi nhuận mỗi đơn. Đơn mới sẽ lưu lại các khoản đang bật tại thời điểm đặt.</p>
-        <button class="btn btn-primary" type="button" data-cost-new>Thêm chi phí đầu tiên</button>
-      </section>
-    ) : costs.length > 0 ? (
-      <>
-        <p class="seo-hint mb-3">
-          Đang bật: {formatVnd(fixedTotal)} cố định mỗi đơn{percentTotal > 0 ? ` + ${formatPercentBp(percentTotal)}% tổng tiền đơn` : ''}.
-        </p>
-        <table class="post-table">
-          <thead>
-            <tr>
-              <th>Chi phí</th>
-              <th>Cách tính</th>
-              <th>Mức</th>
-              <th>Trạng thái</th>
-              <th>Thao tác</th>
-            </tr>
-          </thead>
-          <tbody>
-            {costs.map((cost) => (
-              <tr>
-                <td><button class="post-title" type="button" data-cost-edit={cost.id}>{cost.name}</button></td>
-                <td data-label="Cách tính">{cost.kind === 'percent' ? 'Phần trăm tổng đơn' : 'Số tiền mỗi đơn'}</td>
-                <td data-label="Mức"><span class="material-price">{cost.kind === 'percent' ? `${formatPercentBp(cost.value)}%` : formatVnd(cost.value)}</span></td>
-                <td data-label="Trạng thái">{cost.active ? 'Đang tính' : <span class="material-off">Tạm tắt</span>}</td>
-                <td data-label="Thao tác">
-                  <div class="post-actions">
-                    <button type="button" data-cost-edit={cost.id}>Sửa</button>
-                    <span class="post-actions-sep" aria-hidden="true">|</span>
-                    <form
-                      method="post"
-                      data-busy
-                      data-confirm-title={`Xóa chi phí “${cost.name}”?`}
-                      data-confirm="Đơn đã đặt vẫn giữ số liệu cũ. Đơn mới sẽ không tính khoản này."
-                      data-confirm-ok="Xóa"
-                      data-confirm-tone="danger"
-                    >
-                      <input type="hidden" name="csrf" value={session.csrfToken} />
-                      <input type="hidden" name="intent" value="delete" />
-                      <input type="hidden" name="id" value={cost.id} />
-                      <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
-                    </form>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </>
-    ) : null
-  }
+  <p slot="lead">Khoản tính một lần cho mỗi đơn và chi phí quảng cáo theo ngày.</p>
+  <button slot="action" class="btn btn-primary" type="button" data-cost-new data-costs-action hidden={activeTab !== 'costs'}>Thêm chi phí</button>
+  <div data-costs-page data-active-tab={activeTab} data-csrf={session.csrfToken}>
+    <div class="settings-tabs" role="tablist" aria-label="Nhóm chi phí">
+      <button type="button" role="tab" data-costs-tab="costs" aria-selected={activeTab === 'costs' ? 'true' : 'false'} aria-controls="costs-panel">Chi phí đơn</button>
+      <button type="button" role="tab" data-costs-tab="ads" aria-selected={activeTab === 'ads' ? 'true' : 'false'} aria-controls="ads-panel">Quảng cáo</button>
+    </div>
 
-  <section class="od-card mt-8" aria-labelledby="ad-title">
-    <h2 id="ad-title" class="text-lg font-semibold">Quảng cáo mỗi ngày</h2>
-    <p class="seo-hint">
-      Hôm nay: {formatVnd(todayAd)}. Mức chung áp dụng từ ngày bạn chọn cho đến khi đặt mức mới, nên đổi mức không làm sai các ngày cũ.
-      Số riêng của một ngày thì thay cho mức chung. Tổng quảng cáo của kỳ được trừ vào lợi nhuận ở trang Tổng quan.
-    </p>
-    {adError && <p class="error-text mt-2" role="alert">{adError}</p>}
-    <form method="post" data-busy class="mt-4 flex flex-wrap items-end gap-3">
-      <input type="hidden" name="csrf" value={session.csrfToken} />
-      <input type="hidden" name="intent" value="ad-save" />
-      <label class="block">
-        <span class="mb-1 block font-semibold">Áp dụng</span>
-        <select class="field" name="kind">
-          <option value="rate" selected={adValues.kind === 'rate'}>Mức mỗi ngày, từ ngày</option>
-          <option value="day" selected={adValues.kind === 'day'}>Chỉ riêng ngày</option>
-        </select>
-      </label>
-      <label class="block">
-        <span class="mb-1 block font-semibold">Ngày</span>
-        <input class="field" type="date" name="day" required value={adValues.day} />
-      </label>
-      <label class="block">
-        <span class="mb-1 block font-semibold">Số tiền (VND)</span>
-        <input class="field" name="amount" required inputmode="numeric" maxlength="12" value={adValues.amount} />
-      </label>
-      <button class="btn btn-primary" type="submit">Lưu</button>
-    </form>
-    {
-      adRows.length === 0 ? (
-        <p class="seo-hint mt-4">Chưa nhập quảng cáo nên lợi nhuận chưa trừ khoản này. Ô trên đã điền sẵn 220.000đ, bấm Lưu để dùng làm mức mỗi ngày.</p>
-      ) : (
-        <table class="post-table mt-4">
-          <thead>
-            <tr>
-              <th>Ngày</th>
-              <th>Loại</th>
-              <th>Số tiền</th>
-              <th>Thao tác</th>
-            </tr>
-          </thead>
-          <tbody>
-            {adRows.map((row) => (
-              <tr>
-                <td>{row.day}</td>
-                <td data-label="Loại">{row.kind === 'rate' ? 'Mức mỗi ngày từ ngày này' : 'Chỉ riêng ngày này'}</td>
-                <td data-label="Số tiền"><span class="material-price">{formatVnd(row.amount)}</span></td>
-                <td data-label="Thao tác">
-                  <form
-                    method="post"
-                    data-busy
-                    data-confirm-title="Xóa mục quảng cáo này?"
-                    data-confirm="Các ngày liên quan sẽ tính theo mức còn lại."
-                    data-confirm-ok="Xóa"
-                    data-confirm-tone="danger"
-                  >
-                    <input type="hidden" name="csrf" value={session.csrfToken} />
-                    <input type="hidden" name="intent" value="ad-delete" />
-                    <input type="hidden" name="id" value={row.id} />
-                    <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
-                  </form>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )
-    }
-  </section>
+    {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
+    <p class="mb-4 text-primary-strong" role="status" data-costs-flash hidden={!noticeText || !!formError || !!adError}>{noticeText}</p>
+    {errorText && !formError && <p class="error-text mb-4" role="alert">{errorText}</p>}
+    {formError && !dialogOpen && <p class="error-text mb-4" role="alert">{formError}</p>}
+
+    <div id="costs-panel" role="tabpanel" data-costs-panel="costs" hidden={activeTab !== 'costs'}>
+      <div data-costs-content>
+        {
+          costs.length === 0 && !loadError ? (
+            <section class="cms-empty" data-costs-empty>
+              <h2 class="cms-empty-title">Chưa có chi phí theo đơn nào</h2>
+              <p class="cms-empty-text">Thêm hộp đựng, ship, thuế… để hệ thống tính lợi nhuận mỗi đơn. Đơn mới sẽ lưu lại các khoản đang bật tại thời điểm đặt.</p>
+              <button class="btn btn-primary" type="button" data-cost-new>Thêm chi phí đầu tiên</button>
+            </section>
+          ) : costs.length > 0 ? (
+            <>
+              <p class="seo-hint mb-3" data-costs-summary>
+                Đang bật: {formatVnd(fixedTotal)} cố định mỗi đơn{percentTotal > 0 ? ` + ${formatPercentBp(percentTotal)}% tổng tiền đơn` : ''}.
+              </p>
+              <table class="post-table" data-costs-table>
+                <thead>
+                  <tr>
+                    <th>Chi phí</th>
+                    <th>Cách tính</th>
+                    <th>Mức</th>
+                    <th>Trạng thái</th>
+                    <th>Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody data-costs-list>
+                  {costs.map((cost) => (
+                    <tr data-cost-row={cost.id}>
+                      <td><button class="post-title" type="button" data-cost-edit={cost.id}>{cost.name}</button></td>
+                      <td data-label="Cách tính">{cost.kind === 'percent' ? 'Phần trăm tổng đơn' : 'Số tiền mỗi đơn'}</td>
+                      <td data-label="Mức"><span class="material-price">{cost.kind === 'percent' ? `${formatPercentBp(cost.value)}%` : formatVnd(cost.value)}</span></td>
+                      <td data-label="Trạng thái">{cost.active ? 'Đang tính' : <span class="material-off">Tạm tắt</span>}</td>
+                      <td data-label="Thao tác">
+                        <div class="post-actions">
+                          <button type="button" data-cost-edit={cost.id}>Sửa</button>
+                          <span class="post-actions-sep" aria-hidden="true">|</span>
+                          <form
+                            method="post"
+                            data-busy
+                            data-cost-ajax="delete"
+                            data-confirm-title={`Xóa chi phí “${cost.name}”?`}
+                            data-confirm="Đơn đã đặt vẫn giữ số liệu cũ. Đơn mới sẽ không tính khoản này."
+                            data-confirm-ok="Xóa"
+                            data-confirm-tone="danger"
+                          >
+                            <input type="hidden" name="csrf" value={session.csrfToken} />
+                            <input type="hidden" name="intent" value="delete" />
+                            <input type="hidden" name="id" value={cost.id} />
+                            <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                          </form>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          ) : null
+        }
+      </div>
+    </div>
+
+    <div id="ads-panel" role="tabpanel" data-costs-panel="ads" hidden={activeTab !== 'ads'}>
+      <section aria-labelledby="ad-title">
+        <h2 id="ad-title" class="text-lg font-semibold">Quảng cáo mỗi ngày</h2>
+        <p class="seo-hint">
+          Hôm nay: {formatVnd(todayAd)}. Mức chung áp dụng từ ngày bạn chọn cho đến khi đặt mức mới, nên đổi mức không làm sai các ngày cũ.
+          Số riêng của một ngày thì thay cho mức chung. Tổng quảng cáo của kỳ được trừ vào lợi nhuận ở trang Tổng quan.
+        </p>
+        {adError && <p class="error-text mt-2" role="alert">{adError}</p>}
+        <form method="post" data-busy class="mt-4 flex flex-wrap items-end gap-3">
+          <input type="hidden" name="csrf" value={session.csrfToken} />
+          <input type="hidden" name="intent" value="ad-save" />
+          <label class="block">
+            <span class="mb-1 block font-semibold">Áp dụng</span>
+            <select class="field" name="kind">
+              <option value="rate" selected={adValues.kind === 'rate'}>Mức mỗi ngày, từ ngày</option>
+              <option value="day" selected={adValues.kind === 'day'}>Chỉ riêng ngày</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="mb-1 block font-semibold">Ngày</span>
+            <input class="field" type="date" name="day" required value={adValues.day} />
+          </label>
+          <label class="block">
+            <span class="mb-1 block font-semibold">Số tiền (VND)</span>
+            <input class="field" name="amount" required inputmode="numeric" maxlength="12" value={adValues.amount} />
+          </label>
+          <button class="btn btn-primary" type="submit">Lưu</button>
+        </form>
+        {
+          adRows.length === 0 ? (
+            <p class="seo-hint mt-4">Chưa nhập quảng cáo nên lợi nhuận chưa trừ khoản này. Ô trên đã điền sẵn 220.000đ, bấm Lưu để dùng làm mức mỗi ngày.</p>
+          ) : (
+            <table class="post-table mt-4">
+              <thead>
+                <tr>
+                  <th>Ngày</th>
+                  <th>Loại</th>
+                  <th>Số tiền</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adRows.map((row) => (
+                  <tr>
+                    <td>{row.day}</td>
+                    <td data-label="Loại">{row.kind === 'rate' ? 'Mức mỗi ngày từ ngày này' : 'Chỉ riêng ngày này'}</td>
+                    <td data-label="Số tiền"><span class="material-price">{formatVnd(row.amount)}</span></td>
+                    <td data-label="Thao tác">
+                      <form
+                        method="post"
+                        data-busy
+                        data-confirm-title="Xóa mục quảng cáo này?"
+                        data-confirm="Các ngày liên quan sẽ tính theo mức còn lại."
+                        data-confirm-ok="Xóa"
+                        data-confirm-tone="danger"
+                      >
+                        <input type="hidden" name="csrf" value={session.csrfToken} />
+                        <input type="hidden" name="intent" value="ad-delete" />
+                        <input type="hidden" name="id" value={row.id} />
+                        <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                      </form>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        }
+      </section>
+    </div>
+  </div>
 
   <dialog class="category-dialog" aria-labelledby="cost-dialog-title" data-cost-dialog data-open={dialogOpen ? 'true' : undefined} data-costs={JSON.stringify(drafts)}>
-    <form method="post" data-busy>
+    <form method="post" data-busy data-cost-ajax="save">
       <input type="hidden" name="csrf" value={session.csrfToken} />
       <input type="hidden" name="intent" value="save" />
       <input type="hidden" name="id" value={values.id} data-field="id" />
       <h2 id="cost-dialog-title" class="text-lg font-semibold" data-cost-title>{values.id ? 'Sửa chi phí' : 'Thêm chi phí'}</h2>
-      {formError && dialogOpen && <p class="error-text mt-2" role="alert">{formError}</p>}
+      {formError && dialogOpen && <p class="error-text mt-2" role="alert" data-cost-form-error>{formError}</p>}
       <label class="mt-4 block">
         <span class="mb-1 block font-semibold">Tên chi phí</span>
         <input class="field" name="name" required maxlength={ORDER_COST_NAME_MAX} value={values.name} data-field="name" placeholder="Ví dụ: Hộp đựng" />
@@ -292,7 +363,7 @@ const errorText = errorCode === 'missing' ? 'Không tìm thấy chi phí.' : '';
       </label>
       <div class="category-actions">
         <button class="btn" type="button" data-cost-close>Hủy</button>
-        <button class="btn btn-primary" type="submit">Lưu</button>
+        <button class="btn btn-primary" type="submit" data-cost-save>Lưu</button>
       </div>
     </form>
   </dialog>
@@ -300,49 +371,359 @@ const errorText = errorCode === 'missing' ? 'Không tìm thấy chi phí.' : '';
 
 <script>
   type Draft = { id: number | null; name: string; kind: string; value: string; active: boolean };
+  type CostPayload = {
+    id: number;
+    name: string;
+    kind: string;
+    value: number;
+    active: boolean;
+    valueText: string;
+    kindLabel: string;
+    amountLabel: string;
+    statusLabel: string;
+  };
+
+  const page = document.querySelector('[data-costs-page]');
   const dialog = document.querySelector('[data-cost-dialog]');
+  const flashEl = document.querySelector('[data-costs-flash]');
+  let drafts: Draft[] = [];
+  let flashTimer = 0;
+
   if (dialog instanceof HTMLDialogElement) {
-    const modal = dialog;
-    const drafts: Draft[] = JSON.parse(modal.dataset.costs ?? '[]');
-    const field = (name: string) => modal.querySelector<HTMLInputElement>(`[data-field="${name}"]`);
-    const title = modal.querySelector('[data-cost-title]');
+    try {
+      drafts = JSON.parse(dialog.dataset.costs ?? '[]') as Draft[];
+    } catch {
+      drafts = [];
+    }
+  }
 
-    const open = (draft: Draft) => {
-      const set = (name: string, value: string) => {
-        const input = field(name);
-        if (input) input.value = value;
-      };
-      set('id', draft.id === null ? '' : String(draft.id));
-      set('name', draft.name);
-      set('kind', draft.kind);
-      set('value', draft.value);
-      const active = field('active');
-      if (active) active.checked = draft.active;
-      if (title) title.textContent = draft.id === null ? 'Thêm chi phí' : 'Sửa chi phí';
-      modal.querySelector('.error-text')?.remove();
-      modal.showModal();
-      field('name')?.focus();
+  const showFlash = (message: string) => {
+    if (!(flashEl instanceof HTMLElement)) return;
+    flashEl.textContent = message;
+    flashEl.hidden = !message;
+    flashEl.classList.toggle('error-text', false);
+    flashEl.classList.toggle('text-primary-strong', true);
+    window.clearTimeout(flashTimer);
+    if (!message) return;
+    flashTimer = window.setTimeout(() => {
+      flashEl.hidden = true;
+      flashEl.textContent = '';
+    }, 2000);
+  };
+
+  if (flashEl instanceof HTMLElement && !flashEl.hidden && flashEl.textContent?.trim()) {
+    showFlash(flashEl.textContent.trim());
+  }
+  {
+    const url = new URL(location.href);
+    if (url.searchParams.has('notice') || url.searchParams.has('error')) {
+      url.searchParams.delete('notice');
+      url.searchParams.delete('error');
+      history.replaceState(null, '', url);
+    }
+  }
+
+  if (page instanceof HTMLElement) {
+    const tabs = [...page.querySelectorAll('[data-costs-tab]')];
+    const panels = [...page.querySelectorAll('[data-costs-panel]')];
+    const actions = [...document.querySelectorAll('[data-costs-action]')];
+    const show = (id: string) => {
+      for (const tab of tabs) {
+        if (!(tab instanceof HTMLButtonElement)) continue;
+        const selected = tab.dataset.costsTab === id;
+        tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+        tab.tabIndex = selected ? 0 : -1;
+      }
+      for (const panel of panels) {
+        if (panel instanceof HTMLElement) panel.hidden = panel.dataset.costsPanel !== id;
+      }
+      for (const action of actions) {
+        if (action instanceof HTMLElement) action.hidden = id !== 'costs';
+      }
     };
+    show(page.dataset.activeTab || 'costs');
+    for (const tab of tabs) {
+      tab.addEventListener('click', () => {
+        const id = tab instanceof HTMLElement ? tab.dataset.costsTab : '';
+        if (!id) return;
+        show(id);
+        const url = new URL(location.href);
+        url.searchParams.set('tab', id);
+        url.searchParams.delete('notice');
+        url.searchParams.delete('error');
+        history.replaceState(null, '', url);
+      });
+    }
+  }
 
-    for (const button of document.querySelectorAll('[data-cost-new]')) {
+  const field = (name: string) => (dialog instanceof HTMLElement ? dialog.querySelector<HTMLInputElement>(`[data-field="${name}"]`) : null);
+  const title = dialog instanceof HTMLElement ? dialog.querySelector('[data-cost-title]') : null;
+
+  const open = (draft: Draft) => {
+    if (!(dialog instanceof HTMLDialogElement)) return;
+    const set = (name: string, value: string) => {
+      const input = field(name);
+      if (input) input.value = value;
+    };
+    set('id', draft.id === null ? '' : String(draft.id));
+    set('name', draft.name);
+    set('kind', draft.kind);
+    set('value', draft.value);
+    const active = field('active');
+    if (active) active.checked = draft.active;
+    if (title) title.textContent = draft.id === null ? 'Thêm chi phí' : 'Sửa chi phí';
+    dialog.querySelector('[data-cost-form-error]')?.remove();
+    const saveBtn = dialog.querySelector<HTMLButtonElement>('[data-cost-save]');
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Lưu';
+    }
+    dialog.showModal();
+    field('name')?.focus();
+  };
+
+  const bindNew = (root: ParentNode = document) => {
+    for (const button of root.querySelectorAll('[data-cost-new]')) {
+      if (!(button instanceof HTMLElement) || button.dataset.bound === '1') continue;
+      button.dataset.bound = '1';
       button.addEventListener('click', () => open({ id: null, name: '', kind: 'fixed', value: '', active: true }));
     }
-    for (const button of document.querySelectorAll('[data-cost-edit]')) {
+  };
+
+  const bindEdit = (root: ParentNode = document) => {
+    for (const button of root.querySelectorAll('[data-cost-edit]')) {
+      if (!(button instanceof HTMLElement) || button.dataset.bound === '1') continue;
+      button.dataset.bound = '1';
       button.addEventListener('click', () => {
         const draft = drafts.find((item) => String(item.id) === button.getAttribute('data-cost-edit'));
         if (draft) open(draft);
       });
     }
-    modal.addEventListener('click', (event) => {
+  };
+
+  const csrf = () => (page instanceof HTMLElement ? page.dataset.csrf ?? '' : '');
+
+  const buildRow = (cost: CostPayload) => {
+    const tr = document.createElement('tr');
+    tr.dataset.costRow = String(cost.id);
+    const nameTd = document.createElement('td');
+    const nameBtn = document.createElement('button');
+    nameBtn.className = 'post-title';
+    nameBtn.type = 'button';
+    nameBtn.dataset.costEdit = String(cost.id);
+    nameBtn.textContent = cost.name;
+    nameTd.append(nameBtn);
+
+    const kindTd = document.createElement('td');
+    kindTd.dataset.label = 'Cách tính';
+    kindTd.textContent = cost.kindLabel;
+
+    const amountTd = document.createElement('td');
+    amountTd.dataset.label = 'Mức';
+    const amount = document.createElement('span');
+    amount.className = 'material-price';
+    amount.textContent = cost.amountLabel;
+    amountTd.append(amount);
+
+    const statusTd = document.createElement('td');
+    statusTd.dataset.label = 'Trạng thái';
+    if (cost.active) statusTd.textContent = cost.statusLabel;
+    else {
+      const off = document.createElement('span');
+      off.className = 'material-off';
+      off.textContent = cost.statusLabel;
+      statusTd.append(off);
+    }
+
+    const actionsTd = document.createElement('td');
+    actionsTd.dataset.label = 'Thao tác';
+    const actions = document.createElement('div');
+    actions.className = 'post-actions';
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.dataset.costEdit = String(cost.id);
+    editBtn.textContent = 'Sửa';
+    const sep = document.createElement('span');
+    sep.className = 'post-actions-sep';
+    sep.setAttribute('aria-hidden', 'true');
+    sep.textContent = '|';
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.dataset.busy = '';
+    form.dataset.costAjax = 'delete';
+    form.dataset.confirmTitle = `Xóa chi phí “${cost.name}”?`;
+    form.dataset.confirm = 'Đơn đã đặt vẫn giữ số liệu cũ. Đơn mới sẽ không tính khoản này.';
+    form.dataset.confirmOk = 'Xóa';
+    form.dataset.confirmTone = 'danger';
+    for (const [name, value] of [
+      ['csrf', csrf()],
+      ['intent', 'delete'],
+      ['id', String(cost.id)],
+    ] as const) {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = name;
+      input.value = value;
+      form.append(input);
+    }
+    const del = document.createElement('button');
+    del.className = 'category-delete';
+    del.type = 'submit';
+    del.dataset.keepLabel = 'true';
+    del.textContent = 'Xóa';
+    form.append(del);
+    actions.append(editBtn, sep, form);
+    actionsTd.append(actions);
+    tr.append(nameTd, kindTd, amountTd, statusTd, actionsTd);
+    return tr;
+  };
+
+  const ensureList = () => {
+    const content = document.querySelector('[data-costs-content]');
+    if (!(content instanceof HTMLElement)) return null;
+    let list = content.querySelector('[data-costs-list]');
+    if (list instanceof HTMLTableSectionElement) return list;
+    content.replaceChildren();
+    const summary = document.createElement('p');
+    summary.className = 'seo-hint mb-3';
+    summary.dataset.costsSummary = '';
+    const table = document.createElement('table');
+    table.className = 'post-table';
+    table.dataset.costsTable = '';
+    table.innerHTML =
+      '<thead><tr><th>Chi phí</th><th>Cách tính</th><th>Mức</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody data-costs-list></tbody>';
+    content.append(summary, table);
+    list = content.querySelector('[data-costs-list]');
+    return list instanceof HTMLTableSectionElement ? list : null;
+  };
+
+  const showEmpty = () => {
+    const content = document.querySelector('[data-costs-content]');
+    if (!(content instanceof HTMLElement)) return;
+    content.replaceChildren();
+    const empty = document.createElement('section');
+    empty.className = 'cms-empty';
+    empty.dataset.costsEmpty = '';
+    empty.innerHTML =
+      '<h2 class="cms-empty-title">Chưa có chi phí theo đơn nào</h2><p class="cms-empty-text">Thêm hộp đựng, ship, thuế… để hệ thống tính lợi nhuận mỗi đơn. Đơn mới sẽ lưu lại các khoản đang bật tại thời điểm đặt.</p>';
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-primary';
+    btn.type = 'button';
+    btn.dataset.costNew = '';
+    btn.textContent = 'Thêm chi phí đầu tiên';
+    empty.append(btn);
+    content.append(empty);
+    bindNew(empty);
+  };
+
+  const applyDrafts = (next: Draft[]) => {
+    drafts = next;
+    if (dialog instanceof HTMLElement) dialog.dataset.costs = JSON.stringify(drafts);
+  };
+
+  const unlock = (form: HTMLFormElement) => {
+    for (const button of form.querySelectorAll('button[type="submit"]')) {
+      if (!(button instanceof HTMLButtonElement)) continue;
+      button.disabled = false;
+      if (button.dataset.keepLabel !== 'true' && button.hasAttribute('data-cost-save')) button.textContent = 'Lưu';
+    }
+  };
+
+  const showFormError = (message: string) => {
+    if (!(dialog instanceof HTMLElement)) return;
+    dialog.querySelector('[data-cost-form-error]')?.remove();
+    const err = document.createElement('p');
+    err.className = 'error-text mt-2';
+    err.setAttribute('role', 'alert');
+    err.dataset.costFormError = '';
+    err.textContent = message;
+    title?.after(err);
+  };
+
+  document.addEventListener(
+    'submit',
+    (event) => {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement) || !form.dataset.costAjax) return;
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      const intent = form.dataset.costAjax;
+      const body = new FormData(form);
+      void (async () => {
+        try {
+          const response = await fetch(location.pathname, {
+            method: 'POST',
+            body,
+            headers: { 'x-requested-with': 'fetch' },
+          });
+          const data = (await response.json()) as {
+            ok?: boolean;
+            error?: string;
+            notice?: string;
+            id?: number;
+            summary?: string;
+            cost?: CostPayload;
+            drafts?: Draft[];
+          };
+          if (!response.ok || !data.ok) {
+            unlock(form);
+            if (intent === 'save') showFormError(data.error || 'Chưa lưu được chi phí.');
+            else showFlash(data.error || 'Chưa xóa được chi phí.');
+            return;
+          }
+          if (Array.isArray(data.drafts)) applyDrafts(data.drafts);
+          if (intent === 'save' && data.cost) {
+            const list = ensureList();
+            if (list) {
+              const existing = list.querySelector(`[data-cost-row="${data.cost.id}"]`);
+              const row = buildRow(data.cost);
+              if (existing) existing.replaceWith(row);
+              else list.prepend(row);
+              bindEdit(row);
+            }
+            const summary = document.querySelector('[data-costs-summary]');
+            if (summary && data.summary) summary.textContent = data.summary;
+            if (dialog instanceof HTMLDialogElement) dialog.close();
+            unlock(form);
+            showFlash(data.notice || 'Đã lưu chi phí.');
+            return;
+          }
+          if (intent === 'delete' && data.id != null) {
+            document.querySelector(`[data-cost-row="${data.id}"]`)?.remove();
+            const list = document.querySelector('[data-costs-list]');
+            if (list && list.children.length === 0) showEmpty();
+            else {
+              const summary = document.querySelector('[data-costs-summary]');
+              if (summary && data.summary) summary.textContent = data.summary;
+            }
+            showFlash(data.notice || 'Đã xóa chi phí.');
+            return;
+          }
+          unlock(form);
+        } catch {
+          unlock(form);
+          if (intent === 'save') showFormError('Không kết nối được máy chủ.');
+          else showFlash('Không kết nối được máy chủ.');
+        }
+      })();
+    },
+    true,
+  );
+
+  bindNew();
+  bindEdit();
+
+  if (dialog instanceof HTMLDialogElement) {
+    dialog.addEventListener('click', (event) => {
       if (event.target instanceof Element && event.target.closest('[data-cost-close]')) {
-        modal.close();
+        dialog.close();
         return;
       }
-      if (event.target !== modal) return;
-      const box = modal.getBoundingClientRect();
+      if (event.target !== dialog) return;
+      const box = dialog.getBoundingClientRect();
       const inside = event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
-      if (!inside) modal.close();
+      if (!inside) dialog.close();
     });
-    if (modal.dataset.open === 'true') modal.showModal();
+    if (dialog.dataset.open === 'true') dialog.showModal();
   }
 </script>

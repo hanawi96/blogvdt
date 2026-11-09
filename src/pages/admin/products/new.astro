@@ -2,7 +2,7 @@
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import ProductForm from '../../../components/admin/ProductForm.astro';
 import { mutationError } from '../../../features/auth/session';
-import { parseRecipe, resolveRecipeLines, type RecipeLine } from '../../../features/materials/costing';
+import { defaultNewProductRecipe, parseRecipe, resolveRecipeLines, type RecipeLine } from '../../../features/materials/costing';
 import { listRecipeOptions } from '../../../features/materials/recipes';
 import { listProductCategories } from '../../../features/products/categories';
 import { parseProductForm } from '../../../features/products/form';
@@ -30,6 +30,8 @@ const empty = {
   status: 'active',
   featured: false,
   sortOrder: '0',
+  stockQty: '99',
+  rating: '5',
   seoTitle: '',
   metaDescription: '',
 };
@@ -68,7 +70,8 @@ if (Astro.request.method === 'POST') {
 }
 
 const recipeOptions = await listRecipeOptions(db, postedRecipe.map((line) => line.materialId));
-const recipeLines = resolveRecipeLines(postedRecipe, recipeOptions);
+const recipeSource = Astro.request.method === 'POST' ? postedRecipe : defaultNewProductRecipe(recipeOptions);
+const recipeLines = resolveRecipeLines(recipeSource, recipeOptions);
 const photos = await productPhotoViews(
   db,
   Number(values.coverMediaId) || null,
@@ -93,6 +96,8 @@ function valuesFrom(form: FormData) {
     status: read('status') || 'active',
     featured: form.get('featured') === '1',
     sortOrder: read('sortOrder') || '0',
+    stockQty: read('stockQty') || '0',
+    rating: read('rating'),
     seoTitle: read('seoTitle'),
     metaDescription: read('metaDescription'),
   };

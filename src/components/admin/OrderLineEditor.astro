@@ -5,13 +5,14 @@ import { weightOptions, type WeightScale } from '../../features/products/weight'
 import { formatVnd } from '../../lib/money';
 
 interface Props {
-  choices: { id: number; name: string; price: number; weightScale: WeightScale; active: boolean }[];
+  choices: { id: number; name: string; price: number; weightScale: WeightScale; active: boolean; coverUrl?: string | null }[];
   lines: StaffLineInput[];
   stored: StoredOrderLine[];
   orderTotal?: string;
   extraDiscount?: string;
   error?: string;
   allowEmpty?: boolean;
+  cart?: boolean;
 }
 
 const {
@@ -22,6 +23,7 @@ const {
   extraDiscount = '',
   error = '',
   allowEmpty = false,
+  cart = false,
 } = Astro.props;
 const active = choices.filter((choice) => choice.active);
 const canAdd = active.length > 0;
@@ -56,14 +58,19 @@ function keptPrice(line: StaffLineInput): number | null {
   if (source.productId !== productId || (source.optionLabel ?? '') !== line.weight.trim()) return null;
   return source.unitPrice;
 }
+
+function coverOf(line: StaffLineInput): string {
+  return choiceOf(line.productId)?.coverUrl ?? '';
+}
 ---
 
 <div
-  class="staff-lines-wrap"
+  class:list={['staff-lines-wrap', cart && 'staff-lines-cart']}
   data-order-lines
   data-max={CART_MAX_LINES}
   data-add={canAdd ? '1' : '0'}
   data-allow-empty={allowEmpty ? '1' : undefined}
+  data-cart={cart ? '1' : undefined}
 >
   <pre hidden data-order-choices>{JSON.stringify(choices).replace(/</g, '\\u003c')}</pre>
   <ul class="staff-lines" data-line-list>
@@ -77,6 +84,7 @@ function keptPrice(line: StaffLineInput): number | null {
         const priceText = line.price?.trim() || (automatic !== null ? String(automatic) : '');
         const priceAmount = Number(priceText.replace(/\D/g, ''));
         const priceLabel = priceText && Number.isSafeInteger(priceAmount) ? `Đơn giá ${formatVnd(priceAmount)}` : 'Đơn giá';
+        const cover = coverOf(line);
         return (
           <li
             class="staff-line"
@@ -88,37 +96,90 @@ function keptPrice(line: StaffLineInput): number | null {
           >
             <input type="hidden" name="lineSlot" value={line.slot} />
             <input type="hidden" name="lineProduct" data-product value={line.productId} />
-            <label data-product-pick hidden={!pickProduct}>
-              <span class="od-label">Sản phẩm</span>
-              <select class="field" data-product-select>
-                <option value="">Chọn sản phẩm</option>
-                {active.map((choice) => <option value={choice.id}>{choice.name}</option>)}
-              </select>
-            </label>
-            <label data-name-field hidden={pickProduct}>
-              <span class="od-label">Sản phẩm</span>
-              <input class="field" name="lineName" data-line-name maxlength="160" autocomplete="off" value={name} hidden={pickProduct} />
-            </label>
-            <label data-weight-field hidden={labels.length === 0}>
-              <span class="od-label">Cân nặng</span>
-              <select class="field" name="lineWeight" data-weight>
-                <option value="">Chọn cân nặng</option>
-                {labels.map((label) => <option value={label} selected={line.weight === label}>{label}</option>)}
-              </select>
-            </label>
-            <div class="staff-line-qty">
-              <label>
-                <span class="od-label">Số lượng</span>
-                <input class="field" type="number" name="lineQuantity" data-qty min="1" max="20" required value={line.quantity || '1'} />
-              </label>
-              <button class="staff-line-remove" type="button" data-remove-line aria-label="Xóa sản phẩm" hidden={lines.length < 2 && !allowEmpty}>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12" /></svg>
-              </button>
-            </div>
-            <div class="staff-line-price">
-              <button class="staff-money-text" type="button" data-money-text>{priceLabel}</button>
-              <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value={priceText} hidden />
-            </div>
+            {cart ? (
+              <div class="staff-line-card">
+                {cover ? (
+                  <img class="staff-line-photo" src={cover} alt="" width="56" height="56" loading="lazy" decoding="async" data-line-photo />
+                ) : (
+                  <span class="staff-line-photo" aria-hidden="true" data-line-photo></span>
+                )}
+                <div class="staff-line-main">
+                  <div class="staff-line-top">
+                    <label data-product-pick hidden={!pickProduct}>
+                      <span class="sr-only">Sản phẩm</span>
+                      <select class="field" data-product-select>
+                        <option value="">Chọn sản phẩm</option>
+                        {active.map((choice) => <option value={choice.id}>{choice.name}</option>)}
+                      </select>
+                    </label>
+                    <label class="staff-line-name" data-name-field hidden={pickProduct}>
+                      <span class="sr-only">Sản phẩm</span>
+                      <input class="field staff-line-name-input" name="lineName" data-line-name maxlength="160" autocomplete="off" value={name} hidden={pickProduct} />
+                    </label>
+                    <button class="staff-line-remove" type="button" data-remove-line aria-label="Xóa sản phẩm" hidden={lines.length < 2 && !allowEmpty}>
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12" /></svg>
+                    </button>
+                  </div>
+                  <div class="staff-line-tags">
+                    <label class="staff-line-chip" data-weight-field hidden={labels.length === 0}>
+                      <span class="sr-only">Cân nặng</span>
+                      <select class="field staff-line-chip-select" name="lineWeight" data-weight>
+                        <option value="">Cân</option>
+                        {labels.map((label) => <option value={label} selected={line.weight === label}>{label}</option>)}
+                      </select>
+                    </label>
+                    <label class="staff-line-chip">
+                      <span class="sr-only">Số lượng</span>
+                      <span class="staff-line-chip-prefix" aria-hidden="true">x</span>
+                      <input class="field staff-line-chip-qty" type="number" name="lineQuantity" data-qty min="1" max="20" required value={line.quantity || '1'} />
+                    </label>
+                  </div>
+                  <div class="staff-line-price">
+                    <button class="staff-money-text" type="button" data-money-text>{priceLabel}</button>
+                    <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value={priceText} hidden />
+                  </div>
+                  <label class="staff-line-note">
+                    <span class="sr-only">Lưu ý dòng</span>
+                    <input class="field" name="lineNote" data-line-note maxlength="160" placeholder="Lưu ý cho dòng này, không bắt buộc" value={line.note ?? ''} />
+                  </label>
+                </div>
+              </div>
+            ) : (
+              <>
+                <label data-product-pick hidden={!pickProduct}>
+                  <span class="od-label">Sản phẩm</span>
+                  <select class="field" data-product-select>
+                    <option value="">Chọn sản phẩm</option>
+                    {active.map((choice) => <option value={choice.id}>{choice.name}</option>)}
+                  </select>
+                </label>
+                <label data-name-field hidden={pickProduct}>
+                  <span class="od-label">Sản phẩm</span>
+                  <input class="field" name="lineName" data-line-name maxlength="160" autocomplete="off" value={name} hidden={pickProduct} />
+                </label>
+                <label data-weight-field hidden={labels.length === 0}>
+                  <span class="od-label">Cân nặng</span>
+                  <select class="field" name="lineWeight" data-weight>
+                    <option value="">Chọn cân nặng</option>
+                    {labels.map((label) => <option value={label} selected={line.weight === label}>{label}</option>)}
+                  </select>
+                </label>
+                <div class="staff-line-qty">
+                  <label>
+                    <span class="od-label">Số lượng</span>
+                    <input class="field" type="number" name="lineQuantity" data-qty min="1" max="20" required value={line.quantity || '1'} />
+                  </label>
+                  <button class="staff-line-remove" type="button" data-remove-line aria-label="Xóa sản phẩm" hidden={lines.length < 2 && !allowEmpty}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12" /></svg>
+                  </button>
+                </div>
+                <div class="staff-line-price">
+                  <button class="staff-money-text" type="button" data-money-text>{priceLabel}</button>
+                  <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value={priceText} hidden />
+                </div>
+                <input type="hidden" name="lineNote" value={line.note ?? ''} />
+              </>
+            )}
           </li>
         );
       })
@@ -128,39 +189,87 @@ function keptPrice(line: StaffLineInput): number | null {
     <li class="staff-line" data-line>
       <input type="hidden" name="lineSlot" value="" />
       <input type="hidden" name="lineProduct" data-product value="" />
-      <label data-product-pick>
-        <span class="od-label">Sản phẩm</span>
-        <select class="field" data-product-select>
-          <option value="" selected>Chọn sản phẩm</option>
-          {active.map((choice) => <option value={choice.id}>{choice.name}</option>)}
-        </select>
-      </label>
-      <label data-name-field hidden>
-        <span class="od-label">Sản phẩm</span>
-        <input class="field" name="lineName" data-line-name maxlength="160" autocomplete="off" value="" hidden />
-      </label>
-      <label data-weight-field hidden>
-        <span class="od-label">Cân nặng</span>
-        <select class="field" name="lineWeight" data-weight>
-          <option value="">Chọn cân nặng</option>
-        </select>
-      </label>
-      <div class="staff-line-qty">
-        <label>
-          <span class="od-label">Số lượng</span>
-          <input class="field" type="number" name="lineQuantity" data-qty min="1" max="20" required value="1" />
-        </label>
-        <button class="staff-line-remove" type="button" data-remove-line aria-label="Xóa sản phẩm">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12" /></svg>
-        </button>
-      </div>
-      <div class="staff-line-price">
-        <button class="staff-money-text" type="button" data-money-text>Đơn giá</button>
-        <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value="" hidden />
-      </div>
+      {cart ? (
+        <div class="staff-line-card">
+          <span class="staff-line-photo" aria-hidden="true" data-line-photo></span>
+          <div class="staff-line-main">
+            <div class="staff-line-top">
+              <label data-product-pick>
+                <span class="sr-only">Sản phẩm</span>
+                <select class="field" data-product-select>
+                  <option value="" selected>Chọn sản phẩm</option>
+                  {active.map((choice) => <option value={choice.id}>{choice.name}</option>)}
+                </select>
+              </label>
+              <label class="staff-line-name" data-name-field hidden>
+                <span class="sr-only">Sản phẩm</span>
+                <input class="field staff-line-name-input" name="lineName" data-line-name maxlength="160" autocomplete="off" value="" hidden />
+              </label>
+              <button class="staff-line-remove" type="button" data-remove-line aria-label="Xóa sản phẩm">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12" /></svg>
+              </button>
+            </div>
+            <div class="staff-line-tags">
+              <label class="staff-line-chip" data-weight-field hidden>
+                <span class="sr-only">Cân nặng</span>
+                <select class="field staff-line-chip-select" name="lineWeight" data-weight>
+                  <option value="">Cân</option>
+                </select>
+              </label>
+              <label class="staff-line-chip">
+                <span class="sr-only">Số lượng</span>
+                <span class="staff-line-chip-prefix" aria-hidden="true">x</span>
+                <input class="field staff-line-chip-qty" type="number" name="lineQuantity" data-qty min="1" max="20" required value="1" />
+              </label>
+            </div>
+            <div class="staff-line-price">
+              <button class="staff-money-text" type="button" data-money-text>Đơn giá</button>
+              <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value="" hidden />
+            </div>
+            <label class="staff-line-note">
+              <span class="sr-only">Lưu ý dòng</span>
+              <input class="field" name="lineNote" data-line-note maxlength="160" placeholder="Lưu ý cho dòng này, không bắt buộc" value="" />
+            </label>
+          </div>
+        </div>
+      ) : (
+        <>
+          <label data-product-pick>
+            <span class="od-label">Sản phẩm</span>
+            <select class="field" data-product-select>
+              <option value="" selected>Chọn sản phẩm</option>
+              {active.map((choice) => <option value={choice.id}>{choice.name}</option>)}
+            </select>
+          </label>
+          <label data-name-field hidden>
+            <span class="od-label">Sản phẩm</span>
+            <input class="field" name="lineName" data-line-name maxlength="160" autocomplete="off" value="" hidden />
+          </label>
+          <label data-weight-field hidden>
+            <span class="od-label">Cân nặng</span>
+            <select class="field" name="lineWeight" data-weight>
+              <option value="">Chọn cân nặng</option>
+            </select>
+          </label>
+          <div class="staff-line-qty">
+            <label>
+              <span class="od-label">Số lượng</span>
+              <input class="field" type="number" name="lineQuantity" data-qty min="1" max="20" required value="1" />
+            </label>
+            <button class="staff-line-remove" type="button" data-remove-line aria-label="Xóa sản phẩm">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12" /></svg>
+            </button>
+          </div>
+          <div class="staff-line-price">
+            <button class="staff-money-text" type="button" data-money-text>Đơn giá</button>
+            <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value="" hidden />
+          </div>
+          <input type="hidden" name="lineNote" value="" />
+        </>
+      )}
     </li>
   </template>
-  {allowEmpty && <p class="od-note" data-lines-empty hidden={lines.length > 0}>Chưa có sản phẩm. Chọn mẫu bên phải rồi bấm Thêm đã chọn.</p>}
+  {allowEmpty && !cart && <p class="od-note" data-lines-empty hidden={lines.length > 0}>Chưa có sản phẩm. Chọn mẫu bên phải rồi bấm Thêm vào đơn.</p>}
   <button class="btn mt-3" type="button" data-add-line hidden={allowEmpty || !canAdd || lines.length >= CART_MAX_LINES}>Thêm mẫu</button>
   <div class="staff-pay">
     <div class="staff-extra">
@@ -192,6 +301,7 @@ function keptPrice(line: StaffLineInput): number | null {
       price: number;
       scale?: string;
       weightScale?: string;
+      coverUrl?: string | null;
     }[];
     const max = Number(root.dataset.max || '8');
     const allowAdd = root.dataset.add === '1';
@@ -311,6 +421,35 @@ function keptPrice(line: StaffLineInput): number | null {
       if (totalInput instanceof HTMLInputElement) paintMoneyText(totalInput);
     }
 
+    function setCover(row: HTMLElement, url: string) {
+      const photo = row.querySelector('[data-line-photo]');
+      if (!(photo instanceof HTMLElement)) return;
+      if (!url) {
+        if (photo instanceof HTMLImageElement) {
+          const blank = document.createElement('span');
+          blank.className = 'staff-line-photo';
+          blank.setAttribute('aria-hidden', 'true');
+          blank.setAttribute('data-line-photo', '');
+          photo.replaceWith(blank);
+        }
+        return;
+      }
+      if (photo instanceof HTMLImageElement) {
+        photo.src = url;
+        return;
+      }
+      const image = document.createElement('img');
+      image.className = 'staff-line-photo';
+      image.src = url;
+      image.alt = '';
+      image.width = 56;
+      image.height = 56;
+      image.loading = 'lazy';
+      image.decoding = 'async';
+      image.setAttribute('data-line-photo', '');
+      photo.replaceWith(image);
+    }
+
     function revealName(row: HTMLElement, productId: string) {
       const product = row.querySelector('[data-product]');
       const name = row.querySelector('[data-line-name]');
@@ -323,25 +462,28 @@ function keptPrice(line: StaffLineInput): number | null {
       if (name instanceof HTMLInputElement) name.hidden = false;
       if (nameField instanceof HTMLElement) nameField.hidden = false;
       if (pick instanceof HTMLElement) pick.hidden = true;
+      setCover(row, choice?.coverUrl ?? '');
     }
 
-    function refill(row: HTMLElement) {
+    function refill(row: HTMLElement, preferred = '') {
       const product = row.querySelector('[data-product]');
       const weight = row.querySelector('[data-weight]');
       const field = row.querySelector('[data-weight-field]');
       if (!(product instanceof HTMLInputElement) || !(weight instanceof HTMLSelectElement) || !(field instanceof HTMLElement)) return;
       const choice = choices.find((item) => String(item.id) === product.value);
-      const labels = labelsFor(choice?.weightScale ?? choice?.scale ?? '');
-      const selected = weight.value;
+      const labels = [...labelsFor(choice?.weightScale ?? choice?.scale ?? '')];
+      const selected = preferred || weight.value;
+      if (selected && !labels.includes(selected)) labels.unshift(selected);
       weight.replaceChildren();
-      if (labels.length === 0) {
+      if (labels.length === 0 && !selected) {
         field.hidden = true;
         weight.value = '';
         return;
       }
       field.hidden = false;
-      weight.add(new Option('Chọn cân nặng', ''));
+      weight.add(new Option(root.dataset.cart === '1' ? 'Cân' : 'Chọn cân nặng', ''));
       for (const label of labels) weight.add(new Option(label, label, false, label === selected));
+      if (selected) weight.value = selected;
     }
 
     function syncAdd() {
@@ -360,7 +502,12 @@ function keptPrice(line: StaffLineInput): number | null {
       if (total instanceof HTMLInputElement) delete total.dataset.lock;
     }
 
-    function appendLine(productId: string, weightValue = '', focus = true): boolean {
+    function appendLine(
+      productId: string,
+      weightValue = '',
+      focus = true,
+      extras: { quantity?: string; note?: string; cover?: string } = {},
+    ): boolean {
       if (!(list instanceof HTMLElement) || !(template instanceof HTMLTemplateElement) || rows().length >= max) return false;
       const source = template.content.querySelector('[data-line]');
       if (!(source instanceof HTMLElement)) return false;
@@ -368,12 +515,17 @@ function keptPrice(line: StaffLineInput): number | null {
       if (!(copy instanceof HTMLElement)) return false;
       list.appendChild(copy);
       const weight = copy.querySelector('[data-weight]');
+      const qty = copy.querySelector('[data-qty]');
+      const note = copy.querySelector('[data-line-note]') ?? copy.querySelector('input[name="lineNote"]');
       if (productId) {
         revealName(copy, productId);
-        refill(copy);
+        refill(copy, weightValue);
         if (weight instanceof HTMLSelectElement && weightValue) weight.value = weightValue;
         fillPrice(copy);
+        if (extras.cover) setCover(copy, extras.cover);
       }
+      if (qty instanceof HTMLInputElement && extras.quantity) qty.value = extras.quantity;
+      if (note instanceof HTMLInputElement && typeof extras.note === 'string') note.value = extras.note;
       syncAdd();
       unlockTotal();
       paintPay();
@@ -466,7 +618,10 @@ function keptPrice(line: StaffLineInput): number | null {
       else if (detail && typeof detail === 'object' && 'id' in detail && typeof detail.id === 'string') {
         const weight = 'weight' in detail && typeof detail.weight === 'string' ? detail.weight : '';
         const focus = !('focus' in detail) || detail.focus !== false;
-        appendLine(detail.id, weight, focus);
+        const quantity = 'quantity' in detail && typeof detail.quantity === 'string' ? detail.quantity : undefined;
+        const note = 'note' in detail && typeof detail.note === 'string' ? detail.note : undefined;
+        const cover = 'cover' in detail && typeof detail.cover === 'string' ? detail.cover : undefined;
+        appendLine(detail.id, weight, focus, { quantity, note, cover });
       }
     });
 

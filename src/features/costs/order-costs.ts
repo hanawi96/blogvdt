@@ -199,7 +199,7 @@ export async function saveOrderCost(
   input: OrderCostInput,
   now = Date.now(),
   actor?: ActivityActor,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; cost: OrderCost } | { ok: false; error: string }> {
   const name = input.name.replace(/\s+/g, ' ').trim();
   if (!name) return { ok: false, error: 'Nhập tên chi phí.' };
   if (name.length > ORDER_COST_NAME_MAX) return { ok: false, error: 'Tên chi phí quá dài.' };
@@ -235,7 +235,7 @@ export async function saveOrderCost(
             ]
           : []),
       ]);
-      return { ok: true };
+      return { ok: true, cost: { id: input.id, name, kind: input.kind, value, active: input.active } };
     }
     await commitWrites(db, [
       db.insert(orderCosts).values({ name, kind: input.kind, value, active, sortOrder: 0, createdAt: now, updatedAt: now }),
@@ -258,7 +258,14 @@ export async function saveOrderCost(
           ]
         : []),
     ]);
-    return { ok: true };
+    const created = await db
+      .select({ id: orderCosts.id, name: orderCosts.name, kind: orderCosts.kind, value: orderCosts.value, active: orderCosts.active })
+      .from(orderCosts)
+      .where(sql`lower(${orderCosts.name}) = ${name.toLowerCase()}`)
+      .limit(1);
+    const row = created[0];
+    if (!row) return { ok: false, error: 'Chưa lưu được chi phí.' };
+    return { ok: true, cost: { id: row.id, name: row.name, kind: row.kind as OrderCostKind, value: row.value, active: row.active === 1 } };
   } catch (error) {
     if (isUniqueViolation(error)) return { ok: false, error: 'Tên chi phí đã tồn tại.' };
     throw error;

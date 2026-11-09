@@ -3,7 +3,14 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { listTopSellingProducts, searchActiveProducts } from '../../../features/posts/product-cards';
 import { profitOf } from '../../../features/materials/costing';
 import { loadProductCosts } from '../../../features/materials/recipes';
-import { listProducts, productAdminQuery, productListSort, type ProductListSort } from '../../../features/products/products';
+import { ratingFormValue } from '../../../features/products/form';
+import {
+  listProducts,
+  PRODUCT_BULK_MAX,
+  productAdminQuery,
+  productListSort,
+  type ProductListSort,
+} from '../../../features/products/products';
 import { isProductStatus, PRODUCT_STATUS_LABELS, type ProductStatus } from '../../../features/products/status';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
@@ -53,17 +60,18 @@ let costs = new Map<number, number>();
 try {
   const db = createDb(getDbBinding());
   const filters = { query, status, sort, page: Number.isInteger(page) ? page : 1 };
-  [result, costs] = await Promise.all([
-    listProducts(db, filters),
-    loadProductCosts(db).catch((error: unknown) => {
-      // Giá vốn chỉ là thông tin phụ: lỗi thì vẫn hiện danh sách sản phẩm.
-      console.error(JSON.stringify({ event: 'product_costs_failed', name: error instanceof Error ? error.name : 'unknown' }));
-      return new Map<number, number>();
-    }),
-  ]);
+  result = await listProducts(db, filters);
   // Lọc danh mục ngay trên trình duyệt chỉ khi mọi sản phẩm khớp đã nằm trong một trang; nhiều trang thì lọc ở server.
   clientFilter = result.pageCount === 1;
   if (!clientFilter && categoryId) result = await listProducts(db, { ...filters, categoryId });
+  // Chỉ tính giá vốn các dòng đang hiện — không quét cả catalog.
+  costs = await loadProductCosts(
+    db,
+    result.rows.map((row) => row.id),
+  ).catch((error: unknown) => {
+    console.error(JSON.stringify({ event: 'product_costs_failed', name: error instanceof Error ? error.name : 'unknown' }));
+    return new Map<number, number>();
+  });
 } catch (error) {
   console.error(JSON.stringify({ event: 'product_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
   loadError = 'Không tải được danh sách sản phẩm.';
@@ -116,7 +124,9 @@ function pageHref(next: { page?: number }): string {
     {featured === '0' && <p class="mb-4 text-primary-strong" role="status">Đã bỏ nổi bật.</p>}
     {featureError && <p class="error-text mb-4" role="alert">Không đánh dấu nổi bật được. Chỉ sản phẩm đang bán mới hiện ở trang chủ.</p>}
     {bulkNotice && <p class="mb-4 text-primary-strong" role="status">{bulkNotice}</p>}
-    {bulkError && <p class="error-text mb-4" role="alert">Không thực hiện được thao tác hàng loạt. Chọn tối đa 100 sản phẩm rồi thử lại.</p>}
+    {bulkError && (
+      <p class="error-text mb-4" role="alert">Không thực hiện được thao tác hàng loạt. Chọn tối đa {PRODUCT_BULK_MAX} sản phẩm rồi thử lại.</p>
+    )}
     {loadError && <p class="error-text" role="alert">{loadError}</p>}
     {
       result && (
@@ -183,8 +193,10 @@ function pageHref(next: { page?: number }): string {
                       </th>
                       <th>Sản phẩm</th>
                       <th>Giá</th>
+                      <th>Tồn</th>
+                      <th>Điểm</th>
                       <th>Giá vốn</th>
-                      <th>Biên lợi nhuận</th>
+                      <th>Biên</th>
                       <th>Danh mục</th>
                       <th>Kiểu dây</th>
                       <th>Trạng thái</th>
@@ -224,10 +236,20 @@ function pageHref(next: { page?: number }): string {
                             {formatVnd(product.price)}
                             {product.comparePrice != null && <span class="product-compare">{formatVnd(product.comparePrice)}</span>}
                           </td>
+                          <td data-label="Tồn">
+                            <span class:list={['product-figure', product.stockQty <= 0 && 'is-empty']}>{product.stockQty}</span>
+                          </td>
+                          <td data-label="Điểm">
+                            {product.rating > 0 ? (
+                              <span class="product-figure product-rating">{ratingFormValue(product.rating)}</span>
+                            ) : (
+                              <span class="product-figure is-empty">—</span>
+                            )}
+                          </td>
                           <td data-label="Giá vốn">
                             {cost === undefined ? <span class="product-figure is-empty">Chưa có</span> : <span class="product-figure">{formatVnd(cost)}</span>}
                           </td>
-                          <td data-label="Biên lợi nhuận">
+                          <td data-label="Biên">
                             {margin === null ? (
                               <span class="product-figure is-empty">—</span>
                             ) : (
@@ -245,44 +267,72 @@ function pageHref(next: { page?: number }): string {
                             <span class="product-flag" data-on={product.isFeatured ? 'true' : 'false'}>{product.isFeatured ? 'Nổi bật' : '—'}</span>
                           </td>
                           <td data-label="Cập nhật">{formatDateTime(product.updatedAt)}</td>
-                          <td>
-                            <div class="post-actions">
+                          <td data-label="Thao tác">
+                            <div class="post-actions product-row-actions">
                               <a href={routes.adminProduct(product.id)}>Sửa</a>
-                              {active && (
-                                <>
-                                  <span class="post-actions-sep" aria-hidden="true">|</span>
-                                  <a href={routes.product(product.slug)} target="_blank" rel="noopener">Xem sản phẩm</a>
-                                </>
-                              )}
-                              <details class="row-menu">
-                                <summary aria-label={`Thao tác khác: ${product.name}`}>⋯</summary>
-                                <div>
-                                  {active && (
-                                    <form method="post" action={routes.adminProductFeature(product.id)}>
-                                      <input type="hidden" name="csrf" value={csrfToken} />
-                                      <input type="hidden" name="featured" value={product.isFeatured ? '0' : '1'} />
-                                      <input type="hidden" name="q" value={query} />
-                                      <input type="hidden" name="status" value={status} />
-                                      <input type="hidden" name="category" value={activeCategory ?? ''} />
-                                      <input type="hidden" name="sort" value={sort} />
-                                      <input type="hidden" name="page" value={String(result.page)} />
-                                      <button type="submit">{product.isFeatured ? 'Bỏ nổi bật' : 'Bật nổi bật'}</button>
-                                    </form>
-                                  )}
-                                  <form
-                                    method="post"
-                                    action={routes.adminProductDelete(product.id)}
-                                    onsubmit={`return confirm(${JSON.stringify(`Xóa sản phẩm “${product.name}”? Đơn cũ vẫn giữ tên và giá lúc đặt.`)})`}
+                              <span class="post-actions-sep" aria-hidden="true">|</span>
+                              <form
+                                method="post"
+                                action={routes.adminProductDelete(product.id)}
+                                data-busy
+                                data-confirm-title={`Xóa sản phẩm “${product.name}”?`}
+                                data-confirm="Đơn cũ vẫn giữ tên và giá lúc đặt. Thao tác này không hoàn tác."
+                                data-confirm-ok="Xóa"
+                                data-confirm-tone="danger"
+                              >
+                                <input type="hidden" name="csrf" value={csrfToken} />
+                                <input type="hidden" name="q" value={query} />
+                                <input type="hidden" name="status" value={status} />
+                                <input type="hidden" name="category" value={activeCategory ?? ''} />
+                                <input type="hidden" name="sort" value={sort} />
+                                <input type="hidden" name="page" value={String(result.page)} />
+                                <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                              </form>
+                              <span class="post-actions-sep" aria-hidden="true">|</span>
+                              <a href={routes.product(product.slug)} target="_blank" rel="noopener">Xem</a>
+                              <span class="post-actions-sep" aria-hidden="true">|</span>
+                              {active ? (
+                                <form method="post" action={routes.adminProductFeature(product.id)} data-busy>
+                                  <input type="hidden" name="csrf" value={csrfToken} />
+                                  <input type="hidden" name="featured" value={product.isFeatured ? '0' : '1'} />
+                                  <input type="hidden" name="q" value={query} />
+                                  <input type="hidden" name="status" value={status} />
+                                  <input type="hidden" name="category" value={activeCategory ?? ''} />
+                                  <input type="hidden" name="sort" value={sort} />
+                                  <input type="hidden" name="page" value={String(result.page)} />
+                                  <button
+                                    class="product-feature-star"
+                                    type="submit"
+                                    data-on={product.isFeatured ? 'true' : 'false'}
+                                    data-keep-label="true"
+                                    aria-label={product.isFeatured ? `Bỏ nổi bật “${product.name}”` : `Bật nổi bật “${product.name}”`}
+                                    title={product.isFeatured ? 'Bỏ nổi bật' : 'Bật nổi bật'}
                                   >
-                                    <input type="hidden" name="csrf" value={csrfToken} />
-                                    <input type="hidden" name="q" value={query} />
-                                    <input type="hidden" name="status" value={status} />
-                                    <input type="hidden" name="category" value={activeCategory ?? ''} />
-                                    <input type="hidden" name="sort" value={sort} />
-                                    <button type="submit">Xóa</button>
-                                  </form>
-                                </div>
-                              </details>
+                                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                                      <path
+                                        fill="currentColor"
+                                        d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z"
+                                      ></path>
+                                    </svg>
+                                  </button>
+                                </form>
+                              ) : (
+                                <button
+                                  class="product-feature-star"
+                                  type="button"
+                                  disabled
+                                  data-on={product.isFeatured ? 'true' : 'false'}
+                                  aria-label="Chỉ sản phẩm đang bán mới nổi bật được"
+                                  title="Chỉ sản phẩm đang bán mới nổi bật được"
+                                >
+                                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                                    <path
+                                      fill="currentColor"
+                                      d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z"
+                                    ></path>
+                                  </svg>
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -300,6 +350,7 @@ function pageHref(next: { page?: number }): string {
               {result.page < result.pageCount && <a class="btn" href={pageHref({ page: result.page + 1 })}>Trang sau</a>}
             </nav>
           )}
+          {result.page < result.pageCount && <link rel="prefetch" href={pageHref({ page: result.page + 1 })} />}
         </>
       )
     }
@@ -307,30 +358,86 @@ function pageHref(next: { page?: number }): string {
 </AdminLayout>
 
 <script>
-  document.addEventListener('toggle', (event) => {
-    const menu = event.target;
-    if (!(menu instanceof HTMLDetailsElement) || !menu.open || !menu.classList.contains('row-menu')) return;
-    for (const other of document.querySelectorAll('details.row-menu[open]')) {
-      if (other !== menu && other instanceof HTMLDetailsElement) other.open = false;
-    }
-  }, true);
-
-  document.addEventListener('pointerdown', (event) => {
-    const target = event.target;
-    if (!(target instanceof Node)) return;
-    for (const menu of document.querySelectorAll('details.row-menu[open]')) {
-      if (menu instanceof HTMLDetailsElement && !menu.contains(target)) menu.open = false;
-    }
-  });
-
   // Vùng kết quả được thay HTML sau mỗi thao tác hàng loạt, nên mọi phần tử bên trong đều truy vấn lại khi dùng.
   const results = document.querySelector<HTMLElement>('[data-product-results]');
   const searchForm = document.querySelector('[data-product-search]');
   let anchor: HTMLInputElement | null = null;
+  let categoryNav = 0;
+  const prefetched = new Set<string>();
 
   const rowBoxes = () => (results ? [...results.querySelectorAll<HTMLInputElement>('input[name="ids"]')] : []);
   const isShown = (box: HTMLInputElement) => !box.closest('tr')?.hidden;
   const productList = () => results?.querySelector('[data-product-list]');
+
+  function prefetchUrl(href: string) {
+    if (!href || prefetched.has(href)) return;
+    prefetched.add(href);
+    const link = document.createElement('link');
+    link.rel = 'prefetch';
+    link.href = href;
+    document.head.appendChild(link);
+  }
+
+  function markCategoryActive(category: string) {
+    const presets = results?.querySelector('[data-product-presets]');
+    if (!presets) return;
+    for (const link of presets.querySelectorAll('a')) {
+      if ((link.dataset.category ?? '') === category) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    }
+  }
+
+  function setListBusy(busy: boolean) {
+    const list = productList();
+    if (!list) return;
+    if (busy) {
+      list.setAttribute('aria-busy', 'true');
+      if (!list.querySelector('[data-product-loading]')) {
+        const status = document.createElement('p');
+        status.className = 'product-list-loading';
+        status.dataset.productLoading = '';
+        status.setAttribute('role', 'status');
+        status.textContent = 'Đang tải sản phẩm…';
+        list.prepend(status);
+      }
+      return;
+    }
+    list.removeAttribute('aria-busy');
+    list.querySelector('[data-product-loading]')?.remove();
+  }
+
+  /** Đổi danh mục/trang không reload cả layout: fetch HTML rồi thay [data-product-results]. */
+  async function softNavigate(href: string, historyMode: 'push' | 'replace' | 'none' = 'push') {
+    if (!results) return;
+    const url = new URL(href, location.origin);
+    const nextPath = url.pathname + url.search;
+    if (historyMode !== 'none' && nextPath === location.pathname + location.search) return;
+    const token = ++categoryNav;
+    setListBusy(true);
+    try {
+      const response = await fetch(url, { headers: { Accept: 'text/html' }, signal: AbortSignal.timeout(15000) });
+      if (token !== categoryNav) return;
+      if (!response.ok) throw new Error(`nav_${response.status}`);
+      const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+      const nextResults = doc.querySelector('[data-product-results]');
+      if (!nextResults) throw new Error('nav_missing');
+      results.innerHTML = nextResults.innerHTML;
+      const lead = document.querySelector('[data-product-lead]');
+      const nextLead = doc.querySelector('[data-product-lead]');
+      if (lead && nextLead) lead.textContent = nextLead.textContent;
+      if (historyMode === 'push') history.pushState(null, '', nextPath);
+      else if (historyMode === 'replace') history.replaceState(null, '', nextPath);
+      anchor = null;
+      syncSelection();
+      const nextPage = results.querySelector<HTMLLinkElement>('link[rel="prefetch"]');
+      if (nextPage?.href) prefetchUrl(nextPage.href);
+    } catch (error) {
+      if (token !== categoryNav) return;
+      location.assign(url);
+    } finally {
+      if (token === categoryNav) setListBusy(false);
+    }
+  }
 
   function syncSelection() {
     const boxes = rowBoxes();
@@ -401,14 +508,29 @@ function pageHref(next: { page?: number }): string {
     if (link) {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const current = link.getAttribute('aria-current') === 'page';
-      if (!link.closest('[data-client-filter]')) {
-        if (!current) productList()?.setAttribute('aria-busy', 'true');
+      if (current) {
+        event.preventDefault();
         return;
       }
+      // Một trang đủ cả catalog → lọc tức thì trên DOM; nhiều trang → UI đổi ngay + loading trong lúc fetch.
       event.preventDefault();
-      if (current) return;
-      showCategory(link.dataset.category ?? '');
+      const category = link.dataset.category ?? '';
+      markCategoryActive(category);
       history.pushState(null, '', link.href);
+      if (link.closest('[data-client-filter]')) {
+        showCategory(category);
+        return;
+      }
+      void softNavigate(link.href, 'none');
+      return;
+    }
+
+    const pager = target.closest<HTMLAnchorElement>('.post-pager a.btn');
+    if (pager) {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      history.pushState(null, '', pager.href);
+      void softNavigate(pager.href, 'none');
       return;
     }
 
@@ -507,9 +629,21 @@ function pageHref(next: { page?: number }): string {
     }
   });
 
-  if (results?.querySelector('[data-client-filter]')) {
-    window.addEventListener('popstate', () => showCategory(new URL(location.href).searchParams.get('category') ?? ''));
-  }
+  window.addEventListener('popstate', () => {
+    if (results?.querySelector('[data-client-filter]')) {
+      showCategory(new URL(location.href).searchParams.get('category') ?? '');
+      return;
+    }
+    void softNavigate(location.href, 'none');
+  });
+
+  // Prefetch danh mục khi di chuột — lần bấm sau thường đã có sẵn trong cache trình duyệt.
+  results?.addEventListener('pointerover', (event) => {
+    const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('[data-product-presets] a, .post-pager a.btn') : null;
+    if (!link || link.getAttribute('aria-current') === 'page') return;
+    if (link.closest('[data-client-filter]')) return;
+    prefetchUrl(link.href);
+  });
 
   if (searchForm instanceof HTMLFormElement) {
     const input = searchForm.querySelector('input[name="q"]');

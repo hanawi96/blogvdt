@@ -68,8 +68,12 @@ export function recipeWrites(db: AppDb, productId: number, lines: readonly Recip
   return writes;
 }
 
-// Giá vốn của mọi sản phẩm đã có công thức, trong một truy vấn nhóm (không tham số nên không vướng giới hạn của D1).
-export async function loadProductCosts(db: AppDb): Promise<Map<number, number>> {
+// Giá vốn theo công thức. Truyền productIds để chỉ tính các sản phẩm đang hiện (vd. một trang list).
+// Không truyền ids → mọi sản phẩm có công thức (dùng cho tổng hợp đơn hàng). D1 giới hạn ~100 tham số.
+export async function loadProductCosts(db: AppDb, productIds?: readonly number[]): Promise<Map<number, number>> {
+  if (productIds && productIds.length === 0) return new Map();
+  const ids = productIds ? [...new Set(productIds.filter((id) => Number.isInteger(id) && id > 0))].slice(0, 100) : null;
+  if (ids && ids.length === 0) return new Map();
   const rows = await db
     .select({
       productId: productMaterials.productId,
@@ -77,6 +81,7 @@ export async function loadProductCosts(db: AppDb): Promise<Map<number, number>> 
     })
     .from(productMaterials)
     .innerJoin(materials, eq(materials.id, productMaterials.materialId))
+    .where(ids ? inArray(productMaterials.productId, ids) : undefined)
     .groupBy(productMaterials.productId);
   return new Map(rows.map((row) => [row.productId, row.cost]));
 }

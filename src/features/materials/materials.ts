@@ -128,12 +128,50 @@ async function freeCode(db: AppDb, base: string): Promise<string | null> {
   return null;
 }
 
+export type SavedMaterial = {
+  id: number;
+  code: string;
+  name: string;
+  groupId: number;
+  group: string;
+  unitCost: number;
+  active: boolean;
+  updatedAt: number;
+  usedBy: number;
+};
+
+async function loadSavedMaterial(db: AppDb, id: number): Promise<SavedMaterial | null> {
+  const rows = await db
+    .select({
+      id: materials.id,
+      code: materials.code,
+      name: materials.name,
+      groupId: materials.groupId,
+      group: sql<string>`coalesce(${materialGroups.name}, 'Chưa phân nhóm')`.mapWith(String),
+      unitCost: materials.unitCost,
+      active: materials.active,
+      updatedAt: materials.updatedAt,
+      usedBy: sql<number>`(select count(distinct pm.product_id) from product_materials pm where pm.material_id = "materials"."id")`.mapWith(Number),
+    })
+    .from(materials)
+    .leftJoin(materialGroups, eq(materials.groupId, materialGroups.id))
+    .where(eq(materials.id, id))
+    .limit(1);
+  const row = rows[0];
+  if (!row || row.groupId === null) return null;
+  return { ...row, groupId: row.groupId, active: row.active === 1, usedBy: Number(row.usedBy) || 0 };
+}
+
 export async function saveMaterial(
   db: AppDb,
   input: MaterialInput,
   now = Date.now(),
   actor?: ActivityActor,
-): Promise<{ ok: true; priceChanged: false } | { ok: true; priceChanged: true; id: number; previousUnitCost: number; unitCost: number } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; priceChanged: false; material: SavedMaterial }
+  | { ok: true; priceChanged: true; id: number; previousUnitCost: number; unitCost: number; material: SavedMaterial }
+  | { ok: false; error: string }
+> {
   const parsed = parseMaterialInput(input, !input.id);
   if (!parsed.ok) return parsed;
   const value = parsed.value;
@@ -151,7 +189,9 @@ export async function saveMaterial(
     if (!current) return { ok: false, error: 'Không tìm thấy nguyên liệu.' };
     const active = value.active ? 1 : 0;
     if (current.name === value.name && current.groupId === value.groupId && current.unitCost === value.unitCost && current.active === active) {
-      return { ok: true, priceChanged: false };
+      const material = await loadSavedMaterial(db, input.id);
+      if (!material) return { ok: false, error: 'Không tìm thấy nguyên liệu.' };
+      return { ok: true, priceChanged: false, material };
     }
     // Mã không đổi sau khi tạo để các nơi tham chiếu (nhập file, công thức) không bị lệch.
     await commitWrites(db, [
@@ -177,8 +217,10 @@ export async function saveMaterial(
           ]
         : []),
     ]);
-    if (current.unitCost === value.unitCost) return { ok: true, priceChanged: false };
-    return { ok: true, priceChanged: true, id: input.id, previousUnitCost: current.unitCost, unitCost: value.unitCost };
+    const material = await loadSavedMaterial(db, input.id);
+    if (!material) return { ok: false, error: 'Không tìm thấy nguyên liệu.' };
+    if (current.unitCost === value.unitCost) return { ok: true, priceChanged: false, material };
+    return { ok: true, priceChanged: true, id: input.id, previousUnitCost: current.unitCost, unitCost: value.unitCost, material };
   }
 
   let code = value.code;
@@ -215,7 +257,12 @@ export async function saveMaterial(
     if (isUniqueViolation(error)) return { ok: false, error: 'Mã nguyên liệu đã được dùng. Thử lại.' };
     throw error;
   }
-  return { ok: true, priceChanged: false };
+  const created = await db.select({ id: materials.id }).from(materials).where(eq(materials.code, code)).limit(1);
+  const createdId = created[0]?.id;
+  if (!createdId) return { ok: false, error: 'Chưa lưu được nguyên liệu.' };
+  const material = await loadSavedMaterial(db, createdId);
+  if (!material) return { ok: false, error: 'Chưa lưu được nguyên liệu.' };
+  return { ok: true, priceChanged: false, material };
 }
 
 export async function deleteMaterial(

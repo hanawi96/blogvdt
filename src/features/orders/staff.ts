@@ -1,5 +1,5 @@
 import { CART_MAX_LINES, cartSummary } from '../cart/cart';
-import { isValidWeight, requiresWeight, type WeightScale } from '../products/weight';
+import { requiresWeight, type WeightScale } from '../products/weight';
 import type { FieldErrors } from '../../lib/validation/errors';
 import { DEFAULT_PAYMENT_METHOD, isPaymentMethod, paymentLabel, type PaymentMethod } from './payment';
 import { ORDER_MAX_QUANTITY, orderOptionLabel, readCustomer } from './order';
@@ -30,6 +30,7 @@ export type StaffLineInput = {
   quantity: string;
   price?: string;
   name?: string;
+  note?: string;
 };
 
 export type StoredOrderLine = {
@@ -104,8 +105,10 @@ export function readStaffLineInputs(form: FormData): StaffLineInput[] | null {
   const quantities = texts(form, 'lineQuantity');
   const prices = texts(form, 'linePrice');
   const names = texts(form, 'lineName');
+  const notes = texts(form, 'lineNote');
   if (slots.length === 0 || productIds.length !== slots.length || weights.length !== slots.length || quantities.length !== slots.length || names.length !== slots.length) return null;
   if (prices.length !== 0 && prices.length !== slots.length) return null;
+  if (notes.length !== 0 && notes.length !== slots.length) return null;
   return slots.map((slot, index) => ({
     slot,
     productId: productIds[index] ?? '',
@@ -113,6 +116,7 @@ export function readStaffLineInputs(form: FormData): StaffLineInput[] | null {
     quantity: quantities[index] ?? '',
     price: prices[index] ?? '',
     name: names[index] ?? '',
+    note: notes[index] ?? '',
   }));
 }
 
@@ -166,8 +170,9 @@ export function priceStaffLines(
     if (productId === null) return lineError(index, 'Chọn sản phẩm đang bán.');
     const product = catalog.find((item) => item.id === productId);
     if (!product) return lineError(index, 'Chọn sản phẩm đang bán.');
+    // Đơn nội bộ cho phép cân tùy chỉnh qua "Thêm cân"; thang none thì không nhận cân.
     if (requiresWeight(product.weightScale) && !weight) return lineError(index, 'Chọn cân nặng cho bé.');
-    if (!isValidWeight(product.weightScale, weight)) return lineError(index, 'Cân nặng không hợp lệ.');
+    if (!requiresWeight(product.weightScale) && weight) return lineError(index, 'Cân nặng không hợp lệ.');
     const named = readLineName(input.name, product.name);
     if (!named.ok) return lineError(index, named.error);
     const unitPrice = readUnitPrice(input.price, product.price);

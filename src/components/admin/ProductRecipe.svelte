@@ -85,14 +85,18 @@
     return draft.find((row) => row.materialId === id);
   }
 
-  function toggle(option: MaterialOption) {
+  function setPicked(option: MaterialOption, on: boolean) {
     const index = draft.findIndex((row) => row.materialId === option.id);
-    if (index >= 0) {
-      draft.splice(index, 1);
+    if (on) {
+      if (index >= 0 || draft.length >= RECIPE_MAX_LINES) return;
+      draft = [
+        ...draft,
+        { materialId: option.id, quantity: 1, name: option.name, group: option.group, unitCost: option.unitCost, active: option.active },
+      ];
       return;
     }
-    if (draft.length >= RECIPE_MAX_LINES) return;
-    draft.push({ materialId: option.id, quantity: 1, name: option.name, group: option.group, unitCost: option.unitCost, active: option.active });
+    if (index < 0) return;
+    draft = draft.filter((_, i) => i !== index);
   }
 
   function step(id: number, delta: number) {
@@ -127,6 +131,12 @@
     const input = event.currentTarget as HTMLInputElement;
     row.quantity = clampQuantity(Number(input.value));
     input.value = String(row.quantity);
+  }
+
+  function stepRow(index: number, delta: number) {
+    const row = rows[index];
+    if (!row) return;
+    row.quantity = clampQuantity(row.quantity + delta);
   }
 
   // Enter trong ô số lượng không được gửi cả form sản phẩm.
@@ -174,19 +184,25 @@
             <strong>{row.name}</strong>
             <span>{row.group}{#if !row.active} · <em>Ngừng dùng</em>{/if}</span>
           </div>
-          <label class="recipe-qty">
-            <span class="sr-only">Số lượng {row.name}</span>
+          <div class="recipe-qty">
+            <button class="recipe-qty-btn" type="button" aria-label={`Giảm ${row.name}`} onclick={() => stepRow(index, -1)} disabled={row.quantity <= 1}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+            </button>
             <input
-              class="field"
+              class="field recipe-qty-input"
               type="number"
               inputmode="numeric"
               min="1"
               max={RECIPE_MAX_QUANTITY}
               value={row.quantity}
+              aria-label={`Số lượng ${row.name}`}
               onchange={(event) => setQuantity(index, event)}
               onkeydown={holdEnter}
             />
-          </label>
+            <button class="recipe-qty-btn" type="button" aria-label={`Tăng ${row.name}`} onclick={() => stepRow(index, 1)} disabled={row.quantity >= RECIPE_MAX_QUANTITY}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            </button>
+          </div>
           <span class="recipe-unit">× {formatVnd(row.unitCost)}</span>
           <strong class="recipe-total">{formatVnd(lineCost(row.unitCost, row.quantity))}</strong>
           <button class="recipe-remove" type="button" onclick={() => remove(index)} aria-label={`Bỏ ${row.name}`}>Bỏ</button>
@@ -229,7 +245,6 @@
       </label>
       <p class="recipe-suggest-price">
         Giá đề xuất <strong>{formatVnd(suggested)}</strong>
-        <span>làm tròn lên {formatVnd(DEFAULT_ROUND_STEP)}</span>
       </p>
       <button class="btn" type="button" onclick={applySuggested} disabled={price === suggested}>Dùng giá này</button>
     </div>
@@ -265,9 +280,12 @@
                       type="checkbox"
                       checked={picked !== undefined}
                       disabled={picked === undefined && draftFull}
-                      onclick={(event) => {
-                        event.preventDefault();
-                        toggle(option);
+                      onchange={(event) => {
+                        const input = event.currentTarget;
+                        if (!(input instanceof HTMLInputElement)) return;
+                        setPicked(option, input.checked);
+                        // Đồng bộ lại theo draft (tránh lệch khi đã đủ số dòng tối đa).
+                        input.checked = draft.some((row) => row.materialId === option.id);
                       }}
                     />
                     <span class="recipe-card-name">
@@ -279,9 +297,13 @@
                   {#if picked}
                     <div class="recipe-card-foot">
                       <div class="recipe-step">
-                        <button type="button" aria-label={`Giảm ${option.name}`} onclick={() => step(option.id, -1)} disabled={picked.quantity <= 1}>−</button>
+                        <button class="recipe-qty-btn" type="button" aria-label={`Giảm ${option.name}`} onclick={() => step(option.id, -1)} disabled={picked.quantity <= 1}>
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+                        </button>
                         <input
+                          class="recipe-qty-input"
                           aria-label={`Số lượng ${option.name}`}
+                          type="number"
                           inputmode="numeric"
                           min="1"
                           max={RECIPE_MAX_QUANTITY}
@@ -289,7 +311,9 @@
                           onchange={(event) => setDraftQuantity(option.id, event)}
                           onkeydown={holdEnter}
                         />
-                        <button type="button" aria-label={`Tăng ${option.name}`} onclick={() => step(option.id, 1)} disabled={picked.quantity >= RECIPE_MAX_QUANTITY}>+</button>
+                        <button class="recipe-qty-btn" type="button" aria-label={`Tăng ${option.name}`} onclick={() => step(option.id, 1)} disabled={picked.quantity >= RECIPE_MAX_QUANTITY}>
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                        </button>
                       </div>
                       <strong>{formatVnd(lineCost(option.unitCost, picked.quantity))}</strong>
                     </div>

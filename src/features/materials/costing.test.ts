@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { RECIPE_MAX_LINES, RECIPE_MAX_QUANTITY, lineCost, parseRecipe, profitOf, recipeCost, resolveRecipeLines, type MaterialOption } from './costing';
+import {
+  RECIPE_MAX_LINES,
+  RECIPE_MAX_QUANTITY,
+  defaultNewProductRecipe,
+  lineCost,
+  parseRecipe,
+  profitOf,
+  recipeCost,
+  resolveRecipeLines,
+  type MaterialOption,
+} from './costing';
 
 describe('giá vốn từ công thức', () => {
   it('nhân số lượng với đơn giá và cộng các dòng', () => {
@@ -72,5 +82,24 @@ describe('gắn thông tin hiển thị cho công thức', () => {
       { materialId: 1, quantity: 2, name: 'Charm chuông', group: 'Charm bạc', unitCost: 35000, active: true },
       { materialId: 2, quantity: 1, name: 'Đá đỏ', group: 'Đá - Hổ phách', unitCost: 10000, active: false },
     ]);
+  });
+});
+
+describe('công thức mặc định khi thêm sản phẩm', () => {
+  it('chọn Chi phí làm vòng ×1 và Hạt dâu tằm ×10 theo tên', () => {
+    const catalog: MaterialOption[] = [
+      { id: 10, name: 'Hạt dâu tằm', group: 'Bắt buộc', unitCost: 1000, active: true },
+      { id: 11, name: 'Chi phí làm vòng', group: 'Bắt buộc', unitCost: 8000, active: true },
+      { id: 12, name: 'Bi bạc 5ly', group: 'Bi Bạc', unitCost: 12500, active: true },
+      { id: 13, name: 'Hạt dâu tằm', group: 'Cũ', unitCost: 500, active: false },
+    ];
+    expect(defaultNewProductRecipe(catalog)).toEqual([
+      { materialId: 11, quantity: 1 },
+      { materialId: 10, quantity: 10 },
+    ]);
+  });
+
+  it('bỏ qua tên không có trong danh mục đang dùng', () => {
+    expect(defaultNewProductRecipe([{ id: 1, name: 'Bi bạc 5ly', group: 'Bi Bạc', unitCost: 12500, active: true }])).toEqual([]);
   });
 });

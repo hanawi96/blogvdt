@@ -62,10 +62,29 @@ export function resolveRecipeLines(lines: readonly RecipeLine[], catalog: readon
   });
 }
 
+/** Công thức mặc định khi thêm sản phẩm mới: khớp theo tên nguyên liệu đang dùng. */
+export const DEFAULT_NEW_PRODUCT_MATERIALS: ReadonlyArray<{ name: string; quantity: number }> = [
+  { name: 'Chi phí làm vòng', quantity: 1 },
+  { name: 'Hạt dâu tằm', quantity: 10 },
+];
+
+export function defaultNewProductRecipe(catalog: readonly MaterialOption[]): RecipeLine[] {
+  const byName = new Map(catalog.filter((item) => item.active).map((item) => [item.name.replace(/\s+/g, ' ').trim().toLocaleLowerCase('vi'), item]));
+  const lines: RecipeLine[] = [];
+  const seen = new Set<number>();
+  for (const preset of DEFAULT_NEW_PRODUCT_MATERIALS) {
+    const found = byName.get(preset.name.replace(/\s+/g, ' ').trim().toLocaleLowerCase('vi'));
+    if (!found || seen.has(found.id)) continue;
+    seen.add(found.id);
+    lines.push({ materialId: found.id, quantity: preset.quantity });
+  }
+  return lines;
+}
+
 // ---- Biên lợi nhuận, giá đề xuất, tác động khi đổi giá nguyên liệu ----
 
 export const LOW_MARGIN_PERCENT = 30;
-export const DEFAULT_TARGET_MARGIN = 40;
+export const DEFAULT_TARGET_MARGIN = 60;
 export const MAX_TARGET_MARGIN = 90;
 export const ROUND_STEPS = [1, 500, 1000, 5000, 10000] as const;
 export const DEFAULT_ROUND_STEP = 1000;

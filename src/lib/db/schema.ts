@@ -196,6 +196,9 @@ export const products = sqliteTable(
     status: text('status').notNull(),
     isFeatured: integer('is_featured', { mode: 'boolean' }).notNull().default(false),
     sortOrder: integer('sort_order').notNull().default(0),
+    stockQty: integer('stock_qty').notNull().default(0),
+    // Điểm ×10 (45 = 4.5★). 0 = chưa có điểm hiển thị.
+    rating: integer('rating').notNull().default(0),
     seoTitle: text('seo_title'),
     metaDescription: text('meta_description'),
     createdAt: integer('created_at').notNull(),
@@ -208,6 +211,8 @@ export const products = sqliteTable(
     check('products_status_check', sql`${table.status} in ('active', 'inactive')`),
     check('products_price_check', sql`${table.price} >= 0`),
     check('products_compare_price_check', sql`${table.comparePrice} is null or ${table.comparePrice} >= 0`),
+    check('products_stock_qty_check', sql`${table.stockQty} >= 0`),
+    check('products_rating_check', sql`${table.rating} >= 0 and ${table.rating} <= 50`),
   ],
 );
 

@@ -80,6 +80,9 @@ function groupHref(id: number | null): string {
   return text ? `${routes.adminMaterials}?${text}` : routes.adminMaterials;
 }
 
+const wantsJson = Astro.request.headers.get('x-requested-with') === 'fetch';
+const jsonHeaders = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
+
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const read = (name: string) => {
@@ -91,6 +94,9 @@ if (Astro.request.method === 'POST') {
   const id = Number.isInteger(idValue) && idValue > 0 ? idValue : undefined;
   const intent = read('intent');
   if (blocked) {
+    if (wantsJson && (intent === 'save' || intent === 'group-save' || intent === 'group-delete' || intent === 'group-move')) {
+      return new Response(JSON.stringify({ ok: false, error: blocked }), { status: 403, headers: jsonHeaders });
+    }
     Astro.response.status = 403;
     formError = blocked;
   } else if (intent === 'delete' && id) {
@@ -99,14 +105,16 @@ if (Astro.request.method === 'POST') {
   } else if (intent === 'group-move' && id) {
     await moveGroup(db, id, read('direction') === 'up' ? 'up' : 'down');
     // Gọi bằng fetch từ hộp thoại nhóm: chỉ cần xác nhận, không chuyển trang.
-    if (Astro.request.headers.get('x-requested-with') === 'fetch') {
-      return new Response(JSON.stringify({ ok: true }), {
-        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
-      });
+    if (wantsJson) {
+      return new Response(JSON.stringify({ ok: true }), { headers: jsonHeaders });
     }
     return Astro.redirect(listHref({ groups: true }), 303);
   } else if (intent === 'group-delete' && id) {
     const removed = await deleteGroup(db, id, await activityActor(db, session.userId));
+    if (wantsJson) {
+      if (!removed.ok) return new Response(JSON.stringify({ ok: false, error: removed.error }), { status: 422, headers: jsonHeaders });
+      return new Response(JSON.stringify({ ok: true, notice: 'Đã xóa nhóm thành công.', id }), { headers: jsonHeaders });
+    }
     if (removed.ok) return Astro.redirect(listHref({ groups: true, notice: 'group-deleted' }), 303);
     Astro.response.status = 422;
     groupsFailed = true;
@@ -115,6 +123,18 @@ if (Astro.request.method === 'POST') {
     groupDraftId = id ? String(id) : '';
     groupDraft = read('groupName');
     const saved = await saveGroup(db, { id, name: groupDraft }, Date.now(), await activityActor(db, session.userId));
+    if (wantsJson) {
+      if (!saved.ok) return new Response(JSON.stringify({ ok: false, error: saved.error }), { status: 422, headers: jsonHeaders });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          notice: id ? 'Đã đổi tên nhóm thành công.' : 'Đã thêm nhóm thành công.',
+          created: !id,
+          group: { id: saved.group.id, name: saved.group.name, materialCount: saved.group.materialCount },
+        }),
+        { headers: jsonHeaders },
+      );
+    }
     if (saved.ok) return Astro.redirect(listHref({ groups: true, notice: id ? 'group-saved' : 'group-created' }), 303);
     Astro.response.status = 422;
     groupsFailed = true;
@@ -132,6 +152,30 @@ if (Astro.request.method === 'POST') {
       Date.now(),
       await activityActor(db, session.userId),
     );
+    if (wantsJson) {
+      if (!saved.ok) return new Response(JSON.stringify({ ok: false, error: saved.error }), { status: 422, headers: jsonHeaders });
+      if (saved.priceChanged) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            reprice: true,
+            id: saved.id,
+            previous: saved.previousUnitCost,
+            material: saved.material,
+          }),
+          { headers: jsonHeaders },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          notice: id ? 'Đã cập nhật nguyên liệu thành công.' : 'Đã thêm nguyên liệu thành công.',
+          created: !id,
+          material: saved.material,
+        }),
+        { headers: jsonHeaders },
+      );
+    }
     if (saved.ok && saved.priceChanged) return Astro.redirect(listHref({ reprice: saved.id, truoc: saved.previousUnitCost }), 303);
     if (saved.ok) return Astro.redirect(listHref({ notice: 'saved' }), 303);
     Astro.response.status = 422;
@@ -293,25 +337,26 @@ function pageHref(next: number): string {
 ---
 
 <AdminLayout title="Nguyên liệu">
-  <p slot="lead">{result ? `${result.libraryTotal} nguyên liệu · ${result.groups.length} nhóm` : 'Quản lý nguyên liệu'}</p>
+  <p slot="lead" data-materials-lead>{result ? `${result.libraryTotal} nguyên liệu · ${result.groups.length} nhóm` : 'Quản lý nguyên liệu'}</p>
   <div slot="action" class="dash-quick">
     <button class="btn" type="button" data-groups-open>Quản lý nhóm</button>
     <button class="btn btn-primary" type="button" data-material-new>Thêm nguyên liệu</button>
   </div>
   {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
-  {
-    noticeText && !formError && (
-      <p class="mb-4 text-primary-strong" role="status">
-        {noticeText}
-        {(notice === 'saved-price' || notice === 'repriced') && <> <a href={pricingHref}>Xem trên trang Định giá</a></>}
-      </p>
-    )
-  }
+  <p
+    class="mb-4 text-primary-strong"
+    role="status"
+    data-materials-flash
+    hidden={!noticeText || !!formError}
+  >
+    {noticeText}
+    {(notice === 'saved-price' || notice === 'repriced') && <> <a href={pricingHref}>Xem trên trang Định giá</a></>}
+  </p>
   {errorText && !formError && <p class="error-text mb-4" role="alert">{errorText}</p>}
   {formError && !dialogOpen && <p class="error-text mb-4" role="alert">{formError}</p>}
   {
     result && result.libraryTotal === 0 && !filtering ? (
-      <section class="cms-empty">
+      <section class="cms-empty" data-materials-empty data-csrf={session.csrfToken}>
         <span class="cms-empty-icon" aria-hidden="true">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="8" cy="9" r="3.2" />
@@ -329,84 +374,86 @@ function pageHref(next: number): string {
         <button class="btn btn-primary" type="button" data-material-new>Thêm nguyên liệu đầu tiên</button>
       </section>
     ) : result ? (
-      <>
+      <div data-materials-board data-csrf={session.csrfToken} data-filter-group={groupId ?? ''} data-library-total={result.libraryTotal}>
         <nav class="catalog-chips material-chips" aria-label="Lọc theo nhóm">
-          <a class="chip" href={groupHref(null)} aria-current={groupId === null ? 'true' : undefined}>Tất cả ({result.libraryTotal})</a>
+          <a class="chip" href={groupHref(null)} aria-current={groupId === null ? 'true' : undefined} data-chip-all>Tất cả ({result.libraryTotal})</a>
           {result.groups.map((item) => (
-            <a class="chip" href={groupHref(item.id)} aria-current={groupId === item.id ? 'true' : undefined}>
+            <a class="chip" href={groupHref(item.id)} aria-current={groupId === item.id ? 'true' : undefined} data-chip-group={item.id}>
               {item.name} ({item.materialCount})
             </a>
           ))}
         </nav>
-        {sections.length === 0 ? (
-          <p class="post-empty">Không có nguyên liệu khớp.</p>
-        ) : (
-          sections.map((section) => (
-            <section class="material-group" aria-label={section.name}>
-              <h2 class="material-group-title">
-                {section.name}
-                <span>{section.rows.length} nguyên liệu</span>
-              </h2>
-              <table class="post-table material-table">
-                <colgroup>
-                  <col />
-                  <col class="material-col-price" />
-                  <col class="material-col-use" />
-                  <col class="material-col-time" />
-                  <col class="material-col-actions" />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th>Nguyên liệu</th>
-                    <th>Đơn giá</th>
-                    <th>Số sản phẩm</th>
-                    <th>Cập nhật</th>
-                    <th>Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {section.rows.map((row) => (
+        <div data-materials-sections>
+          {sections.length === 0 ? (
+            <p class="post-empty" data-materials-empty-filter>Không có nguyên liệu khớp.</p>
+          ) : (
+            sections.map((section) => (
+              <section class="material-group" aria-label={section.name} data-material-group={section.name}>
+                <h2 class="material-group-title">
+                  {section.name}
+                  <span data-group-count>{section.rows.length} nguyên liệu</span>
+                </h2>
+                <table class="post-table material-table">
+                  <colgroup>
+                    <col />
+                    <col class="material-col-price" />
+                    <col class="material-col-use" />
+                    <col class="material-col-time" />
+                    <col class="material-col-actions" />
+                  </colgroup>
+                  <thead>
                     <tr>
-                      <td>
-                        <a class="post-title" href={`${routes.adminMaterials}?edit=${row.id}`} data-material-edit={row.id}>{row.name}</a>
-                        {!row.active && <span class="material-off">Ngừng dùng</span>}
-                        <p class="catalog-slug"><span class="truncate">{row.code}</span></p>
-                      </td>
-                      <td data-label="Đơn giá"><span class="material-price">{formatVnd(row.unitCost)}</span></td>
-                      <td data-label="Số sản phẩm">
-                        <span class="catalog-count" class:list={[{ 'is-empty': row.usedBy === 0 }]}>{row.usedBy} sản phẩm</span>
-                      </td>
-                      <td data-label="Cập nhật">{formatDateTime(row.updatedAt)}</td>
-                      <td data-label="Thao tác">
-                        <div class="post-actions">
-                          <a href={`${routes.adminMaterials}?edit=${row.id}`} data-material-edit={row.id}>Sửa</a>
-                          <span class="post-actions-sep" aria-hidden="true">|</span>
-                          {row.usedBy > 0 ? (
-                            <button class="category-delete" type="button" disabled title="Đang có sản phẩm dùng, chưa xóa được.">Xóa</button>
-                          ) : (
-                            <form
-                              method="post"
-                              data-busy
-                              data-confirm-title={`Xóa nguyên liệu “${row.name}”?`}
-                              data-confirm="Nguyên liệu sẽ bị xóa vĩnh viễn. Thao tác này không hoàn tác."
-                              data-confirm-ok="Xóa"
-                              data-confirm-tone="danger"
-                            >
-                              <input type="hidden" name="csrf" value={session.csrfToken} />
-                              <input type="hidden" name="intent" value="delete" />
-                              <input type="hidden" name="id" value={row.id} />
-                              <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
-                            </form>
-                          )}
-                        </div>
-                      </td>
+                      <th>Nguyên liệu</th>
+                      <th>Đơn giá</th>
+                      <th>Số sản phẩm</th>
+                      <th>Cập nhật</th>
+                      <th>Thao tác</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          ))
-        )}
+                  </thead>
+                  <tbody>
+                    {section.rows.map((row) => (
+                      <tr data-material-row={row.id}>
+                        <td>
+                          <a class="post-title" href={`${routes.adminMaterials}?edit=${row.id}`} data-material-edit={row.id}>{row.name}</a>
+                          {!row.active && <span class="material-off">Ngừng dùng</span>}
+                          <p class="catalog-slug"><span class="truncate">{row.code}</span></p>
+                        </td>
+                        <td data-label="Đơn giá"><span class="material-price">{formatVnd(row.unitCost)}</span></td>
+                        <td data-label="Số sản phẩm">
+                          <span class="catalog-count" class:list={[{ 'is-empty': row.usedBy === 0 }]}>{row.usedBy} sản phẩm</span>
+                        </td>
+                        <td data-label="Cập nhật">{formatDateTime(row.updatedAt)}</td>
+                        <td data-label="Thao tác">
+                          <div class="post-actions">
+                            <a href={`${routes.adminMaterials}?edit=${row.id}`} data-material-edit={row.id}>Sửa</a>
+                            <span class="post-actions-sep" aria-hidden="true">|</span>
+                            {row.usedBy > 0 ? (
+                              <button class="category-delete" type="button" disabled title="Đang có sản phẩm dùng, chưa xóa được.">Xóa</button>
+                            ) : (
+                              <form
+                                method="post"
+                                data-busy
+                                data-confirm-title={`Xóa nguyên liệu “${row.name}”?`}
+                                data-confirm="Nguyên liệu sẽ bị xóa vĩnh viễn. Thao tác này không hoàn tác."
+                                data-confirm-ok="Xóa"
+                                data-confirm-tone="danger"
+                              >
+                                <input type="hidden" name="csrf" value={session.csrfToken} />
+                                <input type="hidden" name="intent" value="delete" />
+                                <input type="hidden" name="id" value={row.id} />
+                                <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                              </form>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            ))
+          )}
+        </div>
         {result.pageCount > 1 && (
           <nav class="post-pager" aria-label="Phân trang">
             {result.page > 1 && <a class="btn" href={pageHref(result.page - 1)}>Trang trước</a>}
@@ -414,7 +461,7 @@ function pageHref(next: number): string {
             {result.page < result.pageCount && <a class="btn" href={pageHref(result.page + 1)}>Trang sau</a>}
           </nav>
         )}
-      </>
+      </div>
     ) : null
   }
 
@@ -422,15 +469,16 @@ function pageHref(next: number): string {
     class="category-dialog"
     aria-labelledby="material-dialog-title"
     data-material-dialog
+    data-csrf={session.csrfToken}
     data-open={dialogOpen ? 'true' : undefined}
     data-materials={JSON.stringify(drafts)}
   >
-    <form method="post" data-busy>
+    <form method="post" data-busy data-material-ajax="save">
       <input type="hidden" name="csrf" value={session.csrfToken} />
       <input type="hidden" name="intent" value="save" />
       <input type="hidden" name="id" value={values.id} data-field="id" />
       <h2 id="material-dialog-title" class="text-lg font-semibold" data-material-title>{values.id ? 'Sửa nguyên liệu' : 'Thêm nguyên liệu'}</h2>
-      {formError && dialogOpen && <p class="error-text mt-2" role="alert">{formError}</p>}
+      {formError && dialogOpen && <p class="error-text mt-2" role="alert" data-material-form-error>{formError}</p>}
       <label class="mt-4 block">
         <span class="mb-1 block font-semibold">Tên nguyên liệu</span>
         <input class="field" name="name" required maxlength="120" value={values.name} data-field="name" />
@@ -463,7 +511,7 @@ function pageHref(next: number): string {
       <p class="seo-hint" data-material-used hidden>{editingUsedBy > 0 ? `Đang được ${editingUsedBy} sản phẩm dùng.` : ''}</p>
       <div class="category-actions">
         <button class="btn" type="button" data-material-close>Hủy</button>
-        <button class="btn btn-primary" type="submit">Lưu</button>
+        <button class="btn btn-primary" type="submit" data-material-save>Lưu</button>
       </div>
     </form>
   </dialog>
@@ -472,63 +520,76 @@ function pageHref(next: number): string {
     class="category-dialog"
     aria-labelledby="group-dialog-title"
     data-groups-dialog
+    data-csrf={session.csrfToken}
     data-open={groupsOpen ? 'true' : undefined}
   >
     <h2 id="group-dialog-title" class="text-lg font-semibold">Nhóm nguyên liệu</h2>
-    {groupError && <p class="error-text mt-2" role="alert">{groupError}</p>}
-    <form method="post" data-busy class="mt-4 flex items-end gap-2">
+    {groupError && <p class="error-text mt-2" role="alert" data-group-form-error>{groupError}</p>}
+    <p class="mt-2 text-primary-strong" role="status" data-group-flash hidden></p>
+    <form method="post" data-busy data-group-ajax="save" class="mt-4 flex items-end gap-2">
       <input type="hidden" name="csrf" value={session.csrfToken} />
       <input type="hidden" name="intent" value="group-save" />
       <label class="block grow">
         <span class="mb-1 block font-semibold">Tên nhóm mới</span>
-        <input class="field" name="groupName" required maxlength={GROUP_NAME_MAX} autocomplete="off" value={groupDraftId ? '' : groupDraft} />
+        <input class="field" name="groupName" required maxlength={GROUP_NAME_MAX} autocomplete="off" value={groupDraftId ? '' : groupDraft} data-group-create-name />
       </label>
-      <button class="btn btn-primary" type="submit">Thêm</button>
+      <button class="btn btn-primary" type="submit" data-group-create-submit>Thêm</button>
     </form>
-    {groupList.length === 0 && <p class="seo-hint mt-4">Chưa có nhóm nào. Thêm nhóm đầu tiên ở trên.</p>}
-    <ul class="mt-4 grid gap-3">
+    {groupList.length === 0 && <p class="seo-hint mt-4" data-groups-empty>Chưa có nhóm nào. Thêm nhóm đầu tiên ở trên.</p>}
+    <ul class="mt-4 grid gap-3" data-groups-list>
       {
         groupList.map((item, index) => (
-          <li class="flex flex-wrap items-center gap-2" data-group-row={item.id}>
-            <form method="post" data-busy class="flex grow items-center gap-2">
+          <li class="flex flex-nowrap items-center gap-2" data-group-row={item.id}>
+            <form method="post" data-busy data-group-ajax="save" class="flex min-w-0 grow items-center gap-2">
               <input type="hidden" name="csrf" value={session.csrfToken} />
               <input type="hidden" name="intent" value="group-save" />
               <input type="hidden" name="id" value={item.id} />
-              <input class="field grow" name="groupName" required maxlength={GROUP_NAME_MAX} autocomplete="off" aria-label={`Tên nhóm ${item.name}`} value={groupDraftId === String(item.id) ? groupDraft : item.name} />
-              <button class="btn" type="submit">Lưu</button>
+              <input class="field min-w-0 grow" name="groupName" required maxlength={GROUP_NAME_MAX} autocomplete="off" aria-label={`Tên nhóm ${item.name}`} value={groupDraftId === String(item.id) ? groupDraft : item.name} />
+              <button class="btn shrink-0" type="submit">Lưu</button>
             </form>
-            <span class:list={['catalog-count', item.materialCount === 0 && 'is-empty']}>{item.materialCount} nguyên liệu</span>
-            <form method="post" data-group-move>
-              <input type="hidden" name="csrf" value={session.csrfToken} />
-              <input type="hidden" name="intent" value="group-move" />
-              <input type="hidden" name="direction" value="up" />
-              <input type="hidden" name="id" value={item.id} />
-              <button class="btn" type="submit" aria-label={`Đưa “${item.name}” lên`} disabled={index === 0} data-keep-label="true">↑</button>
-            </form>
-            <form method="post" data-group-move>
-              <input type="hidden" name="csrf" value={session.csrfToken} />
-              <input type="hidden" name="intent" value="group-move" />
-              <input type="hidden" name="direction" value="down" />
-              <input type="hidden" name="id" value={item.id} />
-              <button class="btn" type="submit" aria-label={`Đưa “${item.name}” xuống`} disabled={index === groupList.length - 1} data-keep-label="true">↓</button>
-            </form>
-            {item.materialCount > 0 ? (
-              <button class="category-delete" type="button" disabled title="Nhóm đang có nguyên liệu, chưa xóa được.">Xóa</button>
-            ) : (
-              <form
-                method="post"
-                data-busy
-                data-confirm-title={`Xóa nhóm “${item.name}”?`}
-                data-confirm="Nhóm trống sẽ bị xóa. Thao tác này không hoàn tác."
-                data-confirm-ok="Xóa"
-                data-confirm-tone="danger"
-              >
+            <span class:list={['catalog-count shrink-0', item.materialCount === 0 && 'is-empty']}>{item.materialCount} NL</span>
+            <div class="flex shrink-0 items-center gap-2">
+              <form method="post" data-group-move>
                 <input type="hidden" name="csrf" value={session.csrfToken} />
-                <input type="hidden" name="intent" value="group-delete" />
+                <input type="hidden" name="intent" value="group-move" />
+                <input type="hidden" name="direction" value="up" />
                 <input type="hidden" name="id" value={item.id} />
-                <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                <button class="btn" type="submit" aria-label={`Đưa “${item.name}” lên`} disabled={index === 0} data-keep-label="true">↑</button>
               </form>
-            )}
+              <form method="post" data-group-move>
+                <input type="hidden" name="csrf" value={session.csrfToken} />
+                <input type="hidden" name="intent" value="group-move" />
+                <input type="hidden" name="direction" value="down" />
+                <input type="hidden" name="id" value={item.id} />
+                <button class="btn" type="submit" aria-label={`Đưa “${item.name}” xuống`} disabled={index === groupList.length - 1} data-keep-label="true">↓</button>
+              </form>
+              {item.materialCount > 0 ? (
+                <button class="btn" type="button" disabled title="Nhóm đang có nguyên liệu, chưa xóa được." aria-label={`Xóa nhóm “${item.name}”`}>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                  </svg>
+                </button>
+              ) : (
+                <form
+                  method="post"
+                  data-busy
+                  data-group-ajax="delete"
+                  data-confirm-title={`Xóa nhóm “${item.name}”?`}
+                  data-confirm="Nhóm trống sẽ bị xóa. Thao tác này không hoàn tác."
+                  data-confirm-ok="Xóa"
+                  data-confirm-tone="danger"
+                >
+                  <input type="hidden" name="csrf" value={session.csrfToken} />
+                  <input type="hidden" name="intent" value="group-delete" />
+                  <input type="hidden" name="id" value={item.id} />
+                  <button class="btn" type="submit" data-keep-label="true" aria-label={`Xóa nhóm “${item.name}”`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                    </svg>
+                  </button>
+                </form>
+              )}
+            </div>
           </li>
         ))
       }
@@ -649,19 +710,46 @@ function pageHref(next: number): string {
   import { LOW_MARGIN_PERCENT, impactOfUnitCostChange, parseMaterialPrice, type ImpactRow } from '../../features/materials/costing';
 
   type Draft = { id: number | null; name: string; code: string; groupId: string; unitCost: string; active: boolean; usedBy: number };
+  type SavedMaterial = {
+    id: number;
+    code: string;
+    name: string;
+    groupId: number;
+    group: string;
+    unitCost: number;
+    active: boolean;
+    updatedAt: number;
+    usedBy: number;
+  };
   const dialog = document.querySelector('[data-material-dialog]');
   if (dialog instanceof HTMLDialogElement) {
     const modal = dialog;
-    const drafts: Draft[] = JSON.parse(modal.dataset.materials ?? '[]');
+    let drafts: Draft[] = JSON.parse(modal.dataset.materials ?? '[]');
     const field = (name: string) => modal.querySelector<HTMLInputElement>(`[data-field="${name}"]`);
     const groupSelect = field('groupId');
     const title = modal.querySelector('[data-material-title]');
     const hint = modal.querySelector('[data-material-code-hint]');
     const used = modal.querySelector('[data-material-used]');
+    const flashEl = document.querySelector('[data-materials-flash]');
+    let flashTimer = 0;
+    const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
+    const when = new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', dateStyle: 'short', timeStyle: 'short' });
+
+    const showFlash = (message: string) => {
+      if (!(flashEl instanceof HTMLElement)) return;
+      flashEl.replaceChildren();
+      flashEl.textContent = message;
+      flashEl.hidden = !message;
+      window.clearTimeout(flashTimer);
+      if (!message) return;
+      flashTimer = window.setTimeout(() => {
+        flashEl.hidden = true;
+        flashEl.textContent = '';
+      }, 2000);
+    };
 
     // Xem trước tác động: tải một lần danh sách sản phẩm đang dùng nguyên liệu, rồi tính lại mỗi khi đổi ô đơn giá.
     const impactBox = modal.querySelector('[data-material-impact]');
-    const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
     let impact: { total: number; rows: ImpactRow[]; oldUnit: number } | null = null;
     let impactToken = 0;
 
@@ -756,10 +844,267 @@ function pageHref(next: number): string {
         used.hidden = draft.usedBy < 1;
         used.textContent = draft.usedBy > 0 ? `Đang được ${draft.usedBy} sản phẩm dùng.` : '';
       }
-      modal.querySelector('.error-text')?.remove();
+      modal.querySelector('[data-material-form-error]')?.remove();
+      const saveBtn = modal.querySelector<HTMLButtonElement>('[data-material-save]');
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Lưu';
+      }
       modal.showModal();
       name?.focus();
       void loadImpact(draft);
+    };
+
+    const csrf = () => modal.dataset.csrf ?? document.querySelector<HTMLElement>('[data-materials-board], [data-materials-empty]')?.dataset.csrf ?? '';
+
+    const syncLead = (libraryTotal: number) => {
+      const lead = document.querySelector('[data-materials-lead]');
+      if (!(lead instanceof HTMLElement)) return;
+      const groupCount = document.querySelectorAll('[data-groups-list] [data-group-row]').length || document.querySelectorAll('[data-chip-group]').length;
+      lead.textContent = `${libraryTotal} nguyên liệu · ${groupCount} nhóm`;
+    };
+
+    const bumpChip = (groupId: number, groupName: string, delta: number) => {
+      const all = document.querySelector('[data-chip-all]');
+      const board = document.querySelector('[data-materials-board]');
+      if (all instanceof HTMLElement && board instanceof HTMLElement) {
+        const next = Math.max(0, Number(board.dataset.libraryTotal ?? '0') + delta);
+        board.dataset.libraryTotal = String(next);
+        all.textContent = `Tất cả (${next})`;
+        syncLead(next);
+      }
+      const chip = document.querySelector(`[data-chip-group="${groupId}"]`);
+      if (chip instanceof HTMLElement) {
+        const match = chip.textContent?.match(/^(.*)\((\d+)\)\s*$/);
+        const count = Math.max(0, (match ? Number(match[2]) : 0) + delta);
+        chip.textContent = `${match?.[1]?.trim() || groupName} (${count})`;
+      }
+      const groupRow = document.querySelector(`[data-group-row="${groupId}"] .catalog-count`);
+      if (groupRow instanceof HTMLElement) {
+        const match = groupRow.textContent?.match(/^(\d+)/);
+        const count = Math.max(0, (match ? Number(match[1]) : 0) + delta);
+        groupRow.textContent = `${count} NL`;
+        groupRow.classList.toggle('is-empty', count === 0);
+      }
+    };
+
+    const buildRow = (material: SavedMaterial) => {
+      const tr = document.createElement('tr');
+      tr.dataset.materialRow = String(material.id);
+      const nameTd = document.createElement('td');
+      const link = document.createElement('a');
+      link.className = 'post-title';
+      link.href = `${location.pathname}?edit=${material.id}`;
+      link.dataset.materialEdit = String(material.id);
+      link.textContent = material.name;
+      nameTd.append(link);
+      if (!material.active) {
+        const off = document.createElement('span');
+        off.className = 'material-off';
+        off.textContent = 'Ngừng dùng';
+        nameTd.append(off);
+      }
+      const slug = document.createElement('p');
+      slug.className = 'catalog-slug';
+      const code = document.createElement('span');
+      code.className = 'truncate';
+      code.textContent = material.code;
+      slug.append(code);
+      nameTd.append(slug);
+
+      const priceTd = document.createElement('td');
+      priceTd.dataset.label = 'Đơn giá';
+      const price = document.createElement('span');
+      price.className = 'material-price';
+      price.textContent = money.format(material.unitCost);
+      priceTd.append(price);
+
+      const usedTd = document.createElement('td');
+      usedTd.dataset.label = 'Số sản phẩm';
+      const usedBadge = document.createElement('span');
+      usedBadge.className = material.usedBy === 0 ? 'catalog-count is-empty' : 'catalog-count';
+      usedBadge.textContent = `${material.usedBy} sản phẩm`;
+      usedTd.append(usedBadge);
+
+      const timeTd = document.createElement('td');
+      timeTd.dataset.label = 'Cập nhật';
+      timeTd.textContent = when.format(new Date(material.updatedAt));
+
+      const actionsTd = document.createElement('td');
+      actionsTd.dataset.label = 'Thao tác';
+      const actions = document.createElement('div');
+      actions.className = 'post-actions';
+      const edit = document.createElement('a');
+      edit.href = `${location.pathname}?edit=${material.id}`;
+      edit.dataset.materialEdit = String(material.id);
+      edit.textContent = 'Sửa';
+      const sep = document.createElement('span');
+      sep.className = 'post-actions-sep';
+      sep.setAttribute('aria-hidden', 'true');
+      sep.textContent = '|';
+      actions.append(edit, sep);
+      if (material.usedBy > 0) {
+        const disabled = document.createElement('button');
+        disabled.className = 'category-delete';
+        disabled.type = 'button';
+        disabled.disabled = true;
+        disabled.title = 'Đang có sản phẩm dùng, chưa xóa được.';
+        disabled.textContent = 'Xóa';
+        actions.append(disabled);
+      } else {
+        const form = document.createElement('form');
+        form.method = 'post';
+        form.dataset.busy = '';
+        form.dataset.confirmTitle = `Xóa nguyên liệu “${material.name}”?`;
+        form.dataset.confirm = 'Nguyên liệu sẽ bị xóa vĩnh viễn. Thao tác này không hoàn tác.';
+        form.dataset.confirmOk = 'Xóa';
+        form.dataset.confirmTone = 'danger';
+        for (const [name, value] of [
+          ['csrf', csrf()],
+          ['intent', 'delete'],
+          ['id', String(material.id)],
+        ] as const) {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = name;
+          input.value = value;
+          form.append(input);
+        }
+        const del = document.createElement('button');
+        del.className = 'category-delete';
+        del.type = 'submit';
+        del.dataset.keepLabel = 'true';
+        del.textContent = 'Xóa';
+        form.append(del);
+        actions.append(form);
+      }
+      actionsTd.append(actions);
+      tr.append(nameTd, priceTd, usedTd, timeTd, actionsTd);
+      return tr;
+    };
+
+    const ensureBoard = (material: SavedMaterial) => {
+      let board = document.querySelector('[data-materials-board]');
+      if (board instanceof HTMLElement) return board;
+      const empty = document.querySelector('[data-materials-empty]');
+      board = document.createElement('div');
+      board.setAttribute('data-materials-board', '');
+      (board as HTMLElement).dataset.csrf = csrf();
+      (board as HTMLElement).dataset.filterGroup = '';
+      (board as HTMLElement).dataset.libraryTotal = '0';
+      const chips = document.createElement('nav');
+      chips.className = 'catalog-chips material-chips';
+      chips.setAttribute('aria-label', 'Lọc theo nhóm');
+      const all = document.createElement('a');
+      all.className = 'chip';
+      all.href = location.pathname;
+      all.dataset.chipAll = '';
+      all.setAttribute('aria-current', 'true');
+      all.textContent = 'Tất cả (0)';
+      chips.append(all);
+      if (groupSelect) {
+        for (const option of groupSelect.options) {
+          if (!option.value) continue;
+          const chip = document.createElement('a');
+          chip.className = 'chip';
+          chip.href = `${location.pathname}?nhom=${option.value}`;
+          chip.dataset.chipGroup = option.value;
+          chip.textContent = `${option.textContent ?? material.group} (0)`;
+          chips.append(chip);
+        }
+      }
+      const sections = document.createElement('div');
+      sections.dataset.materialsSections = '';
+      board.append(chips, sections);
+      empty?.replaceWith(board);
+      return board as HTMLElement;
+    };
+
+    const ensureSection = (board: HTMLElement, groupName: string) => {
+      const host = board.querySelector('[data-materials-sections]');
+      if (!(host instanceof HTMLElement)) return null;
+      host.querySelector('[data-materials-empty-filter]')?.remove();
+      let section = [...host.querySelectorAll('[data-material-group]')].find(
+        (node) => node instanceof HTMLElement && node.dataset.materialGroup === groupName,
+      );
+      if (section instanceof HTMLElement) return section;
+      section = document.createElement('section');
+      section.className = 'material-group';
+      section.setAttribute('aria-label', groupName);
+      (section as HTMLElement).dataset.materialGroup = groupName;
+      const heading = document.createElement('h2');
+      heading.className = 'material-group-title';
+      heading.append(document.createTextNode(groupName + ' '));
+      const count = document.createElement('span');
+      count.dataset.groupCount = '';
+      count.textContent = '0 nguyên liệu';
+      heading.append(count);
+      const table = document.createElement('table');
+      table.className = 'post-table material-table';
+      table.innerHTML =
+        '<colgroup><col /><col class="material-col-price" /><col class="material-col-use" /><col class="material-col-time" /><col class="material-col-actions" /></colgroup><thead><tr><th>Nguyên liệu</th><th>Đơn giá</th><th>Số sản phẩm</th><th>Cập nhật</th><th>Thao tác</th></tr></thead><tbody></tbody>';
+      section.append(heading, table);
+      host.append(section);
+      return section as HTMLElement;
+    };
+
+    const upsertMaterial = (material: SavedMaterial, created: boolean) => {
+      const board = ensureBoard(material);
+      const filter = board.dataset.filterGroup ?? '';
+      const visible = !filter || filter === String(material.groupId);
+      const existing = document.querySelector(`[data-material-row="${material.id}"]`);
+      const draft: Draft = {
+        id: material.id,
+        name: material.name,
+        code: material.code,
+        groupId: String(material.groupId),
+        unitCost: String(material.unitCost),
+        active: material.active,
+        usedBy: material.usedBy,
+      };
+      const index = drafts.findIndex((item) => item.id === material.id);
+      if (index >= 0) drafts[index] = draft;
+      else drafts.unshift(draft);
+      modal.dataset.materials = JSON.stringify(drafts);
+
+      if (created) bumpChip(material.groupId, material.group, 1);
+
+      if (existing) {
+        const oldSection = existing.closest('[data-material-group]');
+        existing.remove();
+        if (oldSection instanceof HTMLElement) {
+          const oldBody = oldSection.querySelector('tbody');
+          const oldCount = oldSection.querySelector('[data-group-count]');
+          if (oldBody && oldCount) oldCount.textContent = `${oldBody.children.length} nguyên liệu`;
+          if (oldBody && oldBody.children.length === 0) oldSection.remove();
+        }
+      }
+
+      if (!visible) return;
+      const section = ensureSection(board, material.group);
+      const body = section?.querySelector('tbody');
+      if (!(body instanceof HTMLTableSectionElement)) return;
+      body.prepend(buildRow(material));
+      const countEl = section?.querySelector('[data-group-count]');
+      if (countEl) countEl.textContent = `${body.children.length} nguyên liệu`;
+    };
+
+    const showFormError = (message: string) => {
+      modal.querySelector('[data-material-form-error]')?.remove();
+      const err = document.createElement('p');
+      err.className = 'error-text mt-2';
+      err.setAttribute('role', 'alert');
+      err.dataset.materialFormError = '';
+      err.textContent = message;
+      title?.after(err);
+    };
+
+    const unlock = (form: HTMLFormElement) => {
+      const saveBtn = form.querySelector<HTMLButtonElement>('[data-material-save]');
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Lưu';
+      }
     };
 
     for (const button of document.querySelectorAll('[data-material-new]')) {
@@ -796,6 +1141,56 @@ function pageHref(next: number): string {
       url.searchParams.delete('edit');
       history.replaceState(null, '', url);
     });
+    modal.addEventListener(
+      'submit',
+      (event) => {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement) || form.dataset.materialAjax !== 'save') return;
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const body = new FormData(form);
+        void (async () => {
+          try {
+            const response = await fetch(location.pathname, {
+              method: 'POST',
+              body,
+              headers: { 'x-requested-with': 'fetch' },
+            });
+            const data = (await response.json()) as {
+              ok?: boolean;
+              error?: string;
+              notice?: string;
+              created?: boolean;
+              reprice?: boolean;
+              id?: number;
+              previous?: number;
+              material?: SavedMaterial;
+            };
+            if (!response.ok || !data.ok || !data.material) {
+              unlock(form);
+              showFormError(data.error || 'Chưa lưu được nguyên liệu.');
+              return;
+            }
+            if (data.reprice && data.id != null && data.previous != null) {
+              const url = new URL(location.href);
+              url.searchParams.set('reprice', String(data.id));
+              url.searchParams.set('truoc', String(data.previous));
+              location.assign(url);
+              return;
+            }
+            upsertMaterial(data.material, Boolean(data.created));
+            modal.close();
+            unlock(form);
+            showFlash(data.notice || 'Đã lưu nguyên liệu.');
+          } catch {
+            unlock(form);
+            showFormError('Không kết nối được máy chủ.');
+          }
+        })();
+      },
+      true,
+    );
     if (modal.dataset.open === 'true') {
       const usedNow = modal.querySelector('[data-material-used]');
       if (usedNow instanceof HTMLElement) usedNow.hidden = !usedNow.textContent;
@@ -809,6 +1204,24 @@ function pageHref(next: number): string {
   const groupsDialog = document.querySelector('[data-groups-dialog]');
   if (groupsDialog instanceof HTMLDialogElement) {
     const groupsModal = groupsDialog;
+    const csrf = () => groupsModal.dataset.csrf ?? '';
+    const flashEl = groupsModal.querySelector('[data-group-flash]');
+    let flashTimer = 0;
+
+    const showFlash = (message: string, isError = false) => {
+      if (!(flashEl instanceof HTMLElement)) return;
+      flashEl.textContent = message;
+      flashEl.hidden = !message;
+      flashEl.classList.toggle('error-text', isError);
+      flashEl.classList.toggle('text-primary-strong', !isError);
+      window.clearTimeout(flashTimer);
+      if (!message) return;
+      flashTimer = window.setTimeout(() => {
+        flashEl.hidden = true;
+        flashEl.textContent = '';
+      }, 2000);
+    };
+
     for (const button of document.querySelectorAll('[data-groups-open]')) {
       button.addEventListener('click', () => groupsModal.showModal());
     }
@@ -837,8 +1250,8 @@ function pageHref(next: number): string {
       list.forEach((row, index) => {
         const up = row.querySelector('input[value="up"]')?.closest('form')?.querySelector('button');
         const down = row.querySelector('input[value="down"]')?.closest('form')?.querySelector('button');
-        if (up) up.disabled = index === 0;
-        if (down) down.disabled = index === list.length - 1;
+        if (up instanceof HTMLButtonElement) up.disabled = index === 0;
+        if (down instanceof HTMLButtonElement) down.disabled = index === list.length - 1;
       });
       // Thanh lọc nhóm ở trang chính đi theo cùng thứ tự.
       const chips = document.querySelector('.material-chips');
@@ -847,6 +1260,13 @@ function pageHref(next: number): string {
         const chip = chips.querySelector(`a[href$="nhom=${row.getAttribute('data-group-row')}"], a[href*="nhom=${row.getAttribute('data-group-row')}&"]`);
         if (chip) chips.appendChild(chip);
       }
+    };
+    const syncLead = () => {
+      const lead = document.querySelector('[data-materials-lead]');
+      if (!(lead instanceof HTMLElement)) return;
+      const match = lead.textContent?.match(/^(\d+)\s+nguyên liệu/);
+      if (!match) return;
+      lead.textContent = `${match[1]} nguyên liệu · ${rows().length} nhóm`;
     };
     const showMoveError = () => {
       groupsModal.querySelector('[data-group-move-error]')?.remove();
@@ -858,6 +1278,164 @@ function pageHref(next: number): string {
       const heading = groupsModal.querySelector('h2');
       heading?.parentNode?.insertBefore(message, heading.nextSibling);
     };
+    const showGroupError = (message: string) => {
+      groupsModal.querySelector('[data-group-form-error]')?.remove();
+      const err = document.createElement('p');
+      err.className = 'error-text mt-2';
+      err.setAttribute('role', 'alert');
+      err.dataset.groupFormError = '';
+      err.textContent = message;
+      groupsModal.querySelector('h2')?.after(err);
+    };
+    const unlock = (form: HTMLFormElement) => {
+      for (const button of form.querySelectorAll('button[type="submit"]')) {
+        if (!(button instanceof HTMLButtonElement)) continue;
+        button.disabled = false;
+        if (button.hasAttribute('data-group-create-submit')) button.textContent = 'Thêm';
+        else if (button.dataset.keepLabel !== 'true') button.textContent = 'Lưu';
+      }
+    };
+    const groupHrefOf = (id: number | null) => {
+      if (!id) return location.pathname;
+      return `${location.pathname}?nhom=${id}`;
+    };
+    const syncSelect = (group: { id: number; name: string }, mode: 'upsert' | 'remove') => {
+      for (const select of document.querySelectorAll('select[name="groupId"]')) {
+        if (!(select instanceof HTMLSelectElement)) continue;
+        const existing = select.querySelector(`option[value="${group.id}"]`);
+        if (mode === 'remove') {
+          existing?.remove();
+          continue;
+        }
+        if (existing instanceof HTMLOptionElement) {
+          existing.textContent = group.name;
+          continue;
+        }
+        const option = document.createElement('option');
+        option.value = String(group.id);
+        option.textContent = group.name;
+        select.append(option);
+      }
+    };
+    const syncChip = (group: { id: number; name: string; materialCount: number }, mode: 'upsert' | 'remove') => {
+      const chips = document.querySelector('.material-chips');
+      if (!chips) return;
+      const found = chips.querySelector(`a[href$="nhom=${group.id}"], a[href*="nhom=${group.id}&"]`);
+      if (mode === 'remove') {
+        found?.remove();
+        return;
+      }
+      if (found) {
+        found.textContent = `${group.name} (${group.materialCount})`;
+        return;
+      }
+      const chip = document.createElement('a');
+      chip.className = 'chip';
+      chip.href = groupHrefOf(group.id);
+      chip.textContent = `${group.name} (${group.materialCount})`;
+      chips.append(chip);
+    };
+    const buildRow = (group: { id: number; name: string; materialCount: number }) => {
+      const li = document.createElement('li');
+      li.className = 'flex flex-nowrap items-center gap-2';
+      li.dataset.groupRow = String(group.id);
+
+      const saveForm = document.createElement('form');
+      saveForm.method = 'post';
+      saveForm.dataset.busy = '';
+      saveForm.dataset.groupAjax = 'save';
+      saveForm.className = 'flex min-w-0 grow items-center gap-2';
+      for (const [name, value] of [
+        ['csrf', csrf()],
+        ['intent', 'group-save'],
+        ['id', String(group.id)],
+      ] as const) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = value;
+        saveForm.append(input);
+      }
+      const nameInput = document.createElement('input');
+      nameInput.className = 'field min-w-0 grow';
+      nameInput.name = 'groupName';
+      nameInput.required = true;
+      nameInput.maxLength = 80;
+      nameInput.autocomplete = 'off';
+      nameInput.setAttribute('aria-label', `Tên nhóm ${group.name}`);
+      nameInput.value = group.name;
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'btn shrink-0';
+      saveBtn.type = 'submit';
+      saveBtn.textContent = 'Lưu';
+      saveForm.append(nameInput, saveBtn);
+
+      const count = document.createElement('span');
+      count.className = group.materialCount === 0 ? 'catalog-count shrink-0 is-empty' : 'catalog-count shrink-0';
+      count.textContent = `${group.materialCount} NL`;
+
+      const actions = document.createElement('div');
+      actions.className = 'flex shrink-0 items-center gap-2';
+
+      const move = (direction: 'up' | 'down', label: string) => {
+        const form = document.createElement('form');
+        form.method = 'post';
+        form.dataset.groupMove = '';
+        for (const [name, value] of [
+          ['csrf', csrf()],
+          ['intent', 'group-move'],
+          ['direction', direction],
+          ['id', String(group.id)],
+        ] as const) {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = name;
+          input.value = value;
+          form.append(input);
+        }
+        const button = document.createElement('button');
+        button.className = 'btn';
+        button.type = 'submit';
+        button.dataset.keepLabel = 'true';
+        button.setAttribute('aria-label', label);
+        button.textContent = direction === 'up' ? '↑' : '↓';
+        form.append(button);
+        return form;
+      };
+
+      const deleteForm = document.createElement('form');
+      deleteForm.method = 'post';
+      deleteForm.dataset.busy = '';
+      deleteForm.dataset.groupAjax = 'delete';
+      deleteForm.dataset.confirmTitle = `Xóa nhóm “${group.name}”?`;
+      deleteForm.dataset.confirm = 'Nhóm trống sẽ bị xóa. Thao tác này không hoàn tác.';
+      deleteForm.dataset.confirmOk = 'Xóa';
+      deleteForm.dataset.confirmTone = 'danger';
+      for (const [name, value] of [
+        ['csrf', csrf()],
+        ['intent', 'group-delete'],
+        ['id', String(group.id)],
+      ] as const) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = value;
+        deleteForm.append(input);
+      }
+      const del = document.createElement('button');
+      del.className = 'btn';
+      del.type = 'submit';
+      del.dataset.keepLabel = 'true';
+      del.setAttribute('aria-label', `Xóa nhóm “${group.name}”`);
+      del.innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>';
+      deleteForm.append(del);
+
+      actions.append(move('up', `Đưa “${group.name}” lên`), move('down', `Đưa “${group.name}” xuống`), deleteForm);
+      li.append(saveForm, count, actions);
+      return li;
+    };
+
     let queue: Promise<void> = Promise.resolve();
     groupsModal.addEventListener('submit', (event) => {
       const form = event.target;
@@ -881,6 +1459,87 @@ function pageHref(next: number): string {
         }
       });
     });
+
+    groupsModal.addEventListener(
+      'submit',
+      (event) => {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement) || !form.dataset.groupAjax) return;
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const intent = form.dataset.groupAjax;
+        const body = new FormData(form);
+        void (async () => {
+          try {
+            const response = await fetch(location.pathname, {
+              method: 'POST',
+              body,
+              headers: { 'x-requested-with': 'fetch' },
+            });
+            const data = (await response.json()) as {
+              ok?: boolean;
+              error?: string;
+              notice?: string;
+              created?: boolean;
+              id?: number;
+              group?: { id: number; name: string; materialCount: number };
+            };
+            if (!response.ok || !data.ok) {
+              unlock(form);
+              showGroupError(data.error || 'Chưa lưu được nhóm.');
+              return;
+            }
+            groupsModal.querySelector('[data-group-form-error]')?.remove();
+            if (intent === 'save' && data.group) {
+              const list = groupsModal.querySelector('[data-groups-list]');
+              const existing = groupsModal.querySelector(`[data-group-row="${data.group.id}"]`);
+              if (data.created || !existing) {
+                groupsModal.querySelector('[data-groups-empty]')?.remove();
+                const row = buildRow(data.group);
+                list?.append(row);
+                syncRows();
+                const createName = groupsModal.querySelector<HTMLInputElement>('[data-group-create-name]');
+                if (createName) createName.value = '';
+              } else {
+                const nameInput = existing.querySelector<HTMLInputElement>('input[name="groupName"]');
+                if (nameInput) nameInput.value = data.group.name;
+                const delForm = existing.querySelector('form[data-group-ajax="delete"]');
+                if (delForm instanceof HTMLFormElement) {
+                  delForm.dataset.confirmTitle = `Xóa nhóm “${data.group.name}”?`;
+                }
+              }
+              syncChip(data.group, 'upsert');
+              syncSelect(data.group, 'upsert');
+              syncLead();
+              unlock(form);
+              showFlash(data.notice || 'Đã lưu nhóm.');
+              return;
+            }
+            if (intent === 'delete' && data.id != null) {
+              groupsModal.querySelector(`[data-group-row="${data.id}"]`)?.remove();
+              syncChip({ id: data.id, name: '', materialCount: 0 }, 'remove');
+              syncSelect({ id: data.id, name: '' }, 'remove');
+              if (rows().length === 0) {
+                const empty = document.createElement('p');
+                empty.className = 'seo-hint mt-4';
+                empty.dataset.groupsEmpty = '';
+                empty.textContent = 'Chưa có nhóm nào. Thêm nhóm đầu tiên ở trên.';
+                groupsModal.querySelector('[data-groups-list]')?.before(empty);
+              } else syncRows();
+              syncLead();
+              showFlash(data.notice || 'Đã xóa nhóm.');
+              return;
+            }
+            unlock(form);
+          } catch {
+            unlock(form);
+            showGroupError('Không kết nối được máy chủ.');
+          }
+        })();
+      },
+      true,
+    );
   }
 </script>
 

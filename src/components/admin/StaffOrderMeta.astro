@@ -40,16 +40,25 @@ function shippingText(cost: { kind: OrderCostKind; value: number }): string {
     </div>
   </fieldset>
   <label class="staff-flag">
-    <span><input type="checkbox" name="priority" checked={value.priority} /> <strong>Đánh dấu đơn ưu tiên</strong></span>
-    <span class="od-note">Đơn ưu tiên hiện lên đầu danh sách.</span>
+    <input type="checkbox" name="priority" checked={value.priority} />
+    <span class="staff-flag-copy">
+      <strong>Đánh dấu đơn ưu tiên</strong>
+      <span class="od-note">Đơn ưu tiên hiện lên đầu danh sách.</span>
+    </span>
   </label>
   <label class="staff-flag">
-    <span><input type="checkbox" name="compensation" data-compensation checked={value.compensation} /> <strong>Gửi bù</strong></span>
-    <span class="od-note">Thiếu hàng gửi bù: không thu tiền, không ghi doanh thu. Giá vốn vẫn được giữ.</span>
+    <input type="checkbox" name="compensation" data-compensation checked={value.compensation} />
+    <span class="staff-flag-copy">
+      <strong>Gửi bù</strong>
+      <span class="od-note">Thiếu hàng gửi bù: không thu tiền, không ghi doanh thu. Giá vốn vẫn được giữ.</span>
+    </span>
   </label>
   <label class="staff-flag">
-    <span><input type="checkbox" name="shipLater" data-ship-later checked={value.shipLater} /> <strong>Gửi sau</strong></span>
-    <span class="od-note">Chưa tính là đã gửi. Chọn ngày dự kiến gửi.</span>
+    <input type="checkbox" name="shipLater" data-ship-later checked={value.shipLater} />
+    <span class="staff-flag-copy">
+      <strong>Gửi sau</strong>
+      <span class="od-note">Chưa tính là đã gửi. Chọn ngày dự kiến gửi.</span>
+    </span>
   </label>
   <label class="mt-3 block" data-ship-date hidden={!value.shipLater}>
     <span class="od-label">Ngày dự kiến gửi</span>
@@ -61,7 +70,8 @@ function shippingText(cost: { kind: OrderCostKind; value: number }): string {
       <input class="field" name="shippingFee" data-ship-fee inputmode="numeric" maxlength="8" autocomplete="off" value={value.shippingFee} disabled={value.freeShip || value.compensation} />
     </label>
     <label class="staff-flag staff-flag-inline">
-      <span><input type="checkbox" name="freeShip" data-free-ship checked={value.freeShip} /> <strong>Miễn phí ship</strong></span>
+      <input type="checkbox" name="freeShip" data-free-ship checked={value.freeShip} />
+      <span class="staff-flag-copy"><strong>Miễn phí ship</strong></span>
     </label>
   </div>
   <p class="od-note mt-2">

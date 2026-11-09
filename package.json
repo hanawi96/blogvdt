@@ -16,7 +16,8 @@
     "astro": "astro",
     "generate-types": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply vong-dau-tam --local",
-    "db:seed:local": "node scripts/seed-local.mjs"
+    "db:seed:local": "node scripts/seed-local.mjs",
+    "db:seed:demo-products": "node scripts/seed-demo-products.mjs"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.3.4",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseProductForm } from './form';
+import { parseProductForm, ratingFormValue } from './form';
 import { productAdminQuery, productListSort, readProductBulk } from './products';
 import { canFeatureProduct } from './status';
 
@@ -21,7 +21,7 @@ describe('danh sách sản phẩm', () => {
     );
   });
 
-  it('đọc thao tác hàng loạt: lọc trùng, bỏ ID sai, từ chối hành động lạ và quá 100 sản phẩm', () => {
+  it('đọc thao tác hàng loạt: lọc trùng, bỏ ID sai, từ chối hành động lạ và quá 20 sản phẩm', () => {
     const form = new FormData();
     form.set('bulk', 'inactive');
     for (const id of ['3', '3', '7', 'abc', '-1', '2.5', '0']) form.append('ids', id);
@@ -36,11 +36,11 @@ describe('danh sách sản phẩm', () => {
 
     const many = new FormData();
     many.set('bulk', 'delete');
-    for (let id = 1; id <= 101; id += 1) many.append('ids', String(id));
+    for (let id = 1; id <= 21; id += 1) many.append('ids', String(id));
     expect(readProductBulk(many)).toBe(null);
     many.delete('ids');
-    for (let id = 1; id <= 100; id += 1) many.append('ids', String(id));
-    expect(readProductBulk(many)?.ids).toHaveLength(100);
+    for (let id = 1; id <= 20; id += 1) many.append('ids', String(id));
+    expect(readProductBulk(many)?.ids).toHaveLength(20);
 
     expect(productAdminQuery({ status: 'active', bulk: { action: 'delete', count: 2 } })).toBe(
       '/admin/products?status=active&bulk=delete&n=2',
@@ -108,6 +108,32 @@ describe('danh sách sản phẩm', () => {
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.errors.comparePrice).toBe('Giá gốc là số nguyên VND.');
   });
+
+  it('nhận tồn kho và điểm đánh giá (lưu ×10)', () => {
+    const form = productForm();
+    form.set('stockQty', '25');
+    form.set('rating', '4.5');
+    const parsed = parseProductForm(form);
+    expect(parsed.ok && parsed.input.stockQty).toBe(25);
+    expect(parsed.ok && parsed.input.rating).toBe(45);
+    expect(ratingFormValue(45)).toBe('4.5');
+    expect(ratingFormValue(0)).toBe('');
+
+    const empty = productForm();
+    const defaults = parseProductForm(empty);
+    expect(defaults.ok && defaults.input.stockQty).toBe(0);
+    expect(defaults.ok && defaults.input.rating).toBe(0);
+
+    const badStock = productForm();
+    badStock.set('stockQty', '-1');
+    expect(parseProductForm(badStock).ok).toBe(false);
+
+    const badRating = productForm();
+    badRating.set('rating', '5.1');
+    const rejected = parseProductForm(badRating);
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) expect(rejected.errors.rating).toContain('0 đến 5');
+  });
 });
 
 function productForm(): FormData {
@@ -119,6 +145,8 @@ function productForm(): FormData {
   form.set('coverMediaId', '');
   form.set('status', 'active');
   form.set('sortOrder', '0');
+  form.set('stockQty', '0');
+  form.set('rating', '');
   form.set('seoTitle', '');
   form.set('metaDescription', '');
   return form;

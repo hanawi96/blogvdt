@@ -22,6 +22,8 @@ interface Values {
   status: string;
   featured: boolean;
   sortOrder: string;
+  stockQty: string;
+  rating: string;
   seoTitle: string;
   metaDescription: string;
 }
@@ -55,16 +57,30 @@ const { csrf, action, values, errors, formError, categories, photos, recipeOptio
     label="Tên"
     field="name"
   />
-  <label class="mt-4 block">
-    <span class="mb-1 block font-semibold">Giá (VND)</span>
-    <input class="field" name="price" inputmode="numeric" required maxlength="8" value={values.price} />
-    {errors.price && <span class="error-text">{errors.price}</span>}
-  </label>
-  <label class="mt-4 block">
-    <span class="mb-1 block font-semibold">Giá gốc (VND)</span>
-    <input class="field" name="comparePrice" inputmode="numeric" maxlength="8" value={values.comparePrice} placeholder="Để trống nếu không có" />
-    {errors.comparePrice && <span class="error-text">{errors.comparePrice}</span>}
-  </label>
+  <div class="product-price-row mt-4">
+    <label class="block min-w-0">
+      <span class="mb-1 block font-semibold">Giá (VND)</span>
+      <input class="field" name="price" inputmode="numeric" required maxlength="8" value={values.price} />
+      {errors.price && <span class="error-text">{errors.price}</span>}
+    </label>
+    <label class="block min-w-0">
+      <span class="mb-1 block font-semibold">Giá gốc (VND)</span>
+      <input class="field" name="comparePrice" inputmode="numeric" maxlength="8" value={values.comparePrice} placeholder="Để trống nếu không có" />
+      {errors.comparePrice && <span class="error-text">{errors.comparePrice}</span>}
+    </label>
+  </div>
+  <div class="product-price-row mt-4">
+    <label class="block min-w-0">
+      <span class="mb-1 block font-semibold">Tồn kho</span>
+      <input class="field" name="stockQty" inputmode="numeric" maxlength="7" value={values.stockQty} placeholder="0" />
+      {errors.stockQty && <span class="error-text">{errors.stockQty}</span>}
+    </label>
+    <label class="block min-w-0">
+      <span class="mb-1 block font-semibold">Điểm đánh giá</span>
+      <input class="field" name="rating" type="number" inputmode="decimal" min="0" max="5" step="0.1" value={values.rating} placeholder="Ví dụ: 4.5" data-product-rating />
+      {errors.rating && <span class="error-text">{errors.rating}</span>}
+    </label>
+  </div>
   <ProductPhotos client:load {csrf} cover={photos.cover} album={photos.album} error={errors.coverMediaId ?? errors.album ?? ''} />
   <label class="mt-4 block">
     <span class="mb-1 block font-semibold">Danh mục</span>
@@ -121,20 +137,43 @@ const { csrf, action, values, errors, formError, categories, photos, recipeOptio
     {errors.status && <span class="error-text">{errors.status}</span>}
   </label>
   </div>
-  <ProductRecipe client:load options={recipeOptions} lines={recipeLines} error={errors.recipe ?? ''} materialsHref={routes.adminMaterials} />
+  <div class="product-editor-side">
+    <ProductRecipe client:load options={recipeOptions} lines={recipeLines} error={errors.recipe ?? ''} materialsHref={routes.adminMaterials} />
+    <div class="product-editor-actions">
+      <button class="btn btn-primary" type="submit">Lưu sản phẩm</button>
+      {
+        deleteAction && (
+          <button
+            class="btn btn-accent"
+            type="submit"
+            formaction={deleteAction}
+            formmethod="post"
+            onclick="return confirm('Xóa sản phẩm này? Đơn cũ vẫn giữ tên và giá lúc đặt.')"
+          >
+            Xóa sản phẩm
+          </button>
+        )
+      }
+    </div>
+  </div>
 </form>
-<div class="mt-6 flex flex-wrap items-center gap-3">
-  <button class="btn btn-primary" type="submit" form="product-form">Lưu sản phẩm</button>
-  {
-    deleteAction && (
-      <form method="post" action={deleteAction} onsubmit="return confirm('Xóa sản phẩm này? Đơn cũ vẫn giữ tên và giá lúc đặt.')">
-        <input type="hidden" name="csrf" value={csrf} />
-        <button class="btn btn-accent" type="submit">Xóa sản phẩm</button>
-      </form>
-    )
-  }
-</div>
 <script>
+  const ratingInput = document.querySelector('[data-product-rating]');
+  if (ratingInput instanceof HTMLInputElement) {
+    const clampRating = () => {
+      const text = ratingInput.value.trim().replace(',', '.');
+      if (!text) return;
+      const score = Number(text);
+      if (!Number.isFinite(score)) {
+        ratingInput.value = '';
+        return;
+      }
+      if (score > 5) ratingInput.value = '5';
+      else if (score < 0) ratingInput.value = '0';
+    };
+    ratingInput.addEventListener('change', clampRating);
+    ratingInput.addEventListener('blur', clampRating);
+  }
   const status = document.querySelector('[data-product-status]');
   const featured = document.querySelector('[data-product-featured]');
   if (status instanceof HTMLSelectElement && featured instanceof HTMLInputElement) {

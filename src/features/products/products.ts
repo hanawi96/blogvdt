@@ -10,7 +10,10 @@ import type { RecipeLine } from '../materials/costing';
 import { insertRecipe, recipeWrites, validateRecipe } from '../materials/recipes';
 import { canFeatureProduct, isProductStatus, type ProductStatus } from './status';
 
-const PAGE_SIZE = 100;
+/** Số sản phẩm mỗi trang danh sách admin. */
+export const PRODUCT_PAGE_SIZE = 20;
+/** Giới hạn chọn hàng loạt (khớp một trang; tránh payload quá lớn). */
+export const PRODUCT_BULK_MAX = PRODUCT_PAGE_SIZE;
 const PRODUCT_SORTS = ['newest', 'oldest', 'name', 'price-asc', 'price-desc'] as const;
 
 export type ProductListSort = (typeof PRODUCT_SORTS)[number];
@@ -82,6 +85,8 @@ export type ProductInput = {
   status: ProductStatus;
   isFeatured: boolean;
   sortOrder: number;
+  stockQty: number;
+  rating: number;
   seoTitle: string | null;
   metaDescription: string | null;
 };
@@ -117,6 +122,8 @@ export async function listProducts(
         slug: products.slug,
         price: products.price,
         comparePrice: products.comparePrice,
+        stockQty: products.stockQty,
+        rating: products.rating,
         categoryId: products.categoryId,
         categoryName: productCategories.name,
         cordType: products.cordType,
@@ -131,8 +138,8 @@ export async function listProducts(
       .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
       .where(where)
       .orderBy(...productOrder(sort))
-      .limit(PAGE_SIZE)
-      .offset((page - 1) * PAGE_SIZE),
+      .limit(PRODUCT_PAGE_SIZE)
+      .offset((page - 1) * PRODUCT_PAGE_SIZE),
   ]);
   const total = totalRows[0]?.value ?? 0;
   return {
@@ -142,6 +149,8 @@ export async function listProducts(
       slug: row.slug,
       price: row.price,
       comparePrice: row.comparePrice,
+      stockQty: row.stockQty,
+      rating: row.rating,
       categoryId: row.categoryId,
       categoryName: row.categoryName ?? '',
       cordType: row.cordType,
@@ -153,8 +162,8 @@ export async function listProducts(
     })),
     total,
     page,
-    pageSize: PAGE_SIZE,
-    pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+    pageSize: PRODUCT_PAGE_SIZE,
+    pageCount: Math.max(1, Math.ceil(total / PRODUCT_PAGE_SIZE)),
     sort,
     libraryTotal: filtered ? (libraryRows[0]?.value ?? 0) : total,
     categories: categoryRows,
@@ -298,7 +307,7 @@ export type ProductBulkAction = (typeof PRODUCT_BULK_ACTIONS)[number];
 export function readProductBulk(form: FormData): { action: ProductBulkAction; ids: number[] } | null {
   const action = PRODUCT_BULK_ACTIONS.find((item) => item === form.get('bulk'));
   const ids = [...new Set(form.getAll('ids').map(Number))].filter((id) => Number.isInteger(id) && id > 0);
-  if (!action || ids.length === 0 || ids.length > PAGE_SIZE) return null;
+  if (!action || ids.length === 0 || ids.length > PRODUCT_BULK_MAX) return null;
   return { action, ids };
 }
 
@@ -355,6 +364,8 @@ function productValues(input: ProductInput, now: number) {
     status: input.status,
     isFeatured: canFeatureProduct(input.status, input.isFeatured),
     sortOrder: input.sortOrder,
+    stockQty: input.stockQty,
+    rating: input.rating,
     seoTitle: input.seoTitle,
     metaDescription: input.metaDescription,
     updatedAt: now,

@@ -34,3 +34,7 @@ blob-report/
 
 # jetbrains setting folder
 .idea/
+
+backup-prod*.sql
+.tmp-media/
+

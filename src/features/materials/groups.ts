@@ -51,7 +51,7 @@ export async function saveGroup(
   input: { id?: number; name: string },
   now = Date.now(),
   actor?: ActivityActor,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; group: MaterialGroup } | { ok: false; error: string }> {
   const parsed = parseGroupName(input.name);
   if (!parsed.ok) return parsed;
   const { name } = parsed;
@@ -59,10 +59,16 @@ export async function saveGroup(
 
   try {
     if (input.id) {
-      const rows = await db.select({ name: materialGroups.name }).from(materialGroups).where(eq(materialGroups.id, input.id)).limit(1);
+      const rows = await db
+        .select({ name: materialGroups.name, sortOrder: materialGroups.sortOrder, materialCount: materialCountOf })
+        .from(materialGroups)
+        .where(eq(materialGroups.id, input.id))
+        .limit(1);
       const current = rows[0];
       if (!current) return { ok: false, error: 'Không tìm thấy nhóm.' };
-      if (current.name === name) return { ok: true };
+      if (current.name === name) {
+        return { ok: true, group: { id: input.id, name, sortOrder: current.sortOrder, materialCount: current.materialCount } };
+      }
       await commitWrites(db, [
         db.update(materialGroups).set({ name, updatedAt: now }).where(eq(materialGroups.id, input.id)),
         ...(actor
@@ -83,7 +89,7 @@ export async function saveGroup(
             ]
           : []),
       ]);
-      return { ok: true };
+      return { ok: true, group: { id: input.id, name, sortOrder: current.sortOrder, materialCount: current.materialCount } };
     }
     const highest = await db.select({ value: max(materialGroups.sortOrder) }).from(materialGroups);
     const sortOrder = (highest[0]?.value ?? -1) + 1;
@@ -108,7 +114,14 @@ export async function saveGroup(
           ]
         : []),
     ]);
-    return { ok: true };
+    const created = await db
+      .select({ id: materialGroups.id, name: materialGroups.name, sortOrder: materialGroups.sortOrder })
+      .from(materialGroups)
+      .where(sql`lower(${materialGroups.name}) = ${name.toLowerCase()}`)
+      .limit(1);
+    const row = created[0];
+    if (!row) return { ok: false, error: 'Chưa lưu được nhóm.' };
+    return { ok: true, group: { id: row.id, name: row.name, sortOrder: row.sortOrder, materialCount: 0 } };
   } catch (error) {
     // Hai người cùng tạo một tên: chỉ mục duy nhất theo lower(name) ở database chặn trường hợp này.
     if (isUniqueViolation(error)) return { ok: false, error: 'Tên nhóm đã tồn tại.' };

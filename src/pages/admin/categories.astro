@@ -135,40 +135,55 @@ const bannerError = slugError || nameError ? '' : formError;
         {editingId && <a class="btn" href={routes.adminCategories}>Hủy</a>}
       </div>
     </form>
-    <section class="category-panel">
+    <section class="category-panel tag-list-panel">
       <h2 class="category-panel-title">Danh sách</h2>
       {
         categories.length === 0 ? (
-          <p class="text-muted">Chưa có danh mục.</p>
+          <p class="post-empty">Chưa có danh mục.</p>
         ) : (
-          <ul>
-            {categories.map((category) => (
-              <li class:list={['category-row', editingId === String(category.id) && 'category-row-current']}>
-                <div>
-                  <p class="font-semibold">{category.name}</p>
-                  <p class="text-sm text-muted">{category.slug}</p>
-                  <p class="text-sm text-muted">{category.postCount === 0 ? 'Chưa có bài' : category.postCount === 1 ? '1 bài' : `${category.postCount} bài`}</p>
-                </div>
-                <div class="post-actions">
-                  <a href={`${routes.adminCategories}?edit=${category.id}`}>Sửa</a>
-                  <span class="post-actions-sep" aria-hidden="true">|</span>
-                  <form
-                    method="post"
-                    data-busy
-                    data-confirm-title={`Xóa “${category.name}”?`}
-                    data-confirm={categoryDeleteWarning(category.postCount)}
-                    data-confirm-ok="Xóa"
-                    data-confirm-tone="danger"
-                  >
-                    <input type="hidden" name="csrf" value={session.csrfToken} />
-                    <input type="hidden" name="intent" value="delete" />
-                    <input type="hidden" name="id" value={category.id} />
-                    <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
-                  </form>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div data-category-list>
+            <table class="post-table">
+              <thead>
+                <tr>
+                  <th>Danh mục</th>
+                  <th>Số bài</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {categories.map((category) => (
+                  <tr class:list={[editingId === String(category.id) && 'is-current']}>
+                    <td data-label="Danh mục">
+                      <div class="min-w-0">
+                        <a class="post-title" href={`${routes.adminCategories}?edit=${category.id}`}>{category.name}</a>
+                        <p class="truncate text-sm text-muted">{routes.knowledgeCategory(category.slug)}</p>
+                      </div>
+                    </td>
+                    <td data-label="Số bài">{category.postCount === 0 ? 'Chưa có bài' : category.postCount === 1 ? '1 bài' : `${category.postCount} bài`}</td>
+                    <td data-label="Thao tác">
+                      <div class="post-actions">
+                        <a href={`${routes.adminCategories}?edit=${category.id}`}>Sửa</a>
+                        <span class="post-actions-sep" aria-hidden="true">|</span>
+                        <form
+                          method="post"
+                          data-busy
+                          data-confirm-title={`Xóa “${category.name}”?`}
+                          data-confirm={categoryDeleteWarning(category.postCount)}
+                          data-confirm-ok="Xóa"
+                          data-confirm-tone="danger"
+                        >
+                          <input type="hidden" name="csrf" value={session.csrfToken} />
+                          <input type="hidden" name="intent" value="delete" />
+                          <input type="hidden" name="id" value={category.id} />
+                          <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )
       }
     </section>
