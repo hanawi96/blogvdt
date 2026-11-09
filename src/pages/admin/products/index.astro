@@ -3,11 +3,12 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { listTopSellingProducts, searchActiveProducts } from '../../../features/posts/product-cards';
 import { profitOf } from '../../../features/materials/costing';
 import { loadProductCosts } from '../../../features/materials/recipes';
-import { ratingFormValue } from '../../../features/products/form';
+import { CORD_TYPES, ratingFormValue } from '../../../features/products/form';
 import {
   listProducts,
   PRODUCT_BULK_MAX,
   productAdminQuery,
+  productListCord,
   productListSort,
   type ProductListSort,
 } from '../../../features/products/products';
@@ -36,6 +37,7 @@ const statusParam = Astro.url.searchParams.get('status') ?? '';
 const status: ProductStatus | '' = isProductStatus(statusParam) ? statusParam : '';
 const categoryValue = Number(Astro.url.searchParams.get('category') ?? '');
 const categoryId = Number.isInteger(categoryValue) && categoryValue > 0 ? categoryValue : null;
+const cord = productListCord(Astro.url.searchParams.get('cord'));
 const sort = productListSort(Astro.url.searchParams.get('sort'));
 const page = Number(Astro.url.searchParams.get('page') ?? '1');
 const deleted = Astro.url.searchParams.get('deleted') === '1';
@@ -59,7 +61,7 @@ let clientFilter = false;
 let costs = new Map<number, number>();
 try {
   const db = createDb(getDbBinding());
-  const filters = { query, status, sort, page: Number.isInteger(page) ? page : 1 };
+  const filters = { query, status, cord, sort, page: Number.isInteger(page) ? page : 1 };
   result = await listProducts(db, filters);
   // Lọc danh mục ngay trên trình duyệt chỉ khi mọi sản phẩm khớp đã nằm trong một trang; nhiều trang thì lọc ở server.
   clientFilter = result.pageCount === 1;
@@ -83,6 +85,8 @@ const sorts: { id: ProductListSort; label: string }[] = [
   { id: 'name', label: 'Tên A–Z' },
   { id: 'price-asc', label: 'Giá tăng dần' },
   { id: 'price-desc', label: 'Giá giảm dần' },
+  { id: 'stock-asc', label: 'Tồn ít → nhiều' },
+  { id: 'stock-desc', label: 'Tồn nhiều → ít' },
 ];
 
 const activeCategory = result?.categories.some((category) => category.id === categoryId) ? categoryId : null;
@@ -90,7 +94,7 @@ const isRowShown = (rowCategory: number | null) => !clientFilter || activeCatego
 const shownCount = result?.rows.filter((product) => isRowShown(product.categoryId)).length ?? 0;
 
 function pageHref(next: { page?: number }): string {
-  return productAdminQuery({ query, status, category: categoryId, sort, page: next.page ?? 1 });
+  return productAdminQuery({ query, status, category: categoryId, cord, sort, page: next.page ?? 1 });
 }
 ---
 
@@ -109,6 +113,13 @@ function pageHref(next: { page?: number }): string {
           <option value="active" selected={status === 'active'}>Đang bán</option>
           <option value="inactive" selected={status === 'inactive'}>Ngừng bán</option>
         </select>
+        <label class="sr-only" for="product-cord">Kiểu dây</label>
+        <select id="product-cord" class="field" name="cord">
+          <option value="" selected={cord === ''}>Tất cả kiểu dây</option>
+          {CORD_TYPES.map((item) => (
+            <option value={item} selected={cord === item}>{item}</option>
+          ))}
+        </select>
         <label class="sr-only" for="product-sort">Sắp xếp</label>
         <select id="product-sort" class="field" name="sort">
           {sorts.map((item) => (
@@ -119,11 +130,13 @@ function pageHref(next: { page?: number }): string {
     )
   }
   <div data-product-results>
-    {deleted && <p class="mb-4 text-primary-strong" role="status">Đã xóa sản phẩm. Đơn cũ vẫn giữ tên và giá lúc đặt.</p>}
-    {featured === '1' && <p class="mb-4 text-primary-strong" role="status">Đã đánh dấu nổi bật trên trang chủ.</p>}
-    {featured === '0' && <p class="mb-4 text-primary-strong" role="status">Đã bỏ nổi bật.</p>}
+    {deleted && (
+      <p class="mb-4 text-primary-strong" role="status" data-product-list-flash>Đã xóa sản phẩm. Đơn cũ vẫn giữ tên và giá lúc đặt.</p>
+    )}
+    {featured === '1' && <p class="mb-4 text-primary-strong" role="status" data-product-list-flash>Đã đánh dấu nổi bật trên trang chủ.</p>}
+    {featured === '0' && <p class="mb-4 text-primary-strong" role="status" data-product-list-flash>Đã bỏ nổi bật.</p>}
     {featureError && <p class="error-text mb-4" role="alert">Không đánh dấu nổi bật được. Chỉ sản phẩm đang bán mới hiện ở trang chủ.</p>}
-    {bulkNotice && <p class="mb-4 text-primary-strong" role="status">{bulkNotice}</p>}
+    {bulkNotice && <p class="mb-4 text-primary-strong" role="status" data-product-list-flash>{bulkNotice}</p>}
     {bulkError && (
       <p class="error-text mb-4" role="alert">Không thực hiện được thao tác hàng loạt. Chọn tối đa {PRODUCT_BULK_MAX} sản phẩm rồi thử lại.</p>
     )}
@@ -133,12 +146,12 @@ function pageHref(next: { page?: number }): string {
         <>
           {result.categories.length > 0 && (
             <nav class="post-filters product-presets" aria-label="Lọc theo danh mục" data-product-presets data-client-filter={clientFilter ? '' : undefined}>
-              <a href={productAdminQuery({ query, status, sort })} data-category="" aria-current={activeCategory === null ? 'page' : undefined}>
+              <a href={productAdminQuery({ query, status, cord, sort })} data-category="" aria-current={activeCategory === null ? 'page' : undefined}>
                 Tất cả ({result.allCount})
               </a>
               {result.categories.map((category) => (
                 <a
-                  href={productAdminQuery({ query, status, category: category.id, sort })}
+                  href={productAdminQuery({ query, status, category: category.id, cord, sort })}
                   data-category={category.id}
                   aria-current={activeCategory === category.id ? 'page' : undefined}
                 >
@@ -152,6 +165,7 @@ function pageHref(next: { page?: number }): string {
             <input type="hidden" name="q" value={query} />
             <input type="hidden" name="status" value={status} />
             <input type="hidden" name="category" value={activeCategory ?? ''} />
+            <input type="hidden" name="cord" value={cord} />
             <input type="hidden" name="sort" value={sort} />
             <input type="hidden" name="page" value={String(result.page)} />
             <span class="bulk-count" aria-live="polite" data-bulk-count>Đã chọn 0</span>
@@ -284,6 +298,7 @@ function pageHref(next: { page?: number }): string {
                                 <input type="hidden" name="q" value={query} />
                                 <input type="hidden" name="status" value={status} />
                                 <input type="hidden" name="category" value={activeCategory ?? ''} />
+                                <input type="hidden" name="cord" value={cord} />
                                 <input type="hidden" name="sort" value={sort} />
                                 <input type="hidden" name="page" value={String(result.page)} />
                                 <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
@@ -298,6 +313,7 @@ function pageHref(next: { page?: number }): string {
                                   <input type="hidden" name="q" value={query} />
                                   <input type="hidden" name="status" value={status} />
                                   <input type="hidden" name="category" value={activeCategory ?? ''} />
+                                  <input type="hidden" name="cord" value={cord} />
                                   <input type="hidden" name="sort" value={sort} />
                                   <input type="hidden" name="page" value={String(result.page)} />
                                   <button
@@ -613,10 +629,10 @@ function pageHref(next: { page?: number }): string {
       const lead = document.querySelector('[data-product-lead]');
       const nextLead = next.querySelector('[data-product-lead]');
       if (lead && nextLead) lead.textContent = nextLead.textContent;
-      for (const name of ['bulk', 'n', 'error', 'deleted', 'featured']) url.searchParams.delete(name);
       history.replaceState(null, '', url.pathname + url.search);
       anchor = null;
       syncSelection();
+      if (results.querySelector('[data-product-list-flash]')) window.setTimeout(hideListFlash, 2000);
     } catch {
       if (error) {
         error.textContent = 'Không thực hiện được. Tải lại trang rồi thử lại.';
@@ -654,7 +670,7 @@ function pageHref(next: { page?: number }): string {
         const value = data.get(name);
         return typeof value === 'string' ? value : '';
       };
-      const url = new URL(productListUrl(read('q'), read('status'), read('sort'), read('category')), location.origin);
+      const url = new URL(productListUrl(read('q'), read('status'), read('sort'), read('category'), read('cord')), location.origin);
       if (url.pathname + url.search === location.pathname + location.search) return;
       productList()?.setAttribute('aria-busy', 'true');
       location.assign(url);
@@ -679,13 +695,34 @@ function pageHref(next: { page?: number }): string {
 
   syncSelection();
 
-  function productListUrl(query: string, status: string, sort: string, category: string): string {
+  function hideListFlash() {
+    for (const flash of document.querySelectorAll<HTMLElement>('[data-product-list-flash]')) {
+      flash.hidden = true;
+      flash.textContent = '';
+    }
+    const url = new URL(location.href);
+    let dirty = false;
+    for (const name of ['deleted', 'featured', 'bulk', 'n']) {
+      if (url.searchParams.has(name)) {
+        url.searchParams.delete(name);
+        dirty = true;
+      }
+    }
+    if (dirty) history.replaceState(null, '', url.pathname + url.search);
+  }
+
+  if (document.querySelector('[data-product-list-flash]')) {
+    window.setTimeout(hideListFlash, 2000);
+  }
+
+  function productListUrl(query: string, status: string, sort: string, category: string, cord: string): string {
     const params = new URLSearchParams();
     const term = query.trim();
     const categoryId = Number(category);
     if (term) params.set('q', term);
     if (status === 'active' || status === 'inactive') params.set('status', status);
     if (Number.isInteger(categoryId) && categoryId > 0) params.set('category', String(categoryId));
+    if (cord === 'Dây rút' || cord === 'Dây co giãn') params.set('cord', cord);
     if (sort && sort !== 'newest') params.set('sort', sort);
     const text = params.toString();
     return text ? `/admin/products?${text}` : '/admin/products';

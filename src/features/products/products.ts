@@ -8,24 +8,31 @@ import { routes } from '../../lib/routes';
 import { mediaMapByIds } from '../media/media';
 import type { RecipeLine } from '../materials/costing';
 import { insertRecipe, recipeWrites, validateRecipe } from '../materials/recipes';
+import { CORD_TYPES } from './form';
 import { canFeatureProduct, isProductStatus, type ProductStatus } from './status';
 
 /** Số sản phẩm mỗi trang danh sách admin. */
 export const PRODUCT_PAGE_SIZE = 20;
 /** Giới hạn chọn hàng loạt (khớp một trang; tránh payload quá lớn). */
 export const PRODUCT_BULK_MAX = PRODUCT_PAGE_SIZE;
-const PRODUCT_SORTS = ['newest', 'oldest', 'name', 'price-asc', 'price-desc'] as const;
+const PRODUCT_SORTS = ['newest', 'oldest', 'name', 'price-asc', 'price-desc', 'stock-asc', 'stock-desc'] as const;
 
 export type ProductListSort = (typeof PRODUCT_SORTS)[number];
+export type ProductListCord = (typeof CORD_TYPES)[number] | '';
 
 export function productListSort(value: string | null | undefined): ProductListSort {
   return PRODUCT_SORTS.find((sort) => sort === value) ?? 'newest';
+}
+
+export function productListCord(value: string | null | undefined): ProductListCord {
+  return CORD_TYPES.find((cord) => cord === value) ?? '';
 }
 
 export function productAdminQuery(input: {
   query?: string;
   status?: string;
   category?: number | null;
+  cord?: string;
   sort?: string;
   page?: number;
   notice?: 'deleted' | 'featured-on' | 'featured-off' | 'feature-error';
@@ -35,11 +42,13 @@ export function productAdminQuery(input: {
   const query = (input.query ?? '').replace(/[%_]/g, '').trim().slice(0, 160);
   const status = isProductStatus(input.status ?? '') ? input.status : '';
   const category = input.category && Number.isInteger(input.category) && input.category > 0 ? input.category : 0;
+  const cord = productListCord(input.cord);
   const sort = productListSort(input.sort);
   const page = input.page && Number.isInteger(input.page) && input.page > 1 ? input.page : 0;
   if (query) params.set('q', query);
   if (status) params.set('status', status);
   if (category) params.set('category', String(category));
+  if (cord) params.set('cord', cord);
   if (sort !== 'newest') params.set('sort', sort);
   if (page) params.set('page', String(page));
   if (input.notice === 'deleted') params.set('deleted', '1');
@@ -66,6 +75,7 @@ export function readProductListContext(form: FormData) {
     query: read('q'),
     status: read('status'),
     category: Number.isInteger(category) && category > 0 ? category : null,
+    cord: productListCord(read('cord')),
     sort: read('sort'),
     page: Number.isInteger(page) && page > 0 ? page : 1,
   };
@@ -93,17 +103,26 @@ export type ProductInput = {
 
 export async function listProducts(
   db: AppDb,
-  filters: { query: string; status: ProductStatus | ''; categoryId?: number | null; page: number; sort?: ProductListSort },
+  filters: {
+    query: string;
+    status: ProductStatus | '';
+    categoryId?: number | null;
+    cord?: ProductListCord;
+    page: number;
+    sort?: ProductListSort;
+  },
 ) {
   const term = filters.query.replace(/[%_]/g, '').trim().slice(0, 160);
+  const cord = productListCord(filters.cord);
   const shared = [];
   if (filters.status) shared.push(eq(products.status, filters.status));
   if (term) shared.push(like(products.name, `%${term}%`));
+  if (cord) shared.push(eq(products.cordType, cord));
   const conditions = filters.categoryId ? [...shared, eq(products.categoryId, filters.categoryId)] : shared;
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = Math.max(1, filters.page);
   const sort = productListSort(filters.sort);
-  const filtered = Boolean(term || filters.status || filters.categoryId);
+  const filtered = Boolean(term || filters.status || filters.categoryId || cord);
   const [totalRows, libraryRows, sharedRows, categoryRows, rows] = await Promise.all([
     db.select({ value: count() }).from(products).where(where),
     filtered ? db.select({ value: count() }).from(products) : Promise.resolve([]),
@@ -176,6 +195,8 @@ function productOrder(sort: ProductListSort) {
   if (sort === 'name') return [asc(products.name), desc(products.id)] as const;
   if (sort === 'price-asc') return [asc(products.price), desc(products.id)] as const;
   if (sort === 'price-desc') return [desc(products.price), desc(products.id)] as const;
+  if (sort === 'stock-asc') return [asc(products.stockQty), desc(products.id)] as const;
+  if (sort === 'stock-desc') return [desc(products.stockQty), desc(products.id)] as const;
   return [desc(products.updatedAt), desc(products.id)] as const;
 }
 

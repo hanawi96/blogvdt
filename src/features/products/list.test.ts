@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { parseProductForm, ratingFormValue } from './form';
-import { productAdminQuery, productListSort, readProductBulk } from './products';
+import { productAdminQuery, productListCord, productListSort, readProductBulk } from './products';
 import { canFeatureProduct } from './status';
 
 describe('danh sách sản phẩm', () => {
   it('chỉ nhận các kiểu sắp xếp đã định', () => {
     expect(productListSort('price-desc')).toBe('price-desc');
+    expect(productListSort('stock-asc')).toBe('stock-asc');
+    expect(productListSort('stock-desc')).toBe('stock-desc');
     expect(productListSort('updated')).toBe('newest');
     expect(productListSort(null)).toBe('newest');
   });
@@ -16,6 +18,11 @@ describe('danh sách sản phẩm', () => {
     );
     expect(productAdminQuery({ category: 4, status: 'active' })).toBe('/admin/products?status=active&category=4');
     expect(productAdminQuery({ category: 0 })).toBe('/admin/products');
+    expect(productAdminQuery({ cord: 'Dây rút', sort: 'stock-desc' })).toBe(
+      '/admin/products?cord=D%C3%A2y+r%C3%BAt&sort=stock-desc',
+    );
+    expect(productListCord('Dây co giãn')).toBe('Dây co giãn');
+    expect(productListCord('Chun')).toBe('');
     expect(productAdminQuery({ status: 'archived', sort: 'random', notice: 'feature-error' })).toBe(
       '/admin/products?error=feature',
     );
