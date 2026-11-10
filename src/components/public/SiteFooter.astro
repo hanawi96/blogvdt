@@ -1,22 +1,53 @@
 ---
-import { POLICIES } from '../../features/content/policies';
 import type { PublicSite } from '../../features/settings/settings';
 import { routes } from '../../lib/routes';
-import LeafSprig from './LeafSprig.astro';
 
 interface Props {
   site: PublicSite;
 }
 
 const { site } = Astro.props;
-const phoneHref = site.phone.replace(/[^\d+]/g, '');
+const brandName = 'Vòng dâu tằm by Ánh';
+const brandLead =
+  'Mỗi chiếc vòng được làm thủ công tỉ mỉ, gửi gắm yêu thương và mong ước tốt đẹp nhất đến bé yêu của mẹ';
+const phoneDisplay = '0972.483.892';
+const phoneHref = '0972483892';
+const email = 'vongdautambyvui@gmail.com';
+const address = 'Thôn Đông Cao, Mê Linh, Hà Nội';
 const year = new Date().getFullYear();
 const about = [
   [routes.homeAbout, 'Giới thiệu'],
-  [routes.knowledgeList, 'Bài viết cho mẹ'],
-  [routes.catalog, 'Mẫu vòng dâu tằm'],
+  ['/#quy-trinh', 'Quy trình thủ công'],
+  ['/#lien-he', 'Điều khoản dịch vụ'],
+] as const;
+const help = [
+  [routes.policy('doi-tra'), 'Chính sách đổi trả'],
+  ['/#faq', 'Phương thức thanh toán'],
+  ['/#faq', 'Câu hỏi thường gặp'],
 ] as const;
 const heart = 'M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z';
+const social = [
+  {
+    label: 'Facebook',
+    href: site.facebookUrl,
+    path: 'M14 8h2.5V4.5H14A3.5 3.5 0 0 0 10.5 8v2.5H8V14h2.5v6.5H14V14h2.5l.5-3.5h-3V8.5a.5.5 0 0 1 .5-.5z',
+  },
+  {
+    label: 'Instagram',
+    href: '',
+    path: 'M8.5 4.5h7A3.5 3.5 0 0 1 19 8v7a3.5 3.5 0 0 1-3.5 3.5h-7A3.5 3.5 0 0 1 5 15V8A3.5 3.5 0 0 1 8.5 4.5zM12 9.2A2.8 2.8 0 1 0 12 14.8 2.8 2.8 0 0 0 12 9.2zM16.2 7.6h.01',
+  },
+  {
+    label: 'TikTok',
+    href: '',
+    path: 'M14.5 5.5c.7 1.6 2 2.7 3.7 3.1v2.4c-1.3-.1-2.5-.6-3.5-1.4v5.3a4.6 4.6 0 1 1-4.6-4.6c.3 0 .6 0 .9.1v2.5a2.1 2.1 0 1 0 1.5 2V5.5h2z',
+  },
+  {
+    label: 'YouTube',
+    href: '',
+    path: 'M10 9.2v5.6l4.8-2.8L10 9.2zM5.5 8.2c0-1.5 1.2-2.7 2.7-2.7h7.6c1.5 0 2.7 1.2 2.7 2.7v7.6c0 1.5-1.2 2.7-2.7 2.7H8.2c-1.5 0-2.7-1.2-2.7-2.7V8.2z',
+  },
+] as const;
 ---
 
 <footer id="lien-he" class="site-footer">
@@ -24,24 +55,23 @@ const heart = 'M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5
     <div class="site-footer-grid">
       <div class="site-footer-brand">
         <p class="site-footer-name">
-          {site.logoUrl ? <img src={site.logoUrl} alt="" width="32" height="32" /> : <LeafSprig />}
-          <span>{site.siteName}</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="is-filled" d={heart} /></svg>
+          <span>{brandName}</span>
         </p>
-        {site.siteDescription && <p class="site-footer-lead">{site.siteDescription}</p>}
-        {(site.facebookUrl || site.zaloUrl) && (
-          <div class="site-footer-social">
-            {site.facebookUrl && (
-              <a href={site.facebookUrl} aria-label="Facebook" rel="noopener" target="_blank">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 8h2.5V4.5H14A3.5 3.5 0 0 0 10.5 8v2.5H8V14h2.5v6.5H14V14h2.5l.5-3.5h-3V8.5a.5.5 0 0 1 .5-.5z" /></svg>
+        <p class="site-footer-lead">{brandLead}</p>
+        <div class="site-footer-social">
+          {social.map((item) =>
+            item.href ? (
+              <a href={item.href} aria-label={item.label} rel="noopener" target="_blank">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d={item.path} /></svg>
               </a>
-            )}
-            {site.zaloUrl && (
-              <a href={site.zaloUrl} aria-label="Zalo" rel="noopener" target="_blank">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5c-4.7 0-8.5 3.1-8.5 7 0 2.2 1.2 4.1 3.1 5.4L6 19.5l3.2-1.6c.9.2 1.8.4 2.8.4 4.7 0 8.5-3.1 8.5-7s-3.8-6.8-8.5-6.8z" /><path d="M8.5 10h3l-3 3.5h3M13.5 10v3.5M15.5 10v3.5h1.5" /></svg>
-              </a>
-            )}
-          </div>
-        )}
+            ) : (
+              <span class="site-footer-social-muted" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d={item.path} /></svg>
+              </span>
+            ),
+          )}
+        </div>
       </div>
 
       <nav class="site-footer-col" aria-labelledby="footer-about">
@@ -58,12 +88,12 @@ const heart = 'M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5
 
       <nav class="site-footer-col" aria-labelledby="footer-help">
         <p class="site-footer-label" id="footer-help">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="is-filled" d={heart} /></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 14.5v-3.2A7 7 0 0 1 12 4.5a7 7 0 0 1 7 6.8v3.2M9 18.5a3 3 0 0 0 6 0" /><path d="M5 12.8h1.4A1.3 1.3 0 0 1 7.7 14v1.2A1.3 1.3 0 0 1 6.4 16.5H5v-3.7zM19 12.8h-1.4a1.3 1.3 0 0 0-1.3 1.2v1.2a1.3 1.3 0 0 0 1.3 1.3H19v-3.7z" /></svg>
           Hỗ trợ mẹ
         </p>
         <ul>
-          {POLICIES.map((policy) => (
-            <li><a href={routes.policy(policy.slug)}>Chính sách {policy.title.toLowerCase()}</a></li>
+          {help.map(([href, label]) => (
+            <li><a href={href}>{label}</a></li>
           ))}
         </ul>
       </nav>
@@ -74,18 +104,9 @@ const heart = 'M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5
           Liên hệ
         </p>
         <ul class="site-footer-contact">
-          {phoneHref && (
-            <li>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 4.5h2.6l1.3 3.6-1.8 1.2a10 10 0 0 0 6 6l1.2-1.8 3.6 1.3v2.6a1.8 1.8 0 0 1-2 1.8A15 15 0 0 1 4.8 6.5a1.8 1.8 0 0 1 1.8-2z" /></svg>
-              <a href={`tel:${phoneHref}`}>{site.phone}</a>
-            </li>
-          )}
-          {site.contactInfo && (
-            <li>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s6-5.4 6-10.5a6 6 0 0 0-12 0c0 5.1 6 10.5 6 10.5z" /><circle cx="12" cy="10" r="2.2" /></svg>
-              <span>{site.contactInfo}</span>
-            </li>
-          )}
+          <li><a href={`tel:${phoneHref}`}>{phoneDisplay}</a></li>
+          <li><a href={`mailto:${email}`}>{email}</a></li>
+          <li><span>{address}</span></li>
         </ul>
       </div>
     </div>
@@ -98,6 +119,6 @@ const heart = 'M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5
       Làm bằng tình yêu thương dành cho bé yêu
       <svg viewBox="0 0 24 24" aria-hidden="true"><path class="is-filled" d={heart} /></svg>
     </p>
-    <p class="site-footer-copy">© {year} {site.siteName}. Tất cả quyền được bảo lưu.</p>
+    <p class="site-footer-copy">© {year} {brandName}. Tất cả quyền được bảo lưu.</p>
   </div>
 </footer>

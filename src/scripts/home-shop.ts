@@ -18,6 +18,8 @@ type ApiProduct = {
   discountPercent: number | null;
   weightScale: string;
   shipBadge?: ProductShipBadge;
+  ratingLabel?: string | null;
+  sold?: number;
   coverUrl: string | null;
   coverAlt: string;
   coverWidth: number | null;
@@ -53,7 +55,7 @@ function boot() {
       page: Number(root.dataset.page || '1') || 1,
       pageCount: Number(root.dataset.pageCount || '1') || 1,
       category: root.dataset.category || '',
-      sort: root.dataset.sort || 'ban-chay',
+      sort: root.dataset.sort || 'mac-dinh',
     };
   }
 
@@ -101,6 +103,15 @@ function boot() {
       : '<span class="home-shop-media-empty" aria-hidden="true"></span>';
     const badge =
       product.discountPercent != null ? `<span class="home-shop-badge">-${product.discountPercent}%</span>` : '';
+    const sold = Math.max(0, Number(product.sold) || 0);
+    const salesBadge =
+      product.ratingLabel || sold > 0
+        ? `<span class="product-sales-badge">${
+            product.ratingLabel
+              ? `<span class="product-sales-star" aria-hidden="true">★</span><span class="product-sales-score">${escapeHtml(product.ratingLabel)}</span>`
+              : ''
+          }<span class="product-sales-count">(${sold.toLocaleString('vi-VN')} lượt bán)</span></span>`
+        : '';
     const compare =
       product.comparePrice != null
         ? `<span class="home-shop-price-was">${formatVnd(product.comparePrice)}</span>`
@@ -114,14 +125,18 @@ function boot() {
     const addId = `home-add-${product.id}`;
     const addTitleId = `home-add-title-${product.id}`;
     const weights = weightLabels(product.weightScale);
+    const buyIcon =
+      '<svg class="home-shop-btn-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true"><path stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z"></path></svg>';
+    const plusIcon =
+      '<svg class="home-shop-btn-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true"><path stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"></path></svg>';
     const cart = needsWeight
-      ? `<button class="btn home-shop-cart" type="button" data-add-open aria-haspopup="dialog" aria-controls="${addId}">Thêm giỏ</button>`
+      ? `<button class="btn home-shop-cart" type="button" data-add-open aria-haspopup="dialog" aria-controls="${addId}">${plusIcon} Thêm giỏ</button>`
       : `<form class="home-shop-cart-form" method="post" action="${cartPath}" data-cart-form>
           <input type="hidden" name="intent" value="add" />
           <input type="hidden" name="slug" value="${escapeHtml(product.slug)}" />
           <input type="hidden" name="weight" value="" />
           <input type="hidden" name="quantity" value="1" />
-          <button class="btn home-shop-cart" type="submit">Thêm giỏ</button>
+          <button class="btn home-shop-cart" type="submit">${plusIcon} Thêm giỏ</button>
         </form>`;
     const dialog = needsWeight
       ? `<dialog id="${addId}" class="add-dialog" aria-labelledby="${addTitleId}">
@@ -158,13 +173,13 @@ function boot() {
         </dialog>`
       : '';
     return `<li><article class="home-shop-card">
-      <a class="home-shop-media" href="${href}" tabindex="-1" aria-hidden="true">${media}${badge}</a>
+      <a class="home-shop-media" href="${href}" tabindex="-1" aria-hidden="true">${media}${badge}${salesBadge}</a>
       <div class="home-shop-body">
         <h3 class="home-shop-name"><a href="${href}">${name}</a></h3>
         <p class="home-shop-price"><span class="home-shop-price-now">${formatVnd(product.price)}</span>${compare}</p>
         ${shipBadge}
         <div class="home-shop-actions">
-          <a class="btn btn-primary home-shop-buy" href="${orderHref}" data-order-open data-slug="${escapeHtml(product.slug)}" data-name="${name}" data-price="${product.price}" data-scale="${escapeHtml(product.weightScale)}" data-cover="${escapeHtml(product.coverUrl ?? '')}">Mua ngay</a>
+          <a class="btn btn-primary home-shop-buy" href="${orderHref}" data-order-open data-slug="${escapeHtml(product.slug)}" data-name="${name}" data-price="${product.price}" data-scale="${escapeHtml(product.weightScale)}" data-cover="${escapeHtml(product.coverUrl ?? '')}">${buyIcon} Mua ngay</a>
           ${cart}
         </div>
       </div>
@@ -261,8 +276,12 @@ function boot() {
     if (!root.contains(target) && !(cats && cats.contains(target))) return;
     event.preventDefault();
     const nextCategory = target.dataset.category !== undefined ? target.dataset.category : state().category;
-    const nextSort = target.dataset.sort !== undefined ? target.dataset.sort : state().sort;
-    void replaceList(nextCategory, nextSort || 'ban-chay');
+    let nextSort = state().sort;
+    if (target.dataset.sort !== undefined) {
+      // Bấm lại bộ lọc đang chọn → về mặc định (giá thấp → cao).
+      nextSort = target.dataset.sort === state().sort ? 'mac-dinh' : target.dataset.sort;
+    }
+    void replaceList(nextCategory, nextSort || 'mac-dinh');
     if (target.dataset.category !== undefined) {
       document.getElementById('san-pham')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }

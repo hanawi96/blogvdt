@@ -5,6 +5,7 @@ import { CART_MAX_QUANTITY } from '../../features/cart/cart';
 import { requiresWeight, weightOptions, type WeightScale } from '../../features/products/weight';
 import type { ProductShipBadge } from '../../features/shipping/customer-fee';
 import FreeShipBadge from './FreeShipBadge.astro';
+import ProductSalesBadge from './ProductSalesBadge.astro';
 import QtyStepper from './QtyStepper.astro';
 
 interface Props {
@@ -16,6 +17,8 @@ interface Props {
     comparePrice: number | null;
     weightScale: WeightScale;
     shipBadge?: ProductShipBadge;
+    ratingLabel?: string | null;
+    sold?: number;
     coverUrl: string | null;
     coverAlt: string;
     coverWidth: number | null;
@@ -44,7 +47,7 @@ const orderAttrs = {
 ---
 
 <article class="overflow-hidden rounded-lg border border-line bg-surface">
-  <a href={href}>
+  <a class="catalog-card-media" href={href}>
     {
       product.coverUrl ? (
         <img
@@ -60,6 +63,7 @@ const orderAttrs = {
         <span class="block aspect-square bg-canvas" aria-hidden="true"></span>
       )
     }
+    <ProductSalesBadge ratingLabel={product.ratingLabel ?? null} sold={product.sold ?? 0} />
   </a>
   <div class="p-3">
     <h2 class="text-base font-semibold"><a href={href}>{product.name}</a></h2>

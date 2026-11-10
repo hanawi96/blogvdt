@@ -1,7 +1,6 @@
 ---
 import type { PublicSite } from '../../features/settings/settings';
 import { routes } from '../../lib/routes';
-import LeafSprig from './LeafSprig.astro';
 
 interface Props {
   site: PublicSite;
@@ -9,6 +8,7 @@ interface Props {
 
 const { site } = Astro.props;
 const path = Astro.url.pathname;
+const brandName = 'Vòng dâu tằm by Ánh';
 const items = [
   [routes.home, 'Trang chủ'],
   [routes.knowledgeList, 'Bài viết'],
@@ -30,13 +30,23 @@ function current(href: string): boolean {
     <a href={routes.home} class="site-brand">
       {
         site.logoUrl ? (
-          <img src={site.logoUrl} alt="" class="site-brand-mark" width="40" height="40" />
-        ) : (
-          <span class="site-brand-fallback" aria-hidden="true"><LeafSprig /></span>
-        )
+          <img src={site.logoUrl} alt="" class="site-brand-mark site-brand-logo" width="40" height="40" />
+        ) : null
       }
+      <span class="site-brand-heart" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22">
+          <path
+            fill="currentColor"
+            d="M12 20.4s-6.8-4.2-6.8-9.2A3.9 3.9 0 0 1 12 8.7a3.9 3.9 0 0 1 6.8 2.5c0 5-6.8 9.2-6.8 9.2z"
+          ></path>
+          <path
+            fill="currentColor"
+            d="M18.2 5.1 18.7 4l.5 1.1 1.1.5-1.1.5-.5 1.1-.5-1.1-1.1-.5 1.1-.5zM20.4 7.6l.25-.55.25.55.55.25-.55.25-.25.55-.25-.55-.55-.25.55-.25z"
+          ></path>
+        </svg>
+      </span>
       <span class="site-brand-text">
-        <span class="site-brand-name">{site.siteName}</span>
+        <span class="site-brand-name">{brandName}</span>
         <span class="site-brand-tag">Thủ công cho mẹ &amp; bé</span>
       </span>
     </a>
@@ -52,26 +62,44 @@ function current(href: string): boolean {
     </nav>
 
     <div class="site-search" id="site-search" data-site-search hidden>
-      <form class="site-search-form" action={routes.search} method="get" role="search" data-site-search-form>
-        <label class="sr-only" for="site-search-q">Tìm bài viết hoặc mẫu vòng</label>
-        <input
-          id="site-search-q"
-          class="site-search-input"
-          type="search"
-          name="q"
-          maxlength="80"
-          placeholder="Tìm bài viết, mẫu vòng…"
-          autocomplete="off"
-          enterkeyhint="search"
-          data-site-search-input
-        />
-        <button class="site-search-submit" type="submit">Tìm</button>
-      </form>
-    <div class="site-search-panel" data-site-search-panel hidden>
-      <p class="site-search-status" data-site-search-status hidden></p>
-      <div data-site-search-groups></div>
-      <a class="site-search-all" data-site-search-all hidden href={routes.search}>Xem tất cả kết quả</a>
-    </div>
+      <div class="site-search-sheet">
+        <div class="site-search-sheet-head">
+          <button class="site-search-close" type="button" data-site-search-close aria-label="Đóng tìm kiếm">
+            <span aria-hidden="true">←</span>
+          </button>
+          <form class="site-search-form" action={routes.search} method="get" role="search" data-site-search-form>
+            <label class="sr-only" for="site-search-q">Tìm bài viết hoặc mẫu vòng</label>
+            <input
+              id="site-search-q"
+              class="site-search-input"
+              type="search"
+              name="q"
+              maxlength="80"
+              placeholder="Tìm bài viết, mẫu vòng…"
+              autocomplete="off"
+              enterkeyhint="search"
+              data-site-search-input
+            />
+            <button class="site-search-submit" type="submit">Tìm</button>
+          </form>
+        </div>
+        <div class="site-search-sheet-body">
+          <div class="site-search-recent" data-site-search-recent hidden>
+            <div class="site-search-recent-head">
+              <p class="site-search-recent-title">Tìm gần đây</p>
+              <button class="site-search-recent-clear" type="button" data-site-search-recent-clear>
+                Xóa
+              </button>
+            </div>
+            <ul class="site-search-recent-list" data-site-search-recent-list></ul>
+          </div>
+          <div class="site-search-panel" data-site-search-panel hidden>
+            <p class="site-search-status" data-site-search-status hidden></p>
+            <div data-site-search-groups></div>
+            <a class="site-search-all" data-site-search-all hidden href={routes.search}>Xem tất cả kết quả</a>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="site-header-tools">
@@ -92,12 +120,15 @@ function current(href: string): boolean {
         aria-label="Giỏ hàng"
         aria-current={path === routes.cart ? 'page' : undefined}
       >
-        <svg class="site-cart-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-          <path d="M6.5 8h11l-.8 11H7.3L6.5 8z"></path>
-          <path d="M9 8V6.8A3 3 0 0 1 12 4a3 3 0 0 1 3 2.8V8"></path>
+        <svg class="site-cart-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="20" height="20" aria-hidden="true">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M15.75 10.5V6a3.75 3.75 0 1 0-7.5 0v4.5m11.356-1.993 1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 0 1-1.12-1.243l1.264-12A1.125 1.125 0 0 1 5.513 7.5h12.974c.576 0 1.059.435 1.119 1.007ZM8.625 10.5a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm7.5 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"
+          ></path>
         </svg>
         <span class="site-cart-label">Giỏ</span>
-        <span class="site-cart-badge" data-cart-count hidden></span>
+        <span class="site-cart-badge" data-cart-count>0</span>
       </a>
       <button
         class="site-nav-toggle"
@@ -133,8 +164,8 @@ function current(href: string): boolean {
     const label = count > 0 ? `Giỏ hàng, ${count} chiếc` : 'Giỏ hàng';
     document.querySelectorAll('[data-cart-count]').forEach((node) => {
       if (!(node instanceof HTMLElement)) return;
-      node.hidden = count < 1;
-      node.textContent = count > 0 ? String(count) : '';
+      node.hidden = false;
+      node.textContent = String(count);
     });
     document.querySelectorAll('[data-cart-link]').forEach((node) => {
       if (node instanceof HTMLAnchorElement) node.setAttribute('aria-label', label);
@@ -164,13 +195,20 @@ function current(href: string): boolean {
   const header = document.querySelector('.site-header');
   const searchRoot = document.querySelector('[data-site-search]');
   const searchToggle = document.querySelector('[data-site-search-toggle]');
+  const searchClose = document.querySelector('[data-site-search-close]');
+  const searchForm = document.querySelector('[data-site-search-form]');
   const searchInput = document.querySelector('[data-site-search-input]');
   const searchPanel = document.querySelector('[data-site-search-panel]');
   const searchStatus = document.querySelector('[data-site-search-status]');
   const searchGroups = document.querySelector('[data-site-search-groups]');
   const searchAll = document.querySelector('[data-site-search-all]');
+  const recentRoot = document.querySelector('[data-site-search-recent]');
+  const recentList = document.querySelector('[data-site-search-recent-list]');
+  const recentClear = document.querySelector('[data-site-search-recent-clear]');
   const suggestUrl = routes.searchSuggest;
   const searchPage = routes.search;
+  const recentKey = 'vdt-search-recent';
+  const recentMax = 6;
   let searchTimer = 0;
   let searchSeq = 0;
 
@@ -186,11 +224,72 @@ function current(href: string): boolean {
 
   const wideQuery = window.matchMedia('(min-width: 48rem)');
 
+  function readRecent(): string[] {
+    try {
+      const raw = localStorage.getItem(recentKey);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.replace(/\s+/g, ' ').trim().slice(0, 80))
+        .filter(Boolean)
+        .slice(0, recentMax);
+    } catch {
+      return [];
+    }
+  }
+
+  function writeRecent(items: string[]) {
+    try {
+      localStorage.setItem(recentKey, JSON.stringify(items.slice(0, recentMax)));
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }
+
+  function rememberQuery(term: string) {
+    const q = term.replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (q.length < 2) return;
+    writeRecent([q, ...readRecent().filter((item) => item.toLowerCase() !== q.toLowerCase())]);
+  }
+
+  function renderRecent() {
+    if (!(recentRoot instanceof HTMLElement) || !(recentList instanceof HTMLElement)) return;
+    const items = readRecent();
+    recentList.replaceChildren();
+    if (items.length === 0) {
+      recentRoot.hidden = true;
+      return;
+    }
+    for (const item of items) {
+      const li = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'site-search-recent-item';
+      button.textContent = item;
+      button.addEventListener('click', () => {
+        if (!(searchInput instanceof HTMLInputElement)) return;
+        searchInput.value = item;
+        searchInput.focus();
+        void runSuggest(item);
+      });
+      li.appendChild(button);
+      recentList.appendChild(li);
+    }
+    recentRoot.hidden = false;
+  }
+
+  function hideRecent() {
+    if (recentRoot instanceof HTMLElement) recentRoot.hidden = true;
+  }
+
   function setSearchOpen(open: boolean) {
     if (!(searchRoot instanceof HTMLElement) || !(searchToggle instanceof HTMLButtonElement)) return;
     const wide = wideQuery.matches;
     searchRoot.hidden = wide ? false : !open;
     header?.classList.toggle('is-search-open', open && !wide);
+    document.body.classList.toggle('site-search-lock', open && !wide);
     searchToggle.setAttribute('aria-expanded', !wide && open ? 'true' : 'false');
     searchToggle.setAttribute('aria-label', !wide && open ? 'Đóng tìm kiếm' : 'Tìm kiếm');
     if (open && !wide) {
@@ -198,9 +297,19 @@ function current(href: string): boolean {
       if (searchInput instanceof HTMLInputElement) {
         searchInput.focus();
         searchInput.select();
+        if (searchInput.value.trim().length < 2) {
+          clearSuggest();
+          renderRecent();
+        } else {
+          void runSuggest(searchInput.value);
+        }
+      } else {
+        renderRecent();
       }
-    } else if (!open) {
+    } else if (!open && !wide) {
       clearSuggest();
+      hideRecent();
+      searchToggle.focus();
     }
   }
 
@@ -219,6 +328,7 @@ function current(href: string): boolean {
 
   function showStatus(text: string) {
     if (!(searchPanel instanceof HTMLElement) || !(searchStatus instanceof HTMLElement)) return;
+    hideRecent();
     searchPanel.hidden = false;
     searchStatus.hidden = false;
     searchStatus.textContent = text;
@@ -237,6 +347,9 @@ function current(href: string): boolean {
       const link = document.createElement('a');
       link.href = item.href;
       link.textContent = item.label;
+      link.addEventListener('click', () => {
+        if (searchInput instanceof HTMLInputElement) rememberQuery(searchInput.value);
+      });
       li.appendChild(link);
       if (item.meta) {
         const meta = document.createElement('span');
@@ -254,6 +367,7 @@ function current(href: string): boolean {
     const q = term.replace(/[%_]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
     if (q.length < 2) {
       clearSuggest();
+      renderRecent();
       return;
     }
     const seq = ++searchSeq;
@@ -281,6 +395,7 @@ function current(href: string): boolean {
         return;
       }
       if (!(searchPanel instanceof HTMLElement) || !(searchGroups instanceof HTMLElement)) return;
+      hideRecent();
       searchPanel.hidden = false;
       if (searchStatus instanceof HTMLElement) searchStatus.hidden = true;
       searchGroups.replaceChildren();
@@ -313,10 +428,22 @@ function current(href: string): boolean {
     if (!(searchToggle instanceof HTMLButtonElement)) return;
     setSearchOpen(searchToggle.getAttribute('aria-expanded') !== 'true');
   });
+  searchClose?.addEventListener('click', () => setSearchOpen(false));
+  recentClear?.addEventListener('click', () => {
+    writeRecent([]);
+    hideRecent();
+  });
+  searchForm?.addEventListener('submit', () => {
+    if (searchInput instanceof HTMLInputElement) rememberQuery(searchInput.value);
+  });
   searchInput?.addEventListener('input', () => {
     if (!(searchInput instanceof HTMLInputElement)) return;
     window.clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => void runSuggest(searchInput.value), 280);
+  });
+  searchInput?.addEventListener('focus', () => {
+    if (!(searchInput instanceof HTMLInputElement)) return;
+    if (searchInput.value.trim().length < 2) renderRecent();
   });
 
   toggle?.addEventListener('click', () => {
@@ -338,10 +465,22 @@ function current(href: string): boolean {
     }
   });
   wideQuery.addEventListener('change', (event) => {
-    if (event.matches) setNavOpen(false);
+    if (event.matches) {
+      setNavOpen(false);
+      document.body.classList.remove('site-search-lock');
+      header?.classList.remove('is-search-open');
+      if (searchRoot instanceof HTMLElement) searchRoot.hidden = false;
+      if (searchToggle instanceof HTMLButtonElement) {
+        searchToggle.setAttribute('aria-expanded', 'false');
+        searchToggle.setAttribute('aria-label', 'Tìm kiếm');
+      }
+      return;
+    }
     setSearchOpen(false);
   });
-  if (wideQuery.matches) setSearchOpen(false);
+  if (wideQuery.matches) {
+    if (searchRoot instanceof HTMLElement) searchRoot.hidden = false;
+  }
 
   paint(readCookie());
 

@@ -24,7 +24,7 @@ import { blogReadStatus, PRIVATE_PAGE_CACHE, PUBLIC_PAGE_CACHE } from '../lib/se
 import { routes } from '../lib/routes';
 
 const HOME_PHOTO_LIMIT = 5;
-const HOME_DEFAULT_SORT = 'ban-chay' as const;
+const HOME_DEFAULT_SORT = 'mac-dinh' as const;
 
 type DemoPhoto = {
   url: string;
@@ -112,7 +112,7 @@ function photoAt(photos: DemoPhoto[], index: number): DemoPhoto | null {
   return photos[index % photos.length] ?? null;
 }
 
-// Shop trên home: SSR chỉ trang 1 (12 SP). Filter qua ?danh-muc / ?sap-xep; mặc định bán chạy.
+// Shop trên home: SSR chỉ trang 1 (12 SP). Filter qua ?danh-muc / ?sap-xep; mặc định giá thấp → cao.
 const rawShop = readCatalogQuery(Astro.url.searchParams);
 const shopQuery: CatalogQuery = {
   q: '',
@@ -278,8 +278,7 @@ async function loadHome(query: CatalogQuery) {
                 <span class="home-hero-script">làm riêng theo cân nặng bé</span>
               </h1>
               <p class="home-lead">
-                Vòng làm từ cây dâu tằm Việt Nam thủ công, làm riêng theo cân nặng bé giúp bé ngủ ngoan,<br class="home-lead-break" />
-                tránh giật mình khi ngủ và các vấn đề tâm linh xấu cho bé.
+                Vòng làm từ cây dâu tằm Việt Nam thủ công, làm riêng theo cân nặng bé giúp bé ngủ ngoan, tránh giật mình khi ngủ và các vấn đề tâm linh xấu cho bé.
               </p>
               <div class="home-hero-proof">
                 <div class="home-hero-avatars" aria-hidden="true">
@@ -548,10 +547,13 @@ async function loadHome(query: CatalogQuery) {
         >
           <div class="home-shop-toolbar">
             <h2 id="san-pham-title" class="sr-only">Mẫu vòng đang nhận đặt</h2>
-            <div class="home-shop-sorts" role="group" aria-label="Sắp xếp sản phẩm">
+            <div class="home-shop-sorts" role="group" aria-label="Lọc sản phẩm">
               <a
                 class="home-sort-chip"
-                href={homeShopPath({ category: shopQuery.category, sort: 'ban-chay' })}
+                href={homeShopPath({
+                  category: shopQuery.category,
+                  sort: shopQuery.sort === 'ban-chay' ? 'mac-dinh' : 'ban-chay',
+                })}
                 data-home-filter
                 data-sort="ban-chay"
                 aria-current={shopQuery.sort === 'ban-chay' ? 'true' : undefined}
@@ -560,7 +562,10 @@ async function loadHome(query: CatalogQuery) {
               </a>
               <a
                 class="home-sort-chip"
-                href={homeShopPath({ category: shopQuery.category, sort: 'giam-gia' })}
+                href={homeShopPath({
+                  category: shopQuery.category,
+                  sort: shopQuery.sort === 'giam-gia' ? 'mac-dinh' : 'giam-gia',
+                })}
                 data-home-filter
                 data-sort="giam-gia"
                 aria-current={shopQuery.sort === 'giam-gia' ? 'true' : undefined}
@@ -596,9 +601,6 @@ async function loadHome(query: CatalogQuery) {
               Xem tiếp {CATALOG_PAGE_SIZE} mẫu
             </a>
           </div>
-          <p class="home-more">
-            <a href={routes.catalog}>Xem toàn bộ catalog <span aria-hidden="true">→</span></a>
-          </p>
           <OrderDialog />
         </section>
         <script>
@@ -668,10 +670,20 @@ async function loadHome(query: CatalogQuery) {
 
         <div class="home-fab" role="navigation" aria-label="Liên hệ nhanh">
           <a class="home-fab-btn home-fab-top" href="#noi-dung" aria-label="Lên đầu trang">↑</a>
-          {site.zaloUrl && (
-            <a class="home-fab-btn home-fab-zalo" href={site.zaloUrl} rel="noopener" target="_blank" aria-label="Chat Zalo">Z</a>
+          {(site.zaloUrl || site.facebookUrl) && (
+            <a
+              class="home-fab-btn home-fab-chat"
+              href={site.zaloUrl || site.facebookUrl}
+              rel="noopener"
+              target="_blank"
+              aria-label={site.zaloUrl ? 'Chat Zalo' : 'Chat Facebook'}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
+              </svg>
+            </a>
           )}
-          {site.facebookUrl && (
+          {site.facebookUrl && site.zaloUrl && (
             <a class="home-fab-btn home-fab-fb" href={site.facebookUrl} rel="noopener" target="_blank" aria-label="Facebook">f</a>
           )}
         </div>

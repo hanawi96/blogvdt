@@ -2,13 +2,14 @@ import { and, asc, count, desc, eq, like, sql, type SQL } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { media, productCategories, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { ratingFormValue } from './form';
 import { productShipBadge, type ProductShipBadge } from '../shipping/customer-fee';
 import { readWeightScale, type WeightScale } from './weight';
 
 export const CATALOG_PAGE_SIZE = 12;
 
 export const CATALOG_SORTS = [
-  { value: 'mac-dinh', label: 'Mặc định' },
+  { value: 'mac-dinh', label: 'Giá thấp đến cao' },
   { value: 'ban-chay', label: 'Bán chạy' },
   { value: 'giam-gia', label: 'Giảm giá nhiều' },
 ] as const;
@@ -92,6 +93,9 @@ export type CatalogCard = {
   comparePrice: number | null;
   weightScale: WeightScale;
   shipBadge: ProductShipBadge;
+  /** Điểm hiển thị (vd 5.0); null nếu chưa có rating. */
+  ratingLabel: string | null;
+  sold: number;
   coverUrl: string | null;
   coverAlt: string;
   coverWidth: number | null;
@@ -122,6 +126,8 @@ export async function listCatalogProducts(db: AppDb, query: CatalogQuery) {
       slug: products.slug,
       price: products.price,
       comparePrice: products.comparePrice,
+      rating: products.rating,
+      sold: soldCount,
       weightScale: productCategories.weightScale,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,
@@ -162,7 +168,8 @@ const discountRatio = sql<number>`(
 function catalogOrder(sort: CatalogSort) {
   if (sort === 'ban-chay') return [desc(soldCount), asc(products.sortOrder), asc(products.id)] as const;
   if (sort === 'giam-gia') return [desc(discountRatio), asc(products.sortOrder), asc(products.id)] as const;
-  return [asc(products.sortOrder), asc(products.id)] as const;
+  // Mặc định: giá thấp → cao
+  return [asc(products.price), asc(products.sortOrder), asc(products.id)] as const;
 }
 
 function readTerm(value: string | null): string {
@@ -190,6 +197,8 @@ function toCard(row: {
   slug: string;
   price: number;
   comparePrice: number | null;
+  rating: number;
+  sold: number;
   weightScale: string | null;
   categorySlug: string | null;
   coverKey: string | null;
@@ -197,6 +206,7 @@ function toCard(row: {
   coverWidth: number | null;
   coverHeight: number | null;
 }): CatalogCard {
+  const ratingLabel = ratingFormValue(row.rating);
   return {
     id: row.id,
     name: row.name,
@@ -205,6 +215,8 @@ function toCard(row: {
     comparePrice: visibleComparePrice(row.price, row.comparePrice),
     weightScale: readWeightScale(row.weightScale),
     shipBadge: productShipBadge(row.price, row.categorySlug),
+    ratingLabel: ratingLabel || null,
+    sold: Math.max(0, Number(row.sold) || 0),
     coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
     coverAlt: row.coverAlt ?? '',
     coverWidth: row.coverWidth,

@@ -1,0 +1,25 @@
+---
+interface Props {
+  ratingLabel: string | null;
+  sold: number;
+  class?: string;
+}
+
+const { ratingLabel, sold, class: className } = Astro.props;
+const soldText = sold.toLocaleString('vi-VN');
+const show = Boolean(ratingLabel) || sold > 0;
+---
+
+{
+  show && (
+    <span class:list={['product-sales-badge', className]}>
+      {ratingLabel ? (
+        <>
+          <span class="product-sales-star" aria-hidden="true">★</span>
+          <span class="product-sales-score">{ratingLabel}</span>
+        </>
+      ) : null}
+      <span class="product-sales-count">({soldText} lượt bán)</span>
+    </span>
+  )
+}
