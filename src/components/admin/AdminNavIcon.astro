@@ -12,6 +12,7 @@ interface Props {
     | 'costs'
     | 'discounts'
     | 'orders'
+    | 'invoices'
     | 'customers'
     | 'media'
     | 'seo'
@@ -145,6 +146,18 @@ const { name } = Astro.props;
     name === 'orders' && (
       <path
         d="M7 4.5h10v16H7v-16zm3 4h4M10 12h6M10 15.5h5"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.7"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      ></path>
+    )
+  }
+  {
+    name === 'invoices' && (
+      <path
+        d="M7 3.5h8l4 4V20.5H7V3.5zm8 0V8H19M9.5 12h6M9.5 15.5h6M9.5 19h4"
         fill="none"
         stroke="currentColor"
         stroke-width="1.7"

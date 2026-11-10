@@ -1,0 +1,721 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import {
+  INVOICE_EXPORT_MAX,
+  listInvoiceOrders,
+  parseInvoiceTab,
+  type InvoiceTab,
+} from '../../../features/orders/einvoice';
+import { createDb } from '../../../lib/db/client';
+import { getDbBinding } from '../../../lib/cloudflare/env';
+import { formatDateShort, formatTimeHm } from '../../../lib/datetime';
+import { formatVnd } from '../../../lib/money';
+import { routes } from '../../../lib/routes';
+
+export const prerender = false;
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+if (session.role !== 'admin') return Astro.redirect(routes.admin);
+
+const tab = parseInvoiceTab(Astro.url.searchParams.get('tab'));
+const page = Math.max(1, Number(Astro.url.searchParams.get('page') || 1) || 1);
+
+let result: Awaited<ReturnType<typeof listInvoiceOrders>> | null = null;
+let loadError = '';
+try {
+  result = await listInvoiceOrders(createDb(getDbBinding()), { tab, page });
+} catch (failure) {
+  console.error(JSON.stringify({ event: 'invoice_list_failed', name: failure instanceof Error ? failure.name : 'unknown' }));
+  loadError = 'Không tải được danh sách hóa đơn. Thử lại.';
+}
+
+const tabs: { value: InvoiceTab; label: string; count: number }[] = result
+  ? [
+      { value: 'ready', label: 'Cần xuất', count: result.counts.ready },
+      { value: 'waiting', label: 'Chờ đủ ngày', count: result.counts.waiting },
+      { value: 'done', label: 'Đã xuất', count: result.counts.done },
+    ]
+  : [
+      { value: 'ready', label: 'Cần xuất', count: 0 },
+      { value: 'waiting', label: 'Chờ đủ ngày', count: 0 },
+      { value: 'done', label: 'Đã xuất', count: 0 },
+    ];
+
+function tabHref(value: InvoiceTab, pageNum = 1) {
+  const params = new URLSearchParams();
+  if (value !== 'ready') params.set('tab', value);
+  if (pageNum > 1) params.set('page', String(pageNum));
+  const q = params.toString();
+  return q ? `${routes.adminInvoices}?${q}` : routes.adminInvoices;
+}
+
+const canExport = tab === 'ready' || tab === 'done';
+const emptyCopy =
+  tab === 'ready'
+    ? 'Chưa có đơn đủ 10 ngày kể từ ngày gửi để xuất HĐĐT.'
+    : tab === 'waiting'
+      ? 'Không có đơn đang chờ đủ ngày.'
+      : 'Chưa xuất hóa đơn nào.';
+---
+
+<AdminLayout title="Xuất hóa đơn điện tử">
+  <div slot="action" class="order-page-actions">
+    {canExport && result && result.total > 0 ? (
+      <button class="btn btn-primary" type="button" data-invoice-export disabled>
+        {tab === 'done' ? 'Tạo lại Excel' : 'Xuất HĐĐT'}
+      </button>
+    ) : null}
+    <button
+      class="btn order-export-history-btn"
+      type="button"
+      data-invoice-history-open
+      aria-haspopup="dialog"
+      aria-controls="invoice-export-dialog"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h8l4 4v14H7V3zM15 3v5h5M9 12h6M9 16h4" /></svg>
+      Lịch sử HĐĐT
+    </button>
+  </div>
+  <p slot="lead">
+    {result ? `${result.total} đơn · chờ 10 ngày sau khi gửi` : 'Xuất HĐĐT'}
+  </p>
+
+  {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
+  <p class="mb-4 text-primary-strong" role="status" data-admin-flash data-invoice-flash hidden></p>
+
+  <nav class="invoice-tabs" aria-label="Lọc hóa đơn">
+    {tabs.map((item) => (
+      <a
+        class:list={['invoice-tab', tab === item.value && 'is-current']}
+        href={tabHref(item.value)}
+        aria-current={tab === item.value ? 'page' : undefined}
+      >
+        {item.label}
+        <span class="invoice-tab-count">{item.count}</span>
+      </a>
+    ))}
+  </nav>
+
+  {result && result.total === 0 ? (
+    <section class="cms-empty">
+      <h2 class="cms-empty-title">{emptyCopy}</h2>
+      <p class="cms-empty-text">Đơn đã gửi đủ 10 ngày (không gửi bù, chưa xuất) sẽ hiện ở tab Cần xuất. Tải file trong lịch sử mới đánh dấu đã xuất.</p>
+      <a class="btn" href={routes.adminOrders}>Về đơn hàng</a>
+    </section>
+  ) : result ? (
+    <>
+      {canExport ? (
+        <form
+          class="invoice-bulk-bar invoice-row"
+          data-invoice-bulk
+          data-csrf={session.csrfToken}
+          data-tab={tab}
+          data-export-url={routes.adminInvoicesExport}
+          data-max={String(INVOICE_EXPORT_MAX)}
+        >
+          <label class="invoice-check invoice-bulk-select-all">
+            <span class="sr-only">Chọn tất cả</span>
+            <input type="checkbox" data-invoice-select-all />
+          </label>
+          <div class="invoice-col-head">Mã đơn hàng</div>
+          <div class="invoice-col-head">Khách hàng</div>
+          <div class="invoice-col-head">Tổng tiền</div>
+          <div class="invoice-col-head">SP</div>
+          <div class="invoice-col-head">Ngày gửi</div>
+          <div class="invoice-col-head">Trạng thái</div>
+          <span class="error-text invoice-bulk-error" role="alert" data-invoice-error hidden></span>
+        </form>
+      ) : (
+        <div class="invoice-bulk-bar invoice-row" aria-hidden="true">
+          <span class="invoice-check-spacer"></span>
+          <div class="invoice-col-head">Mã đơn hàng</div>
+          <div class="invoice-col-head">Khách hàng</div>
+          <div class="invoice-col-head">Tổng tiền</div>
+          <div class="invoice-col-head">SP</div>
+          <div class="invoice-col-head">Ngày gửi</div>
+          <div class="invoice-col-head">Trạng thái</div>
+        </div>
+      )}
+
+      <div class="invoice-list" data-invoice-list>
+        {result.items.map((order, index) => {
+          const stt = (result.page - 1) * result.pageSize + index + 1;
+          const shippedLabel = `${formatDateShort(order.shippedAt)} ${formatTimeHm(order.shippedAt)}`;
+          return (
+            <article class="invoice-row" data-invoice-row data-order-id={order.id}>
+              {canExport ? (
+                <label class="invoice-check">
+                  <span class="sr-only">Chọn {order.code}</span>
+                  <input type="checkbox" name="ids" value={String(order.id)} data-invoice-check />
+                </label>
+              ) : (
+                <span class="invoice-check-spacer" aria-hidden="true"></span>
+              )}
+              <div class="invoice-code">
+                <a href={routes.adminOrder(order.id)}>{order.code}</a>
+                <span class="invoice-stt">#{stt}</span>
+              </div>
+              <div class="invoice-customer">
+                <strong>{order.customerName}</strong>
+                <span>{order.phone}</span>
+              </div>
+              <div class="invoice-total">{formatVnd(order.totalPrice)}</div>
+              <div class="invoice-items">{order.itemCount} SP</div>
+              <div class="invoice-shipped">{shippedLabel}</div>
+              <div class="invoice-badge">
+                {tab === 'ready' && <span class="invoice-pill is-ready">Chưa xuất</span>}
+                {tab === 'waiting' && <span class="invoice-pill is-wait">Còn {order.daysRemaining} ngày</span>}
+                {tab === 'done' && order.invoiceExportedAt != null && (
+                  <span class="invoice-pill is-done">Đã xuất {formatDateShort(order.invoiceExportedAt)}</span>
+                )}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      {result.pageCount > 1 ? (
+        <nav class="post-pager" aria-label="Phân trang">
+          {result.page > 1 ? <a href={tabHref(tab, result.page - 1)}>Trước</a> : <span>Trước</span>}
+          <span>
+            Trang {result.page}/{result.pageCount}
+          </span>
+          {result.page < result.pageCount ? <a href={tabHref(tab, result.page + 1)}>Sau</a> : <span>Sau</span>}
+        </nav>
+      ) : null}
+    </>
+  ) : null}
+
+  <dialog
+    id="invoice-export-dialog"
+    class="order-export-dialog"
+    aria-labelledby="invoice-export-dialog-title"
+    data-invoice-export-dialog
+    data-csrf={session.csrfToken}
+    data-export-url={routes.adminInvoicesExport}
+  >
+    <div class="order-export-dialog-card">
+      <header class="order-export-dialog-head">
+        <div class="order-export-dialog-title-wrap">
+          <span class="order-export-dialog-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M7 3h8l4 4v14H7V3zM15 3v5h5M9 12h6M9 16h4" /></svg>
+          </span>
+          <div>
+            <h2 id="invoice-export-dialog-title">Lịch sử HĐĐT</h2>
+            <p>Tải xuống lần đầu mới đánh dấu đơn đã xuất</p>
+          </div>
+        </div>
+        <button class="order-export-dialog-close" type="button" data-invoice-export-close aria-label="Đóng">×</button>
+      </header>
+      <div class="order-export-dialog-toolbar" data-invoice-export-toolbar hidden>
+        <label class="order-export-select-all">
+          <input type="checkbox" data-invoice-export-select-all />
+          <span>Chọn tất cả</span>
+        </label>
+        <button class="btn" type="button" data-invoice-export-delete-selected hidden>Xóa đã chọn</button>
+      </div>
+      <div class="order-export-list" data-invoice-export-list>
+        <p class="order-export-empty" data-invoice-export-empty>Chưa có file xuất HĐĐT.</p>
+      </div>
+      <p class="order-export-status" data-invoice-export-status hidden role="status"></p>
+    </div>
+  </dialog>
+</AdminLayout>
+
+<script>
+  const EXPORTS = '/admin/invoices/export';
+  const bar = document.querySelector<HTMLFormElement>('[data-invoice-bulk]');
+  const listRoot = document.querySelector('[data-invoice-list]');
+  const flash = document.querySelector<HTMLElement>('[data-invoice-flash]');
+  const exportDialog = document.querySelector('[data-invoice-export-dialog]');
+  const exportList = document.querySelector('[data-invoice-export-list]');
+  const exportStatus = document.querySelector('[data-invoice-export-status]');
+  const exportEmpty = document.querySelector('[data-invoice-export-empty]');
+  const exportToolbar = document.querySelector('[data-invoice-export-toolbar]');
+  const exportSelectAll = document.querySelector('[data-invoice-export-select-all]');
+  const exportDeleteSelected = document.querySelector('[data-invoice-export-delete-selected]');
+  const exportCsrf =
+    exportDialog instanceof HTMLElement ? (exportDialog.dataset.csrf ?? '') : '';
+
+  function setExportStatus(text: string, tone: 'ok' | 'err' | 'info' = 'info') {
+    if (!(exportStatus instanceof HTMLElement)) return;
+    exportStatus.hidden = !text;
+    exportStatus.textContent = text;
+    exportStatus.dataset.tone = tone;
+  }
+
+  function syncExportDeleteBtn() {
+    if (!(exportDeleteSelected instanceof HTMLButtonElement) || !(exportList instanceof HTMLElement)) return;
+    const n = exportList.querySelectorAll<HTMLInputElement>('input[data-invoice-export-id]:checked').length;
+    exportDeleteSelected.hidden = n === 0;
+    exportDeleteSelected.textContent = n > 0 ? `Xóa đã chọn (${n})` : 'Xóa đã chọn';
+  }
+
+  function renderExportItems(
+    items: { id: number; filename: string; orderCount: number; downloaded: boolean; createdLabel: string }[],
+  ) {
+    if (!(exportList instanceof HTMLElement)) return;
+    for (const node of exportList.querySelectorAll('[data-invoice-export-row]')) node.remove();
+    if (exportEmpty instanceof HTMLElement) exportEmpty.hidden = items.length > 0;
+    if (exportToolbar instanceof HTMLElement) exportToolbar.hidden = items.length === 0;
+    if (exportSelectAll instanceof HTMLInputElement) {
+      exportSelectAll.checked = false;
+      exportSelectAll.indeterminate = false;
+    }
+    for (const item of items) {
+      const row = document.createElement('article');
+      row.className = 'order-export-row';
+      row.dataset.invoiceExportRow = '1';
+      row.innerHTML = `
+        <label class="order-export-check">
+          <input type="checkbox" data-invoice-export-id value="${item.id}" />
+          <span class="sr-only">Chọn ${item.filename}</span>
+        </label>
+        <span class="order-export-file-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M7 3h8l4 4v14H7V3zM15 3v5h5M9 12h6M9 16h4" /></svg>
+        </span>
+        <div class="order-export-meta">
+          <div class="order-export-name-row">
+            <strong class="order-export-name">${item.filename}</strong>
+            ${item.downloaded ? '<span class="order-export-badge">Đã tải</span>' : ''}
+          </div>
+          <div class="order-export-sub">
+            <span>${item.createdLabel}</span>
+            <span>${item.orderCount} đơn</span>
+          </div>
+        </div>
+        <div class="order-export-actions">
+          <button class="btn btn-primary order-export-download" type="button" data-invoice-export-download="${item.id}">Tải xuống</button>
+          <button class="order-export-delete" type="button" data-invoice-export-delete="${item.id}" aria-label="Xóa file">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2m-6 3v8m4-8v8M7 7l1 12h8l1-12" /></svg>
+          </button>
+        </div>
+      `;
+      exportList.append(row);
+    }
+    syncExportDeleteBtn();
+  }
+
+  async function refreshExportHistory() {
+    setExportStatus('Đang tải lịch sử…');
+    try {
+      const response = await fetch(EXPORTS, { credentials: 'same-origin', headers: { accept: 'application/json' } });
+      if (!response.ok) throw new Error('list failed');
+      const data = (await response.json()) as {
+        ok?: boolean;
+        items?: { id: number; filename: string; orderCount: number; downloaded: boolean; createdLabel: string }[];
+      };
+      renderExportItems(data.items ?? []);
+      setExportStatus('');
+    } catch {
+      setExportStatus('Không tải được lịch sử HĐĐT.', 'err');
+    }
+  }
+
+  async function openExportHistory() {
+    if (!(exportDialog instanceof HTMLDialogElement)) return;
+    exportDialog.showModal();
+    await refreshExportHistory();
+  }
+
+  async function downloadExport(id: number, button: HTMLButtonElement) {
+    button.disabled = true;
+    try {
+      const body = new FormData();
+      body.set('csrf', exportCsrf);
+      body.set('intent', 'download');
+      body.set('id', String(id));
+      const response = await fetch(EXPORTS, { method: 'POST', body, credentials: 'same-origin' });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        setExportStatus(data?.error || 'Không tải được file.', 'err');
+        return;
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get('content-disposition') || '';
+      const match = /filename="([^"]+)"/.exec(disposition);
+      const filename = match?.[1] || 'HoaDonDienTu.xlsx';
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      const first = response.headers.get('x-invoice-first-download') === '1';
+      const marked = Number(response.headers.get('x-invoice-marked-count') || '0');
+      await refreshExportHistory();
+      if (first) {
+        setExportStatus(`Đã tải ${filename}${marked > 0 ? ` · đánh dấu ${marked} đơn đã xuất` : ''}.`, 'ok');
+        if (flash) {
+          flash.hidden = false;
+          flash.textContent = marked > 0 ? `Đã đánh dấu ${marked} đơn đã xuất HĐĐT.` : `Đã tải ${filename}.`;
+        }
+        window.setTimeout(() => location.reload(), 600);
+      } else {
+        setExportStatus(`Đã tải lại ${filename}.`, 'ok');
+      }
+    } catch {
+      setExportStatus('Không tải được file.', 'err');
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function deleteExports(ids: number[]) {
+    if (ids.length === 0) return;
+    const body = new FormData();
+    body.set('csrf', exportCsrf);
+    body.set('intent', 'delete');
+    for (const id of ids) body.append('ids', String(id));
+    const response = await fetch(EXPORTS, {
+      method: 'POST',
+      body,
+      credentials: 'same-origin',
+      headers: { accept: 'application/json' },
+    });
+    const data = (await response.json().catch(() => null)) as { ok?: boolean; error?: string; count?: number } | null;
+    if (!response.ok || !data?.ok) {
+      setExportStatus(data?.error || 'Không xóa được file.', 'err');
+      return;
+    }
+    await refreshExportHistory();
+    setExportStatus(`Đã xóa ${data.count ?? ids.length} file.`, 'ok');
+  }
+
+  document.querySelector('[data-invoice-history-open]')?.addEventListener('click', () => {
+    void openExportHistory();
+  });
+
+  if (exportDialog instanceof HTMLDialogElement) {
+    for (const close of exportDialog.querySelectorAll('[data-invoice-export-close]')) {
+      close.addEventListener('click', () => exportDialog.close());
+    }
+    exportDialog.addEventListener('click', (event) => {
+      if (event.target !== exportDialog) return;
+      const box = exportDialog.getBoundingClientRect();
+      if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) {
+        exportDialog.close();
+      }
+    });
+    exportDialog.addEventListener('change', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      if (target === exportSelectAll) {
+        const on = Boolean(exportSelectAll.checked);
+        for (const box of exportDialog.querySelectorAll<HTMLInputElement>('input[data-invoice-export-id]')) {
+          box.checked = on;
+        }
+      }
+      syncExportDeleteBtn();
+    });
+    exportDialog.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target.closest('button') : null;
+      if (!(target instanceof HTMLButtonElement)) return;
+      const downloadId = Number(target.getAttribute('data-invoice-export-download'));
+      if (Number.isInteger(downloadId) && downloadId > 0) {
+        void downloadExport(downloadId, target);
+        return;
+      }
+      const deleteId = Number(target.getAttribute('data-invoice-export-delete'));
+      if (Number.isInteger(deleteId) && deleteId > 0) {
+        void deleteExports([deleteId]);
+        return;
+      }
+      if (target.hasAttribute('data-invoice-export-delete-selected')) {
+        const ids = [...exportDialog.querySelectorAll<HTMLInputElement>('input[data-invoice-export-id]:checked')].map(
+          (box) => Number(box.value),
+        );
+        void deleteExports(ids.filter((id) => Number.isInteger(id) && id > 0));
+      }
+    });
+  }
+
+  const exportBtn = document.querySelector<HTMLButtonElement>('[data-invoice-export]');
+  if (bar && listRoot) {
+    const list = listRoot;
+    const csrf = bar.dataset.csrf || '';
+    const tab = bar.dataset.tab || 'ready';
+    const exportUrl = bar.dataset.exportUrl || EXPORTS;
+    const max = Number(bar.dataset.max || 100);
+    const selectAll = bar.querySelector<HTMLInputElement>('[data-invoice-select-all]');
+    const errorEl = bar.querySelector<HTMLElement>('[data-invoice-error]');
+
+    function checks() {
+      return [...list.querySelectorAll<HTMLInputElement>('[data-invoice-check]')];
+    }
+
+    function selectedIds() {
+      return checks()
+        .filter((box) => box.checked)
+        .map((box) => Number(box.value))
+        .filter((id) => Number.isInteger(id) && id > 0);
+    }
+
+    function syncBar() {
+      const ids = selectedIds();
+      if (exportBtn) exportBtn.disabled = ids.length === 0;
+      if (selectAll) {
+        const all = checks();
+        selectAll.checked = all.length > 0 && all.every((box) => box.checked);
+        selectAll.indeterminate = ids.length > 0 && ids.length < all.length;
+      }
+      if (errorEl) {
+        errorEl.hidden = true;
+        errorEl.textContent = '';
+      }
+    }
+
+    function showError(message: string) {
+      if (!errorEl) return;
+      errorEl.hidden = false;
+      errorEl.textContent = message;
+    }
+
+    async function createExport(ids: number[]) {
+      if (ids.length === 0) {
+        showError('Chọn ít nhất một đơn.');
+        return;
+      }
+      if (ids.length > max) {
+        showError(`Chọn tối đa ${max} đơn mỗi lần.`);
+        return;
+      }
+      if (exportBtn) exportBtn.disabled = true;
+      const body = new FormData();
+      body.set('csrf', csrf);
+      body.set('intent', 'create');
+      body.set('tab', tab);
+      for (const id of ids) body.append('ids', String(id));
+      try {
+        const res = await fetch(exportUrl, {
+          method: 'POST',
+          body,
+          credentials: 'same-origin',
+          headers: { accept: 'application/json' },
+        });
+        const data = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          error?: string;
+          filename?: string;
+          orderCount?: number;
+        } | null;
+        if (!res.ok || !data?.ok) {
+          showError(data?.error || 'Không xuất được.');
+          if (exportBtn) exportBtn.disabled = selectedIds().length === 0;
+          return;
+        }
+        if (flash) {
+          flash.hidden = false;
+          flash.textContent = `Đã tạo ${data.filename} (${data.orderCount} đơn). Tải xuống trong lịch sử để đánh dấu đã xuất.`;
+        }
+        for (const box of checks()) box.checked = false;
+        syncBar();
+        await openExportHistory();
+        setExportStatus(`Đã tạo ${data.filename}. Bấm Tải xuống để đánh dấu đã xuất.`, 'ok');
+      } catch {
+        showError('Không xuất được. Kiểm tra mạng và thử lại.');
+        if (exportBtn) exportBtn.disabled = selectedIds().length === 0;
+      }
+    }
+
+    selectAll?.addEventListener('change', () => {
+      const on = Boolean(selectAll.checked);
+      for (const box of checks()) box.checked = on;
+      syncBar();
+    });
+    list.addEventListener('change', (event) => {
+      if ((event.target as HTMLElement).hasAttribute?.('data-invoice-check')) syncBar();
+    });
+    exportBtn?.addEventListener('click', () => {
+      void createExport(selectedIds());
+    });
+    syncBar();
+  }
+</script>
+
+<style is:global>
+  .invoice-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  .invoice-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.85rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+    color: var(--color-text-muted);
+    text-decoration: none;
+    font-size: 0.92rem;
+  }
+  .invoice-tab.is-current {
+    background: color-mix(in oklab, var(--color-primary) 12%, white);
+    border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-border));
+    color: var(--color-primary-strong, var(--color-primary));
+    font-weight: 600;
+  }
+  .invoice-tab-count {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.8;
+  }
+  .invoice-bulk-bar.invoice-row {
+    position: relative;
+    margin-bottom: 0.55rem;
+    background: color-mix(in oklab, var(--color-surface, #fff) 88%, var(--color-primary) 12%);
+  }
+  .invoice-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+  .invoice-row {
+    display: grid;
+    grid-template-columns: auto minmax(7rem, 0.9fr) minmax(8rem, 1.2fr) auto auto minmax(7rem, 0.9fr) auto;
+    align-items: center;
+    gap: 0.65rem 0.85rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid color-mix(in oklab, var(--color-border) 85%, transparent);
+    border-radius: 0.75rem;
+    background: var(--color-surface, #fff);
+  }
+  .invoice-col-head {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .invoice-bulk-error {
+    position: absolute;
+    right: 0.85rem;
+    bottom: 0.15rem;
+    font-size: 0.8rem;
+  }
+  .invoice-bulk-select-all input[type='checkbox'],
+  .invoice-check input[type='checkbox'] {
+    width: 1.05rem;
+    height: 1.05rem;
+    margin: 0;
+    flex: none;
+    vertical-align: middle;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+  }
+  .invoice-check,
+  .invoice-check-spacer {
+    width: 2.25rem;
+    display: grid;
+    place-items: center;
+  }
+  .invoice-code {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+  .invoice-code a {
+    color: var(--color-primary-strong, var(--color-primary));
+    font-weight: 600;
+    text-decoration: none;
+    word-break: break-all;
+  }
+  .invoice-stt {
+    color: var(--color-text-muted);
+    font-size: 0.82rem;
+  }
+  .invoice-customer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+  .invoice-customer span {
+    color: var(--color-text-muted);
+    font-size: 0.88rem;
+  }
+  .invoice-total {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .invoice-items {
+    color: var(--color-text-muted);
+    font-size: 0.88rem;
+    white-space: nowrap;
+  }
+  .invoice-shipped {
+    color: var(--color-text-muted);
+    font-size: 0.86rem;
+    white-space: nowrap;
+  }
+  .invoice-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .invoice-pill.is-ready {
+    background: color-mix(in oklab, #f59e0b 18%, white);
+    color: #b45309;
+  }
+  .invoice-pill.is-wait {
+    background: color-mix(in oklab, var(--color-border) 55%, white);
+    color: var(--color-text-muted);
+  }
+  .invoice-pill.is-done {
+    background: color-mix(in oklab, #16a34a 14%, white);
+    color: #15803d;
+  }
+  @media (max-width: 960px) {
+    .invoice-row {
+      grid-template-columns: auto 1fr auto;
+      grid-template-areas:
+        'check code badge'
+        'check customer customer'
+        'check total items'
+        'check shipped shipped';
+    }
+    .invoice-bulk-bar.invoice-row {
+      grid-template-areas: 'check code code';
+    }
+    .invoice-bulk-bar .invoice-col-head {
+      display: none;
+    }
+    .invoice-bulk-bar > .invoice-col-head:nth-child(2) {
+      display: block;
+      grid-area: code;
+    }
+    .invoice-check,
+    .invoice-check-spacer {
+      grid-area: check;
+    }
+    .invoice-code {
+      grid-area: code;
+    }
+    .invoice-badge {
+      grid-area: badge;
+      justify-self: end;
+    }
+    .invoice-customer {
+      grid-area: customer;
+    }
+    .invoice-total {
+      grid-area: total;
+    }
+    .invoice-items {
+      grid-area: items;
+      justify-self: end;
+    }
+    .invoice-shipped {
+      grid-area: shipped;
+    }
+  }
+</style>

@@ -8,6 +8,7 @@ import {
   orderListPayment,
   orderListSource,
   orderListStatus,
+  orderListTag,
   orderPanelQuery,
   type OrderDayBucket,
 } from '../../../features/orders/orders';
@@ -26,6 +27,7 @@ const source = orderListSource(Astro.url.searchParams.get('source'));
 const payment = orderListPayment(Astro.url.searchParams.get('payment'));
 const from = Astro.url.searchParams.get('from') ?? '';
 const to = Astro.url.searchParams.get('to') ?? '';
+const tag = orderListTag(Astro.url.searchParams.get('tag'));
 const page = Number(Astro.url.searchParams.get('page') ?? '1');
 const range = orderCreatedRange(from, to);
 
@@ -47,6 +49,7 @@ try {
     payment,
     start: range.start,
     end: range.end,
+    tag,
   };
   const [listed, buckets] = await Promise.all([
     listOrders(db, {
@@ -65,7 +68,7 @@ try {
   });
 }
 
-const listFilters = { query, status, source, payment, from, to };
+const listFilters = { query, status, source, payment, from, to, tag };
 function pageHref(nextPage: number): string {
   return orderAdminQuery({ ...listFilters, page: nextPage });
 }
@@ -88,6 +91,7 @@ Astro.response.headers.set('content-type', 'text/html; charset=utf-8');
   payment={payment}
   from={from}
   to={to}
+  tag={tag}
   pageHref={pageHref}
   nextPanelHref={nextPanelHref}
   shippedPanelHref={shippedPanelHref}

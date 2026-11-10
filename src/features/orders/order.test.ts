@@ -8,7 +8,16 @@ import {
   orderShippedAgoLabel,
   ORDER_STATUSES,
 } from './status';
-import { groupOrdersByCreatedDay, orderListPayment, orderListSource, orderListStatus } from './orders';
+import {
+  groupOrdersByCreatedDay,
+  orderAdminQuery,
+  orderListPayment,
+  orderListSource,
+  orderListStatus,
+  orderListTag,
+  orderMatchesTheTenTag,
+  ORDER_TAG_THE_TEN,
+} from './orders';
 import { isPaymentMethod } from './payment';
 import { isOrderSource } from './staff';
 import {
@@ -93,6 +102,45 @@ describe('đơn hàng', () => {
     expect(orderListPayment('bank')).toBe('bank');
     expect(orderListPayment(null)).toBe('');
     expect(orderListPayment('paid')).toBe('');
+  });
+
+  it('bộ lọc thẻ tên chỉ nhận tag the-ten', () => {
+    expect(orderListTag(ORDER_TAG_THE_TEN)).toBe('the-ten');
+    expect(orderListTag('other')).toBe('');
+    expect(orderListTag(null)).toBe('');
+    expect(orderAdminQuery({ tag: ORDER_TAG_THE_TEN })).toContain('tag=the-ten');
+    expect(orderAdminQuery({})).not.toContain('tag=');
+  });
+
+  it('khớp thẻ tên theo tên SP hoặc lưu ý chứa thẻ', () => {
+    expect(
+      orderMatchesTheTenTag({
+        productName: 'Vòng mix thẻ tên bé',
+        note: null,
+        items: [],
+      }),
+    ).toBe(true);
+    expect(
+      orderMatchesTheTenTag({
+        productName: 'Vòng trơn',
+        note: 'Khách muốn thẻ',
+        items: [],
+      }),
+    ).toBe(true);
+    expect(
+      orderMatchesTheTenTag({
+        productName: 'Vòng trơn',
+        note: null,
+        items: [{ productName: 'Mix charm', note: 'kèm thẻ' }],
+      }),
+    ).toBe(true);
+    expect(
+      orderMatchesTheTenTag({
+        productName: 'Vòng trơn',
+        note: 'Giao giờ hành chính',
+        items: [{ productName: 'Mix charm', note: null }],
+      }),
+    ).toBe(false);
   });
 
   it('nhóm đơn theo ngày đặt Việt Nam, ngày xa nhất trước', () => {

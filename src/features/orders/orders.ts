@@ -82,6 +82,32 @@ export function orderListPayment(value: string | null | undefined): PaymentMetho
   return value && isPaymentMethod(value) ? value : '';
 }
 
+/** Bộ lọc nhanh thẻ tên trên list đơn. */
+export const ORDER_TAG_THE_TEN = 'the-ten' as const;
+export type OrderListTag = typeof ORDER_TAG_THE_TEN | '';
+
+/** Chuỗi khớp bộ lọc thẻ tên (tên SP / lưu ý). */
+export const ORDER_TAG_THE_TEN_MATCH = {
+  productName: 'thẻ tên',
+  note: 'thẻ',
+} as const;
+
+export function orderListTag(value: string | null | undefined): OrderListTag {
+  return value === ORDER_TAG_THE_TEN ? ORDER_TAG_THE_TEN : '';
+}
+
+/** Kiểm tra đơn có khớp bộ lọc thẻ tên không (dùng cho test / logic thuần). */
+export function orderMatchesTheTenTag(input: {
+  productName: string;
+  note: string | null;
+  items: ReadonlyArray<{ productName: string; note: string | null }>;
+}): boolean {
+  const nameHit = (name: string) => name.toLowerCase().includes(ORDER_TAG_THE_TEN_MATCH.productName);
+  const noteHit = (note: string | null) => (note ?? '').toLowerCase().includes(ORDER_TAG_THE_TEN_MATCH.note);
+  if (nameHit(input.productName) || noteHit(input.note)) return true;
+  return input.items.some((item) => nameHit(item.productName) || noteHit(item.note));
+}
+
 export function orderAdminQuery(input: {
   query?: string;
   status?: string;
@@ -89,6 +115,7 @@ export function orderAdminQuery(input: {
   payment?: string;
   from?: string;
   to?: string;
+  tag?: string;
   page?: number;
   notice?: string;
   n?: number;
@@ -100,6 +127,7 @@ export function orderAdminQuery(input: {
   const payment = orderListPayment(input.payment);
   const from = dayParam(input.from);
   const to = dayParam(input.to);
+  const tag = orderListTag(input.tag);
   const page = input.page && Number.isInteger(input.page) && input.page > 1 ? input.page : 0;
   const notice = (input.notice ?? '').trim();
   const count = input.n && Number.isInteger(input.n) && input.n > 0 ? input.n : 0;
@@ -110,6 +138,7 @@ export function orderAdminQuery(input: {
   if (payment) params.set('payment', payment);
   if (from) params.set('from', from);
   if (to) params.set('to', to);
+  if (tag) params.set('tag', tag);
   if (page) params.set('page', String(page));
   if (notice) params.set('notice', notice);
   if (count) params.set('n', String(count));
@@ -125,6 +154,7 @@ export function orderPanelQuery(input: {
   payment?: string;
   from?: string;
   to?: string;
+  tag?: string;
   page?: number;
 }): string {
   const href = orderAdminQuery(input);
@@ -145,6 +175,7 @@ export function readOrderListContext(form: FormData): {
   payment: string;
   from: string;
   to: string;
+  tag: string;
   page: number;
 } {
   const read = (name: string) => {
@@ -159,6 +190,7 @@ export function readOrderListContext(form: FormData): {
     payment: read('payment'),
     from: read('from'),
     to: read('to'),
+    tag: orderListTag(read('tag')),
     page: Number.isInteger(page) && page > 0 ? page : 1,
   };
 }
@@ -174,6 +206,7 @@ export type OrderListFilters = {
   payment: PaymentMethod | '';
   start: number | null;
   end: number | null;
+  tag?: OrderListTag;
 };
 
 export type OrderDayBucket = {
@@ -197,6 +230,24 @@ function orderListWhere(filters: OrderListFilters) {
   if (filters.end !== null) shared.push(lt(orders.createdAt, filters.end));
   if (filters.source) shared.push(eq(orders.source, filters.source));
   if (filters.payment) shared.push(eq(orders.paymentMethod, filters.payment));
+  if (filters.tag === ORDER_TAG_THE_TEN) {
+    const nameLike = `%${ORDER_TAG_THE_TEN_MATCH.productName}%`;
+    const noteLike = `%${ORDER_TAG_THE_TEN_MATCH.note}%`;
+    shared.push(
+      or(
+        like(orders.productName, nameLike),
+        like(orders.note, noteLike),
+        sql`exists (
+          select 1 from order_items as oi
+          where oi.order_id = ${orders.id}
+            and (
+              oi.product_name like ${nameLike}
+              or ifnull(oi.note, '') like ${noteLike}
+            )
+        )`,
+      ),
+    );
+  }
   const conditions = [...shared];
   const openShip = notInArray(orders.status, ['shipped', 'completed', 'cancelled']);
   const todayStart = vnTodayStartMs();
@@ -330,6 +381,7 @@ export async function listOrders(
     !term.phone &&
     !filters.source &&
     !filters.payment &&
+    !filters.tag &&
     filters.start === null &&
     filters.end === null;
   if (total === 0 && bareFilters) {

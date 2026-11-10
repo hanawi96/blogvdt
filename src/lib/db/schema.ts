@@ -333,6 +333,8 @@ export const orders = sqliteTable(
     fulfillStatus: text('fulfill_status'),
     // Mốc đã gửi hàng: lần tải export đầu tiên hoặc khi đổi fulfill → shipped thủ công.
     shippedAt: integer('shipped_at'),
+    // Lần xuất Excel HĐĐT gần nhất (null = chưa xuất).
+    invoiceExportedAt: integer('invoice_exported_at'),
     ipHash: text('ip_hash').notNull(),
     landingSlug: text('landing_slug'),
     createdAt: integer('created_at').notNull(),
@@ -364,6 +366,7 @@ export const orders = sqliteTable(
     index('orders_list_idx').on(table.priority, table.createdAt, table.id),
     index('orders_fulfill_status_idx').on(table.fulfillStatus),
     index('orders_shipped_at_idx').on(table.shippedAt, table.id),
+    index('orders_invoice_exported_at_idx').on(table.invoiceExportedAt, table.shippedAt, table.id),
     index('orders_source_idx').on(table.source),
     index('orders_payment_method_idx').on(table.paymentMethod),
     check('orders_quantity_check', sql`${table.quantity} > 0`),
@@ -513,6 +516,41 @@ export const orderExportItems = sqliteTable(
   (table) => [
     index('order_export_items_export_idx').on(table.exportId),
     index('order_export_items_order_idx').on(table.orderId),
+  ],
+);
+
+/** File Excel HĐĐT đã tạo (lưu R2); tải lần đầu mới đánh dấu đơn đã xuất hóa đơn. */
+export const invoiceExports = sqliteTable(
+  'invoice_exports',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    filename: text('filename').notNull(),
+    r2Key: text('r2_key').notNull(),
+    orderCount: integer('order_count').notNull(),
+    downloadedAt: integer('downloaded_at'),
+    createdBy: integer('created_by').references(() => adminUsers.id, { onDelete: 'set null' }),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => [
+    index('invoice_exports_created_at_idx').on(table.createdAt, table.id),
+    check('invoice_exports_order_count_check', sql`${table.orderCount} >= 0`),
+  ],
+);
+
+export const invoiceExportItems = sqliteTable(
+  'invoice_export_items',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    exportId: integer('export_id')
+      .notNull()
+      .references(() => invoiceExports.id, { onDelete: 'cascade' }),
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+  },
+  (table) => [
+    index('invoice_export_items_export_idx').on(table.exportId),
+    index('invoice_export_items_order_idx').on(table.orderId),
   ],
 );
 

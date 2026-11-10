@@ -5,7 +5,7 @@ import addressSelect from '../../../../../public/data/address-select.json';
 import { matchComposedAddress } from '../../../../features/address/parse';
 import { mutationError } from '../../../../features/auth/session';
 import { listStaffDiscountChoices, quoteStaffDiscount } from '../../../../features/discounts/discounts';
-import { getOrder, updateStaffOrder } from '../../../../features/orders/orders';
+import { getOrder, orderAdminQuery, updateStaffOrder } from '../../../../features/orders/orders';
 import {
   canEditOrderProducts,
   orderLineSources,
@@ -166,7 +166,7 @@ if (Astro.request.method === 'POST') {
         Astro.response.status = 422;
         formError = updated.error;
       } else {
-        return Astro.redirect(`${routes.adminOrder(id)}?saved=edited`, 303);
+        return Astro.redirect(orderAdminQuery({ notice: 'edited' }), 303);
       }
     } else {
       Astro.response.status = 422;

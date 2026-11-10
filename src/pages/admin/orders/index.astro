@@ -4,7 +4,7 @@ import { activityActor } from '../../../features/activity/log';
 import { mutationError } from '../../../features/auth/session';
 import { orderCreatedRange } from '../../../features/orders/order';
 import OrderListPanel from '../../../components/admin/OrderListPanel.astro';
-import { deleteOrder, listOrderDayBuckets, listOrders, orderAdminQuery, orderListPayment, orderListSource, orderListStatus, orderPanelQuery, pendingUnshippedSummary, updateOrderFulfillStatus, updateOrderPriority, type OrderDayBucket } from '../../../features/orders/orders';
+import { deleteOrder, listOrderDayBuckets, listOrders, ORDER_TAG_THE_TEN, orderAdminQuery, orderListPayment, orderListSource, orderListStatus, orderListTag, orderPanelQuery, pendingUnshippedSummary, updateOrderFulfillStatus, updateOrderPriority, type OrderDayBucket } from '../../../features/orders/orders';
 import { ORDER_PAYMENT_FILTERS } from '../../../features/orders/payment';
 import { ORDER_SOURCES } from '../../../features/orders/staff';
 import { isFulfillStatus, ORDER_LIST_FILTERS } from '../../../features/orders/status';
@@ -23,6 +23,7 @@ const source = orderListSource(Astro.url.searchParams.get('source'));
 const payment = orderListPayment(Astro.url.searchParams.get('payment'));
 const from = Astro.url.searchParams.get('from') ?? '';
 const to = Astro.url.searchParams.get('to') ?? '';
+const tag = orderListTag(Astro.url.searchParams.get('tag'));
 const page = Number(Astro.url.searchParams.get('page') ?? '1');
 const range = orderCreatedRange(from, to);
 const vnToday = vnTodayParts();
@@ -68,6 +69,7 @@ if (Astro.request.method === 'POST') {
         payment,
         from,
         to,
+        tag,
         page: Number.isInteger(page) ? page : 1,
         notice: result.ok ? (on ? 'priority-on' : 'priority-off') : 'priority-error',
       }),
@@ -89,6 +91,7 @@ if (Astro.request.method === 'POST') {
           payment,
           from,
           to,
+          tag,
           page: Number.isInteger(page) ? page : 1,
           notice: result.ok ? 'status' : 'status-error',
         }),
@@ -109,6 +112,7 @@ if (Astro.request.method === 'POST') {
         payment,
         from,
         to,
+        tag,
         page: Number.isInteger(page) ? page : 1,
         notice: removed.ok ? 'deleted' : 'missing',
       }),
@@ -136,6 +140,7 @@ if (!range.invalid) {
     payment,
     start: range.start,
     end: range.end,
+    tag,
   };
   try {
     const [listed, buckets] = await Promise.all([
@@ -154,10 +159,10 @@ if (!range.invalid) {
 }
 
 function pageHref(nextPage: number): string {
-  return orderAdminQuery({ query, status, source, payment, from, to, page: nextPage });
+  return orderAdminQuery({ query, status, source, payment, from, to, tag, page: nextPage });
 }
 
-const listFilters = { query, status, source, payment, from, to };
+const listFilters = { query, status, source, payment, from, to, tag };
 const nextPanelHref =
   result && result.page < result.pageCount
     ? orderPanelQuery({ ...listFilters, page: result.page + 1 })
@@ -200,12 +205,13 @@ const shippedPanelHref =
   {notice === 'priority-on' && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã gắn ưu tiên.</p>}
   {notice === 'priority-off' && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã bỏ ưu tiên.</p>}
   {notice === 'status' && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã cập nhật trạng thái.</p>}
+  {notice === 'edited' && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã cập nhật đơn hàng.</p>}
   {notice === 'missing' && <p class="error-text mb-4" role="alert" data-admin-flash>Không tìm thấy đơn hàng cần xóa.</p>}
   {notice === 'bulk-error' && <p class="error-text mb-4" role="alert" data-admin-flash>Không thực hiện được thao tác hàng loạt. Thử lại.</p>}
   {notice === 'priority-error' && <p class="error-text mb-4" role="alert" data-admin-flash>Không đổi được ưu tiên. Đơn có thể đã kết thúc.</p>}
   {notice === 'status-error' && <p class="error-text mb-4" role="alert" data-admin-flash>Không đổi được trạng thái. Kiểm tra bước chuyển hợp lệ.</p>}
   {
-    result && result.libraryTotal === 0 && !query && !source && !payment && !from && !to && (status === '' || status === 'unshipped') ? (
+    result && result.libraryTotal === 0 && !query && !source && !payment && !from && !to && !tag && (status === '' || status === 'unshipped') ? (
       <section class="cms-empty">
         <span class="cms-empty-icon" aria-hidden="true">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -250,6 +256,7 @@ const shippedPanelHref =
           </select>
           <input type="hidden" name="from" value={from} data-order-from />
           <input type="hidden" name="to" value={to} data-order-to />
+          <input type="hidden" name="tag" value={tag} data-order-tag />
           <button
             class="field order-date-trigger"
             type="button"
@@ -261,6 +268,16 @@ const shippedPanelHref =
           >
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v2M17 3v2M4 8h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" /></svg>
             <span data-order-date-label>{dateFilterLabel}</span>
+          </button>
+          <button
+            class="field order-date-trigger"
+            type="button"
+            data-order-tag-toggle
+            aria-pressed={tag === ORDER_TAG_THE_TEN ? 'true' : 'false'}
+            data-active={tag === ORDER_TAG_THE_TEN ? 'true' : undefined}
+            title="Lọc đơn có sản phẩm thẻ tên hoặc lưu ý chứa «thẻ»"
+          >
+            Thẻ tên
           </button>
         </form>
         <dialog id="order-date-dialog" class="order-date-dialog" aria-labelledby="order-date-dialog-title" data-order-date-dialog>
@@ -343,6 +360,7 @@ const shippedPanelHref =
             payment={payment}
             from={from}
             to={to}
+            tag={tag}
             pageHref={pageHref}
             nextPanelHref={nextPanelHref}
             shippedPanelHref={shippedPanelHref}
@@ -422,12 +440,14 @@ const shippedPanelHref =
     const payment = read('payment');
     const from = read('from');
     const to = read('to');
+    const tag = read('tag');
     if (term) params.set('q', term);
     if (status) params.set('status', status);
     if (source) params.set('source', source);
     if (payment) params.set('payment', payment);
     if (/^\d{4}-\d{2}-\d{2}$/.test(from)) params.set('from', from);
     if (/^\d{4}-\d{2}-\d{2}$/.test(to)) params.set('to', to);
+    if (tag === 'the-ten') params.set('tag', tag);
     return params;
   }
 
@@ -496,6 +516,8 @@ const shippedPanelHref =
     const payment = form.querySelector('select[name="payment"]');
     const from = form.querySelector('[data-order-from]');
     const to = form.querySelector('[data-order-to]');
+    const tagInput = form.querySelector('[data-order-tag]');
+    const tagToggle = form.querySelector('[data-order-tag-toggle]');
     const label = form.querySelector('[data-order-date-label]');
     const trigger = form.querySelector('[data-order-date-open]');
     if (q instanceof HTMLInputElement) q.value = params.get('q') ?? '';
@@ -504,8 +526,15 @@ const shippedPanelHref =
     if (payment instanceof HTMLSelectElement) payment.value = params.get('payment') ?? '';
     const fromVal = params.get('from') ?? '';
     const toVal = params.get('to') ?? '';
+    const tagVal = params.get('tag') === 'the-ten' ? 'the-ten' : '';
     if (from instanceof HTMLInputElement) from.value = fromVal;
     if (to instanceof HTMLInputElement) to.value = toVal;
+    if (tagInput instanceof HTMLInputElement) tagInput.value = tagVal;
+    if (tagToggle instanceof HTMLElement) {
+      tagToggle.setAttribute('aria-pressed', tagVal ? 'true' : 'false');
+      if (tagVal) tagToggle.dataset.active = 'true';
+      else delete tagToggle.dataset.active;
+    }
     if (trigger instanceof HTMLElement) {
       if (fromVal || toVal) trigger.dataset.active = 'true';
       else delete trigger.dataset.active;
@@ -596,6 +625,14 @@ const shippedPanelHref =
     });
     form.addEventListener('submit', (event) => {
       event.preventDefault();
+      window.clearTimeout(timer);
+      go();
+    });
+
+    form.querySelector('[data-order-tag-toggle]')?.addEventListener('click', () => {
+      const tagInput = form.querySelector('[data-order-tag]');
+      if (!(tagInput instanceof HTMLInputElement)) return;
+      tagInput.value = tagInput.value === 'the-ten' ? '' : 'the-ten';
       window.clearTimeout(timer);
       go();
     });
@@ -944,7 +981,6 @@ const shippedPanelHref =
       status: 'Đổi trạng thái hàng loạt sắp có.',
       priority: 'Gắn ưu tiên hàng loạt sắp có.',
       unpriority: 'Bỏ ưu tiên hàng loạt sắp có.',
-      invoice: 'Xuất hóa đơn hàng loạt sắp có.',
     };
 
     async function runBulkExport() {

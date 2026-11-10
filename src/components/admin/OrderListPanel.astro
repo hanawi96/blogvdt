@@ -29,6 +29,7 @@ type Props = {
   payment: string;
   from: string;
   to: string;
+  tag?: string;
   pageHref: (page: number) => string;
   nextPanelHref?: string;
   shippedPanelHref?: string;
@@ -45,6 +46,7 @@ const {
   payment,
   from,
   to,
+  tag = '',
   pageHref,
   nextPanelHref = '',
   shippedPanelHref = '',
@@ -82,6 +84,7 @@ const statusParam = status === '' ? 'all' : status;
     <input type="hidden" name="payment" value={payment} />
     <input type="hidden" name="from" value={from} />
     <input type="hidden" name="to" value={to} />
+    <input type="hidden" name="tag" value={tag} />
     <input type="hidden" name="page" value={String(result.page)} />
     <span class="order-bulk-count" aria-live="polite" data-bulk-count>
       <span class="order-bulk-check" aria-hidden="true">✓</span>
@@ -103,10 +106,10 @@ const statusParam = status === '' ? 'all' : status;
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" /></svg>
       Export
     </button>
-    <button class="order-bulk-btn is-invoice" type="button" data-bulk-demo="invoice">
+    <a class="order-bulk-btn is-invoice" href={routes.adminInvoices}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h8l4 4v14H7V3zM15 3v5h5M9 12h6M9 16h6" /></svg>
       Xuất HĐ
-    </button>
+    </a>
     {canBulkDelete ? (
       <button class="order-bulk-btn is-delete" type="submit" name="bulk" value="delete" data-bulk-delete>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2m-6 3v8m4-8v8M7 7l1 12h8l1-12" /></svg>

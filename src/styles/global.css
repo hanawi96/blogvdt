@@ -7543,6 +7543,7 @@
     font: inherit;
     font-size: 0.8125rem;
     font-weight: 600;
+    text-decoration: none;
     white-space: nowrap;
     cursor: pointer;
   }
