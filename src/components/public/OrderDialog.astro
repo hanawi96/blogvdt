@@ -5,6 +5,7 @@ import { routes } from '../../lib/routes';
 import AddressField from './AddressField.astro';
 import DiscountCodeField from './DiscountCodeField.astro';
 import PaymentField from './PaymentField.astro';
+import QtyStepper from './QtyStepper.astro';
 
 // Modal đặt hàng dùng chung cho cả trang. Nút [data-order-open] truyền sản phẩm vào modal;
 // khi tắt JS, nút vẫn là link tới /dat-hang nên đặt hàng không bị chặn.
@@ -44,10 +45,7 @@ const scaleGroups = Object.entries(WEIGHT_SCALES).filter(([, labels]) => labels.
         ))
       }
     </fieldset>
-    <label class="mt-3 block text-sm font-semibold" for="od-quantity">
-      Số lượng
-      <input id="od-quantity" class="field mt-1" name="quantity" type="number" inputmode="numeric" min="1" max={ORDER_MAX_QUANTITY} value="1" required />
-    </label>
+    <QtyStepper id="od-quantity" max={ORDER_MAX_QUANTITY} />
     <PaymentField small />
     <label class="mt-3 block text-sm font-semibold" for="od-name">
       Họ tên

@@ -344,47 +344,80 @@ function current(href: string): boolean {
   if (wideQuery.matches) setSearchOpen(false);
 
   paint(readCookie());
-  document.querySelectorAll('form[data-cart-form]').forEach((node) => {
-    if (!(node instanceof HTMLFormElement)) return;
-    node.addEventListener('submit', (event) => {
-      if (node.dataset.cartFrom === 'order') {
-        const quantity = document.getElementById('quantity');
-        const quantityField = node.querySelector('[name="quantity"]');
-        if (quantityField instanceof HTMLInputElement && quantity instanceof HTMLInputElement) quantityField.value = quantity.value;
-      }
-      const data = new FormData(node);
-      const weight = String(data.get('weight') ?? '').trim();
-      const button = node.querySelector('button[type="submit"]');
-      const notice = node.querySelector('.add-error');
-      const warn = (message: string) => {
-        event.preventDefault();
-        if (notice instanceof HTMLElement) {
-          notice.textContent = message;
-          notice.hidden = false;
-        } else if (button instanceof HTMLButtonElement) {
-          flash(button, message);
-        }
-      };
-      if (node.dataset.requiresWeight === 'true' && weight.length === 0) return warn('Chọn cân nặng');
+
+  // Delegation: form/dialog thêm giỏ trên catalog, trang chủ và thẻ load động đều dùng được.
+  document.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const step = target.closest('[data-qty-dec], [data-qty-inc]');
+    if (step instanceof HTMLElement) {
+      const root = step.closest('[data-qty-stepper]');
+      const input = root?.querySelector('input[data-qty-input]');
+      if (!(input instanceof HTMLInputElement)) return;
+      const min = Number(input.min) || 1;
+      const max = Number(input.max) || 99;
+      let next = Number(input.value);
+      if (!Number.isInteger(next)) next = min;
+      next = step.hasAttribute('data-qty-inc') ? next + 1 : next - 1;
+      input.value = String(Math.min(max, Math.max(min, next)));
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+    const open = target.closest('[data-add-open]');
+    if (open) {
+      const dialog = open.closest('article')?.querySelector('dialog.add-dialog');
+      if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
+      return;
+    }
+    const close = target.closest('[data-add-close]');
+    if (close) {
+      const dialog = close.closest('dialog');
+      if (dialog instanceof HTMLDialogElement) dialog.close();
+      return;
+    }
+    if (target instanceof HTMLDialogElement && target.classList.contains('add-dialog')) target.close();
+  });
+
+  document.addEventListener('submit', (event) => {
+    const node = event.target;
+    if (!(node instanceof HTMLFormElement) || !node.hasAttribute('data-cart-form')) return;
+    if (node.dataset.cartFrom === 'order') {
+      const quantity = document.getElementById('quantity');
+      const quantityField = node.querySelector('[name="quantity"]');
+      if (quantityField instanceof HTMLInputElement && quantity instanceof HTMLInputElement) quantityField.value = quantity.value;
+    }
+    const data = new FormData(node);
+    const weight = String(data.get('weight') ?? '').trim();
+    const button = node.querySelector('button[type="submit"]');
+    const notice = node.querySelector('.add-error');
+    const warn = (message: string) => {
       event.preventDefault();
-      const quantity = Number(data.get('quantity') ?? '1');
-      const result = addCartLine(readCookie(), {
-        slug: String(data.get('slug') ?? ''),
-        weight,
-        quantity: Number.isInteger(quantity) ? quantity : 1,
-      });
-      if (!result.ok) {
-        if (button instanceof HTMLButtonElement) flash(button, 'Giỏ đã đầy');
-        return;
+      if (notice instanceof HTMLElement) {
+        notice.textContent = message;
+        notice.hidden = false;
+      } else if (button instanceof HTMLButtonElement) {
+        flash(button, message);
       }
-      store(result.lines);
-      const dialog = node.closest('dialog');
-      if (dialog instanceof HTMLDialogElement) {
-        dialog.close();
-        node.reset();
-        if (notice instanceof HTMLElement) notice.hidden = true;
-      }
-      if (button instanceof HTMLButtonElement) flash(button, 'Đã thêm');
+    };
+    if (node.dataset.requiresWeight === 'true' && weight.length === 0) return warn('Chọn cân nặng');
+    event.preventDefault();
+    const quantity = Number(data.get('quantity') ?? '1');
+    const result = addCartLine(readCookie(), {
+      slug: String(data.get('slug') ?? ''),
+      weight,
+      quantity: Number.isInteger(quantity) ? quantity : 1,
     });
+    if (!result.ok) {
+      if (button instanceof HTMLButtonElement) flash(button, 'Giỏ đã đầy');
+      return;
+    }
+    store(result.lines);
+    const dialog = node.closest('dialog');
+    if (dialog instanceof HTMLDialogElement) {
+      dialog.close();
+      node.reset();
+      if (notice instanceof HTMLElement) notice.hidden = true;
+    }
+    if (button instanceof HTMLButtonElement) flash(button, 'Đã thêm');
   });
 </script>

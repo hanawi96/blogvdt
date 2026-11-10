@@ -62,6 +62,7 @@ export const routes = {
   searchSuggest: '/tim-kiem/goi-y',
   policy: (slug: string) => `/chinh-sach/${slug}`,
   catalog: '/mau-vong-dau-tam',
+  catalogApi: '/api/catalog',
   cart: '/gio-hang',
   product: (slug: string) => `/san-pham/${slug}`,
   checkout: '/dat-hang',

@@ -4,11 +4,14 @@ import { isShippingOrderCost, type OrderCostKind } from '../costs/order-costs';
 export type ShipGroup = 'bracelet' | 'silver' | 'addon' | 'other';
 
 export const FREE_SHIP_BRACELET_MIN = 100_000;
+export const FREE_SHIP_WITH_ADDON_LABEL = 'Miễn ship khi mua kèm bó dâu để giường';
 
 const SILVER_SLUG = 'bi-charm-bac';
 const ADDON_SLUG = 'san-pham-ban-kem';
 
 export type ShipFeeLine = { group: ShipGroup; lineTotal: number };
+/** Badge trên thẻ SP: miễn hẳn / gợi ý mua kèm bán kèm / không hiện. */
+export type ProductShipBadge = 'free' | 'with-addon' | 'none';
 
 export function foldShipSlug(value: string): string {
   return value
@@ -44,6 +47,24 @@ export function qualifiesFreeShip(lines: ReadonlyArray<ShipFeeLine>): boolean {
   if (braceletTotal >= FREE_SHIP_BRACELET_MIN) return true;
   const hasAddon = lines.some((line) => line.group === 'addon');
   return braceletTotal > 0 && braceletTotal < FREE_SHIP_BRACELET_MIN && hasAddon;
+}
+
+/** Badge thẻ SP: 1 sản phẩm × 1 cái có đủ điều kiện miễn ship khi đặt riêng. */
+export function productQualifiesFreeShip(price: number, categorySlug: string | null | undefined): boolean {
+  return productShipBadge(price, categorySlug) === 'free';
+}
+
+/**
+ * - vòng ≥ 100k → miễn ship
+ * - vòng < 100k → gợi ý mua kèm bán kèm (bó dâu…)
+ * - bạc / bán kèm / khác → không badge
+ */
+export function productShipBadge(price: number, categorySlug: string | null | undefined): ProductShipBadge {
+  if (!Number.isSafeInteger(price) || price <= 0) return 'none';
+  const group = shipGroupOf(categorySlug);
+  if (group !== 'bracelet') return 'none';
+  if (price >= FREE_SHIP_BRACELET_MIN) return 'free';
+  return 'with-addon';
 }
 
 /** Phí ship khách trả mặc định = tổng khoản ship cố định đang bật trong chi phí đơn. */

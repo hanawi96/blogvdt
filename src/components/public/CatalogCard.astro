@@ -3,6 +3,9 @@ import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
 import { CART_MAX_QUANTITY } from '../../features/cart/cart';
 import { requiresWeight, weightOptions, type WeightScale } from '../../features/products/weight';
+import type { ProductShipBadge } from '../../features/shipping/customer-fee';
+import FreeShipBadge from './FreeShipBadge.astro';
+import QtyStepper from './QtyStepper.astro';
 
 interface Props {
   product: {
@@ -12,6 +15,7 @@ interface Props {
     price: number;
     comparePrice: number | null;
     weightScale: WeightScale;
+    shipBadge?: ProductShipBadge;
     coverUrl: string | null;
     coverAlt: string;
     coverWidth: number | null;
@@ -63,6 +67,7 @@ const orderAttrs = {
       <span class="font-semibold text-primary-strong">{formatVnd(product.price)}</span>
       {product.comparePrice != null && <span class="product-compare">{formatVnd(product.comparePrice)}</span>}
     </p>
+    {product.shipBadge && product.shipBadge !== 'none' && <FreeShipBadge variant={product.shipBadge} />}
     <div class="catalog-card-actions">
       {
         needsWeight ? (
@@ -102,10 +107,7 @@ const orderAttrs = {
               ))}
             </div>
           </fieldset>
-          <label class="mt-3 block text-sm font-semibold">
-            Số lượng
-            <input class="field mt-1" name="quantity" type="number" min="1" max={CART_MAX_QUANTITY} value="1" required />
-          </label>
+          <QtyStepper max={CART_MAX_QUANTITY} />
           <p class="add-error error-text mt-2" role="alert" hidden></p>
           <button class="btn btn-primary mt-4 w-full" type="submit">Thêm giỏ</button>
         </form>
@@ -113,23 +115,3 @@ const orderAttrs = {
     )
   }
 </article>
-<script>
-  document.querySelectorAll('[data-add-open]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const dialog = button.closest('article')?.querySelector('dialog.add-dialog');
-      if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
-    });
-  });
-  document.querySelectorAll('[data-add-close]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const dialog = button.closest('dialog');
-      if (dialog instanceof HTMLDialogElement) dialog.close();
-    });
-  });
-  document.querySelectorAll('dialog.add-dialog').forEach((dialog) => {
-    if (!(dialog instanceof HTMLDialogElement)) return;
-    dialog.addEventListener('click', (event) => {
-      if (event.target === dialog) dialog.close();
-    });
-  });
-</script>

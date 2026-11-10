@@ -1,0 +1,21 @@
+---
+import { FREE_SHIP_WITH_ADDON_LABEL, type ProductShipBadge } from '../../features/shipping/customer-fee';
+
+interface Props {
+  variant?: Exclude<ProductShipBadge, 'none'>;
+  class?: string;
+}
+
+const { variant = 'free', class: className } = Astro.props;
+---
+
+{
+  variant === 'free' ? (
+    <p class:list={['free-ship-badge', className]}>
+      <span class="free-ship-heart" aria-hidden="true">♥</span>
+      Miễn phí vận chuyển
+    </p>
+  ) : (
+    <p class:list={['free-ship-hint', className]}>{FREE_SHIP_WITH_ADDON_LABEL}</p>
+  )
+}

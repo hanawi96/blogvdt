@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   FREE_SHIP_BRACELET_MIN,
   baseCustomerShippingFee,
+  productQualifiesFreeShip,
+  productShipBadge,
   qualifiesFreeShip,
   resolveCustomerShippingFee,
   shipGroupOf,
@@ -59,6 +61,17 @@ describe('qualifiesFreeShip', () => {
     expect(qualifiesFreeShip([])).toBe(false);
     expect(qualifiesFreeShip([{ group: 'addon', lineTotal: 40_000 }])).toBe(false);
     expect(qualifiesFreeShip([{ group: 'other', lineTotal: 120_000 }])).toBe(false);
+  });
+});
+
+describe('productShipBadge', () => {
+  it('vòng ≥ 100k miễn; vòng rẻ gợi ý mua kèm; bạc/bán kèm không badge', () => {
+    expect(productShipBadge(FREE_SHIP_BRACELET_MIN, 'vong-tron')).toBe('free');
+    expect(productShipBadge(89_000, 'vong-tron')).toBe('with-addon');
+    expect(productShipBadge(200_000, 'bi-charm-bac')).toBe('none');
+    expect(productShipBadge(40_000, 'san-pham-ban-kem')).toBe('none');
+    expect(productQualifiesFreeShip(FREE_SHIP_BRACELET_MIN, 'vong-tron')).toBe(true);
+    expect(productQualifiesFreeShip(89_000, 'vong-tron')).toBe(false);
   });
 });
 

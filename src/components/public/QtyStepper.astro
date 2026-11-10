@@ -1,0 +1,33 @@
+---
+interface Props {
+  id?: string;
+  name?: string;
+  max: number;
+  value?: number;
+  class?: string;
+}
+
+const { id, name = 'quantity', max, value = 1, class: className } = Astro.props;
+const labelId = id ? `${id}-label` : undefined;
+---
+
+<div class:list={['qty-stepper', className]} data-qty-stepper>
+  <p class="qty-stepper-label" id={labelId}>Số lượng</p>
+  <div class="qty-stepper-row" role="group" aria-labelledby={labelId}>
+    <button class="qty-stepper-btn" type="button" data-qty-dec aria-label="Giảm số lượng">−</button>
+    <input
+      id={id}
+      class="qty-stepper-input field"
+      name={name}
+      type="number"
+      inputmode="numeric"
+      min="1"
+      max={max}
+      value={value}
+      required
+      data-qty-input
+      aria-label="Số lượng"
+    />
+    <button class="qty-stepper-btn" type="button" data-qty-inc aria-label="Tăng số lượng">+</button>
+  </div>
+</div>

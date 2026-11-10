@@ -30,6 +30,7 @@ describe('truy vấn trang mẫu vòng', () => {
     expect(catalogPath(query)).toBe('/mau-vong-dau-tam?q=vong&danh-muc=vong-charm&sap-xep=ban-chay&page=2');
     expect(catalogFiltered(query)).toBe(true);
     expect(readCatalogQuery(new URLSearchParams('sap-xep=gia-tang')).sort).toBe('mac-dinh');
+    expect(readCatalogQuery(new URLSearchParams('sap-xep=giam-gia')).sort).toBe('giam-gia');
   });
 
   it('coi URL sạch là không cần chuyển hướng, URL có tham số cũ thì chuyển', () => {

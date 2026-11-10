@@ -2,6 +2,7 @@ import { and, asc, count, eq, like, max, or } from 'drizzle-orm';
 import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
 import { media, productCategories, products } from '../../lib/db/schema';
+import { routes } from '../../lib/routes';
 import { SLUG_PATTERN, slugify } from '../posts/slug';
 import { isWeightScale, type WeightScale } from './weight';
 
@@ -109,6 +110,39 @@ export async function listSellableProductCategories(db: AppDb) {
     .innerJoin(products, and(eq(products.categoryId, productCategories.id), eq(products.status, 'active')))
     .groupBy(productCategories.id, productCategories.name, productCategories.slug, productCategories.sortOrder)
     .orderBy(asc(productCategories.sortOrder), asc(productCategories.name), asc(productCategories.id));
+}
+
+/** Danh mục có SP đang bán + ảnh cover — pill filter trang chủ (một query, không đếm SP). */
+export async function listHomeCatalogCategories(db: AppDb) {
+  const rows = await db
+    .select({
+      id: productCategories.id,
+      name: productCategories.name,
+      slug: productCategories.slug,
+      sortOrder: productCategories.sortOrder,
+      coverKey: media.r2Key,
+      coverAlt: media.altText,
+    })
+    .from(productCategories)
+    .innerJoin(products, and(eq(products.categoryId, productCategories.id), eq(products.status, 'active')))
+    .leftJoin(media, eq(productCategories.coverMediaId, media.id))
+    .groupBy(
+      productCategories.id,
+      productCategories.name,
+      productCategories.slug,
+      productCategories.sortOrder,
+      media.r2Key,
+      media.altText,
+    )
+    .orderBy(asc(productCategories.sortOrder), asc(productCategories.name), asc(productCategories.id));
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    sortOrder: row.sortOrder,
+    coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
+    coverAlt: row.coverAlt ?? '',
+  }));
 }
 
 export async function saveProductCategory(

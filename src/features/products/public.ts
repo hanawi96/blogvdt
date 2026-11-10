@@ -59,6 +59,7 @@ export async function getPublicProduct(db: AppDb, slug: string) {
       seoTitle: products.seoTitle,
       metaDescription: products.metaDescription,
       updatedAt: products.updatedAt,
+      categorySlug: productCategories.slug,
       coverId: products.coverMediaId,
       coverKey: media.r2Key,
       coverAlt: media.altText,
@@ -102,7 +103,12 @@ export async function getPublicProduct(db: AppDb, slug: string) {
       height: image.height,
     });
   }
-  return { ...product, weightScale: readWeightScale(product.weightScale), images };
+  return {
+    ...product,
+    categorySlug: product.categorySlug ?? '',
+    weightScale: readWeightScale(product.weightScale),
+    images,
+  };
 }
 
 export async function listOrderCatalog(db: AppDb) {

@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, like, sql, type SQL } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { media, productCategories, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { productShipBadge, type ProductShipBadge } from '../shipping/customer-fee';
 import { readWeightScale, type WeightScale } from './weight';
 
 export const CATALOG_PAGE_SIZE = 12;
@@ -9,6 +10,7 @@ export const CATALOG_PAGE_SIZE = 12;
 export const CATALOG_SORTS = [
   { value: 'mac-dinh', label: 'Mặc định' },
   { value: 'ban-chay', label: 'Bán chạy' },
+  { value: 'giam-gia', label: 'Giảm giá nhiều' },
 ] as const;
 
 const CATALOG_PARAMS = ['q', 'danh-muc', 'sap-xep', 'page'] as const;
@@ -45,6 +47,31 @@ export function catalogPath(query: CatalogQuery, page = query.page): string {
   return text ? `${routes.catalog}?${text}` : routes.catalog;
 }
 
+/** JSON API path — dùng cho Xem tiếp / đổi filter trên trang chủ, không reload HTML. */
+export function catalogApiPath(query: CatalogQuery, page = query.page): string {
+  const params = new URLSearchParams();
+  if (query.q) params.set('q', query.q);
+  if (query.category) params.set('danh-muc', query.category);
+  if (query.sort !== 'mac-dinh') params.set('sap-xep', query.sort);
+  if (page > 1) params.set('page', String(page));
+  const text = params.toString();
+  return text ? `${routes.catalogApi}?${text}` : routes.catalogApi;
+}
+
+/** Deep-link filter trang chủ (SSR trang 1); không gắn page — “Xem tiếp” dùng API. */
+export function homeShopPath(query: Pick<CatalogQuery, 'category' | 'sort'>, hash = 'san-pham'): string {
+  const params = new URLSearchParams();
+  if (query.category) params.set('danh-muc', query.category);
+  if (query.sort !== 'mac-dinh') params.set('sap-xep', query.sort);
+  const text = params.toString();
+  return text ? `${routes.home}?${text}#${hash}` : `${routes.home}#${hash}`;
+}
+
+export function discountPercent(price: number, comparePrice: number | null): number | null {
+  if (comparePrice == null || comparePrice <= price) return null;
+  return Math.max(1, Math.round((1 - price / comparePrice) * 100));
+}
+
 export function catalogNeedsRedirect(url: URL, query: CatalogQuery): boolean {
   const expected = new URL(catalogPath(query), url.origin);
   if (url.pathname !== expected.pathname) return true;
@@ -64,6 +91,7 @@ export type CatalogCard = {
   price: number;
   comparePrice: number | null;
   weightScale: WeightScale;
+  shipBadge: ProductShipBadge;
   coverUrl: string | null;
   coverAlt: string;
   coverWidth: number | null;
@@ -95,6 +123,7 @@ export async function listCatalogProducts(db: AppDb, query: CatalogQuery) {
       price: products.price,
       comparePrice: products.comparePrice,
       weightScale: productCategories.weightScale,
+      categorySlug: productCategories.slug,
       coverKey: media.r2Key,
       coverAlt: media.altText,
       coverWidth: media.width,
@@ -121,8 +150,18 @@ const soldCount = sql<number>`(
   + coalesce((select sum(i.quantity) from order_items i join orders o2 on o2.id = i.order_id where i.product_id = ${products.id} and o2.status <> 'cancelled'), 0)
 )`;
 
+// % giảm = (giá gốc − giá bán) / giá gốc; mẫu không giảm xếp cuối.
+const discountRatio = sql<number>`(
+  case
+    when ${products.comparePrice} is not null and ${products.comparePrice} > ${products.price}
+    then (${products.comparePrice} - ${products.price}) * 1.0 / ${products.comparePrice}
+    else 0
+  end
+)`;
+
 function catalogOrder(sort: CatalogSort) {
   if (sort === 'ban-chay') return [desc(soldCount), asc(products.sortOrder), asc(products.id)] as const;
+  if (sort === 'giam-gia') return [desc(discountRatio), asc(products.sortOrder), asc(products.id)] as const;
   return [asc(products.sortOrder), asc(products.id)] as const;
 }
 
@@ -152,6 +191,7 @@ function toCard(row: {
   price: number;
   comparePrice: number | null;
   weightScale: string | null;
+  categorySlug: string | null;
   coverKey: string | null;
   coverAlt: string | null;
   coverWidth: number | null;
@@ -164,6 +204,7 @@ function toCard(row: {
     price: row.price,
     comparePrice: visibleComparePrice(row.price, row.comparePrice),
     weightScale: readWeightScale(row.weightScale),
+    shipBadge: productShipBadge(row.price, row.categorySlug),
     coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
     coverAlt: row.coverAlt ?? '',
     coverWidth: row.coverWidth,

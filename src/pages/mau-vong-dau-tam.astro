@@ -5,6 +5,7 @@ import Pagination from '../components/public/Pagination.astro';
 import ProductStory from '../components/public/ProductStory.astro';
 import { listSellableProductCategories } from '../features/products/categories';
 import {
+  CATALOG_SORTS,
   catalogFiltered,
   catalogNeedsRedirect,
   catalogPath,
@@ -24,7 +25,6 @@ if (catalogNeedsRedirect(Astro.url, query)) return Astro.redirect(catalogPath(qu
 
 const page = query.page;
 const filtered = catalogFiltered(query);
-const bestSelling = query.sort === 'ban-chay';
 const loaded = await loadCatalog();
 const outOfRange = Boolean(loaded.site) && page > loaded.pageCount && (loaded.total > 0 || page > 1);
 if (outOfRange) Astro.response.status = 404;
@@ -106,8 +106,11 @@ async function loadCatalog() {
               <div class="catalog-group">
                 <span class="catalog-label" id="catalog-sort">Sắp xếp</span>
                 <div class="catalog-segment" role="group" aria-labelledby="catalog-sort">
-                  <a class="chip" href={catalogPath({ ...query, sort: 'mac-dinh' }, 1)} aria-current={bestSelling ? undefined : 'true'}>Mặc định</a>
-                  <a class="chip" href={catalogPath({ ...query, sort: 'ban-chay' }, 1)} aria-current={bestSelling ? 'true' : undefined}>Bán chạy</a>
+                  {CATALOG_SORTS.map((sort) => (
+                    <a class="chip" href={catalogPath({ ...query, sort: sort.value }, 1)} aria-current={query.sort === sort.value ? 'true' : undefined}>
+                      {sort.label}
+                    </a>
+                  ))}
                 </div>
               </div>
             </div>
