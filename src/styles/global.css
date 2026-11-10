@@ -5025,6 +5025,10 @@
     background: color-mix(in oklab, var(--color-accent) 10%, var(--color-surface));
     padding: 0.4rem 0.55rem;
   }
+  .order-line-note[data-tone='product'] {
+    margin-top: 0.35rem;
+    background: color-mix(in oklab, var(--color-ink) 5%, var(--color-surface));
+  }
   .order-line-note[data-tone='internal'] {
     background: color-mix(in oklab, var(--color-primary) 10%, var(--color-surface));
   }
@@ -5034,28 +5038,13 @@
     font-size: 0.8125rem;
     line-height: 1.4;
   }
-  .order-product-demos {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.35rem;
-  }
-  .order-demo-btn {
-    display: inline-flex;
-    align-items: center;
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-md);
-    background: var(--color-surface);
-    padding: 0.2rem 0.55rem;
+  .order-note-tag {
+    margin-right: 0.35rem;
     color: var(--color-muted);
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-    text-decoration: none;
-  }
-  .order-demo-btn:hover {
-    border-color: var(--color-ink);
-    color: var(--color-ink);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
   }
   .order-profit-cell {
     display: grid;
@@ -6782,22 +6771,27 @@
     margin: 0;
     -webkit-appearance: none;
   }
+  .staff-line-note {
+    display: block;
+    margin-top: 0.35rem;
+  }
   .staff-line-note .field {
     min-height: 2.5rem;
   }
   .staff-lines-cart .staff-line-note .field {
-    min-height: 0;
-    border: 0;
-    border-radius: 0.25rem;
-    background: transparent;
-    padding: 0;
+    min-height: 2rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: var(--color-canvas);
+    padding: 0.35rem 0.55rem;
     color: var(--color-ink);
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     font-weight: 500;
     line-height: 1.4;
   }
   .staff-lines-cart .staff-line-note .field:focus {
     outline: none;
+    border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-line));
   }
   .staff-lines-cart .staff-line-note .field:focus-visible {
     outline: 2px solid var(--color-primary);
@@ -6805,7 +6799,7 @@
   }
   .staff-lines-cart .staff-line-note .field::placeholder {
     color: var(--color-muted);
-    opacity: 0.85;
+    opacity: 0.9;
   }
   .staff-lines-cart .staff-line-remove {
     width: 1.75rem;
@@ -7449,6 +7443,60 @@
   }
   .order-table tr[data-priority='1'][data-shipped='1']:has(input[name='ids']:checked) {
     background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  }
+  .order-day-select {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem 0.65rem;
+    margin: 0 0 0.75rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+  }
+  .order-day-select-label {
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .order-day-select-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .order-day-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-height: 2rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: var(--color-canvas);
+    padding: 0.3rem 0.65rem;
+    color: var(--color-ink);
+    font: inherit;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .order-day-chip:hover {
+    border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-line));
+  }
+  .order-day-chip.is-active,
+  .order-day-chip[aria-pressed='true'] {
+    border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-line));
+    background: color-mix(in srgb, var(--color-primary) 14%, var(--color-canvas));
+    color: var(--color-primary-strong);
+  }
+  .order-day-chip-count {
+    color: var(--color-muted);
+    font-weight: 500;
+  }
+  .order-day-chip.is-active .order-day-chip-count,
+  .order-day-chip[aria-pressed='true'] .order-day-chip-count {
+    color: inherit;
   }
   .order-bulk-bar {
     gap: 0.4rem;

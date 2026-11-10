@@ -8,7 +8,7 @@ import {
   orderShippedAgoLabel,
   ORDER_STATUSES,
 } from './status';
-import { orderListPayment, orderListSource, orderListStatus } from './orders';
+import { groupOrdersByCreatedDay, orderListPayment, orderListSource, orderListStatus } from './orders';
 import { isPaymentMethod } from './payment';
 import { isOrderSource } from './staff';
 import {
@@ -93,6 +93,29 @@ describe('đơn hàng', () => {
     expect(orderListPayment('bank')).toBe('bank');
     expect(orderListPayment(null)).toBe('');
     expect(orderListPayment('paid')).toBe('');
+  });
+
+  it('nhóm đơn theo ngày đặt Việt Nam, ngày xa nhất trước', () => {
+    const nov8 = Date.parse('2026-11-08T10:00:00+07:00');
+    const nov9a = Date.parse('2026-11-09T08:00:00+07:00');
+    const nov9b = Date.parse('2026-11-09T22:00:00+07:00');
+    const buckets = groupOrdersByCreatedDay([
+      { id: 1, createdAt: nov8 },
+      { id: 2, createdAt: nov9a },
+      { id: 3, createdAt: nov9b },
+    ]);
+    expect(buckets.map((item) => item.day)).toEqual(['2026-11-08', '2026-11-09']);
+    expect(buckets[0]).toMatchObject({ label: '8/11', count: 1, ids: [1] });
+    expect(buckets[1]).toMatchObject({ label: '9/11', count: 2, ids: [2, 3] });
+  });
+
+  it('giới hạn ids mỗi ngày khi nhóm chọn nhanh', () => {
+    const day = Date.parse('2026-11-03T12:00:00+07:00');
+    const rows = Array.from({ length: 5 }, (_, index) => ({ id: index + 1, createdAt: day }));
+    const buckets = groupOrdersByCreatedDay(rows, 3);
+    expect(buckets).toHaveLength(1);
+    expect(buckets[0]?.count).toBe(5);
+    expect(buckets[0]?.ids).toEqual([1, 2, 3]);
   });
 
   it('chuẩn hóa số điện thoại và lập mã theo ngày Việt Nam', () => {

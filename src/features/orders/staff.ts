@@ -5,12 +5,16 @@ import type { FieldErrors } from '../../lib/validation/errors';
 import { DEFAULT_PAYMENT_METHOD, isPaymentMethod, paymentLabel, type PaymentMethod } from './payment';
 import { ORDER_MAX_QUANTITY, orderOptionLabel, readCustomer } from './order';
 
+/** Lưu ý gắn từng dòng SP trong đơn (khác ghi chú khách/nội bộ cấp đơn). */
+export const LINE_NOTE_MAX = 160;
+
 export type StaffPricedLine = {
   productId: number | null;
   productName: string;
   unitPrice: number;
   quantity: number;
   optionLabel: string | null;
+  note: string | null;
   lineTotal: number;
 };
 
@@ -40,6 +44,7 @@ export type StoredOrderLine = {
   unitPrice: number;
   quantity: number;
   optionLabel: string | null;
+  note: string | null;
   lineTotal: number;
 };
 
@@ -157,6 +162,8 @@ export function priceStaffLines(
     if (productId === 'bad') return lineError(index, 'Chọn sản phẩm đang bán.');
     const weight = input.weight.trim();
     if (weight.length > 40) return lineError(index, 'Cân nặng không hợp lệ.');
+    const note = readLineNote(input.note);
+    if (note === 'bad') return lineError(index, `Lưu ý sản phẩm tối đa ${LINE_NOTE_MAX} ký tự.`);
     const storedLine = takeStored(stored, input.slot, used);
     if (storedLine && storedLine.productId === productId && (storedLine.optionLabel ?? '') === weight) {
       const named = readLineName(input.name, storedLine.productName);
@@ -171,6 +178,7 @@ export function priceStaffLines(
         unitPrice,
         quantity,
         optionLabel: storedLine.optionLabel,
+        note,
         lineTotal,
       });
       continue;
@@ -193,6 +201,7 @@ export function priceStaffLines(
       unitPrice,
       quantity,
       optionLabel: orderOptionLabel(weight),
+      note,
       lineTotal,
     });
   }
@@ -458,9 +467,17 @@ export function orderLineSources(order: {
       unitPrice: order.unitPrice,
       quantity: order.quantity,
       optionLabel: order.optionLabel,
+      note: null,
       lineTotal: order.subtotal ?? order.totalPrice + order.discountAmount,
     },
   ];
+}
+
+function readLineNote(raw: string | undefined): string | null | 'bad' {
+  const note = (raw ?? '').replace(/\s+/g, ' ').trim();
+  if (!note) return null;
+  if (note.length > LINE_NOTE_MAX) return 'bad';
+  return note;
 }
 
 export function parseStaffCustomer(input: {

@@ -38,9 +38,9 @@ function pageHref(next: number): string {
 <AdminLayout title="Trang đích">
   <p slot="lead">{result && result.total > 0 ? `${result.total} trang đích để chạy quảng cáo` : 'Trang đích để chạy quảng cáo và đo chuyển đổi'}</p>
   <a slot="action" class="btn btn-primary" href={routes.adminLandingNew}>Tạo trang đích</a>
-  {saved && <p class="mb-4 text-primary-strong" role="status">Đã lưu trang đích.</p>}
-  {deleted && <p class="mb-4 text-primary-strong" role="status">Đã xóa trang đích.</p>}
-  {listError && <p class="error-text mb-4" role="alert">{listError}</p>}
+  {saved && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã lưu trang đích.</p>}
+  {deleted && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã xóa trang đích.</p>}
+  {listError && <p class="error-text mb-4" role="alert" data-admin-flash>{listError}</p>}
   {loadError && <p class="error-text" role="alert">{loadError}</p>}
   {
     result && result.total === 0 && !query ? (

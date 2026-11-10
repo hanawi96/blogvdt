@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, gte, gt, inArray, isNotNull, isNull, like, lt, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
-import { vnTodayStartMs } from '../../lib/datetime';
+import { vnTodayParts, vnTodayStartMs, vnYmd } from '../../lib/datetime';
 import { routes } from '../../lib/routes';
 import { orderItems, orders, productCategories, products } from '../../lib/db/schema';
 import { activityWrite, commitWrites, type ActivityActor } from '../activity/log';
@@ -53,7 +53,13 @@ export const ORDER_BULK_MAX = 100;
 export const ORDER_BULK_ACTIONS = ['delete', 'export'] as const;
 export type OrderBulkAction = (typeof ORDER_BULK_ACTIONS)[number];
 
-type OrderListLine = { productName: string; quantity: number; optionLabel: string | null; unitPrice: number };
+type OrderListLine = {
+  productName: string;
+  quantity: number;
+  optionLabel: string | null;
+  unitPrice: number;
+  note: string | null;
+};
 
 /** Lọc list theo giao hàng. `processing` giữ cho link dashboard cũ. `''` = tất cả (`status=all`). */
 export type OrderListStatus = OrderListFilter | 'processing';
@@ -161,18 +167,26 @@ function dayParam(value: string | undefined): string {
   return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
 }
 
-export async function listOrders(
-  db: AppDb,
-  filters: {
-    query: string;
-    status: OrderListStatus;
-    source: OrderSource | '';
-    payment: PaymentMethod | '';
-    page: number;
-    start: number | null;
-    end: number | null;
-  },
-) {
+export type OrderListFilters = {
+  query: string;
+  status: OrderListStatus;
+  source: OrderSource | '';
+  payment: PaymentMethod | '';
+  start: number | null;
+  end: number | null;
+};
+
+export type OrderDayBucket = {
+  day: string;
+  label: string;
+  count: number;
+  ids: number[];
+};
+
+/** Giới hạn id lấy cho chip chọn theo ngày (tránh payload lớn). */
+const ORDER_DAY_SCAN_MAX = 500;
+
+function orderListWhere(filters: OrderListFilters) {
   const term = orderSearchTerm(filters.query);
   const shared = [];
   if (term.phone) shared.push(like(orders.phone, `%${term.phone}%`));
@@ -212,7 +226,57 @@ export async function listOrders(
   } else if (filters.status === 'reship') {
     conditions.push(eq(orders.fulfillStatus, 'reship'));
   }
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  return conditions.length > 0 ? and(...conditions) : undefined;
+}
+
+/** Nhóm id theo ngày đặt (lịch VN). `ids` mỗi ngày tối đa `maxIdsPerDay` (mặc định bulk max). */
+export function groupOrdersByCreatedDay(
+  rows: { id: number; createdAt: number }[],
+  maxIdsPerDay = ORDER_BULK_MAX,
+): OrderDayBucket[] {
+  const buckets = new Map<string, OrderDayBucket>();
+  const order: string[] = [];
+  for (const row of rows) {
+    const day = vnYmd(vnTodayParts(row.createdAt));
+    let bucket = buckets.get(day);
+    if (!bucket) {
+      const parts = vnTodayParts(row.createdAt);
+      bucket = { day, label: `${parts.day}/${parts.month}`, count: 0, ids: [] };
+      buckets.set(day, bucket);
+      order.push(day);
+    }
+    bucket.count += 1;
+    if (bucket.ids.length < maxIdsPerDay) bucket.ids.push(row.id);
+  }
+  // Chip: ngày mới trước (chọn nhanh hôm nay / hôm qua).
+  // Chip: ngày đặt xa nhất trước — khớp hàng đợi xử lý đơn cũ trước.
+  const oldestFirst: OrderDayBucket[] = [];
+  for (const day of order) {
+    const bucket = buckets.get(day);
+    if (bucket && bucket.count > 0) oldestFirst.push(bucket);
+  }
+  return oldestFirst;
+}
+
+/** Id đơn theo ngày đặt — cùng bộ lọc list, đủ để checkbox nhanh (kể cả ngoài trang hiện tại). */
+export async function listOrderDayBuckets(db: AppDb, filters: OrderListFilters): Promise<OrderDayBucket[]> {
+  const where = orderListWhere(filters);
+  const rows = await db
+    .select({ id: orders.id, createdAt: orders.createdAt })
+    .from(orders)
+    .where(where)
+    .orderBy(asc(orders.createdAt), asc(orders.id))
+    .limit(ORDER_DAY_SCAN_MAX);
+  return groupOrdersByCreatedDay(rows);
+}
+
+export async function listOrders(
+  db: AppDb,
+  filters: OrderListFilters & {
+    page: number;
+  },
+) {
+  const where = orderListWhere(filters);
   const page = Math.max(1, filters.page);
   const [totalRows, rows] = await Promise.all([
     db.select({ value: count() }).from(orders).where(where),
@@ -260,6 +324,7 @@ export async function listOrders(
   const total = totalRows[0]?.value ?? 0;
   // Chỉ đếm cả thư viện khi list đang trống — phục vụ empty-state, tránh count(*) mỗi lần lọc.
   let libraryTotal = total;
+  const term = orderSearchTerm(filters.query);
   const bareFilters =
     !term.text &&
     !term.phone &&
@@ -281,6 +346,7 @@ export async function listOrders(
           unitPrice: orderItems.unitPrice,
           quantity: orderItems.quantity,
           optionLabel: orderItems.optionLabel,
+          note: orderItems.note,
         })
         .from(orderItems)
         .where(inArray(orderItems.orderId, orderIds))
@@ -288,7 +354,13 @@ export async function listOrders(
   const linesByOrder = new Map<number, OrderListLine[]>();
   for (const item of itemRows) {
     const lines = linesByOrder.get(item.orderId) ?? [];
-    lines.push({ productName: item.productName, quantity: item.quantity, optionLabel: item.optionLabel, unitPrice: item.unitPrice });
+    lines.push({
+      productName: item.productName,
+      quantity: item.quantity,
+      optionLabel: item.optionLabel,
+      unitPrice: item.unitPrice,
+      note: item.note,
+    });
     linesByOrder.set(item.orderId, lines);
   }
   const phones = [...new Set(rows.map((row) => row.phone))];
@@ -305,7 +377,9 @@ export async function listOrders(
     rows: rows.map((row) => ({
       ...row,
       customerOrderCount: ordersByPhone.get(row.phone) ?? 0,
-      lines: linesByOrder.get(row.id) ?? [{ productName: row.productName, quantity: row.quantity, optionLabel: row.optionLabel, unitPrice: row.unitPrice }],
+      lines:
+        linesByOrder.get(row.id) ??
+        [{ productName: row.productName, quantity: row.quantity, optionLabel: row.optionLabel, unitPrice: row.unitPrice, note: null }],
     })),
     total,
     page,
@@ -385,6 +459,7 @@ export async function getOrder(db: AppDb, id: number) {
       unitPrice: orderItems.unitPrice,
       quantity: orderItems.quantity,
       optionLabel: orderItems.optionLabel,
+      note: orderItems.note,
       lineTotal: orderItems.lineTotal,
     })
     .from(orderItems)
@@ -928,13 +1003,12 @@ export async function createStaffOrder(
         await releaseDiscountSlot(db, slot.id, now);
         return { ok: false, error: 'Chưa tạo được đơn. Thử lại.' };
       }
-      if (draft.lines.length > 1) {
-        try {
-          await db.insert(orderItems).values(itemValues(orderId, draft.lines));
-        } catch (error) {
-          await db.delete(orders).where(eq(orders.id, orderId));
-          throw error;
-        }
+      // Luôn ghi order_items để giữ lưu ý từng SP (kể cả đơn 1 dòng).
+      try {
+        await db.insert(orderItems).values(itemValues(orderId, draft.lines));
+      } catch (error) {
+        await db.delete(orders).where(eq(orders.id, orderId));
+        throw error;
       }
       return { ok: true, id: orderId };
     } catch (error) {
@@ -1027,7 +1101,7 @@ export async function updateStaffOrder(
         })
         .where(eq(orders.id, id)),
       db.delete(orderItems).where(eq(orderItems.orderId, id)),
-      ...(draft.lines.length > 1 ? [db.insert(orderItems).values(itemValues(id, draft.lines))] : []),
+      db.insert(orderItems).values(itemValues(id, draft.lines)),
       ...(restore && current.discountCode ? [restoreDiscountQuery(db, current.discountCode, now)] : []),
     ]);
   } catch (error) {
@@ -1096,7 +1170,7 @@ export async function updateStaffOrderLines(
         })
         .where(eq(orders.id, id)),
       db.delete(orderItems).where(eq(orderItems.orderId, id)),
-      ...(lines.length > 1 ? [db.insert(orderItems).values(itemValues(id, lines))] : []),
+      db.insert(orderItems).values(itemValues(id, lines)),
       ...(restore && current.discountCode ? [restoreDiscountQuery(db, current.discountCode, now)] : []),
     ]);
   } catch (error) {
@@ -1192,6 +1266,7 @@ function itemValues(orderId: number, lines: StaffOrderDraft['lines']) {
     unitPrice: line.unitPrice,
     quantity: line.quantity,
     optionLabel: line.optionLabel,
+    note: line.note,
     lineTotal: line.lineTotal,
     sortOrder: index,
   }));

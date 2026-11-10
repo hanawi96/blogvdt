@@ -84,7 +84,7 @@ const bannerError = slugError || nameError ? '' : formError;
 ---
 
 <AdminLayout title="Danh mục">
-  {saved && !formError && <p class="mb-4 text-primary-strong" role="status">Đã lưu danh mục.</p>}
+  {saved && !formError && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã lưu danh mục.</p>}
   {bannerError && <p class="error-text mb-4" role="alert">{bannerError}</p>}
   <div class="category-layout">
     <form class="category-panel" method="post" data-busy>

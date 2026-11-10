@@ -4,7 +4,7 @@ import { activityActor } from '../../../features/activity/log';
 import { mutationError } from '../../../features/auth/session';
 import { orderCreatedRange } from '../../../features/orders/order';
 import OrderListPanel from '../../../components/admin/OrderListPanel.astro';
-import { deleteOrder, listOrders, orderAdminQuery, orderListPayment, orderListSource, orderListStatus, orderPanelQuery, pendingUnshippedSummary, updateOrderFulfillStatus, updateOrderPriority } from '../../../features/orders/orders';
+import { deleteOrder, listOrderDayBuckets, listOrders, orderAdminQuery, orderListPayment, orderListSource, orderListStatus, orderPanelQuery, pendingUnshippedSummary, updateOrderFulfillStatus, updateOrderPriority, type OrderDayBucket } from '../../../features/orders/orders';
 import { ORDER_PAYMENT_FILTERS } from '../../../features/orders/payment';
 import { ORDER_SOURCES } from '../../../features/orders/staff';
 import { isFulfillStatus, ORDER_LIST_FILTERS } from '../../../features/orders/status';
@@ -121,6 +121,7 @@ if (Astro.request.method === 'POST') {
 }
 const db = createDb(getDbBinding());
 let result: Awaited<ReturnType<typeof listOrders>> | null = null;
+let dayBuckets: OrderDayBucket[] = [];
 let pendingSummary = { revenue: 0, orderCount: 0 };
 try {
   pendingSummary = await pendingUnshippedSummary(db);
@@ -128,16 +129,24 @@ try {
   console.error(JSON.stringify({ event: 'order_pending_summary_failed', name: error instanceof Error ? error.name : 'unknown' }));
 }
 if (!range.invalid) {
+  const listFilters = {
+    query,
+    status,
+    source,
+    payment,
+    start: range.start,
+    end: range.end,
+  };
   try {
-    result = await listOrders(db, {
-      query,
-      status,
-      source,
-      payment,
-      start: range.start,
-      end: range.end,
-      page: Number.isInteger(page) ? page : 1,
-    });
+    const [listed, buckets] = await Promise.all([
+      listOrders(db, {
+        ...listFilters,
+        page: Number.isInteger(page) ? page : 1,
+      }),
+      listOrderDayBuckets(db, listFilters),
+    ]);
+    result = listed;
+    dayBuckets = buckets;
   } catch (error) {
     console.error(JSON.stringify({ event: 'order_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
     loadError = 'Không tải được danh sách đơn.';
@@ -182,19 +191,19 @@ const shippedPanelHref =
   </div>
   <p slot="lead" data-order-lead>{result ? `${result.total} đơn hàng` : 'Danh sách đơn hàng'}</p>
   {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
-  {notice === 'deleted' && <p class="mb-4 text-primary-strong" role="status">Đã xóa đơn hàng.</p>}
+  {notice === 'deleted' && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã xóa đơn hàng.</p>}
   {notice === 'bulk-deleted' && (
-    <p class="mb-4 text-primary-strong" role="status">
+    <p class="mb-4 text-primary-strong" role="status" data-admin-flash>
       {bulkCount > 0 ? `Đã xóa ${bulkCount} đơn hàng.` : 'Không có đơn nào được xóa.'}
     </p>
   )}
-  {notice === 'priority-on' && <p class="mb-4 text-primary-strong" role="status">Đã gắn ưu tiên.</p>}
-  {notice === 'priority-off' && <p class="mb-4 text-primary-strong" role="status">Đã bỏ ưu tiên.</p>}
-  {notice === 'status' && <p class="mb-4 text-primary-strong" role="status">Đã cập nhật trạng thái.</p>}
-  {notice === 'missing' && <p class="error-text mb-4" role="alert">Không tìm thấy đơn hàng cần xóa.</p>}
-  {notice === 'bulk-error' && <p class="error-text mb-4" role="alert">Không thực hiện được thao tác hàng loạt. Thử lại.</p>}
-  {notice === 'priority-error' && <p class="error-text mb-4" role="alert">Không đổi được ưu tiên. Đơn có thể đã kết thúc.</p>}
-  {notice === 'status-error' && <p class="error-text mb-4" role="alert">Không đổi được trạng thái. Kiểm tra bước chuyển hợp lệ.</p>}
+  {notice === 'priority-on' && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã gắn ưu tiên.</p>}
+  {notice === 'priority-off' && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã bỏ ưu tiên.</p>}
+  {notice === 'status' && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã cập nhật trạng thái.</p>}
+  {notice === 'missing' && <p class="error-text mb-4" role="alert" data-admin-flash>Không tìm thấy đơn hàng cần xóa.</p>}
+  {notice === 'bulk-error' && <p class="error-text mb-4" role="alert" data-admin-flash>Không thực hiện được thao tác hàng loạt. Thử lại.</p>}
+  {notice === 'priority-error' && <p class="error-text mb-4" role="alert" data-admin-flash>Không đổi được ưu tiên. Đơn có thể đã kết thúc.</p>}
+  {notice === 'status-error' && <p class="error-text mb-4" role="alert" data-admin-flash>Không đổi được trạng thái. Kiểm tra bước chuyển hợp lệ.</p>}
   {
     result && result.libraryTotal === 0 && !query && !source && !payment && !from && !to && (status === '' || status === 'unshipped') ? (
       <section class="cms-empty">
@@ -325,6 +334,7 @@ const shippedPanelHref =
         <div data-order-board>
           <OrderListPanel
             result={result}
+            dayBuckets={dayBuckets}
             csrfToken={session.csrfToken}
             canBulkDelete={canBulkDelete}
             query={query}
@@ -1025,6 +1035,49 @@ const shippedPanelHref =
     function boxes(): HTMLInputElement[] {
       return [...root.querySelectorAll('input[name="ids"]')].filter((node): node is HTMLInputElement => node instanceof HTMLInputElement);
     }
+    function dayChipIds(chip: HTMLElement): string[] {
+      return (chip.dataset.ids ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => value !== '');
+    }
+    function paintDayChips() {
+      for (const chip of root.querySelectorAll('[data-select-day]')) {
+        if (!(chip instanceof HTMLButtonElement)) continue;
+        const ids = dayChipIds(chip);
+        const pressed = ids.length > 0 && ids.every((id) => selectedIds.has(id));
+        chip.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+        chip.classList.toggle('is-active', pressed);
+      }
+    }
+    function toggleDaySelection(chip: HTMLButtonElement) {
+      const ids = dayChipIds(chip);
+      if (ids.length === 0) return;
+      const bar = root.querySelector('[data-order-bulk]');
+      const error = bar?.querySelector('[data-bulk-error]');
+      const dayBar = root.querySelector('[data-order-day-select]');
+      const max = Number(dayBar instanceof HTMLElement ? dayBar.dataset.bulkMax : '') || 100;
+      const allOn = ids.every((id) => selectedIds.has(id));
+      if (allOn) {
+        for (const id of ids) selectedIds.delete(id);
+        applyPageChecks();
+        return;
+      }
+      let skipped = 0;
+      for (const id of ids) {
+        if (selectedIds.has(id)) continue;
+        if (selectedIds.size >= max) {
+          skipped += 1;
+          continue;
+        }
+        selectedIds.add(id);
+      }
+      applyPageChecks();
+      if (skipped > 0 && error instanceof HTMLElement) {
+        error.hidden = false;
+        error.textContent = `Chỉ chọn tối đa ${max} đơn mỗi lần.`;
+      }
+    }
     function paint() {
       const bar = root.querySelector('[data-order-bulk]');
       const all = root.querySelector('[data-bulk-all]');
@@ -1043,6 +1096,7 @@ const shippedPanelHref =
       if (demoMsg instanceof HTMLElement) demoMsg.hidden = true;
       if (error instanceof HTMLElement) error.hidden = true;
       syncBulkHidden(bar);
+      paintDayChips();
     }
     function syncBulkHidden(bar: HTMLFormElement) {
       for (const node of bar.querySelectorAll('[data-bulk-extra]')) node.remove();
@@ -1104,6 +1158,10 @@ const shippedPanelHref =
       }
       const target = event.target instanceof Element ? event.target.closest('button') : null;
       if (!(target instanceof HTMLButtonElement)) return;
+      if (target.hasAttribute('data-select-day')) {
+        toggleDaySelection(target);
+        return;
+      }
       if (target.hasAttribute('data-bulk-clear')) {
         clearSelection?.();
         return;

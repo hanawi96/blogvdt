@@ -215,9 +215,11 @@ function current(href: string): boolean {
     )
   }
     <script>
+      import { armAdminFlashes } from '../lib/admin-flash';
       import { bindGroupedInputs } from '../lib/group-digits';
 
       bindGroupedInputs(document);
+      armAdminFlashes();
       const drawer = document.getElementById('admin-drawer');
       const drawerOpen = document.querySelector('[data-nav-open]');
       if (drawer instanceof HTMLDialogElement && drawerOpen instanceof HTMLButtonElement) {

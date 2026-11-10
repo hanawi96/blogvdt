@@ -12,7 +12,7 @@ import {
 import { formatDateShort, formatTimeHms } from '../../lib/datetime';
 import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
-import { listOrders } from '../../features/orders/orders';
+import { ORDER_BULK_MAX, listOrders, type OrderDayBucket } from '../../features/orders/orders';
 
 const listNow = Date.now();
 
@@ -20,6 +20,7 @@ type ListResult = Awaited<ReturnType<typeof listOrders>>;
 
 type Props = {
   result: ListResult;
+  dayBuckets?: OrderDayBucket[];
   csrfToken: string;
   canBulkDelete: boolean;
   query: string;
@@ -35,6 +36,7 @@ type Props = {
 
 const {
   result,
+  dayBuckets = [],
   csrfToken,
   canBulkDelete,
   query,
@@ -118,6 +120,30 @@ const statusParam = status === '' ? 'all' : status;
     <span class="order-bulk-demo" role="status" data-bulk-demo-msg hidden></span>
   </form>
   <div data-order-list>
+  {dayBuckets.length > 0 ? (
+    <div class="order-day-select" data-order-day-select data-bulk-max={String(ORDER_BULK_MAX)} role="group" aria-label="Chọn nhanh theo ngày đặt">
+      <span class="order-day-select-label">Theo ngày</span>
+      <div class="order-day-select-list">
+        {dayBuckets.map((bucket) => (
+          <button
+            class="order-day-chip"
+            type="button"
+            data-select-day={bucket.day}
+            data-ids={bucket.ids.join(',')}
+            aria-pressed="false"
+            title={
+              bucket.count > bucket.ids.length
+                ? `Chọn tối đa ${bucket.ids.length}/${bucket.count} đơn ngày ${bucket.label} (giới hạn thao tác hàng loạt)`
+                : `Chọn ${bucket.count} đơn ngày ${bucket.label}`
+            }
+          >
+            {bucket.label}
+            <span class="order-day-chip-count">({bucket.count} đơn)</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null}
   {result.rows.length === 0 ? (
     <p class="post-empty">Không có đơn khớp bộ lọc.</p>
   ) : (
@@ -271,25 +297,19 @@ const statusParam = status === '' ? 'all' : status;
                           {formatVnd(line.unitPrice)}
                         </span>
                       </div>
+                      {line.note ? (
+                        <div class="order-line-note" data-tone="product">
+                          <p>{line.note}</p>
+                        </div>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
                 {order.note && (
                   <div class="order-line-note" data-tone="customer">
-                    <p>{order.note}</p>
+                    <p><span class="order-note-tag">Đơn</span>{order.note}</p>
                   </div>
                 )}
-                {order.internalNote && (
-                  <div class="order-line-note" data-tone="internal">
-                    <p>{order.internalNote}</p>
-                  </div>
-                )}
-                {order.status !== 'completed' && order.status !== 'cancelled' ? (
-                  <div class="order-product-demos">
-                    <a class="order-demo-btn" href={routes.adminOrderEdit(order.id)}>+ Thêm SP</a>
-                    <a class="order-demo-btn" href={routes.adminOrderEdit(order.id)}>Ghi chú</a>
-                  </div>
-                ) : null}
               </div>
             </td>
             <td data-label="Giá trị">

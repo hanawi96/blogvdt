@@ -467,6 +467,7 @@ export const orderItems = sqliteTable(
     unitPrice: integer('unit_price').notNull(),
     quantity: integer('quantity').notNull(),
     optionLabel: text('option_label'),
+    note: text('note'),
     lineTotal: integer('line_total').notNull(),
     sortOrder: integer('sort_order').notNull().default(0),
   },

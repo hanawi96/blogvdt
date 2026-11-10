@@ -127,8 +127,8 @@ const stepLabels: Record<number, string> = { 1: 'Không làm tròn', 500: '500 �
     {materialName ? `Sản phẩm dùng “${materialName}”. ` : ''}Giá bán đề xuất theo giá vốn nguyên liệu. Giá chỉ đổi khi bạn bấm áp dụng.
   </p>
   {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
-  {noticeText && <p class="mb-4 text-primary-strong" role="status">{noticeText}</p>}
-  {errorText && <p class="error-text mb-4" role="alert">{errorText}</p>}
+  {noticeText && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>{noticeText}</p>}
+  {errorText && <p class="error-text mb-4" role="alert" data-admin-flash>{errorText}</p>}
   {
     listed && computed.length === 0 ? (
       <section class="cms-empty">

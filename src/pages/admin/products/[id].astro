@@ -113,7 +113,7 @@ function valuesFrom(form: FormData) {
 ---
 
 <AdminLayout title="Sửa sản phẩm">
-  {saved && <p class="mb-4 text-primary-strong" role="status" data-product-saved-flash>Đã lưu sản phẩm.</p>}
+  {saved && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã lưu sản phẩm.</p>}
   <ProductForm
     csrf={session.csrfToken}
     action={routes.adminProduct(id)}
@@ -127,20 +127,3 @@ function valuesFrom(form: FormData) {
     {recipeLines}
   />
 </AdminLayout>
-
-{saved && (
-  <script>
-    const flash = document.querySelector('[data-product-saved-flash]');
-    if (flash instanceof HTMLElement) {
-      window.setTimeout(() => {
-        flash.hidden = true;
-        flash.textContent = '';
-      }, 2000);
-    }
-    const url = new URL(location.href);
-    if (url.searchParams.has('saved')) {
-      url.searchParams.delete('saved');
-      history.replaceState(null, '', url);
-    }
-  </script>
-)}

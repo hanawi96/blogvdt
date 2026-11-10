@@ -72,7 +72,7 @@ const publicUrl = current ? routes.landing(current.slug) : '';
 
 <AdminLayout title={current ? `Sửa: ${current.title}` : 'Không tìm thấy'}>
   <p slot="lead">{current ? `Đường dẫn: /lp/${current.slug}` : ''}</p>
-  {saved && <p class="mb-4 text-primary-strong" role="status">Đã lưu trang đích.</p>}
+  {saved && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã lưu trang đích.</p>}
   {
     !current || !values ? (
       <NotFound />

@@ -133,14 +133,14 @@ function pageHref(next: { page?: number }): string {
   }
   <div data-product-results>
     {deleted && (
-      <p class="mb-4 text-primary-strong" role="status" data-product-list-flash>Đã xóa sản phẩm. Đơn cũ vẫn giữ tên và giá lúc đặt.</p>
+      <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã xóa sản phẩm. Đơn cũ vẫn giữ tên và giá lúc đặt.</p>
     )}
-    {featured === '1' && <p class="mb-4 text-primary-strong" role="status" data-product-list-flash>Đã đánh dấu nổi bật trên trang chủ.</p>}
-    {featured === '0' && <p class="mb-4 text-primary-strong" role="status" data-product-list-flash>Đã bỏ nổi bật.</p>}
-    {featureError && <p class="error-text mb-4" role="alert">Không đánh dấu nổi bật được. Chỉ sản phẩm đang bán mới hiện ở trang chủ.</p>}
-    {bulkNotice && <p class="mb-4 text-primary-strong" role="status" data-product-list-flash>{bulkNotice}</p>}
+    {featured === '1' && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã đánh dấu nổi bật trên trang chủ.</p>}
+    {featured === '0' && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã bỏ nổi bật.</p>}
+    {featureError && <p class="error-text mb-4" role="alert" data-admin-flash>Không đánh dấu nổi bật được. Chỉ sản phẩm đang bán mới hiện ở trang chủ.</p>}
+    {bulkNotice && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>{bulkNotice}</p>}
     {bulkError && (
-      <p class="error-text mb-4" role="alert">Không thực hiện được thao tác hàng loạt. Chọn tối đa {PRODUCT_BULK_MAX} sản phẩm rồi thử lại.</p>
+      <p class="error-text mb-4" role="alert" data-admin-flash>Không thực hiện được thao tác hàng loạt. Chọn tối đa {PRODUCT_BULK_MAX} sản phẩm rồi thử lại.</p>
     )}
     {loadError && <p class="error-text" role="alert">{loadError}</p>}
     {
@@ -372,6 +372,8 @@ function pageHref(next: { page?: number }): string {
 </AdminLayout>
 
 <script>
+  import { armAdminFlashes } from '../../../lib/admin-flash';
+
   // Vùng kết quả được thay HTML sau mỗi thao tác hàng loạt, nên mọi phần tử bên trong đều truy vấn lại khi dùng.
   const results = document.querySelector<HTMLElement>('[data-product-results]');
   const searchForm = document.querySelector('[data-product-search]');
@@ -630,7 +632,7 @@ function pageHref(next: { page?: number }): string {
       history.replaceState(null, '', url.pathname + url.search);
       anchor = null;
       syncSelection();
-      if (results.querySelector('[data-product-list-flash]')) window.setTimeout(hideListFlash, 2000);
+      armAdminFlashes(results);
     } catch {
       if (error) {
         error.textContent = 'Không thực hiện được. Tải lại trang rồi thử lại.';
@@ -692,26 +694,6 @@ function pageHref(next: { page?: number }): string {
   }
 
   syncSelection();
-
-  function hideListFlash() {
-    for (const flash of document.querySelectorAll<HTMLElement>('[data-product-list-flash]')) {
-      flash.hidden = true;
-      flash.textContent = '';
-    }
-    const url = new URL(location.href);
-    let dirty = false;
-    for (const name of ['deleted', 'featured', 'bulk', 'n']) {
-      if (url.searchParams.has(name)) {
-        url.searchParams.delete(name);
-        dirty = true;
-      }
-    }
-    if (dirty) history.replaceState(null, '', url.pathname + url.search);
-  }
-
-  if (document.querySelector('[data-product-list-flash]')) {
-    window.setTimeout(hideListFlash, 2000);
-  }
 
   function productListUrl(query: string, status: string, sort: string, category: string, cord: string): string {
     const params = new URLSearchParams();

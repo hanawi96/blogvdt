@@ -2,12 +2,14 @@
 import OrderListPanel from '../../../components/admin/OrderListPanel.astro';
 import { orderCreatedRange } from '../../../features/orders/order';
 import {
+  listOrderDayBuckets,
   listOrders,
   orderAdminQuery,
   orderListPayment,
   orderListSource,
   orderListStatus,
   orderPanelQuery,
+  type OrderDayBucket,
 } from '../../../features/orders/orders';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
@@ -35,16 +37,26 @@ if (range.invalid) {
 }
 
 let result: Awaited<ReturnType<typeof listOrders>>;
+let dayBuckets: OrderDayBucket[] = [];
 try {
-  result = await listOrders(createDb(getDbBinding()), {
+  const db = createDb(getDbBinding());
+  const listFilters = {
     query,
     status,
     source,
     payment,
     start: range.start,
     end: range.end,
-    page: Number.isInteger(page) ? page : 1,
-  });
+  };
+  const [listed, buckets] = await Promise.all([
+    listOrders(db, {
+      ...listFilters,
+      page: Number.isInteger(page) ? page : 1,
+    }),
+    listOrderDayBuckets(db, listFilters),
+  ]);
+  result = listed;
+  dayBuckets = buckets;
 } catch (error) {
   console.error(JSON.stringify({ event: 'order_panel_failed', name: error instanceof Error ? error.name : 'unknown' }));
   return new Response('Không tải được danh sách đơn.', {
@@ -67,6 +79,7 @@ Astro.response.headers.set('content-type', 'text/html; charset=utf-8');
 ---
 <OrderListPanel
   result={result}
+  dayBuckets={dayBuckets}
   csrfToken={session.csrfToken}
   canBulkDelete={session.role === 'admin'}
   query={query}

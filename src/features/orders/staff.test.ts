@@ -8,9 +8,9 @@ const catalog: { id: number; name: string; price: number; weightScale: WeightSca
 ];
 
 const stored: StoredOrderLine[] = [
-  { productId: 7, productName: 'Vòng cho bé', unitPrice: 100000, quantity: 1, optionLabel: '5kg', lineTotal: 100000 },
-  { productId: 7, productName: 'Vòng cho bé', unitPrice: 110000, quantity: 1, optionLabel: '5kg', lineTotal: 110000 },
-  { productId: null, productName: 'Mẫu đã xóa', unitPrice: 90000, quantity: 1, optionLabel: '3kg', lineTotal: 90000 },
+  { productId: 7, productName: 'Vòng cho bé', unitPrice: 100000, quantity: 1, optionLabel: '5kg', note: null, lineTotal: 100000 },
+  { productId: 7, productName: 'Vòng cho bé', unitPrice: 110000, quantity: 1, optionLabel: '5kg', note: null, lineTotal: 110000 },
+  { productId: null, productName: 'Mẫu đã xóa', unitPrice: 90000, quantity: 1, optionLabel: '3kg', note: null, lineTotal: 90000 },
 ];
 
 function line(slot: string, productId: string, weight: string, quantity = '1') {
@@ -162,8 +162,14 @@ describe('đơn nhân viên nhập', () => {
       items: [],
     });
     expect(lines).toEqual([
-      { productId: 7, productName: 'Vòng cho bé', unitPrice: 100000, quantity: 2, optionLabel: '5kg', lineTotal: 200000 },
+      { productId: 7, productName: 'Vòng cho bé', unitPrice: 100000, quantity: 2, optionLabel: '5kg', note: null, lineTotal: 200000 },
     ]);
+  });
+
+  it('giữ lưu ý sản phẩm khi định giá dòng', () => {
+    const priced = priceStaffLines([{ ...line('', '1', ''), note: '  Gói riêng  ' }], catalog, []);
+    expect(priced.ok && priced.lines[0]?.note).toBe('Gói riêng');
+    expect(priceStaffLines([{ ...line('', '1', ''), note: 'x'.repeat(161) }], catalog, []).ok).toBe(false);
   });
 
   it('nhận diện gửi sau còn xa và badge đến hạn', () => {

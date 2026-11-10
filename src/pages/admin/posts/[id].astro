@@ -140,7 +140,7 @@ function valuesFrom(form: FormData, fallbackContent: string) {
     </AdminLayout>
   ) : (
     <AdminLayout title="Sửa bài viết">
-      {restored && <p class="mb-4 text-primary-strong" role="status">Đã khôi phục thành bản nháp. Bài chưa được xuất bản lại.</p>}
+      {restored && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã khôi phục thành bản nháp. Bài chưa được xuất bản lại.</p>}
       <PostForm
         csrf={session.csrfToken}
         action={routes.adminPost(id)}

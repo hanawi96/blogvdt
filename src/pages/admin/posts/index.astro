@@ -142,13 +142,13 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
           </div>
         )}
         <div data-post-results>
-          {trashed && <p class="mb-4 text-primary-strong" role="status">Đã chuyển bài vào thùng rác.</p>}
-          {purged && <p class="mb-4 text-primary-strong" role="status">Đã xóa vĩnh viễn bài viết.</p>}
-          {copyError && <p class="error-text mb-4" role="alert">Không sao chép được bài viết.</p>}
-          {bulkNotice && <p class="mb-4 text-primary-strong" role="status">{bulkNotice}</p>}
-          {bulkError && <p class="error-text mb-4" role="alert">Không thực hiện được thao tác hàng loạt. Chọn tối đa 20 bài rồi thử lại.</p>}
-          {retireError && <p class="error-text mb-4" role="alert">Chưa xử lý được URL cũ. Hãy chọn cách xử lý hợp lệ cho các bài đã công khai.</p>}
-          {actionError && <p class="error-text mb-4" role="alert">{actionError}</p>}
+          {trashed && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã chuyển bài vào thùng rác.</p>}
+          {purged && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã xóa vĩnh viễn bài viết.</p>}
+          {copyError && <p class="error-text mb-4" role="alert" data-admin-flash>Không sao chép được bài viết.</p>}
+          {bulkNotice && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>{bulkNotice}</p>}
+          {bulkError && <p class="error-text mb-4" role="alert" data-admin-flash>Không thực hiện được thao tác hàng loạt. Chọn tối đa 20 bài rồi thử lại.</p>}
+          {retireError && <p class="error-text mb-4" role="alert" data-admin-flash>Chưa xử lý được URL cũ. Hãy chọn cách xử lý hợp lệ cho các bài đã công khai.</p>}
+          {actionError && <p class="error-text mb-4" role="alert" data-admin-flash>{actionError}</p>}
           <p class="mb-3 text-sm" role="status" data-category-status hidden></p>
           {result.rows.length > 0 && (
             <form
@@ -383,6 +383,8 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
 </AdminLayout>
 
 <script>
+  import { armAdminFlashes } from '../../../lib/admin-flash';
+
   document.addEventListener('toggle', (event) => {
     const menu = event.target;
     if (!(menu instanceof HTMLDetailsElement) || !menu.open || !menu.classList.contains('row-menu')) return;
@@ -547,6 +549,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
       history.replaceState(null, '', url.pathname + url.search);
       anchor = null;
       syncSelection();
+      armAdminFlashes(results);
     } catch {
       bulkError('Không thực hiện được. Tải lại trang rồi thử lại.');
     } finally {
