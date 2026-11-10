@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import treeText from '../../../public/data/tree_2.json?raw';
 import flatText from '../../../public/data/dia_chi_2_cap.json?raw';
 import slimText from '../../../public/data/address-select.json?raw';
+import { matchComposedAddress } from './parse';
 
 type TreeWard = { code: string; fullName: string };
 type TreeProvince = { code: string; fullName: string; wards: TreeWard[] };
@@ -32,5 +33,19 @@ describe('danh sách địa chỉ chọn trên form', () => {
       });
     });
     expect(wards).toBe(Object.keys(flat).length);
+  });
+
+  it('tách lại địa chỉ đã ghép khi mở form sửa đơn', () => {
+    const province = slim[0];
+    const ward = province?.[2][0];
+    expect(province && ward).toBeTruthy();
+    if (!province || !ward) return;
+    const composed = `12 đường Mẫu, hẻm 3, ${ward[1]}, ${province[1]}`;
+    expect(matchComposedAddress(slim, composed)).toEqual({
+      provinceCode: province[0],
+      wardCode: ward[0],
+      line: '12 đường Mẫu, hẻm 3',
+    });
+    expect(matchComposedAddress(slim, 'địa chỉ cũ không chuẩn')).toBeNull();
   });
 });

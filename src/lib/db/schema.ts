@@ -312,6 +312,8 @@ export const orders = sqliteTable(
     source: text('source'),
     // cod | paid (đã chuyển khoản) | deposit (cọc trước). Trống thì hiển thị theo payment_method.
     payState: text('pay_state'),
+    // Tiền khách đã cọc khi pay_state = deposit. Doanh thu vẫn là total_price; còn lại = total_price - deposit_amount.
+    depositAmount: integer('deposit_amount').notNull().default(0),
     priority: integer('priority').notNull().default(0),
     // Gửi bù: không thu tiền, không tính doanh thu. Giá vốn vẫn được giữ để thấy khoản lỗ.
     compensation: integer('compensation').notNull().default(0),
@@ -329,6 +331,8 @@ export const orders = sqliteTable(
     status: text('status').notNull(),
     // Trạng thái giao nhanh trên list: chưa gửi / đã gửi / chờ gửi lại. NULL = suy ra từ status.
     fulfillStatus: text('fulfill_status'),
+    // Mốc đã gửi hàng: lần tải export đầu tiên hoặc khi đổi fulfill → shipped thủ công.
+    shippedAt: integer('shipped_at'),
     ipHash: text('ip_hash').notNull(),
     landingSlug: text('landing_slug'),
     createdAt: integer('created_at').notNull(),
@@ -351,11 +355,17 @@ export const orders = sqliteTable(
     check('orders_payment_method_check', sql`${table.paymentMethod} in ('cod', 'bank')`),
     check('orders_source_check', sql`${table.source} is null or ${table.source} in ('zalo', 'facebook', 'tiktok', 'web')`),
     check('orders_pay_state_check', sql`${table.payState} is null or ${table.payState} in ('cod', 'paid', 'deposit')`),
+    check('orders_deposit_amount_check', sql`${table.depositAmount} >= 0`),
     check('orders_priority_check', sql`${table.priority} in (0, 1)`),
     check('orders_compensation_check', sql`${table.compensation} in (0, 1)`),
     check('orders_shipping_fee_check', sql`${table.shippingFee} >= 0`),
     check('orders_shipping_cost_check', sql`${table.shippingCost} >= 0`),
     index('orders_priority_idx').on(table.priority, table.createdAt),
+    index('orders_list_idx').on(table.priority, table.createdAt, table.id),
+    index('orders_fulfill_status_idx').on(table.fulfillStatus),
+    index('orders_shipped_at_idx').on(table.shippedAt, table.id),
+    index('orders_source_idx').on(table.source),
+    index('orders_payment_method_idx').on(table.paymentMethod),
     check('orders_quantity_check', sql`${table.quantity} > 0`),
     check('orders_unit_price_check', sql`${table.unitPrice} >= 0`),
     check('orders_discount_amount_check', sql`${table.discountAmount} >= 0`),
@@ -465,6 +475,43 @@ export const orderItems = sqliteTable(
     index('order_items_product_idx').on(table.productId),
     check('order_items_quantity_check', sql`${table.quantity} > 0`),
     check('order_items_price_check', sql`${table.unitPrice} >= 0`),
+  ],
+);
+
+/** File Excel SPX đã tạo (lưu R2); tải lần đầu mới đánh dấu đơn đã gửi. */
+export const orderExports = sqliteTable(
+  'order_exports',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    filename: text('filename').notNull(),
+    r2Key: text('r2_key').notNull(),
+    orderCount: integer('order_count').notNull(),
+    skippedCount: integer('skipped_count').notNull().default(0),
+    downloadedAt: integer('downloaded_at'),
+    createdBy: integer('created_by').references(() => adminUsers.id, { onDelete: 'set null' }),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => [
+    index('order_exports_created_at_idx').on(table.createdAt, table.id),
+    check('order_exports_order_count_check', sql`${table.orderCount} >= 0`),
+    check('order_exports_skipped_count_check', sql`${table.skippedCount} >= 0`),
+  ],
+);
+
+export const orderExportItems = sqliteTable(
+  'order_export_items',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    exportId: integer('export_id')
+      .notNull()
+      .references(() => orderExports.id, { onDelete: 'cascade' }),
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+  },
+  (table) => [
+    index('order_export_items_export_idx').on(table.exportId),
+    index('order_export_items_order_idx').on(table.orderId),
   ],
 );
 

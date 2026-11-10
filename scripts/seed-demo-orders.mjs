@@ -1,5 +1,6 @@
 /**
- * Seed demo: ~100 đơn hàng đa dạng trên D1 local (đầy đủ trạng thái, nguồn, giảm giá, gửi sau...).
+ * Seed demo: 50 đơn hàng đa dạng trên D1 local (đầy đủ trạng thái, nguồn, giảm giá, gửi sau...).
+ * Địa chỉ ghép đúng format form thật: `${số nhà}, ${xã/phường}, ${tỉnh/TP}` từ address-select.json.
  * Chỉ chạy local — từ chối --remote.
  *
  *   npm run db:seed:demo-orders
@@ -10,24 +11,24 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ORDER_COUNT = 100;
+const ORDER_COUNT = 50;
 const WEIGHTS = ['Chưa sinh', '3kg', '4kg', '5kg', '6kg', '7kg', '8kg', '9kg', '10kg', '11kg', '12kg', '13kg', '14kg', '15kg'];
 const STATUSES = ['new', 'confirmed', 'preparing', 'shipped', 'completed', 'cancelled'];
 const SOURCES = ['zalo', 'facebook', 'tiktok', 'web'];
 const PAY_STATES = ['cod', 'paid', 'deposit'];
 const FIRST = ['An', 'Bình', 'Chi', 'Dũng', 'Em', 'Giang', 'Hà', 'Hùng', 'Khoa', 'Lan', 'Minh', 'Nam', 'Oanh', 'Phúc', 'Quân', 'Trang', 'Uyên', 'Vân', 'Yến', 'Đạt'];
 const LAST = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Huỳnh', 'Phan', 'Vũ', 'Võ', 'Đặng', 'Bùi', 'Đỗ', 'Hồ', 'Ngô', 'Dương'];
-const CITIES = [
-  'Quận 1, Thành phố Hồ Chí Minh',
-  'Quận 7, Thành phố Hồ Chí Minh',
-  'Thành phố Thủ Đức, Thành phố Hồ Chí Minh',
-  'Thành phố Cần Thơ',
-  'Thành phố Đà Nẵng',
-  'Thành phố Huế',
-  'Thành phố Hải Phòng',
-  'Thành phố Biên Hòa, Đồng Nai',
-  'Thành phố Thủ Dầu Một, Bình Dương',
-  'Thành phố Nha Trang, Khánh Hòa',
+const STREETS = [
+  'ngõ 3',
+  'hẻm 12',
+  'đường Nguyễn Thị Định',
+  'đường Lê Lợi',
+  'tổ 7',
+  'ấp Tân Trang',
+  'số 910/10',
+  'đường Sơn Tây 2',
+  'khu phố 3',
+  'thôn Quyết Tiến',
 ];
 
 const extraArgs = process.argv.slice(2);
@@ -39,6 +40,30 @@ if (extraArgs.some((arg) => arg === '--remote' || arg.startsWith('--remote'))) {
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(scriptsDir, '..');
 const wranglerJs = path.join(projectDir, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
+const addressSelectPath = path.join(projectDir, 'public', 'data', 'address-select.json');
+/** @type {[string, string, [string, string][]][]} */
+const addressRows = JSON.parse(fs.readFileSync(addressSelectPath, 'utf8'));
+if (!Array.isArray(addressRows) || addressRows.length < 10) {
+  console.error('Thiếu public/data/address-select.json hợp lệ.');
+  process.exit(1);
+}
+
+function composeAddress(index) {
+  const province = addressRows[index % addressRows.length];
+  const wards = province[2] ?? [];
+  if (wards.length === 0) throw new Error(`Tỉnh ${province[1]} không có xã/phường.`);
+  const ward = wards[(index * 7) % wards.length];
+  const house = `${10 + (index % 80)} ${pick(STREETS, index)}`;
+  // Khớp AddressField: `${house}, ${wardName}, ${provinceName}`
+  return `${house}, ${ward[1]}, ${province[1]}`;
+}
+
+function fulfillOf(status, index) {
+  if (status === 'completed' || status === 'cancelled') return null;
+  if (status === 'shipped') return 'shipped';
+  if (index % 13 === 0) return 'reship';
+  return 'unshipped';
+}
 
 function runSql(sql, label) {
   const file = path.join(os.tmpdir(), `blogvdt-orders-${Date.now()}-${Math.random().toString(16).slice(2)}.sql`);
@@ -224,11 +249,16 @@ for (let i = 0; i < ORDER_COUNT; i += 1) {
   const head = lines[0];
   const multi = lines.length > 1;
   const customerName = `${pick(LAST, i)} ${pick(FIRST, i * 2)}`;
-  const address = `${10 + (i % 80)} đường Mẫu, ${pick(CITIES, i)}`;
+  const address = composeAddress(i);
   const note = i % 5 === 0 ? 'Giao giờ hành chính' : i % 8 === 0 ? 'Nhắn Zalo trước khi giao' : null;
   const internalNote = i % 10 === 0 ? 'Khách quen' : null;
   const updatedAt = status === 'new' ? createdAt : createdAt + 6 * 60 * 60 * 1000;
   const discountRestored = status === 'cancelled' && discountCode ? 1 : 0;
+  const depositAmount =
+    payState === 'deposit' && totalPrice > 20_000
+      ? Math.min(Math.max(10_000, Math.round(totalPrice * 0.2)), totalPrice - 10_000)
+      : 0;
+  const fulfillStatus = fulfillOf(status, i);
 
   orderRows.push({
     code,
@@ -250,6 +280,7 @@ for (let i = 0; i < ORDER_COUNT; i += 1) {
     paymentMethod,
     source,
     payState,
+    depositAmount,
     priority,
     compensation,
     shipOn,
@@ -259,6 +290,7 @@ for (let i = 0; i < ORDER_COUNT; i += 1) {
     costExtra,
     costLines,
     status,
+    fulfillStatus,
     ipHash: `demo:seed:${String(i + 1).padStart(3, '0')}`,
     landingSlug: source === 'web' && i % 2 === 0 ? 'vong-cho-be' : null,
     createdAt,
@@ -292,6 +324,7 @@ for (let start = 0; start < orderRows.length; start += batchSize) {
         sqlStr(order.paymentMethod),
         sqlStr(order.source),
         sqlStr(order.payState),
+        String(order.depositAmount),
         String(order.priority),
         String(order.compensation),
         order.shipOn === null ? 'NULL' : String(order.shipOn),
@@ -301,6 +334,7 @@ for (let start = 0; start < orderRows.length; start += batchSize) {
         String(order.costExtra),
         sqlStr(order.costLines),
         sqlStr(order.status),
+        sqlStr(order.fulfillStatus),
         sqlStr(order.ipHash),
         sqlStr(order.landingSlug),
         String(order.createdAt),
@@ -314,9 +348,9 @@ for (let start = 0; start < orderRows.length; start += batchSize) {
       code, customer_name, phone, address, note, internal_note,
       product_id, product_name, unit_price, quantity, option_label,
       subtotal, discount_code, discount_amount, discount_restored, total_price,
-      payment_method, source, pay_state, priority, compensation, ship_on,
+      payment_method, source, pay_state, deposit_amount, priority, compensation, ship_on,
       shipping_fee, shipping_cost, cost_goods, cost_extra, cost_lines,
-      status, ip_hash, landing_slug, created_at, updated_at
+      status, fulfill_status, ip_hash, landing_slug, created_at, updated_at
     ) VALUES\n${values};`,
     `Chèn đơn ${start + 1}-${start + batch.length}`,
   );

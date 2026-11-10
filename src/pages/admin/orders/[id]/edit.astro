@@ -1,6 +1,8 @@
 ---
 import StaffOrderForm from '../../../../components/admin/StaffOrderForm.astro';
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
+import addressSelect from '../../../../../public/data/address-select.json';
+import { matchComposedAddress } from '../../../../features/address/parse';
 import { mutationError } from '../../../../features/auth/session';
 import { listStaffDiscountChoices, quoteStaffDiscount } from '../../../../features/discounts/discounts';
 import { getOrder, updateStaffOrder } from '../../../../features/orders/orders';
@@ -60,14 +62,15 @@ let lineError = '';
 let flagError = '';
 let errors: FieldErrors = {};
 let postedLines: StaffLineInput[] | null = null;
+const matchedAddress = matchComposedAddress(addressSelect, order.address);
 const values = {
   customerName: order.customerName,
   phone: order.phone,
   address: order.address,
   note: order.note ?? '',
-  provinceCode: '',
-  wardCode: '',
-  addressLine: '',
+  provinceCode: matchedAddress?.provinceCode ?? '',
+  wardCode: matchedAddress?.wardCode ?? '',
+  addressLine: matchedAddress?.line ?? '',
   orderTotal: String(Math.max(0, goodsTotal)),
   discountCode: order.discountCode ?? '',
   discountExtra: '',
@@ -110,6 +113,7 @@ if (Astro.request.method === 'POST') {
   flagForm.shipOn = read('shipOn');
   flagForm.shippingFee = read('shippingFee');
   flagForm.freeShip = read('freeShip') === 'on';
+  flagForm.depositAmount = read('depositAmount');
   postedLines = readStaffLineInputs(form);
   const flags = readStaffFlags({
     ...flagForm,
@@ -117,6 +121,7 @@ if (Astro.request.method === 'POST') {
     compensation: flagForm.compensation ? 'on' : '',
     shipLater: flagForm.shipLater ? 'on' : '',
     freeShip: flagForm.freeShip ? 'on' : '',
+    depositAmount: flagForm.depositAmount,
   });
   if (blocked) {
     Astro.response.status = 403;

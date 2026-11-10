@@ -19,6 +19,8 @@ export const routes = {
   adminProductsBulk: '/admin/products/bulk',
   adminOrders: '/admin/orders',
   adminOrdersBulk: '/admin/orders/bulk',
+  adminOrdersPanel: '/admin/orders/panel',
+  adminOrdersExports: '/admin/orders/exports',
   adminOrderNew: '/admin/orders/new',
   adminCustomers: '/admin/customers',
   adminMaterials: '/admin/materials',

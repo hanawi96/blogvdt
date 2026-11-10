@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { canTransitionOrder, fulfillStatusOf, isOrderListFilter, isOrderStatus, orderCounts, ORDER_STATUSES } from './status';
+import {
+  canTransitionOrder,
+  fulfillStatusOf,
+  isOrderListFilter,
+  isOrderStatus,
+  orderCounts,
+  orderShippedAgoLabel,
+  ORDER_STATUSES,
+} from './status';
 import { orderListPayment, orderListSource, orderListStatus } from './orders';
 import { isPaymentMethod } from './payment';
 import { isOrderSource } from './staff';
@@ -43,6 +51,14 @@ describe('đơn hàng', () => {
     expect(fulfillStatusOf({ status: 'shipped', fulfillStatus: null })).toBe('shipped');
     expect(fulfillStatusOf({ status: 'preparing', fulfillStatus: 'reship' })).toBe('reship');
     expect(fulfillStatusOf({ status: 'completed', fulfillStatus: null })).toBeNull();
+  });
+
+  it('nhãn đã gửi theo thời gian tương đối', () => {
+    const now = Date.parse('2026-11-10T12:00:00+07:00');
+    expect(orderShippedAgoLabel(null, now)).toBe('Đã gửi hàng');
+    expect(orderShippedAgoLabel(now - 30_000, now)).toBe('Vừa xong');
+    expect(orderShippedAgoLabel(now - 23 * 60_000, now)).toBe('23 phút trước');
+    expect(orderShippedAgoLabel(now - 3 * 60 * 60_000, now)).toBe('3 giờ trước');
   });
 
   it('bộ lọc list chỉ nhận trạng thái giao hàng', () => {

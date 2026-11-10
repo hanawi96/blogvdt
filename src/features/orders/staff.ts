@@ -1,4 +1,5 @@
 import { CART_MAX_LINES, cartSummary } from '../cart/cart';
+import { vnTodayStartMs } from '../../lib/datetime';
 import { requiresWeight, type WeightScale } from '../products/weight';
 import type { FieldErrors } from '../../lib/validation/errors';
 import { DEFAULT_PAYMENT_METHOD, isPaymentMethod, paymentLabel, type PaymentMethod } from './payment';
@@ -85,6 +86,8 @@ export type StaffFlags = {
   compensation: boolean;
   shipOn: number | null;
   shippingFee: number;
+  /** Tiền cọc khi payState = deposit; doanh thu vẫn là totalPrice. */
+  depositAmount: number;
 };
 
 export type StaffFlagForm = {
@@ -96,6 +99,7 @@ export type StaffFlagForm = {
   shipOn: string;
   shippingFee: string;
   freeShip: boolean;
+  depositAmount: string;
 };
 
 export function canEditOrderProducts(status: string): boolean {
@@ -252,6 +256,7 @@ export function readStaffFlags(input: {
   shipOn: string;
   shippingFee: string;
   freeShip: string;
+  depositAmount?: string;
 }): { ok: true; flags: StaffFlags } | { ok: false; error: string } {
   const pay = PAY_STATES.find((item) => item.value === input.payState.trim());
   if (!pay) return { ok: false, error: 'Chọn hình thức thanh toán.' };
@@ -263,9 +268,16 @@ export function readStaffFlags(input: {
   const shipOn = shipLater ? parseShipDay(input.shipOn) : null;
   if (shipLater && shipOn === null) return { ok: false, error: 'Chọn ngày dự kiến gửi.' };
   const compensation = checked(input.compensation);
+  if (compensation && pay.value === 'deposit') return { ok: false, error: 'Đơn gửi bù không dùng cọc trước.' };
   const freeShip = checked(input.freeShip);
   const shippingFee = compensation || freeShip ? 0 : readFee(input.shippingFee);
   if (shippingFee === 'bad') return { ok: false, error: 'Phí vận chuyển là số từ 0 đến 99.999.999.' };
+  let depositAmount = 0;
+  if (pay.value === 'deposit') {
+    const raw = readFee(input.depositAmount ?? '');
+    if (raw === 'bad' || raw <= 0) return { ok: false, error: 'Nhập số tiền cọc lớn hơn 0.' };
+    depositAmount = raw;
+  }
   return {
     ok: true,
     flags: {
@@ -276,8 +288,23 @@ export function readStaffFlags(input: {
       compensation,
       shipOn,
       shippingFee,
+      depositAmount,
     },
   };
+}
+
+/** Cọc phải nhỏ hơn tổng phải trả; doanh thu vẫn là totalPrice. */
+export function validateOrderDeposit(payState: string, depositAmount: number, totalPrice: number): string | null {
+  if (payState !== 'deposit') return depositAmount === 0 ? null : 'Chỉ nhập cọc khi chọn Cọc trước.';
+  if (totalPrice <= 0) return 'Đơn không thu tiền thì không dùng cọc trước.';
+  if (!Number.isSafeInteger(depositAmount) || depositAmount <= 0) return 'Nhập số tiền cọc lớn hơn 0.';
+  if (depositAmount >= totalPrice) return 'Tiền cọc phải nhỏ hơn tổng đơn.';
+  return null;
+}
+
+export function remainingAfterDeposit(totalPrice: number, depositAmount: number): number {
+  if (!Number.isSafeInteger(totalPrice) || !Number.isSafeInteger(depositAmount)) return totalPrice;
+  return Math.max(0, totalPrice - Math.max(0, depositAmount));
 }
 
 export function staffFlagForm(order: {
@@ -289,12 +316,14 @@ export function staffFlagForm(order: {
   shipOn: number | null;
   shippingFee: number;
   shippingCost: number;
+  depositAmount?: number | null;
 }): StaffFlagForm {
   const payState = PAY_STATES.some((item) => item.value === order.payState)
     ? order.payState
     : order.paymentMethod === 'bank'
       ? 'paid'
       : 'cod';
+  const deposit = order.depositAmount ?? 0;
   return {
     payState: payState ?? 'cod',
     source: order.source ?? '',
@@ -304,6 +333,7 @@ export function staffFlagForm(order: {
     shipOn: order.shipOn === null ? '' : formatShipDay(order.shipOn),
     shippingFee: order.shippingFee > 0 ? String(order.shippingFee) : '',
     freeShip: order.shippingFee === 0 && order.shippingCost > 0,
+    depositAmount: deposit > 0 ? String(deposit) : '',
   };
 }
 
@@ -320,7 +350,25 @@ export function formatShipDay(timestamp: number): string {
 }
 
 export function formatShipLabel(timestamp: number): string {
-  return new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit' }).format(new Date(timestamp));
+  // Cố định dd/MM theo giờ VN — tránh phụ thuộc locale máy (vi-VN có thể ra 23-11).
+  const day = formatShipDay(timestamp);
+  return `${day.slice(8, 10)}/${day.slice(5, 7)}`;
+}
+
+/** Đơn gửi sau còn chưa tới ngày (so với 00:00 hôm nay giờ VN). */
+export function isShipLaterFuture(shipOn: number | null | undefined, now = Date.now()): boolean {
+  if (shipOn == null) return false;
+  return shipOn > vnTodayStartMs(now);
+}
+
+/** Badge list/detail: giữ chỗ hoặc đến hạn. */
+export function shipLaterPill(
+  shipOn: number,
+  now = Date.now(),
+): { tone: 'hold' | 'due'; label: string } {
+  const day = formatShipLabel(shipOn);
+  if (isShipLaterFuture(shipOn, now)) return { tone: 'hold', label: `Gửi sau ${day}` };
+  return { tone: 'due', label: `Đến hạn ${day}` };
 }
 
 export const STAFF_SHIP_DAY_PRESETS = [10, 15, 20, 25, 30, 45, 60] as const;

@@ -1,5 +1,6 @@
-import { and, asc, count, desc, eq, gte, gt, inArray, isNotNull, isNull, like, lt, ne, notInArray, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, gt, inArray, isNotNull, isNull, like, lt, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
+import { vnTodayStartMs } from '../../lib/datetime';
 import { routes } from '../../lib/routes';
 import { orderItems, orders, productCategories, products } from '../../lib/db/schema';
 import { activityWrite, commitWrites, type ActivityActor } from '../activity/log';
@@ -30,6 +31,7 @@ import {
   orderLineSources,
   settleStaffTotal,
   staffOrderColumns,
+  validateOrderDeposit,
   type OrderSource,
   type StaffFlags,
   type StaffOrderDraft,
@@ -39,7 +41,6 @@ import {
   isFulfillStatus,
   isOrderListFilter,
   isOrderStatus,
-  orderCounts,
   orderTransitionError,
   type FulfillStatus,
   type OrderListFilter,
@@ -47,8 +48,9 @@ import {
 } from './status';
 
 const PAGE_SIZE = 20;
-export const ORDER_BULK_MAX = PAGE_SIZE;
-export const ORDER_BULK_ACTIONS = ['delete'] as const;
+/** Cho phép chọn qua nhiều trang (mỗi trang 20). */
+export const ORDER_BULK_MAX = 100;
+export const ORDER_BULK_ACTIONS = ['delete', 'export'] as const;
 export type OrderBulkAction = (typeof ORDER_BULK_ACTIONS)[number];
 
 type OrderListLine = { productName: string; quantity: number; optionLabel: string | null; unitPrice: number };
@@ -107,6 +109,20 @@ export function orderAdminQuery(input: {
   if (count) params.set('n', String(count));
   const text = params.toString();
   return text ? `${routes.adminOrders}?${text}` : routes.adminOrders;
+}
+
+/** URL fragment panel cho soft-nav / prefetch (cùng query với list). */
+export function orderPanelQuery(input: {
+  query?: string;
+  status?: string;
+  source?: string;
+  payment?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+}): string {
+  const href = orderAdminQuery(input);
+  return href.replace(routes.adminOrders, routes.adminOrdersPanel);
 }
 
 export function readOrderBulk(form: FormData): { action: OrderBulkAction; ids: number[] } | null {
@@ -169,37 +185,37 @@ export async function listOrders(
   if (filters.payment) shared.push(eq(orders.paymentMethod, filters.payment));
   const conditions = [...shared];
   const openShip = notInArray(orders.status, ['shipped', 'completed', 'cancelled']);
+  const todayStart = vnTodayStartMs();
   if (filters.status === 'processing') {
     conditions.push(inArray(orders.status, ['confirmed', 'preparing', 'shipped']));
   } else if (filters.status === 'unshipped') {
-    // Mặc định «Chưa gửi hàng»: chưa gửi + gửi sau + chờ gửi lại (ẩn đã gửi).
+    // Hàng đợi in hàng ngày: chưa gửi / chờ gửi lại / gửi sau đã đến hạn (ẩn gửi sau còn xa).
     conditions.push(
       or(
         eq(orders.fulfillStatus, 'reship'),
-        and(openShip, or(isNull(orders.fulfillStatus), eq(orders.fulfillStatus, 'unshipped'))),
+        and(
+          openShip,
+          or(isNull(orders.fulfillStatus), eq(orders.fulfillStatus, 'unshipped')),
+          or(isNull(orders.shipOn), lte(orders.shipOn, todayStart)),
+        ),
       ),
     );
   } else if (filters.status === 'shipped') {
     conditions.push(or(eq(orders.fulfillStatus, 'shipped'), and(isNull(orders.fulfillStatus), eq(orders.status, 'shipped'))));
   } else if (filters.status === 'later') {
+    // Chỉ đơn đặt trước còn chưa tới ngày gửi.
     conditions.push(
       openShip,
-      isNotNull(orders.shipOn),
+      gt(orders.shipOn, todayStart),
       or(isNull(orders.fulfillStatus), eq(orders.fulfillStatus, 'unshipped')),
     );
   } else if (filters.status === 'reship') {
     conditions.push(eq(orders.fulfillStatus, 'reship'));
   }
   const where = conditions.length > 0 ? and(...conditions) : undefined;
-  const countWhere = shared.length > 0 ? and(...shared) : undefined;
   const page = Math.max(1, filters.page);
-  const narrowed = Boolean(
-    filters.status || filters.source || filters.payment || term.text || term.phone || filters.start !== null || filters.end !== null,
-  );
-  const [totalRows, countRows, libraryRows, rows] = await Promise.all([
+  const [totalRows, rows] = await Promise.all([
     db.select({ value: count() }).from(orders).where(where),
-    db.select({ status: orders.status, value: count() }).from(orders).where(countWhere).groupBy(orders.status),
-    narrowed ? db.select({ value: count() }).from(orders) : Promise.resolve([]),
     db
       .select({
         id: orders.id,
@@ -216,6 +232,7 @@ export async function listOrders(
         totalPrice: orders.totalPrice,
         paymentMethod: orders.paymentMethod,
         payState: orders.payState,
+        depositAmount: orders.depositAmount,
         source: orders.source,
         priority: orders.priority,
         compensation: orders.compensation,
@@ -226,16 +243,34 @@ export async function listOrders(
         costExtra: orders.costExtra,
         status: orders.status,
         fulfillStatus: orders.fulfillStatus,
+        shippedAt: orders.shippedAt,
         createdAt: orders.createdAt,
       })
       .from(orders)
       .where(where)
-      .orderBy(desc(orders.priority), desc(orders.createdAt), desc(orders.id))
+      .orderBy(
+        ...(filters.status === 'shipped'
+          ? [desc(orders.shippedAt), desc(orders.id)]
+          : // Chưa gửi: đơn đặt sớm lên trước để in/xử lý trước; ưu tiên vẫn nổi trên cùng.
+            [desc(orders.priority), asc(orders.createdAt), asc(orders.id)]),
+      )
       .limit(PAGE_SIZE)
       .offset((page - 1) * PAGE_SIZE),
   ]);
   const total = totalRows[0]?.value ?? 0;
-  const counts = orderCounts(countRows);
+  // Chỉ đếm cả thư viện khi list đang trống — phục vụ empty-state, tránh count(*) mỗi lần lọc.
+  let libraryTotal = total;
+  const bareFilters =
+    !term.text &&
+    !term.phone &&
+    !filters.source &&
+    !filters.payment &&
+    filters.start === null &&
+    filters.end === null;
+  if (total === 0 && bareFilters) {
+    const libraryRows = await db.select({ value: count() }).from(orders);
+    libraryTotal = libraryRows[0]?.value ?? 0;
+  }
   const orderIds = rows.map((row) => row.id);
   const itemRows = orderIds.length === 0
     ? []
@@ -276,8 +311,27 @@ export async function listOrders(
     page,
     pageSize: PAGE_SIZE,
     pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)),
-    counts,
-    libraryTotal: narrowed ? (libraryRows[0]?.value ?? 0) : counts.all,
+    libraryTotal,
+  };
+}
+
+/** Doanh thu + số đơn chưa gửi / gửi sau / chờ gửi lại (ẩn đã gửi, hoàn thành, hủy). Gửi bù không cộng doanh thu. */
+export async function pendingUnshippedSummary(db: AppDb): Promise<{ revenue: number; orderCount: number }> {
+  const openShip = notInArray(orders.status, ['shipped', 'completed', 'cancelled']);
+  const pending = or(
+    eq(orders.fulfillStatus, 'reship'),
+    and(openShip, or(isNull(orders.fulfillStatus), eq(orders.fulfillStatus, 'unshipped'))),
+  );
+  const rows = await db
+    .select({
+      orderCount: count(),
+      revenue: sql<number>`coalesce(sum(case when ${orders.compensation} = 0 then ${orders.totalPrice} else 0 end), 0)`,
+    })
+    .from(orders)
+    .where(pending);
+  return {
+    orderCount: rows[0]?.orderCount ?? 0,
+    revenue: Number(rows[0]?.revenue ?? 0),
   };
 }
 
@@ -303,6 +357,7 @@ export async function getOrder(db: AppDb, id: number) {
       discountRestored: orders.discountRestored,
       paymentMethod: orders.paymentMethod,
       payState: orders.payState,
+      depositAmount: orders.depositAmount,
       source: orders.source,
       priority: orders.priority,
       compensation: orders.compensation,
@@ -314,6 +369,7 @@ export async function getOrder(db: AppDb, id: number) {
       costLines: orders.costLines,
       status: orders.status,
       fulfillStatus: orders.fulfillStatus,
+      shippedAt: orders.shippedAt,
       createdAt: orders.createdAt,
       updatedAt: orders.updatedAt,
     })
@@ -348,15 +404,19 @@ export async function updateOrderStatus(
   if (!isOrderStatus(current.status)) return { ok: false, error: 'Trạng thái hiện tại không hợp lệ.' };
   if (!canTransitionOrder(current.status, status)) return { ok: false, error: orderTransitionError(current.status, status) };
   if (current.status === status) return { ok: true, updatedAt: current.updatedAt };
+  const shipPatch =
+    status === 'shipped' && current.status !== 'shipped'
+      ? { fulfillStatus: 'shipped' as const, shippedAt: current.shippedAt ?? now }
+      : {};
   const restore = status === 'cancelled' && current.discountCode && current.discountAmount > 0 && current.discountRestored === 0;
   if (restore && current.discountCode) {
     await commitWrites(db, [
       restoreDiscountQuery(db, current.discountCode, now),
-      db.update(orders).set({ status, discountRestored: 1, updatedAt: now }).where(eq(orders.id, id)),
+      db.update(orders).set({ status, discountRestored: 1, updatedAt: now, ...shipPatch }).where(eq(orders.id, id)),
     ]);
     return { ok: true, updatedAt: now };
   }
-  await db.update(orders).set({ status, updatedAt: now }).where(eq(orders.id, id));
+  await db.update(orders).set({ status, updatedAt: now, ...shipPatch }).where(eq(orders.id, id));
   return { ok: true, updatedAt: now };
 }
 
@@ -475,16 +535,26 @@ export async function updateOrderFulfillStatus(
   if (!current) return { ok: false, error: 'Không tìm thấy đơn hàng.' };
   if (!canEditOrderProducts(current.status)) return { ok: false, error: 'Đơn đã kết thúc, không sửa được.' };
   if (!isFulfillStatus(fulfill)) return { ok: false, error: 'Trạng thái giao không hợp lệ.' };
-  const patch: { fulfillStatus: FulfillStatus; status?: OrderStatus; updatedAt: number; shipOn?: null } = {
+  const patch: {
+    fulfillStatus: FulfillStatus;
+    status?: OrderStatus;
+    updatedAt: number;
+    shipOn?: null;
+    shippedAt?: number | null;
+  } = {
     fulfillStatus: fulfill,
     updatedAt: now,
   };
   // Đồng bộ status xử lý tối thiểu để list/filter/detail không lệch với trạng thái giao.
-  if (fulfill === 'shipped' && current.status !== 'shipped') {
-    patch.status = 'shipped';
+  if (fulfill === 'shipped') {
+    if (current.status !== 'shipped') patch.status = 'shipped';
     patch.shipOn = null;
+    patch.shippedAt = current.shippedAt ?? now;
   } else if (fulfill === 'unshipped' && current.status === 'shipped') {
     patch.status = 'preparing';
+    patch.shippedAt = null;
+  } else if (fulfill === 'reship') {
+    patch.shippedAt = null;
   }
   await db.update(orders).set(patch).where(eq(orders.id, id));
   return { ok: true };
@@ -788,6 +858,9 @@ export async function createStaffOrder(
   if (!settled.ok) return settled;
   const collected = applyStaffCollection(settled.totalPrice, settled.discountAmount, codeLabel, flags);
   if (!collected.ok) return collected;
+  const depositError = validateOrderDeposit(flags.payState, flags.depositAmount, collected.totalPrice);
+  if (depositError) return { ok: false, error: depositError };
+  const depositAmount = flags.payState === 'deposit' ? flags.depositAmount : 0;
   const slot = await takeDiscountSlot(db, collected.discountCode, now);
   if (!slot.ok) return slot;
   const discountCode = collected.discountCode;
@@ -837,6 +910,7 @@ export async function createStaffOrder(
           paymentMethod: flags.paymentMethod,
           source: flags.source,
           payState: flags.payState,
+          depositAmount,
           priority: flags.priority ? 1 : 0,
           compensation: flags.compensation ? 1 : 0,
           shipOn: flags.shipOn,
@@ -901,6 +975,9 @@ export async function updateStaffOrder(
   const baseCode = discount.amount > 0 ? discount.code : null;
   const collected = applyStaffCollection(settled.totalPrice, settled.discountAmount, baseCode, flags);
   if (!collected.ok) return collected;
+  const depositError = validateOrderDeposit(flags.payState, flags.depositAmount, collected.totalPrice);
+  if (depositError) return { ok: false, error: depositError };
+  const depositAmount = flags.payState === 'deposit' ? flags.depositAmount : 0;
   const holdsUse = Boolean(current.discountCode && current.discountAmount > 0 && current.discountRestored === 0);
   const code = collected.discountCode;
   const amount = collected.discountAmount;
@@ -940,6 +1017,7 @@ export async function updateStaffOrder(
           paymentMethod: flags.paymentMethod,
           source: flags.source,
           payState: flags.payState,
+          depositAmount,
           priority: flags.priority ? 1 : 0,
           compensation: flags.compensation ? 1 : 0,
           shipOn: flags.shipOn,
@@ -1042,6 +1120,9 @@ export async function updateStaffOrderMeta(
   const goodsPayable = Math.max(0, subtotal - keptDiscount);
   const collected = applyStaffCollection(goodsPayable, keptDiscount, current.compensation === 1 ? null : current.discountCode, flags);
   if (!collected.ok) return collected;
+  const depositError = validateOrderDeposit(flags.payState, flags.depositAmount, collected.totalPrice);
+  if (depositError) return { ok: false, error: depositError };
+  const depositAmount = flags.payState === 'deposit' ? flags.depositAmount : 0;
   const holdsUse = Boolean(current.discountCode && current.discountAmount > 0 && current.discountRestored === 0);
   const restore = flags.compensation && holdsUse;
   const moneyChanged = collected.totalPrice !== current.totalPrice;
@@ -1060,6 +1141,7 @@ export async function updateStaffOrderMeta(
         paymentMethod: flags.paymentMethod,
         source: flags.source,
         payState: flags.payState,
+        depositAmount,
         priority: flags.priority ? 1 : 0,
         compensation: flags.compensation ? 1 : 0,
         shipOn: flags.shipOn,

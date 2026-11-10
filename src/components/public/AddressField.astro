@@ -56,6 +56,8 @@ const {
 </noscript>
 
 <script>
+  import { matchComposedAddress } from '../../features/address/parse';
+
   type AddressRow = [string, string, [string, string][]];
 
   let rowsPromise: Promise<AddressRow[]> | null = null;
@@ -187,9 +189,23 @@ const {
         ready = true;
         province.required = true;
         ward.required = true;
-        fill(province, 'Chọn tỉnh, thành phố', rows.map((row) => [row[0], row[1]]), root.dataset.province ?? '');
+        let provinceCode = root.dataset.province ?? '';
+        let wardCode = root.dataset.ward ?? '';
+        if ((!provinceCode || !wardCode || !line.value.trim()) && address.value.trim()) {
+          const matched = matchComposedAddress(rows, address.value);
+          if (matched) {
+            provinceCode = matched.provinceCode;
+            wardCode = matched.wardCode;
+            if (!line.value.trim()) line.value = matched.line;
+            root.dataset.province = provinceCode;
+            root.dataset.ward = wardCode;
+            wardValue.value = wardCode;
+          }
+        }
+        fill(province, 'Chọn tỉnh, thành phố', rows.map((row) => [row[0], row[1]]), provinceCode);
         provinceValue.value = province.value;
         showWards();
+        write();
         status.hidden = true;
       })
       .catch(() => {

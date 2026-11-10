@@ -1,0 +1,404 @@
+---
+import { orderProfit } from '../../features/costs/order-costs';
+import { CUSTOMER_TIER_LABELS, customerTierOf } from '../../features/orders/customers';
+import { collectionLabel, remainingAfterDeposit, shipLaterPill, sourceLabel } from '../../features/orders/staff';
+import {
+  FULFILL_STATUSES,
+  FULFILL_STATUS_LABELS,
+  fulfillStatusOf,
+  orderShippedAgoLabel,
+  orderStatusLabel,
+} from '../../features/orders/status';
+import { formatDateShort, formatTimeHms } from '../../lib/datetime';
+import { formatVnd } from '../../lib/money';
+import { routes } from '../../lib/routes';
+import { listOrders } from '../../features/orders/orders';
+
+const listNow = Date.now();
+
+type ListResult = Awaited<ReturnType<typeof listOrders>>;
+
+type Props = {
+  result: ListResult;
+  csrfToken: string;
+  canBulkDelete: boolean;
+  query: string;
+  status: string;
+  source: string;
+  payment: string;
+  from: string;
+  to: string;
+  pageHref: (page: number) => string;
+  nextPanelHref?: string;
+  shippedPanelHref?: string;
+};
+
+const {
+  result,
+  csrfToken,
+  canBulkDelete,
+  query,
+  status,
+  source,
+  payment,
+  from,
+  to,
+  pageHref,
+  nextPanelHref = '',
+  shippedPanelHref = '',
+} = Astro.props;
+
+const statusParam = status === '' ? 'all' : status;
+---
+<div
+  data-order-panel
+  data-lead={`${result.total} đơn hàng`}
+  data-page={String(result.page)}
+  data-page-count={String(result.pageCount)}
+  data-next-panel={nextPanelHref}
+  data-shipped-panel={shippedPanelHref}
+>
+<div data-order-results>
+  <form
+    id="order-bulk"
+    class="bulk-bar order-bulk-bar"
+    method="post"
+    action={routes.adminOrdersBulk}
+    aria-label="Thao tác hàng loạt"
+    data-order-bulk
+    data-busy
+    data-confirm-title="Xóa các đơn đã chọn?"
+    data-confirm="Các đơn sẽ bị xóa vĩnh viễn cùng dòng sản phẩm và không khôi phục được."
+    data-confirm-ok="Xóa"
+    data-confirm-tone="danger"
+    hidden
+  >
+    <input type="hidden" name="csrf" value={csrfToken} />
+    <input type="hidden" name="q" value={query} />
+    <input type="hidden" name="status" value={statusParam} />
+    <input type="hidden" name="source" value={source} />
+    <input type="hidden" name="payment" value={payment} />
+    <input type="hidden" name="from" value={from} />
+    <input type="hidden" name="to" value={to} />
+    <input type="hidden" name="page" value={String(result.page)} />
+    <span class="order-bulk-count" aria-live="polite" data-bulk-count>
+      <span class="order-bulk-check" aria-hidden="true">✓</span>
+      <span data-bulk-count-text>0 đơn</span>
+    </span>
+    <button class="order-bulk-btn" type="button" data-bulk-demo="status">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L18 10l-4-4L4 16v4z" /></svg>
+      Trạng thái
+    </button>
+    <button class="order-bulk-btn is-priority" type="button" data-bulk-demo="priority">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 15.9 7.2 18l.9-5.4L4.2 8.7l5.4-.8z" /></svg>
+      Ưu tiên
+    </button>
+    <button class="order-bulk-btn is-soft" type="button" data-bulk-demo="unpriority">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 15.9 7.2 18l.9-5.4L4.2 8.7l5.4-.8z" /></svg>
+      Bỏ ưu tiên
+    </button>
+    <button class="order-bulk-btn is-export" type="button" data-bulk-export>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" /></svg>
+      Export
+    </button>
+    <button class="order-bulk-btn is-invoice" type="button" data-bulk-demo="invoice">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h8l4 4v14H7V3zM15 3v5h5M9 12h6M9 16h6" /></svg>
+      Xuất HĐ
+    </button>
+    {canBulkDelete ? (
+      <button class="order-bulk-btn is-delete" type="submit" name="bulk" value="delete" data-bulk-delete>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2m-6 3v8m4-8v8M7 7l1 12h8l1-12" /></svg>
+        Xóa
+      </button>
+    ) : null}
+    <button class="order-bulk-close" type="button" data-bulk-clear aria-label="Bỏ chọn">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+    </button>
+    <span class="error-text order-bulk-error" role="alert" data-bulk-error hidden></span>
+    <span class="order-bulk-demo" role="status" data-bulk-demo-msg hidden></span>
+  </form>
+  <div data-order-list>
+  {result.rows.length === 0 ? (
+    <p class="post-empty">Không có đơn khớp bộ lọc.</p>
+  ) : (
+    <table class="post-table order-table">
+      <thead>
+        <tr>
+          <th class="product-check order-check-col">
+            <input type="checkbox" aria-label="Chọn tất cả đơn đang hiện" data-bulk-all />
+          </th>
+          <th>Mã đơn</th>
+          <th>Khách & giao hàng</th>
+          <th>Sản phẩm</th>
+          <th>Giá trị</th>
+          <th>Lãi ròng</th>
+          <th>Ngày đặt</th>
+          <th>Thao tác</th>
+        </tr>
+      </thead>
+      <tbody>
+        {result.rows.map((order, index) => {
+          const stt = (result.page - 1) * result.pageSize + index + 1;
+          const profit = orderProfit(order);
+          const shipLater =
+            order.shipOn !== null &&
+            order.status !== 'shipped' &&
+            order.status !== 'completed' &&
+            order.status !== 'cancelled';
+          const laterPill = shipLater && order.shipOn !== null ? shipLaterPill(order.shipOn, listNow) : null;
+          const source = sourceLabel(order.source);
+          const fulfill = fulfillStatusOf(order);
+          const tier = customerTierOf(order.customerOrderCount);
+          return (
+          <tr
+            data-priority={order.priority === 1 ? '1' : undefined}
+            data-shipped={fulfill === 'shipped' ? '1' : undefined}
+          >
+            <td class="product-check order-check-col" data-label="Chọn">
+              <div class="order-check-cell">
+                <input type="checkbox" form="order-bulk" name="ids" value={order.id} aria-label={`Chọn đơn ${order.code}`} />
+                <span class="order-stt" aria-hidden="true">{stt}</span>
+              </div>
+            </td>
+            <td data-label="Mã đơn">
+              <div class="order-code-cell">
+                <div class="order-code-row">
+                  <a class="order-code-link" href={routes.adminOrder(order.id)}>{order.code}</a>
+                  <button
+                    class="order-icon-btn"
+                    type="button"
+                    data-copy-code={order.code}
+                    aria-label={`Sao chép mã ${order.code}`}
+                    title="Sao chép mã"
+                  >
+                    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                      <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M8 8h10v12H8zM6 16H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+                    </svg>
+                  </button>
+                </div>
+                {fulfill ? (
+                  <form method="post" data-busy>
+                    <input type="hidden" name="csrf" value={csrfToken} />
+                    <input type="hidden" name="intent" value="fulfill" />
+                    <input type="hidden" name="id" value={order.id} />
+                    <label class="sr-only" for={`order-fulfill-${order.id}`}>Trạng thái giao {order.code}</label>
+                    {fulfill === 'shipped' ? (
+                      <div class="order-shipped-pill">
+                        <span class="order-shipped-pill-icon" aria-hidden="true">
+                          <svg viewBox="0 0 24 24" width="14" height="14">
+                            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M3.5 8.5 12 4l8.5 4.5v7L12 20l-8.5-4.5v-7zM12 12l8.5-4.5M12 12v8M12 12 3.5 7.5M8 6.2l8 4.2" />
+                          </svg>
+                        </span>
+                        <select
+                          id={`order-fulfill-${order.id}`}
+                          class="order-shipped-select"
+                          name="fulfill"
+                          data-fulfill={fulfill}
+                          data-fulfill-select
+                        >
+                          {FULFILL_STATUSES.map((item) => (
+                            <option value={item} selected={fulfill === item}>
+                              {item === 'shipped' ? orderShippedAgoLabel(order.shippedAt, listNow) : FULFILL_STATUS_LABELS[item]}
+                            </option>
+                          ))}
+                        </select>
+                        <span class="order-shipped-pill-caret" aria-hidden="true">▾</span>
+                      </div>
+                    ) : (
+                      <select
+                        id={`order-fulfill-${order.id}`}
+                        class="order-status-select"
+                        name="fulfill"
+                        data-fulfill={fulfill}
+                        data-fulfill-select
+                      >
+                        {FULFILL_STATUSES.map((item) => (
+                          <option value={item} selected={fulfill === item}>{FULFILL_STATUS_LABELS[item]}</option>
+                        ))}
+                      </select>
+                    )}
+                  </form>
+                ) : (
+                  <span class="order-badge" data-status={order.status}>
+                    {orderStatusLabel(order.status)}
+                  </span>
+                )}
+                {laterPill && (
+                  <span class="order-ship-later-pill" data-tone={laterPill.tone}>{laterPill.label}</span>
+                )}
+              </div>
+            </td>
+            <td data-label="Khách & giao hàng">
+              <div class="order-customer-cell">
+                <div class="order-customer-head">
+                  <span class="order-customer-name">{order.customerName}</span>
+                  {source && <span class="order-chip" data-tone="source">{source}</span>}
+                  <span class="order-chip" data-tone={tier}>{CUSTOMER_TIER_LABELS[tier]}</span>
+                </div>
+                <div class="order-customer-line">
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M6.5 4.5h3l1.2 3.2-1.8 1.1a12 12 0 0 0 5.3 5.3l1.1-1.8 3.2 1.2v3a1.5 1.5 0 0 1-1.5 1.5A13.5 13.5 0 0 1 5 6a1.5 1.5 0 0 1 1.5-1.5z" />
+                  </svg>
+                  <span>{order.phone}</span>
+                </div>
+                <div class="order-customer-line order-customer-address">
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 21s6-5.2 6-10a6 6 0 1 0-12 0c0 4.8 6 10 6 10z" />
+                    <circle cx="12" cy="11" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8" />
+                  </svg>
+                  <span>{order.address}</span>
+                </div>
+              </div>
+            </td>
+            <td data-label="Sản phẩm">
+              <div class="order-products-wrap">
+                <ul class="order-products">
+                  {order.lines.map((line) => (
+                    <li class="order-product">
+                      <div class="order-product-head">
+                        <span class="order-product-name">{line.productName}</span>
+                        <span class="order-product-qty">×{line.quantity}</span>
+                      </div>
+                      <div class="order-product-meta">
+                        {line.optionLabel && (
+                          <span class="order-product-chip">
+                            <span class="order-product-dot" aria-hidden="true"></span>
+                            {line.optionLabel}
+                          </span>
+                        )}
+                        <span class="order-product-chip">
+                          <span class="order-product-dot" data-tone="price" aria-hidden="true"></span>
+                          {formatVnd(line.unitPrice)}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                {order.note && (
+                  <div class="order-line-note" data-tone="customer">
+                    <p>{order.note}</p>
+                  </div>
+                )}
+                {order.internalNote && (
+                  <div class="order-line-note" data-tone="internal">
+                    <p>{order.internalNote}</p>
+                  </div>
+                )}
+                {order.status !== 'completed' && order.status !== 'cancelled' ? (
+                  <div class="order-product-demos">
+                    <a class="order-demo-btn" href={routes.adminOrderEdit(order.id)}>+ Thêm SP</a>
+                    <a class="order-demo-btn" href={routes.adminOrderEdit(order.id)}>Ghi chú</a>
+                  </div>
+                ) : null}
+              </div>
+            </td>
+            <td data-label="Giá trị">
+              <div class="order-sum">
+                <span class="order-sum-value">{formatVnd(order.totalPrice)}</span>
+                        <span class="order-pay" data-pay={order.payState === 'paid' ? 'paid' : order.payState === 'deposit' ? 'deposit' : order.paymentMethod}>
+                          {collectionLabel(order.payState, order.paymentMethod)}
+                          {order.payState === 'deposit' && order.depositAmount > 0
+                            ? ` · còn ${formatVnd(remainingAfterDeposit(order.totalPrice, order.depositAmount))}`
+                            : ''}
+                        </span>
+                        {order.compensation === 1 && <span class="order-pay">Gửi bù</span>}
+              </div>
+            </td>
+            <td data-label="Lãi ròng">
+              <div class="order-profit-cell">
+                {profit === null ? (
+                  <span class="text-muted">—</span>
+                ) : (
+                  <span class="order-profit" data-sign={profit < 0 ? 'loss' : 'gain'}>{formatVnd(profit)}</span>
+                )}
+                <a class="order-profit-link" href={routes.adminOrder(order.id)}>Chi tiết</a>
+              </div>
+            </td>
+            <td data-label="Ngày đặt">
+              <div class="order-date-cell">
+                <span class="order-date-time">{formatTimeHms(order.createdAt)}</span>
+                <span class="order-date-day">{formatDateShort(order.createdAt)}</span>
+              </div>
+            </td>
+            <td data-label="Thao tác">
+              <div class="order-row-actions">
+                {order.status !== 'completed' && order.status !== 'cancelled' ? (
+                  <form method="post" data-busy>
+                    <input type="hidden" name="csrf" value={csrfToken} />
+                    <input type="hidden" name="intent" value="priority" />
+                    <input type="hidden" name="id" value={order.id} />
+                    <input type="hidden" name="priority" value={order.priority === 1 ? '0' : '1'} />
+                    <button
+                      class="order-priority-star"
+                      type="submit"
+                      data-on={order.priority === 1 ? 'true' : 'false'}
+                      data-keep-label="true"
+                      aria-label={order.priority === 1 ? `Bỏ ưu tiên đơn ${order.code}` : `Ưu tiên đơn ${order.code}`}
+                      title={order.priority === 1 ? 'Bỏ ưu tiên' : 'Ưu tiên'}
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                        <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z"></path>
+                      </svg>
+                    </button>
+                  </form>
+                ) : (
+                  <span
+                    class="order-priority-star"
+                    data-on={order.priority === 1 ? 'true' : 'false'}
+                    aria-hidden="true"
+                  >
+                    <svg viewBox="0 0 24 24" width="16" height="16">
+                      <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z"></path>
+                    </svg>
+                  </span>
+                )}
+                <a class="order-icon-btn is-view" href={routes.adminOrder(order.id)} aria-label={`Xem đơn ${order.code}`} title="Xem">
+                  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                    <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z" />
+                    <circle cx="12" cy="12" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8" />
+                  </svg>
+                </a>
+                {order.status !== 'completed' && order.status !== 'cancelled' && (
+                  <a class="order-icon-btn is-edit" href={routes.adminOrderEdit(order.id)} aria-label={`Sửa đơn ${order.code}`} title="Sửa">
+                    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                      <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 20h4L18 10l-4-4L4 16v4zM14 6l4 4" />
+                    </svg>
+                  </a>
+                )}
+                {canBulkDelete ? (
+                  <form
+                    method="post"
+                    data-busy
+                    data-confirm-title={`Xóa đơn ${order.code}?`}
+                    data-confirm="Đơn sẽ bị xóa vĩnh viễn cùng các dòng sản phẩm và không khôi phục được. Nếu chỉ muốn bỏ đơn, hãy đổi trạng thái sang Hủy đơn."
+                    data-confirm-ok="Xóa"
+                    data-confirm-tone="danger"
+                  >
+                    <input type="hidden" name="csrf" value={csrfToken} />
+                    <input type="hidden" name="intent" value="delete" />
+                    <input type="hidden" name="id" value={order.id} />
+                    <button class="order-icon-btn is-delete" type="submit" aria-label={`Xóa đơn ${order.code}`} title="Xóa">
+                      <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                        <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M5 7h14M10 7V5h4v2m-6 3v8m4-8v8M7 7l1 12h8l1-12" />
+                      </svg>
+                    </button>
+                  </form>
+                ) : null}
+              </div>
+            </td>
+          </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  )}
+  </div>
+</div>
+{result.pageCount > 1 && (
+  <nav class="post-pager" aria-label="Phân trang">
+    {result.page > 1 && <a class="btn" href={pageHref(result.page - 1)}>Trang trước</a>}
+    <span>Trang {result.page}/{result.pageCount}</span>
+    {result.page < result.pageCount && <a class="btn" href={pageHref(result.page + 1)}>Trang sau</a>}
+  </nav>
+)}
+</div>

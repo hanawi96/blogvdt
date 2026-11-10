@@ -39,6 +39,39 @@ function ymd(year: number, month: number, day: number): string {
   return `${year}-${pad2(month)}-${pad2(day)}`;
 }
 
+/** Cộng/trừ ngày trên lịch Gregorian (dùng cho mốc VN đã tách sẵn). */
+export function vnAddDays(parts: VnDayParts, offsetDays: number): VnDayParts {
+  const utc = Date.UTC(parts.year, parts.month - 1, parts.day + offsetDays);
+  const date = new Date(utc);
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+}
+
+export function vnYmd(parts: VnDayParts): string {
+  return ymd(parts.year, parts.month, parts.day);
+}
+
+/** Mốc 00:00 giờ VN của ngày hôm nay (epoch ms). */
+export function vnTodayStartMs(now = Date.now()): number {
+  return Date.parse(`${vnYmd(vnTodayParts(now))}T00:00:00+07:00`);
+}
+
+/** Một ngày: hôm qua theo lịch VN. */
+export function vnYesterdayRange(now = Date.now()): { from: string; to: string } {
+  const day = vnYmd(vnAddDays(vnTodayParts(now), -1));
+  return { from: day, to: day };
+}
+
+/**
+ * N ngày gần nhất (gồm hôm nay): from = today-(n-1), to = today.
+ * Ví dụ n=7 → 7 ngày qua, n=30 → 30 ngày qua.
+ */
+export function vnLastNDaysRange(n: number, now = Date.now()): { from: string; to: string } | null {
+  if (!Number.isInteger(n) || n < 1) return null;
+  const today = vnTodayParts(now);
+  const from = vnAddDays(today, -(n - 1));
+  return { from: vnYmd(from), to: vnYmd(today) };
+}
+
 /** Số ngày trong tháng (1–12), lịch Gregorian. */
 export function daysInMonth(year: number, month: number): number {
   if (month < 1 || month > 12) return 0;
@@ -85,6 +118,12 @@ export function formatOrderDateFilterLabel(from: string, to: string, now = Date.
   const start = from || to;
   const end = to || from;
   if (from && to) {
+    const yesterday = vnYesterdayRange(now);
+    if (from === yesterday.from && to === yesterday.to) return 'Hôm qua';
+    const last7 = vnLastNDaysRange(7, now);
+    if (last7 && from === last7.from && to === last7.to) return '7 ngày qua';
+    const last30 = vnLastNDaysRange(30, now);
+    if (last30 && from === last30.from && to === last30.to) return '30 ngày qua';
     const startParts = parseYmd(from);
     if (startParts) {
       const monthRange = vnMonthRange(startParts.year, startParts.month, now);

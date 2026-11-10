@@ -1,0 +1,81 @@
+---
+import OrderListPanel from '../../../components/admin/OrderListPanel.astro';
+import { orderCreatedRange } from '../../../features/orders/order';
+import {
+  listOrders,
+  orderAdminQuery,
+  orderListPayment,
+  orderListSource,
+  orderListStatus,
+  orderPanelQuery,
+} from '../../../features/orders/orders';
+import { createDb } from '../../../lib/db/client';
+import { getDbBinding } from '../../../lib/cloudflare/env';
+import { routes } from '../../../lib/routes';
+
+export const prerender = false;
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+
+const query = Astro.url.searchParams.get('q') ?? '';
+const status = orderListStatus(Astro.url.searchParams.get('status'));
+const source = orderListSource(Astro.url.searchParams.get('source'));
+const payment = orderListPayment(Astro.url.searchParams.get('payment'));
+const from = Astro.url.searchParams.get('from') ?? '';
+const to = Astro.url.searchParams.get('to') ?? '';
+const page = Number(Astro.url.searchParams.get('page') ?? '1');
+const range = orderCreatedRange(from, to);
+
+if (range.invalid) {
+  return new Response('Khoảng ngày không hợp lệ.', {
+    status: 422,
+    headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'private, no-store' },
+  });
+}
+
+let result: Awaited<ReturnType<typeof listOrders>>;
+try {
+  result = await listOrders(createDb(getDbBinding()), {
+    query,
+    status,
+    source,
+    payment,
+    start: range.start,
+    end: range.end,
+    page: Number.isInteger(page) ? page : 1,
+  });
+} catch (error) {
+  console.error(JSON.stringify({ event: 'order_panel_failed', name: error instanceof Error ? error.name : 'unknown' }));
+  return new Response('Không tải được danh sách đơn.', {
+    status: 500,
+    headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'private, no-store' },
+  });
+}
+
+const listFilters = { query, status, source, payment, from, to };
+function pageHref(nextPage: number): string {
+  return orderAdminQuery({ ...listFilters, page: nextPage });
+}
+const nextPanelHref =
+  result.page < result.pageCount ? orderPanelQuery({ ...listFilters, page: result.page + 1 }) : '';
+const shippedPanelHref =
+  status === 'shipped' ? '' : orderPanelQuery({ ...listFilters, status: 'shipped', page: 1 });
+
+Astro.response.headers.set('cache-control', 'private, no-store');
+Astro.response.headers.set('content-type', 'text/html; charset=utf-8');
+---
+<OrderListPanel
+  result={result}
+  csrfToken={session.csrfToken}
+  canBulkDelete={session.role === 'admin'}
+  query={query}
+  status={status}
+  source={source}
+  payment={payment}
+  from={from}
+  to={to}
+  pageHref={pageHref}
+  nextPanelHref={nextPanelHref}
+  shippedPanelHref={shippedPanelHref}
+/>

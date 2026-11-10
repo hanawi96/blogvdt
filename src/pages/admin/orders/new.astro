@@ -39,6 +39,7 @@ const flagForm: StaffFlagForm = {
   shipOn: '',
   shippingFee: defaultShippingFee,
   freeShip: false,
+  depositAmount: '',
 };
 
 if (Astro.request.method === 'POST') {
@@ -66,8 +67,16 @@ if (Astro.request.method === 'POST') {
   flagForm.shipOn = read('shipOn');
   flagForm.shippingFee = read('shippingFee');
   flagForm.freeShip = read('freeShip') === 'on';
+  flagForm.depositAmount = read('depositAmount');
   postedLines = readStaffLineInputs(form);
-  const flags = readStaffFlags({ ...flagForm, priority: flagForm.priority ? 'on' : '', compensation: flagForm.compensation ? 'on' : '', shipLater: flagForm.shipLater ? 'on' : '', freeShip: flagForm.freeShip ? 'on' : '' });
+  const flags = readStaffFlags({
+    ...flagForm,
+    priority: flagForm.priority ? 'on' : '',
+    compensation: flagForm.compensation ? 'on' : '',
+    shipLater: flagForm.shipLater ? 'on' : '',
+    freeShip: flagForm.freeShip ? 'on' : '',
+    depositAmount: flagForm.depositAmount,
+  });
   if (blocked) {
     Astro.response.status = 403;
     formError = blocked;

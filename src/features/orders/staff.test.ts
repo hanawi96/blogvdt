@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WeightScale } from '../products/weight';
-import { applyStaffCollection, capDiscount, orderLineSources, parseStaffCustomer, priceStaffLines, readStaffFlags, settleStaffTotal, staffExtraRoundPresets, staffOrderColumns, staffShipDayAfter, type StoredOrderLine } from './staff';
+import { applyStaffCollection, capDiscount, isShipLaterFuture, orderLineSources, parseStaffCustomer, priceStaffLines, readStaffFlags, remainingAfterDeposit, settleStaffTotal, shipLaterPill, staffExtraRoundPresets, staffOrderColumns, staffShipDayAfter, validateOrderDeposit, type StoredOrderLine } from './staff';
 
 const catalog: { id: number; name: string; price: number; weightScale: WeightScale }[] = [
   { id: 1, name: 'Vòng tơ tằm trơn', price: 150000, weightScale: 'none' },
@@ -76,10 +76,25 @@ describe('đơn nhân viên nhập', () => {
     });
     expect(applyStaffCollection(45_000, 0, null, { compensation: false, shippingFee: 16_000 })).toMatchObject({ ok: true, totalPrice: 61_000, shippingFee: 16_000 });
     const free = readStaffFlags({ payState: 'cod', source: 'zalo', priority: '', compensation: '', shipLater: 'on', shipOn: '2026-10-25', shippingFee: '16.000', freeShip: 'on' });
-    expect(free.ok && free.flags).toMatchObject({ source: 'zalo', payState: 'cod', paymentMethod: 'cod', priority: false, shippingFee: 0, shipOn: Date.parse('2026-10-25T00:00:00+07:00') });
+    expect(free.ok && free.flags).toMatchObject({ source: 'zalo', payState: 'cod', paymentMethod: 'cod', priority: false, shippingFee: 0, depositAmount: 0, shipOn: Date.parse('2026-10-25T00:00:00+07:00') });
     expect(readStaffFlags({ payState: 'cod', source: 'zalo', priority: 'on', compensation: '', shipLater: 'on', shipOn: '2026-10-25', shippingFee: '', freeShip: '' }).ok).toBe(false);
     expect(readStaffFlags({ payState: 'paid', source: '', priority: '', compensation: '', shipLater: '', shipOn: '', shippingFee: '', freeShip: '' }).ok).toBe(false);
     expect(readStaffFlags({ payState: 'deposit', source: 'tiktok', priority: '', compensation: '', shipLater: 'on', shipOn: '', shippingFee: '', freeShip: '' }).ok).toBe(false);
+    const deposit = readStaffFlags({
+      payState: 'deposit',
+      source: 'zalo',
+      priority: '',
+      compensation: '',
+      shipLater: '',
+      shipOn: '',
+      shippingFee: '0',
+      freeShip: 'on',
+      depositAmount: '50.000',
+    });
+    expect(deposit.ok && deposit.flags).toMatchObject({ payState: 'deposit', depositAmount: 50_000, paymentMethod: 'bank' });
+    expect(validateOrderDeposit('deposit', 50_000, 550_000)).toBeNull();
+    expect(validateOrderDeposit('deposit', 550_000, 550_000)).toBeTruthy();
+    expect(remainingAfterDeposit(550_000, 50_000)).toBe(500_000);
   });
 
   it('tổng gõ tay là số khách phải trả, không vượt tạm tính', () => {
@@ -149,5 +164,20 @@ describe('đơn nhân viên nhập', () => {
     expect(lines).toEqual([
       { productId: 7, productName: 'Vòng cho bé', unitPrice: 100000, quantity: 2, optionLabel: '5kg', lineTotal: 200000 },
     ]);
+  });
+
+  it('nhận diện gửi sau còn xa và badge đến hạn', () => {
+    const now = Date.parse('2026-11-10T12:00:00+07:00');
+    expect(isShipLaterFuture(null, now)).toBe(false);
+    expect(isShipLaterFuture(Date.parse('2026-11-10T00:00:00+07:00'), now)).toBe(false);
+    expect(isShipLaterFuture(Date.parse('2026-12-23T00:00:00+07:00'), now)).toBe(true);
+    expect(shipLaterPill(Date.parse('2026-12-23T00:00:00+07:00'), now)).toEqual({
+      tone: 'hold',
+      label: 'Gửi sau 23/12',
+    });
+    expect(shipLaterPill(Date.parse('2026-11-10T00:00:00+07:00'), now)).toEqual({
+      tone: 'due',
+      label: 'Đến hạn 10/11',
+    });
   });
 });

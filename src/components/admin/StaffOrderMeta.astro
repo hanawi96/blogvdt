@@ -23,10 +23,29 @@ function shippingText(cost: { kind: OrderCostKind; value: number }): string {
     <div class="category-presets">
       {PAY_STATES.map((item) => (
         <label class="category-preset">
-          <input type="radio" name="payState" value={item.value} checked={value.payState === item.value} required />
+          <input type="radio" name="payState" value={item.value} checked={value.payState === item.value} required data-pay-state />
           <span>{item.label}</span>
         </label>
       ))}
+    </div>
+    <div class="staff-deposit mt-3" data-deposit-box hidden={value.payState !== 'deposit'}>
+      <label class="block">
+        <span class="od-label">Tiền cọc</span>
+        <input
+          class="field"
+          name="depositAmount"
+          data-deposit-amount
+          inputmode="numeric"
+          maxlength="8"
+          autocomplete="off"
+          value={value.depositAmount}
+          required={value.payState === 'deposit'}
+          placeholder="VD: 50.000"
+        />
+      </label>
+      <p class="od-note mt-2" data-deposit-hint>
+        Doanh thu vẫn là tổng đơn. Khách chỉ cần trả phần còn lại sau cọc.
+      </p>
     </div>
   </fieldset>
   <fieldset class="mt-4">
@@ -102,6 +121,9 @@ function shippingText(cost: { kind: OrderCostKind; value: number }): string {
     const free = root.querySelector('[data-free-ship]');
     const compensation = root.querySelector('[data-compensation]');
     const fee = root.querySelector('[data-ship-fee]');
+    const depositBox = root.querySelector('[data-deposit-box]');
+    const depositInput = root.querySelector('[data-deposit-amount]');
+    const depositHint = root.querySelector('[data-deposit-hint]');
     const defaultFee = root.dataset.defaultShipFee ?? '';
 
     function syncShipPresets() {
@@ -110,6 +132,31 @@ function shippingText(cost: { kind: OrderCostKind; value: number }): string {
         const days = Number(button.dataset.shipPreset);
         const match = Number.isInteger(days) && dateInput.value === staffShipDayAfter(days);
         button.setAttribute('aria-pressed', match ? 'true' : 'false');
+      }
+    }
+
+    function moneyOf(raw: string): number {
+      const text = raw.trim().replace(/[.\s]/g, '');
+      if (!/^\d{1,9}$/.test(text)) return 0;
+      return Number(text);
+    }
+
+    function syncDeposit() {
+      const depositOn = root.querySelector<HTMLInputElement>('input[data-pay-state][value="deposit"]:checked');
+      const on = Boolean(depositOn);
+      if (depositBox instanceof HTMLElement) depositBox.hidden = !on;
+      if (depositInput instanceof HTMLInputElement) {
+        depositInput.required = on;
+        if (!on) depositInput.value = '';
+      }
+      if (!(depositHint instanceof HTMLElement) || !on || !(depositInput instanceof HTMLInputElement)) return;
+      const payable = document.querySelector('[data-pay-payable]');
+      const total = payable instanceof HTMLElement ? Number(payable.dataset.amount ?? '0') : 0;
+      const deposit = moneyOf(depositInput.value);
+      if (total > 0 && deposit > 0 && deposit < total) {
+        depositHint.textContent = `Còn lại khách trả: ${new Intl.NumberFormat('vi-VN').format(total - deposit)} đ. Doanh thu vẫn ${new Intl.NumberFormat('vi-VN').format(total)} đ.`;
+      } else {
+        depositHint.textContent = 'Doanh thu vẫn là tổng đơn. Khách chỉ cần trả phần còn lại sau cọc.';
       }
     }
 
@@ -132,6 +179,7 @@ function shippingText(cost: { kind: OrderCostKind; value: number }): string {
         else if (!fee.value.trim() && defaultFee) fee.value = defaultFee;
       }
       syncShipPresets();
+      syncDeposit();
     }
 
     function applyRule(freeShip: boolean) {
@@ -146,6 +194,11 @@ function shippingText(cost: { kind: OrderCostKind; value: number }): string {
     }
 
     root.addEventListener('change', (event) => paint(event));
+    root.addEventListener('input', (event) => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement && target.hasAttribute('data-deposit-amount')) syncDeposit();
+    });
+    document.addEventListener('staff-pay-updated', () => syncDeposit());
     root.addEventListener('click', (event) => {
       const button = event.target instanceof Element ? event.target.closest('[data-ship-preset]') : null;
       if (!(button instanceof HTMLButtonElement) || !(dateInput instanceof HTMLInputElement)) return;

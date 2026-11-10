@@ -8,7 +8,7 @@ import { formatPercentBp, isShippingOrderCost, listOrderCosts, orderProfit, orde
 import { profitOf } from '../../../features/materials/costing';
 import { orderHandoffText } from '../../../features/orders/order';
 import { getOrder, updateOrderNote, updateOrderStatus, updateStaffOrderCustomer, updateStaffOrderLines, updateStaffOrderMeta } from '../../../features/orders/orders';
-import { canEditOrderProducts, collectionLabel, formatShipLabel, orderLineSources, priceStaffLines, readStaffFlags, readStaffLineInputs, sourceLabel, staffFlagForm, type StaffFlagForm, type StaffLineInput } from '../../../features/orders/staff';
+import { canEditOrderProducts, collectionLabel, orderLineSources, priceStaffLines, readStaffFlags, readStaffLineInputs, remainingAfterDeposit, shipLaterPill, sourceLabel, staffFlagForm, type StaffFlagForm, type StaffLineInput } from '../../../features/orders/staff';
 import { isOrderStatus, nextOrderStatuses, ORDER_STATUS_LABELS } from '../../../features/orders/status';
 import { listStaffProductChoices } from '../../../features/products/public';
 import { createDb } from '../../../lib/db/client';
@@ -129,6 +129,7 @@ if (Astro.request.method === 'POST') {
       shipOn: read('shipOn'),
       shippingFee: read('shippingFee'),
       freeShip: read('freeShip') === 'on',
+      depositAmount: read('depositAmount'),
     };
     const flags = readStaffFlags({
       ...postedFlags,
@@ -136,6 +137,7 @@ if (Astro.request.method === 'POST') {
       compensation: postedFlags.compensation ? 'on' : '',
       shipLater: postedFlags.shipLater ? 'on' : '',
       freeShip: postedFlags.freeShip ? 'on' : '',
+      depositAmount: postedFlags.depositAmount,
     });
     if (!flags.ok) {
       Astro.response.status = 422;
@@ -213,6 +215,7 @@ if (postedExtra == null) {
 }
 const codeValue = postedCode ?? order.discountCode ?? '';
 const sendLater = order.shipOn !== null && order.status !== 'shipped' && order.status !== 'completed' && order.status !== 'cancelled';
+const laterPill = sendLater && order.shipOn != null ? shipLaterPill(order.shipOn) : null;
 
 const handoff = orderHandoffText(order);
 const statusLabel = isOrderStatus(order.status) ? ORDER_STATUS_LABELS[order.status] : order.status;
@@ -262,7 +265,9 @@ const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
           {order.source && <span class="od-chip">{sourceLabel(order.source)}</span>}
           {order.priority === 1 && <span class="od-chip">Ưu tiên</span>}
           {order.compensation === 1 && <span class="od-chip">Gửi bù</span>}
-          {sendLater && order.shipOn && <span class="od-chip">Gửi sau {formatShipLabel(order.shipOn)}</span>}
+          {laterPill && (
+            <span class="order-ship-later-pill" data-tone={laterPill.tone}>{laterPill.label}</span>
+          )}
         </p>
       </div>
       <div class="od-head-total">
@@ -410,7 +415,15 @@ const pieces = lines.reduce((sum, line) => sum + line.quantity, 0);
         <section class="od-card">
           <h2>Thanh toán</h2>
           <dl class="od-facts">
-            <div><dt>Hình thức</dt><dd>{collectionLabel(order.payState, order.paymentMethod)}</dd></div>
+            <div>
+              <dt>Hình thức</dt>
+              <dd>
+                {collectionLabel(order.payState, order.paymentMethod)}
+                {order.payState === 'deposit' && order.depositAmount > 0
+                  ? ` · cọc ${formatVnd(order.depositAmount)} · còn ${formatVnd(remainingAfterDeposit(order.totalPrice, order.depositAmount))}`
+                  : ''}
+              </dd>
+            </div>
             <div><dt>Phí ship khách trả</dt><dd>{order.shippingFee > 0 ? formatVnd(order.shippingFee) : 'Miễn phí'}</dd></div>
             <div><dt>Phí ship vốn</dt><dd>{formatVnd(shipCapital)}</dd></div>
           </dl>

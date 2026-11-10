@@ -652,11 +652,15 @@ function coverOf(line: StaffLineInput): string {
         if (totalRow instanceof HTMLElement) totalRow.hidden = root.dataset.cart === '1' && !hasLines;
         if (shipFeeOut) shipFeeOut.textContent = ship.free ? 'Miễn phí' : formatVnd(ship.fee);
         const payableOut = root.querySelector('[data-pay-payable]');
+        const payable = goodsPayable + (showShipSummary ? ship.fee : 0);
         if (payableOut instanceof HTMLElement && (!(totalInput instanceof HTMLInputElement) || totalInput.hidden)) {
-          payableOut.textContent = formatVnd(goodsPayable + (showShipSummary ? ship.fee : 0));
+          payableOut.textContent = formatVnd(payable);
+          payableOut.dataset.amount = String(payable);
         } else if (totalInput instanceof HTMLInputElement) {
           paintMoneyText(totalInput);
+          if (payableOut instanceof HTMLElement) payableOut.dataset.amount = String(payable);
         }
+        document.dispatchEvent(new Event('staff-pay-updated'));
       } finally {
         paintingPay = false;
       }
