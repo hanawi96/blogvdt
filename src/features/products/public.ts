@@ -155,6 +155,31 @@ export async function listStaffProductChoices(db: AppDb, extraIds: number[]) {
   }));
 }
 
+/** Cover URL theo product id — dùng trang chi tiết đơn. */
+export async function productCoversByIds(
+  db: AppDb,
+  ids: number[],
+): Promise<Map<number, { url: string; alt: string }>> {
+  const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
+  const out = new Map<number, { url: string; alt: string }>();
+  if (unique.length === 0) return out;
+  const rows = await db
+    .select({
+      id: products.id,
+      name: products.name,
+      coverKey: media.r2Key,
+      coverAlt: media.altText,
+    })
+    .from(products)
+    .leftJoin(media, eq(products.coverMediaId, media.id))
+    .where(inArray(products.id, unique));
+  for (const row of rows) {
+    if (!row.coverKey) continue;
+    out.set(row.id, { url: routes.media(row.coverKey), alt: row.coverAlt || row.name });
+  }
+  return out;
+}
+
 export type StaffPickerProduct = {
   id: number;
   name: string;

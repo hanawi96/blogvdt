@@ -737,7 +737,7 @@ function pageHref(next: number): string {
     const modal = dialog;
     let drafts: Draft[] = JSON.parse(modal.dataset.materials ?? '[]');
     const field = (name: string) => modal.querySelector<HTMLInputElement>(`[data-field="${name}"]`);
-    const groupSelect = field('groupId');
+    const groupSelect = modal.querySelector<HTMLSelectElement>('[data-field="groupId"]');
     const title = modal.querySelector('[data-material-title]');
     const hint = modal.querySelector('[data-material-code-hint]');
     const used = modal.querySelector('[data-material-used]');

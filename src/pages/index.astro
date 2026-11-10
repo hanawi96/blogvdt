@@ -3,45 +3,109 @@ import BeadRing from '../components/public/BeadRing.astro';
 import DataError from '../components/public/DataError.astro';
 import LeafSprig from '../components/public/LeafSprig.astro';
 import { listFeaturedProducts } from '../features/products/featured';
-import { listPublishedPosts } from '../features/posts/public';
+import { listRecentPublishedPosts } from '../features/posts/public';
 import { getPublicSite } from '../features/settings/settings';
 import { createDb } from '../lib/db/client';
-import { applyCoverMeasure } from '../features/media/media';
-import { getDbBinding, getSiteOrigin, optionalMediaBucket } from '../lib/cloudflare/env';
+import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
 import PublicLayout from '../layouts/PublicLayout.astro';
-import { buildMeta, homePageMeta, unavailableMeta } from '../lib/seo/meta';
-import { blogReadStatus, FRESH_PAGE_CACHE, PRIVATE_PAGE_CACHE } from '../lib/seo/cache';
+import { buildMeta, homePageMeta, jsonLd, unavailableMeta } from '../lib/seo/meta';
+import { blogReadStatus, PRIVATE_PAGE_CACHE, PUBLIC_PAGE_CACHE } from '../lib/seo/cache';
 import { formatVnd } from '../lib/money';
 import { routes } from '../lib/routes';
 
-// Bài mới nhất làm banner nổi bật, 3 bài kế tiếp vào lưới; CMS chưa có cờ "bài nổi bật".
-const HOME_POST_LIMIT = 4;
+const HOME_PRODUCT_LIMIT = 8;
+const HOME_POST_LIMIT = 3;
 
-const VALUES = [
+type DemoPhoto = {
+  url: string;
+  alt: string;
+  width: number | null;
+  height: number | null;
+};
+
+const PROCESS_STEPS = [
+  { title: 'Chọn nguyên liệu', text: 'Chọn cành dâu tằm phù hợp trước khi tách và làm sạch.' },
+  { title: 'Bóc dâu tằm', text: 'Tách phần gỗ dùng làm hạt, giữ vẻ mộc tự nhiên.' },
+  { title: 'Phơi khô', text: 'Phơi đều để hạt khô, ổn định trước khi mài.' },
+  { title: 'Mài nhỏ cành dâu', text: 'Tạo hình hạt vừa tay bé, đều từng viên.' },
+  { title: 'Mài mịn viền hạt', text: 'Mài tay cho nhẵn, hạn chế cạnh sắc.' },
+  { title: 'Xỏ vòng', text: 'Xỏ dây, chỉnh size theo bé và hoàn thiện.' },
+] as const;
+
+const BENEFITS = [
   {
-    title: 'Làm thủ công',
-    text: 'Từ cành dâu tằm, làm tay từng chiếc',
-    icon: '<path d="M18 11V6a2 2 0 0 0-4 0"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.83L7 15"/>',
+    title: 'Quan niệm ngủ ngon hơn',
+    text: 'Nhiều mẹ tin rằng đeo vòng giúp bé dễ chịu hơn khi ngủ — đây là kinh nghiệm dân gian, không thay lời khuyên y tế.',
   },
   {
-    title: 'Chất liệu tự nhiên',
-    text: 'Giữ màu gỗ mộc, không sơn bóng',
-    icon: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
+    title: 'Ý nghĩa bảo vệ tâm linh',
+    text: 'Vòng thường được xem như lời cầu bình an theo phong tục, mang tính văn hóa hơn là bằng chứng khoa học.',
   },
   {
-    title: 'Mài nhẵn thủ công',
-    text: 'Từng hạt được mài tay cho mịn',
-    icon: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
+    title: 'Bình an và may mắn',
+    text: 'Món quà thủ công gửi gắm lời chúc tốt lành; cảm nhận mỗi gia đình có thể khác nhau.',
+  },
+] as const;
+
+const WHY_POINTS = [
+  { title: 'Làm thủ công từng chiếc', text: 'Từ chọn cành đến xỏ vòng đều làm tay, không dây chuyền hàng loạt.' },
+  { title: 'Không tẩm hóa chất, không sơn bóng', text: 'Giữ màu gỗ mộc, ưu tiên cảm giác tự nhiên trên da bé.' },
+  { title: 'Hạt mài tay, nhẵn và mịn', text: 'Từng hạt được mài để hạn chế cạnh thô trước khi xỏ.' },
+  { title: 'Dây điều chỉnh kích thước', text: 'Có thể chỉnh khi bé lớn dần, dễ đeo hàng ngày.' },
+  { title: 'Làm theo size của bé', text: 'Nhận size theo cổ tay/cân nặng bé khi mẹ đặt hàng.' },
+] as const;
+
+const COMPARE = {
+  real: [
+    'Gỗ dâu tằm mộc, không sơn bóng dày',
+    'Hạt mài tay, bề mặt tương đối đều',
+    'Có thể hỏi quy trình và ảnh làm thật',
+    'Size chỉnh được theo bé',
+  ],
+  fake: [
+    'Gỗ lạ hoặc sơn bóng mạnh, mùi hóa chất',
+    'Hạt sắc cạnh, kích thước lệch nhiều',
+    'Không rõ nguồn gốc, chỉ bán giá rẻ',
+    'Dây cố định, khó chỉnh khi bé lớn',
+  ],
+} as const;
+
+const FAQ_ITEMS = [
+  {
+    q: 'Vòng có phải làm từ cây dâu tằm thật không?',
+    a: 'Các mẫu trên site được làm từ gỗ dâu tằm thủ công. Mẹ có thể xem ảnh quy trình và hỏi thêm trước khi đặt.',
   },
   {
-    title: 'Nhiều mẫu để chọn',
-    text: 'Tùy chọn theo nhu cầu của bé',
-    icon: '<circle cx="19" cy="12" r="2"/><circle cx="16.95" cy="16.95" r="2"/><circle cx="12" cy="19" r="2"/><circle cx="7.05" cy="16.95" r="2"/><circle cx="5" cy="12" r="2"/><circle cx="7.05" cy="7.05" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="16.95" cy="7.05" r="2"/>',
+    q: 'Vòng đụng nước thì sao?',
+    a: 'Nên tránh ngâm lâu hoặc hóa chất mạnh. Nếu ướt, lau khô nhẹ. Độ bền còn tùy cách bảo quản hàng ngày.',
   },
-];
+  {
+    q: 'Bé sơ sinh đeo được không? Bé lớn còn dùng tiếp được không?',
+    a: 'Nhiều mẫu có dây chỉnh size. Nên chọn size phù hợp và theo dõi độ vừa khi bé lớn.',
+  },
+  {
+    q: 'Vòng để lâu không dùng có mốc không?',
+    a: 'Nên để nơi khô ráo, thoáng. Tránh ẩm lâu ngày. Nếu thấy bất thường, ngưng dùng và liên hệ shop.',
+  },
+  {
+    q: 'Có cam kết bạc thật khi mix charm bạc không?',
+    a: 'Với mẫu có bạc, shop nêu rõ loại bạc trên trang sản phẩm. Mẹ nên đọc mô tả từng mẫu trước khi mua.',
+  },
+] as const;
+
+const REVIEWS = [
+  { name: 'Mẹ Lan', text: 'Vòng nhẹ, hạt mịn, mình yên tâm hơn vì thấy ảnh làm thủ công.' },
+  { name: 'Mẹ Hương', text: 'Đặt size theo bé, dây chỉnh được nên dùng lâu. Gói hàng sạch sẽ.' },
+  { name: 'Mẹ Trang', text: 'Mẫu mix đơn giản, hợp bé. Shop trả lời nhanh khi mình hỏi quy trình.' },
+] as const;
 
 function journalDate(timestamp: number): string {
   return new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(timestamp));
+}
+
+function photoAt(photos: DemoPhoto[], index: number): DemoPhoto | null {
+  if (photos.length === 0) return null;
+  return photos[index % photos.length] ?? null;
 }
 
 const loaded = await loadHome();
@@ -50,36 +114,81 @@ if (status !== 200) {
   Astro.response.status = status;
   Astro.response.headers.set('X-Robots-Tag', 'noindex');
 }
-Astro.response.headers.set('Cache-Control', status === 200 ? FRESH_PAGE_CACHE : PRIVATE_PAGE_CACHE);
+// Trang chủ công khai, cache ngắn giống catalog — giảm TTFB lặp lại, vẫn làm mới sau 60s.
+Astro.response.headers.set('Cache-Control', status === 200 ? PUBLIC_PAGE_CACHE : PRIVATE_PAGE_CACHE);
 
-const highlight = loaded.posts.length > 1 ? loaded.posts[0] : null;
-const gridPosts = highlight ? loaded.posts.slice(1) : loaded.posts;
-const productPhotos = loaded.products.filter((product) => product.coverUrl);
-const heroMain = productPhotos[0];
-const heroInset = productPhotos[1];
-const collectionPhotos = productPhotos.slice(0, 3).reverse();
-const ctaPhoto = productPhotos.at(-1);
-const showReviewDraft = import.meta.env.DEV;
+const photos: DemoPhoto[] = loaded.products.flatMap((product) =>
+  product.coverUrl
+    ? [{ url: product.coverUrl, alt: product.coverAlt || product.name, width: product.coverWidth, height: product.coverHeight }]
+    : [],
+);
+const heroPhoto = photoAt(photos, 0);
+const benefitPhotos = [photoAt(photos, 1), photoAt(photos, 2)];
+const processPoster = photoAt(photos, 3) ?? heroPhoto;
+const ctaPhoto = photoAt(photos, photos.length - 1) ?? heroPhoto;
+const site = loaded.site;
+const origin = getSiteOrigin(Astro.url.origin);
 
-const pageMeta = loaded.site ? homePageMeta(loaded.site) : unavailableMeta();
-const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
+const pageMeta = site ? homePageMeta(site) : unavailableMeta();
+const meta = buildMeta(origin, {
   title: pageMeta.title,
   description: pageMeta.description,
   path: routes.home,
-  siteName: loaded.site?.siteName,
-  robots: loaded.site ? 'index,follow' : 'noindex,nofollow',
+  siteName: site?.siteName,
+  robots: site ? 'index,follow' : 'noindex,nofollow',
+  image: site?.ogImageUrl || heroPhoto?.url || null,
 });
+
+const schemaEntries: string[] = [];
+if (site && meta.canonical) {
+  schemaEntries.push(
+    jsonLd({
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: site.siteName,
+      url: meta.canonical,
+      description: meta.description,
+      inLanguage: 'vi',
+    }),
+  );
+  schemaEntries.push(
+    jsonLd({
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: FAQ_ITEMS.map((item) => ({
+        '@type': 'Question',
+        name: item.q,
+        acceptedAnswer: { '@type': 'Answer', text: item.a },
+      })),
+    }),
+  );
+  if (loaded.products.length > 0) {
+    schemaEntries.push(
+      jsonLd({
+        '@context': 'https://schema.org',
+        '@type': 'ItemList',
+        itemListElement: loaded.products.map((product, index) => ({
+          '@type': 'ListItem',
+          position: index + 1,
+          url: `${origin}${routes.product(product.slug)}`,
+          name: product.name,
+        })),
+      }),
+    );
+  }
+}
 
 async function loadHome() {
   try {
     const db = createDb(getDbBinding());
-    const site = await getPublicSite(db);
-    if (!site) return { site: null, failed: false, posts: [], products: [] };
+    const siteRow = await getPublicSite(db);
+    if (!siteRow) return { site: null, failed: false, posts: [], products: [] };
+    // Song song 2 query hẹp; không probe R2 đo ảnh (kích thước lấy từ D1).
     const [posts, products] = await Promise.all([
-      listPublishedPosts(db, { page: 1 }),
-      listFeaturedProducts(db, 4),
+      listRecentPublishedPosts(db, HOME_POST_LIMIT),
+      listFeaturedProducts(db, HOME_PRODUCT_LIMIT),
     ]);
-    return { site, failed: false, posts: await applyCoverMeasure(optionalMediaBucket(), posts.posts.slice(0, HOME_POST_LIMIT)), products };
+    return { site: siteRow, failed: false, posts, products };
   } catch (error) {
     console.error(JSON.stringify({ event: 'home_read_failed', name: error instanceof Error ? error.name : 'unknown' }));
     return { site: null, failed: true, posts: [], products: [] };
@@ -90,81 +199,230 @@ async function loadHome() {
 <PublicLayout
   title={meta.title}
   description={meta.description}
-  canonical={loaded.site ? meta.canonical : undefined}
+  canonical={site ? meta.canonical : undefined}
   robots={meta.robots}
   siteName={meta.siteName}
-  faviconUrl={loaded.site?.faviconUrl || '/favicon.svg'}
-  chrome={loaded.site}
+  image={meta.image}
+  imageAlt={site?.ogImageAlt || heroPhoto?.alt || null}
+  imageWidth={site?.ogImageWidth ?? heroPhoto?.width ?? null}
+  imageHeight={site?.ogImageHeight ?? heroPhoto?.height ?? null}
+  faviconUrl={site?.faviconUrl || '/favicon.svg'}
+  chrome={site}
+  jsonLd={schemaEntries}
 >
   {
-    loaded.site ? (
+    site ? (
       <div class="home">
         <section class="home-hero" aria-labelledby="home-title">
-          <LeafSprig class="home-hero-sprig" />
           <div class="home-wrap home-hero-grid">
             <div class="home-hero-copy">
-              <p class="home-eyebrow">
-                Thủ công từ thiên nhiên
-                <LeafSprig />
-              </p>
-              <h1 id="home-title">Vòng dâu tằm thủ công cho bé</h1>
-              <p class="home-lead">Chia sẻ kiến thức, kinh nghiệm cho mẹ có con nhỏ và những mẫu vòng dâu tằm làm thủ công, nhẹ nhàng dành cho bé.</p>
+              <p class="home-eyebrow">Thủ công từ thiên nhiên <LeafSprig /></p>
+              <h1 id="home-title">
+                Vòng dâu tằm
+                <span class="home-hero-script">cho bé yêu</span>
+              </h1>
+              <p class="home-lead">Mẫu vòng làm tay từ gỗ dâu tằm, nhẹ nhàng cho mẹ chọn theo bé — kèm bài viết kiến thức rõ ràng, phân biệt quan niệm dân gian và thông tin thực tế.</p>
               <div class="home-actions">
-                <a class="btn btn-cta" href={routes.knowledgeList}>Đọc bài viết <span aria-hidden="true">→</span></a>
-                <a class="btn btn-soft" href={routes.catalog}>Xem mẫu vòng <span aria-hidden="true">→</span></a>
+                <a class="btn btn-cta" href={routes.catalog}>Xem mẫu vòng <span aria-hidden="true">→</span></a>
+                <a class="btn btn-soft" href="#quy-trinh">Xem quy trình làm</a>
               </div>
             </div>
             <div class="home-hero-media">
-              {heroMain?.coverUrl ? (
+              {heroPhoto ? (
                 <img
                   class="home-hero-photo"
-                  src={heroMain.coverUrl}
-                  alt={heroMain.coverAlt || heroMain.name}
-                  width={heroMain.coverWidth ?? undefined}
-                  height={heroMain.coverHeight ?? undefined}
+                  src={heroPhoto.url}
+                  alt={heroPhoto.alt}
+                  width={heroPhoto.width ?? 800}
+                  height={heroPhoto.height ?? 1000}
                   fetchpriority="high"
+                  decoding="async"
+                  sizes="(min-width: 56rem) 34rem, 92vw"
                 />
               ) : (
-                <div class="home-hero-photo home-hero-placeholder">
+                <div class="home-hero-photo home-hero-placeholder" aria-hidden="true">
                   <BeadRing />
                 </div>
               )}
-              {heroInset?.coverUrl && (
-                <img
-                  class="home-hero-inset"
-                  src={heroInset.coverUrl}
-                  alt=""
-                  width={heroInset.coverWidth ?? undefined}
-                  height={heroInset.coverHeight ?? undefined}
-                  loading="lazy"
-                  decoding="async"
-                />
-              )}
-              <LeafSprig class="home-hero-media-sprig" />
             </div>
           </div>
         </section>
 
-        <section id="gioi-thieu" class="home-values" aria-label="Điểm nổi bật của vòng">
-          <ul class="home-wrap home-values-list">
-            {VALUES.map((value) => (
-              <li>
-                <span class="home-value-icon">
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" set:html={value.icon} />
-                </span>
-                <span>
-                  <strong>{value.title}</strong>
-                  <span>{value.text}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
+        <section class="home-mid-cta" aria-label="Đặt hàng nhanh">
+          <div class="home-wrap home-mid-cta-inner">
+            <a class="btn btn-cta home-mid-cta-btn" href={routes.catalog}>Đặt hàng ngay cho bé yêu <span aria-hidden="true">→</span></a>
+            <p class="home-mid-cta-note">Kiểm tra hàng trước khi thanh toán khi nhận COD (nếu đơn hỗ trợ).</p>
+          </div>
         </section>
 
-        <section class="home-wrap home-section" aria-labelledby="mau-vong">
+        <section id="quy-trinh" class="home-wrap home-section home-defer" aria-labelledby="quy-trinh-title">
+          <div class="home-section-intro">
+            <h2 id="quy-trinh-title">
+              Quy trình làm vòng
+              <span class="home-script">đến từ sự chăm chút</span>
+            </h2>
+            <p>Mỗi chiếc vòng được làm thủ công theo từng công đoạn, từ chọn cành đến xỏ dây.</p>
+          </div>
+          <ol class="home-process">
+            {PROCESS_STEPS.map((step, index) => {
+              const photo = photoAt(photos, index);
+              return (
+                <li class="home-process-card">
+                  <span class="home-process-num" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+                  {photo ? (
+                    <img
+                      class="home-process-photo"
+                      src={photo.url}
+                      alt=""
+                      width={photo.width ?? 400}
+                      height={photo.height ?? 400}
+                      loading="lazy"
+                      decoding="async"
+                      sizes="(min-width: 64rem) 10rem, (min-width: 40rem) 30vw, 42vw"
+                    />
+                  ) : (
+                    <span class="home-process-photo home-media-fallback" aria-hidden="true"><LeafSprig /></span>
+                  )}
+                  <strong>{step.title}</strong>
+                  <span>{step.text}</span>
+                </li>
+              );
+            })}
+          </ol>
+          <figure class="home-process-video">
+            {processPoster ? (
+              <img
+                src={processPoster.url}
+                alt="Ảnh minh họa quy trình làm vòng dâu tằm"
+                width={processPoster.width ?? 720}
+                height={processPoster.height ?? 900}
+                loading="lazy"
+                decoding="async"
+                sizes="(min-width: 48rem) 22rem, 80vw"
+              />
+            ) : (
+              <span class="home-media-fallback" aria-hidden="true"><BeadRing /></span>
+            )}
+            <figcaption>
+              <a class="home-process-video-link" href={routes.catalog}>Xem mẫu sau khi hoàn thiện <span aria-hidden="true">→</span></a>
+            </figcaption>
+          </figure>
+        </section>
+
+        <section id="gioi-thieu" class="home-benefits home-defer" aria-labelledby="loi-ich-title">
+          <div class="home-wrap home-benefits-grid">
+            <div class="home-benefits-media" aria-hidden={benefitPhotos.every((p) => !p) ? 'true' : undefined}>
+              {benefitPhotos.map((photo) =>
+                photo ? (
+                  <img
+                    src={photo.url}
+                    alt={photo.alt}
+                    width={photo.width ?? 480}
+                    height={photo.height ?? 640}
+                    loading="lazy"
+                    decoding="async"
+                    sizes="(min-width: 56rem) 14rem, 42vw"
+                  />
+                ) : (
+                  <span class="home-media-fallback"><LeafSprig /></span>
+                ),
+              )}
+              <p class="home-benefits-caption">Vòng dâu tằm làm thủ công</p>
+            </div>
+            <div class="home-benefits-copy">
+              <h2 id="loi-ich-title">
+                Vòng dâu tằm thật
+                <span class="home-script">mẹ thường quan tâm điều gì?</span>
+              </h2>
+              <p class="home-benefits-lead">Làm từ gỗ dâu tằm thủ công, giữ vẻ mộc. Phần “tác dụng” dưới đây phản ánh quan niệm dân gian nhiều mẹ vẫn truyền nhau.</p>
+              <ul class="home-benefits-list">
+                {BENEFITS.map((item) => (
+                  <li>
+                    <strong>{item.title}</strong>
+                    <span>{item.text}</span>
+                  </li>
+                ))}
+              </ul>
+              <aside class="home-disclaimer" role="note">
+                Lưu ý: hiệu quả cảm nhận (nếu có) mang tính trải nghiệm cá nhân và phong tục. Không thay thế chăm sóc y tế hay khẳng định vòng chữa bệnh / giúp bé ngủ ngon về mặt khoa học.
+              </aside>
+              <a class="btn btn-cta" href={routes.catalog}>Chọn vòng cho bé ngay <span aria-hidden="true">→</span></a>
+            </div>
+          </div>
+        </section>
+
+        <section id="vi-sao" class="home-wrap home-section home-defer" aria-labelledby="vi-sao-title">
+          <div class="home-section-intro">
+            <h2 id="vi-sao-title">
+              Vì sao chọn
+              <span class="home-script">{site.siteName}</span>
+            </h2>
+          </div>
+          <ol class="home-why">
+            {WHY_POINTS.map((point, index) => {
+              const photo = photoAt(photos, index + 1);
+              return (
+                <li class:list={['home-why-row', index % 2 === 1 && 'is-flip']}>
+                  <div class="home-why-media">
+                    {photo ? (
+                      <img
+                        src={photo.url}
+                        alt=""
+                        width={photo.width ?? 560}
+                        height={photo.height ?? 560}
+                        loading="lazy"
+                        decoding="async"
+                        sizes="(min-width: 56rem) 22rem, 88vw"
+                      />
+                    ) : (
+                      <span class="home-media-fallback" aria-hidden="true"><LeafSprig /></span>
+                    )}
+                  </div>
+                  <div class="home-why-copy">
+                    <span class="home-why-num" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+                    <h3>{point.title}</h3>
+                    <p>{point.text}</p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </section>
+
+        <section id="so-sanh" class="home-compare home-defer" aria-labelledby="so-sanh-title">
+          <div class="home-wrap">
+            <div class="home-section-intro">
+              <h2 id="so-sanh-title">
+                Nhận biết vòng
+                <span class="home-script">cần lưu ý gì?</span>
+              </h2>
+              <p>Gợi ý nhanh khi chọn — không nhằm chỉ trích shop khác, chỉ giúp mẹ hỏi đúng việc.</p>
+            </div>
+            <div class="home-compare-grid">
+              <div class="home-compare-card is-good">
+                <h3>Dấu hiệu đáng tin hơn</h3>
+                <ul>
+                  {COMPARE.real.map((line) => (
+                    <li>{line}</li>
+                  ))}
+                </ul>
+              </div>
+              <div class="home-compare-card is-warn">
+                <h3>Nên hỏi thêm nếu thấy</h3>
+                <ul>
+                  {COMPARE.fake.map((line) => (
+                    <li>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="san-pham" class="home-wrap home-section home-defer" aria-labelledby="san-pham-title">
           <div class="home-head">
-            <h2 id="mau-vong"><LeafSprig class="home-head-sprig" />Mẫu vòng nổi bật</h2>
-            <a href={routes.catalog}>Xem tất cả mẫu vòng <span aria-hidden="true">→</span></a>
+            <h2 id="san-pham-title"><LeafSprig class="home-head-sprig" />Mẫu vòng nổi bật</h2>
+            <a href={routes.catalog}>Tất cả mẫu <span aria-hidden="true">→</span></a>
           </div>
           {loaded.products.length > 0 ? (
             <ul class="home-products">
@@ -172,7 +430,15 @@ async function loadHome() {
                 <li class="home-card home-product">
                   <a class="home-card-media" href={routes.product(product.slug)} tabindex="-1" aria-hidden="true">
                     {product.coverUrl ? (
-                      <img src={product.coverUrl} alt="" width={product.coverWidth ?? undefined} height={product.coverHeight ?? undefined} loading="lazy" decoding="async" />
+                      <img
+                        src={product.coverUrl}
+                        alt=""
+                        width={product.coverWidth ?? 480}
+                        height={product.coverHeight ?? 480}
+                        loading="lazy"
+                        decoding="async"
+                        sizes="(min-width: 64rem) 17rem, (min-width: 40rem) 45vw, 92vw"
+                      />
                     ) : (
                       <span class="home-card-empty"><LeafSprig /></span>
                     )}
@@ -182,7 +448,7 @@ async function loadHome() {
                     {product.description && <p class="home-card-text">{product.description}</p>}
                     <div class="home-card-foot">
                       <p class="home-price">{formatVnd(product.price)}</p>
-                      <a class="home-chip-link" href={routes.product(product.slug)} aria-label={`Xem mẫu ${product.name}`}>Xem mẫu</a>
+                      <a class="home-chip-link" href={routes.product(product.slug)} aria-label={`Xem mẫu ${product.name}`}>Mua ngay</a>
                     </div>
                   </div>
                 </li>
@@ -191,31 +457,88 @@ async function loadHome() {
           ) : (
             <p class="home-empty">Chưa có mẫu vòng nổi bật. <a href={routes.catalog}>Xem các mẫu đang nhận đặt</a></p>
           )}
+          <p class="home-more">
+            <a class="btn btn-soft" href={routes.catalog}>Xem thêm sản phẩm</a>
+          </p>
         </section>
 
-        <section class="home-wrap home-section" aria-labelledby="bai-viet">
+        <section id="danh-gia" class="home-wrap home-section home-defer" aria-labelledby="danh-gia-title">
+          <div class="home-section-intro">
+            <h2 id="danh-gia-title">
+              Lời mẹ
+              <span class="home-script">chia sẻ</span>
+            </h2>
+            <p>Gợi ý trải nghiệm mẫu — sẽ thay bằng đánh giá thật khi CMS sẵn sàng.</p>
+          </div>
+          <ul class="home-reviews">
+            {REVIEWS.map((review) => (
+              <li class="home-review">
+                <span class="home-review-avatar" aria-hidden="true"><LeafSprig /></span>
+                <span>
+                  <strong>{review.name}</strong>
+                  <span>{review.text}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section id="faq" class="home-wrap home-section home-defer" aria-labelledby="faq-title">
+          <div class="home-section-intro">
+            <h2 id="faq-title">
+              Câu hỏi
+              <span class="home-script">thường gặp</span>
+            </h2>
+          </div>
+          <div class="home-faq">
+            {FAQ_ITEMS.map((item) => (
+              <details class="home-faq-item">
+                <summary>{item.q}</summary>
+                <p>{item.a}</p>
+              </details>
+            ))}
+          </div>
+        </section>
+
+        <section class="home-wrap home-section home-defer" aria-labelledby="bai-viet">
           <div class="home-head">
             <h2 id="bai-viet"><LeafSprig class="home-head-sprig" />Bài viết dành cho mẹ</h2>
-            <a href={routes.knowledgeList}>Xem tất cả bài viết <span aria-hidden="true">→</span></a>
+            <a href={routes.knowledgeList}>Xem tất cả <span aria-hidden="true">→</span></a>
           </div>
-          {gridPosts.length > 0 ? (
+          {loaded.posts.length > 0 ? (
             <ul class="home-posts">
-              {gridPosts.map((post) => (
+              {loaded.posts.map((post) => (
                 <li class="home-card home-post">
                   <a class="home-card-media" href={routes.knowledge(post.slug)} tabindex="-1" aria-hidden="true">
                     {post.coverUrl ? (
-                      <img src={post.coverUrl} alt="" width={post.coverWidth ?? undefined} height={post.coverHeight ?? undefined} loading="lazy" decoding="async" />
+                      <img
+                        src={post.coverUrl}
+                        alt=""
+                        width={post.coverWidth ?? 640}
+                        height={post.coverHeight ?? 420}
+                        loading="lazy"
+                        decoding="async"
+                        sizes="(min-width: 48rem) 22rem, 92vw"
+                      />
                     ) : (
                       <span class="home-card-empty"><LeafSprig /></span>
                     )}
                   </a>
                   <div class="home-card-body">
-                    {post.categoryName && post.categorySlug && <a class="home-card-cat" href={routes.knowledgeCategory(post.categorySlug)}>{post.categoryName}</a>}
+                    {post.categoryName && post.categorySlug && (
+                      <a class="home-card-cat" href={routes.knowledgeCategory(post.categorySlug)}>{post.categoryName}</a>
+                    )}
                     <h3><a href={routes.knowledge(post.slug)}>{post.title}</a></h3>
                     {post.excerpt && <p class="home-card-text">{post.excerpt}</p>}
                     <div class="home-card-foot">
-                      {post.publishedAt ? <time class="home-date" datetime={new Date(post.publishedAt).toISOString()}>{journalDate(post.publishedAt)}</time> : <span />}
-                      <a class="home-round-link" href={routes.knowledge(post.slug)} aria-label={`Đọc tiếp: ${post.title}`}><span aria-hidden="true">→</span></a>
+                      {post.publishedAt ? (
+                        <time class="home-date" datetime={new Date(post.publishedAt).toISOString()}>{journalDate(post.publishedAt)}</time>
+                      ) : (
+                        <span />
+                      )}
+                      <a class="home-round-link" href={routes.knowledge(post.slug)} aria-label={`Đọc tiếp: ${post.title}`}>
+                        <span aria-hidden="true">→</span>
+                      </a>
                     </div>
                   </div>
                 </li>
@@ -226,81 +549,39 @@ async function loadHome() {
           )}
         </section>
 
-        <div class:list={['home-wrap home-section home-features', !highlight && 'is-single']}>
-          {highlight && (
-            <section class="home-editorial" aria-labelledby="bai-noi-bat">
-              <div class="home-editorial-media">
-                {highlight.coverUrl ? (
-                  <img src={highlight.coverUrl} alt={highlight.coverAlt} width={highlight.coverWidth ?? undefined} height={highlight.coverHeight ?? undefined} loading="lazy" decoding="async" />
-                ) : (
-                  <span class="home-card-empty"><LeafSprig /></span>
-                )}
-              </div>
-              <div class="home-editorial-body">
-                <p class="home-eyebrow">Kiến thức hữu ích</p>
-                <h2 id="bai-noi-bat"><a href={routes.knowledge(highlight.slug)}>{highlight.title}</a></h2>
-                {highlight.excerpt && <p class="home-editorial-text">{highlight.excerpt}</p>}
-                <a class="btn btn-cta" href={routes.knowledge(highlight.slug)} aria-label={`Đọc ngay: ${highlight.title}`}>Đọc ngay <span aria-hidden="true">→</span></a>
-              </div>
-              <LeafSprig class="home-editorial-sprig" />
-            </section>
-          )}
-          <a class="home-collection" href={routes.catalog}>
-            <span class="home-collection-body">
-              <span class="home-eyebrow">Bộ sưu tập</span>
-              <span class="home-collection-title">Bộ sưu tập vòng dâu tằm cho bé</span>
-              <span class="home-collection-text">Nhiều mẫu nhỏ xinh, làm thủ công, để mẹ chọn theo sở thích của bé.</span>
-              <span class="btn btn-cta">Xem bộ sưu tập <span aria-hidden="true">→</span></span>
-            </span>
-            <span class="home-collection-media" aria-hidden="true">
-              {collectionPhotos.length > 0 ? (
-                collectionPhotos.map((product) => (
-                  <img src={product.coverUrl ?? ''} alt="" width={product.coverWidth ?? undefined} height={product.coverHeight ?? undefined} loading="lazy" decoding="async" />
-                ))
-              ) : (
-                <BeadRing />
-              )}
-            </span>
-          </a>
-        </div>
-
-        {showReviewDraft && (
-          <section class="home-wrap home-section" aria-labelledby="danh-gia">
-            <div class="home-head">
-              <h2 id="danh-gia"><LeafSprig class="home-head-sprig" />Mẹ nói gì về {loaded.site.siteName}?</h2>
-            </div>
-            <p class="home-dev-note">Khung chờ — chỉ hiện khi chạy dev. Trên production phần này ẩn cho tới khi có đánh giá thật.</p>
-            <ul class="home-reviews">
-              {[1, 2, 3].map(() => (
-                <li class="home-review">
-                  <span class="home-review-avatar" aria-hidden="true"><LeafSprig /></span>
-                  <span>
-                    <strong>Tên khách hàng</strong>
-                    <span>Nội dung đánh giá thật của khách sẽ hiển thị ở đây.</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
         <section class="home-wrap home-section" aria-labelledby="kham-pha">
           <div class="home-cta">
             <span class="home-cta-art" aria-hidden="true">
-              {ctaPhoto?.coverUrl ? (
-                <img src={ctaPhoto.coverUrl} alt="" width={ctaPhoto.coverWidth ?? undefined} height={ctaPhoto.coverHeight ?? undefined} loading="lazy" decoding="async" />
+              {ctaPhoto ? (
+                <img
+                  src={ctaPhoto.url}
+                  alt=""
+                  width={ctaPhoto.width ?? 160}
+                  height={ctaPhoto.height ?? 160}
+                  loading="lazy"
+                  decoding="async"
+                />
               ) : (
                 <BeadRing />
               )}
             </span>
             <div class="home-cta-body">
-              <h2 id="kham-pha">Khám phá các mẫu vòng dâu tằm phù hợp cho bé</h2>
-              <p>Những chiếc vòng nhỏ xinh, làm thủ công từng chiếc với sự chăm chút dành cho bé.</p>
+              <h2 id="kham-pha">Chọn mẫu vòng phù hợp cho bé</h2>
+              <p>Xem catalog, đặt hàng nhanh — không bắt đăng ký tài khoản.</p>
             </div>
             <a class="btn btn-cta" href={routes.catalog}>Xem bộ sưu tập <span aria-hidden="true">→</span></a>
-            <LeafSprig class="home-cta-sprig" />
           </div>
         </section>
+
+        <div class="home-fab" role="navigation" aria-label="Liên hệ nhanh">
+          <a class="home-fab-btn home-fab-top" href="#noi-dung" aria-label="Lên đầu trang">↑</a>
+          {site.zaloUrl && (
+            <a class="home-fab-btn home-fab-zalo" href={site.zaloUrl} rel="noopener" target="_blank" aria-label="Chat Zalo">Z</a>
+          )}
+          {site.facebookUrl && (
+            <a class="home-fab-btn home-fab-fb" href={site.facebookUrl} rel="noopener" target="_blank" aria-label="Facebook">f</a>
+          )}
+        </div>
       </div>
     ) : (
       <DataError failed={loaded.failed} />

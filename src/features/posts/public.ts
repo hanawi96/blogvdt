@@ -167,6 +167,32 @@ export async function getPublicTagBySlug(db: AppDb, slug: string) {
   return tag;
 }
 
+/** Trang chủ: lấy N bài mới nhất, không đếm tổng (tránh query thừa). */
+export async function listRecentPublishedPosts(db: AppDb, limit = 3) {
+  const take = Math.min(Math.max(1, Math.floor(limit)), 12);
+  const rows = await db
+    .select({
+      id: posts.id,
+      title: posts.title,
+      slug: posts.slug,
+      excerpt: posts.excerpt,
+      publishedAt: posts.publishedAt,
+      categoryName: categories.name,
+      categorySlug: categories.slug,
+      coverKey: media.r2Key,
+      coverAlt: media.altText,
+      coverWidth: media.width,
+      coverHeight: media.height,
+    })
+    .from(posts)
+    .leftJoin(categories, eq(posts.categoryId, categories.id))
+    .leftJoin(media, eq(posts.coverMediaId, media.id))
+    .where(livePublished())
+    .orderBy(desc(posts.publishedAt), desc(posts.id))
+    .limit(take);
+  return rows.map(toCard);
+}
+
 export async function listRelatedPosts(db: AppDb, input: { id: number; categoryIds: number[] }) {
   const relatedFilter =
     input.categoryIds.length > 0

@@ -838,9 +838,9 @@ const shippedPanelHref =
   }
 
   function showExportToast(text: string, tone: 'info' | 'ok' | 'err' = 'info') {
-    let toast = document.querySelector('[data-order-export-toast]');
-    if (!(toast instanceof HTMLElement)) {
-      toast = document.createElement('div');
+    const existing = document.querySelector('[data-order-export-toast]');
+    const toast = existing instanceof HTMLElement ? existing : document.createElement('div');
+    if (!(existing instanceof HTMLElement)) {
       toast.className = 'order-export-toast';
       toast.setAttribute('data-order-export-toast', '');
       toast.setAttribute('role', 'status');

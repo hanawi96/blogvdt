@@ -360,7 +360,9 @@ function productCountLabel(count: number): string {
       area.style.left = '-999px';
       document.body.appendChild(area);
       area.select();
-      const copied = document.execCommand('copy');
+      // Fallback khi Clipboard API không có (trình duyệt cũ / non-secure context).
+      const legacyCopy = document.execCommand.bind(document) as (command: string) => boolean;
+      const copied = legacyCopy('copy');
       area.remove();
       return copied;
     }

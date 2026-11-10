@@ -2,7 +2,7 @@
 import StaffOrderForm from '../../../../components/admin/StaffOrderForm.astro';
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
 import addressSelect from '../../../../../public/data/address-select.json';
-import { matchComposedAddress } from '../../../../features/address/parse';
+import { matchComposedAddress, type AddressSelectRow } from '../../../../features/address/parse';
 import { mutationError } from '../../../../features/auth/session';
 import { listStaffDiscountChoices, quoteStaffDiscount } from '../../../../features/discounts/discounts';
 import { getOrder, orderAdminQuery, updateStaffOrder } from '../../../../features/orders/orders';
@@ -62,7 +62,7 @@ let lineError = '';
 let flagError = '';
 let errors: FieldErrors = {};
 let postedLines: StaffLineInput[] | null = null;
-const matchedAddress = matchComposedAddress(addressSelect, order.address);
+const matchedAddress = matchComposedAddress(addressSelect as unknown as AddressSelectRow[], order.address);
 const values = {
   customerName: order.customerName,
   phone: order.phone,

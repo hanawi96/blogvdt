@@ -3,7 +3,6 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { listLandings, LANDING_STATUS_LABELS, type LandingStatus } from '../../../features/landings/landings';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
-import { formatDateTime } from '../../../lib/datetime';
 import { routes } from '../../../lib/routes';
 
 const session = Astro.locals.adminSession;

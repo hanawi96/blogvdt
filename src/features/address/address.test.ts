@@ -2,16 +2,15 @@ import { describe, expect, it } from 'vitest';
 import treeText from '../../../public/data/tree_2.json?raw';
 import flatText from '../../../public/data/dia_chi_2_cap.json?raw';
 import slimText from '../../../public/data/address-select.json?raw';
-import { matchComposedAddress } from './parse';
+import { matchComposedAddress, type AddressSelectRow } from './parse';
 
 type TreeWard = { code: string; fullName: string };
 type TreeProvince = { code: string; fullName: string; wards: TreeWard[] };
 type FlatWard = { name_with_type: string; parent_code: string };
-type Slim = [string, string, [string, string][]];
 
 const tree = JSON.parse(treeText) as TreeProvince[];
 const flat = JSON.parse(flatText) as Record<string, FlatWard>;
-const slim = JSON.parse(slimText) as Slim;
+const slim = JSON.parse(slimText) as AddressSelectRow[];
 
 describe('danh sách địa chỉ chọn trên form', () => {
   it('khớp đủ tỉnh và phường xã của cả hai file gốc', () => {
