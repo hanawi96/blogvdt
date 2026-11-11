@@ -121,6 +121,7 @@ export async function listHomeCatalogCategories(db: AppDb) {
       slug: productCategories.slug,
       sortOrder: productCategories.sortOrder,
       coverKey: media.r2Key,
+      thumbKey: media.thumbR2Key,
       coverAlt: media.altText,
     })
     .from(productCategories)
@@ -132,6 +133,7 @@ export async function listHomeCatalogCategories(db: AppDb) {
       productCategories.slug,
       productCategories.sortOrder,
       media.r2Key,
+      media.thumbR2Key,
       media.altText,
     )
     .orderBy(asc(productCategories.sortOrder), asc(productCategories.name), asc(productCategories.id));
@@ -140,7 +142,8 @@ export async function listHomeCatalogCategories(db: AppDb) {
     name: row.name,
     slug: row.slug,
     sortOrder: row.sortOrder,
-    coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
+    // Pill nhỏ: ưu tiên thumb R2; ảnh cũ chưa có thumb thì fallback gốc.
+    coverUrl: row.thumbKey ? routes.media(row.thumbKey) : row.coverKey ? routes.media(row.coverKey) : null,
     coverAlt: row.coverAlt ?? '',
   }));
 }

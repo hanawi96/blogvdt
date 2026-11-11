@@ -20,6 +20,8 @@ export async function uploadMedia(csrf: string, file: File): Promise<MediaItem> 
   const item: MediaItem = {
     id: payload.id,
     url: payload.url,
+    cardUrl: payload.cardUrl ?? null,
+    thumbUrl: payload.thumbUrl ?? null,
     alt: payload.alt ?? '',
     filename: payload.filename ?? image.file.name,
     mimeType: payload.mimeType ?? image.file.type,

@@ -7,6 +7,21 @@ type ProductUse = { id: number; name: string; coverMediaId: number | null };
 type AlbumUse = { mediaId: number; productId: number; productName: string };
 type CategoryUse = { id: number; name: string; description: string | null };
 
+/** Trích key R2 từ HTML/JSON có đường dẫn /media/... */
+export function extractMediaKeysFromText(text: string): string[] {
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  const re = /\/media\/([^\s"'<>\\]+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const key = match[1];
+    if (!key || key.includes('..') || seen.has(key)) continue;
+    seen.add(key);
+    keys.push(key);
+  }
+  return keys;
+}
+
 export function collectMediaUses(input: {
   media: MediaKey[];
   posts: PostUse[];
@@ -28,12 +43,20 @@ export function collectMediaUses(input: {
     uses.set(id, list);
   };
 
+  const keyToIds = new Map<string, number[]>();
+  for (const item of input.media) {
+    const list = keyToIds.get(item.key) ?? [];
+    list.push(item.id);
+    keyToIds.set(item.key, list);
+  }
+  const addByKey = (key: string, use: MediaUse) => {
+    for (const id of keyToIds.get(key) ?? []) add(id, use);
+  };
+
   for (const post of input.posts) {
     const use = { href: routes.adminPost(post.id), label: post.title };
     add(post.coverMediaId, use);
-    for (const item of input.media) {
-      if (post.contentJson.includes(`/media/${item.key}`)) add(item.id, use);
-    }
+    for (const key of extractMediaKeysFromText(post.contentJson)) addByKey(key, use);
   }
   for (const product of input.products) {
     add(product.coverMediaId, { href: routes.adminProduct(product.id), label: product.name });
@@ -57,9 +80,7 @@ export function collectMediaUses(input: {
     const text = category.description ?? '';
     if (!text.includes('/media/')) continue;
     const use = { href: routes.adminCategories, label: category.name || `Danh mục #${category.id}` };
-    for (const item of input.media) {
-      if (text.includes(`/media/${item.key}`)) add(item.id, use);
-    }
+    for (const key of extractMediaKeysFromText(text)) addByKey(key, use);
   }
 
   return Object.fromEntries([...uses].map(([id, list]) => [String(id), list]));

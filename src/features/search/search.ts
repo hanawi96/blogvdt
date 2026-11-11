@@ -2,6 +2,7 @@ import { and, asc, desc, eq, like, or } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { categories, media, posts, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { listingMediaKey, MEDIA_CARD_SIZE } from '../media/files';
 import type { PublicPostCard } from '../posts/public';
 import { livePublished } from '../posts/visibility';
 import { normalizeSearchQuery, searchQueryReady } from './query';
@@ -67,6 +68,7 @@ export async function searchPublic(
         price: products.price,
         description: products.description,
         coverKey: media.r2Key,
+        cardKey: media.cardR2Key,
         coverAlt: media.altText,
         coverWidth: media.width,
         coverHeight: media.height,
@@ -93,18 +95,22 @@ export async function searchPublic(
       coverWidth: row.coverWidth,
       coverHeight: row.coverHeight,
     })),
-    products: productRows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      slug: row.slug,
-      price: row.price,
-      description: row.description,
-      href: routes.product(row.slug),
-      coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
-      coverAlt: row.coverAlt ?? '',
-      coverWidth: row.coverWidth,
-      coverHeight: row.coverHeight,
-    })),
+    products: productRows.map((row) => {
+      const listKey = listingMediaKey(row.coverKey, row.cardKey);
+      const usingCard = Boolean(row.cardKey);
+      return {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        price: row.price,
+        description: row.description,
+        href: routes.product(row.slug),
+        coverUrl: listKey ? routes.media(listKey) : null,
+        coverAlt: row.coverAlt ?? '',
+        coverWidth: usingCard ? MEDIA_CARD_SIZE : row.coverWidth,
+        coverHeight: usingCard ? MEDIA_CARD_SIZE : row.coverHeight,
+      };
+    }),
   };
 }
 

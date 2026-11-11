@@ -5,6 +5,7 @@ import type { AppDb } from '../../lib/db/client';
 import { media, orderItems, orders, products } from '../../lib/db/schema';
 import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
+import { listingMediaKey, MEDIA_CARD_SIZE } from '../media/files';
 import { blockMoveState, moveBlock } from './image-move';
 
 export const PRODUCT_CARDS_NODE = 'productCards';
@@ -87,15 +88,18 @@ export type ProductCardHit = {
 };
 
 function toHits(
-  rows: Array<{ id: number; name: string; price: number; slug: string; coverKey: string | null }>,
+  rows: Array<{ id: number; name: string; price: number; slug: string; coverKey: string | null; cardKey: string | null }>,
 ): ProductCardHit[] {
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    price: row.price,
-    path: routes.product(row.slug),
-    coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
-  }));
+  return rows.map((row) => {
+    const listKey = listingMediaKey(row.coverKey, row.cardKey);
+    return {
+      id: row.id,
+      name: row.name,
+      price: row.price,
+      path: routes.product(row.slug),
+      coverUrl: listKey ? routes.media(listKey) : null,
+    };
+  });
 }
 
 export async function searchActiveProducts(db: AppDb, query: string): Promise<ProductCardHit[]> {
@@ -108,6 +112,7 @@ export async function searchActiveProducts(db: AppDb, query: string): Promise<Pr
       price: products.price,
       slug: products.slug,
       coverKey: media.r2Key,
+      cardKey: media.cardR2Key,
     })
     .from(products)
     .leftJoin(media, eq(products.coverMediaId, media.id))
@@ -127,6 +132,7 @@ export async function listTopSellingProducts(db: AppDb, limit = 5): Promise<Prod
       price: products.price,
       slug: products.slug,
       coverKey: media.r2Key,
+      cardKey: media.cardR2Key,
       sold,
     })
     .from(products)
@@ -151,6 +157,7 @@ export async function listActiveProductCardsByIds(db: AppDb, ids: number[]): Pro
       slug: products.slug,
       price: products.price,
       coverKey: media.r2Key,
+      cardKey: media.cardR2Key,
       coverAlt: media.altText,
       coverWidth: media.width,
       coverHeight: media.height,
@@ -159,15 +166,17 @@ export async function listActiveProductCardsByIds(db: AppDb, ids: number[]): Pro
     .leftJoin(media, eq(products.coverMediaId, media.id))
     .where(and(inArray(products.id, unique), eq(products.status, 'active')));
   for (const row of rows) {
+    const listKey = listingMediaKey(row.coverKey, row.cardKey);
+    const usingCard = Boolean(row.cardKey);
     map.set(row.id, {
       id: row.id,
       name: row.name,
       slug: row.slug,
       price: row.price,
-      coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
+      coverUrl: listKey ? routes.media(listKey) : null,
       coverAlt: row.coverAlt ?? '',
-      coverWidth: row.coverWidth,
-      coverHeight: row.coverHeight,
+      coverWidth: usingCard ? MEDIA_CARD_SIZE : row.coverWidth,
+      coverHeight: usingCard ? MEDIA_CARD_SIZE : row.coverHeight,
     });
   }
   return map;

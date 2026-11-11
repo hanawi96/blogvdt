@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNotNull, ne, notExists, or, sql } from 'drizzl
 import type { AppDb } from '../../lib/db/client';
 import { media, orderItems, orders, productCategories, productMedia, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { listingMediaKey } from '../media/files';
 import { readWeightScale } from './weight';
 
 export type LandingProduct = {
@@ -24,20 +25,24 @@ export async function listLandingProducts(db: AppDb, ids: number[]): Promise<Lan
       price: products.price,
       sortOrder: products.sortOrder,
       coverKey: media.r2Key,
+      cardKey: media.cardR2Key,
       coverAlt: media.altText,
     })
     .from(products)
     .leftJoin(media, eq(products.coverMediaId, media.id))
     .where(ids.length > 0 ? and(eq(products.status, 'active'), inArray(products.id, ids)) : eq(products.status, 'active'))
     .orderBy(asc(products.sortOrder), asc(products.id));
-  const mapped = rows.map((row) => ({
-    id: row.id,
-    slug: row.slug,
-    name: row.name,
-    price: row.price,
-    coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
-    coverAlt: row.coverAlt ?? '',
-  }));
+  const mapped = rows.map((row) => {
+    const listKey = listingMediaKey(row.coverKey, row.cardKey);
+    return {
+      id: row.id,
+      slug: row.slug,
+      name: row.name,
+      price: row.price,
+      coverUrl: listKey ? routes.media(listKey) : null,
+      coverAlt: row.coverAlt ?? '',
+    };
+  });
   if (ids.length === 0) return mapped;
   const byId = new Map(mapped.map((item) => [item.id, item]));
   return ids.flatMap((id) => {
@@ -121,6 +126,7 @@ export async function listOrderCatalog(db: AppDb) {
       weightScale: productCategories.weightScale,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,
+      cardKey: media.cardR2Key,
       coverAlt: media.altText,
     })
     .from(products)
@@ -128,13 +134,16 @@ export async function listOrderCatalog(db: AppDb) {
     .leftJoin(media, eq(products.coverMediaId, media.id))
     .where(eq(products.status, 'active'))
     .orderBy(asc(products.sortOrder), asc(products.id));
-  return rows.map(({ weightScale, coverKey, coverAlt, categorySlug, ...row }) => ({
-    ...row,
-    weightScale: readWeightScale(weightScale),
-    categorySlug: categorySlug ?? '',
-    coverUrl: coverKey ? routes.media(coverKey) : null,
-    coverAlt: coverAlt ?? '',
-  }));
+  return rows.map(({ weightScale, coverKey, cardKey, coverAlt, categorySlug, ...row }) => {
+    const listKey = listingMediaKey(coverKey, cardKey);
+    return {
+      ...row,
+      weightScale: readWeightScale(weightScale),
+      categorySlug: categorySlug ?? '',
+      coverUrl: listKey ? routes.media(listKey) : null,
+      coverAlt: coverAlt ?? '',
+    };
+  });
 }
 
 // Sản phẩm cho form đơn của nhân viên: mẫu đang bán, cộng thêm mẫu đã có trên đơn dù đã ngừng bán.
@@ -174,14 +183,16 @@ export async function productCoversByIds(
       id: products.id,
       name: products.name,
       coverKey: media.r2Key,
+      cardKey: media.cardR2Key,
       coverAlt: media.altText,
     })
     .from(products)
     .leftJoin(media, eq(products.coverMediaId, media.id))
     .where(inArray(products.id, unique));
   for (const row of rows) {
-    if (!row.coverKey) continue;
-    out.set(row.id, { url: routes.media(row.coverKey), alt: row.coverAlt || row.name });
+    const listKey = listingMediaKey(row.coverKey, row.cardKey);
+    if (!listKey) continue;
+    out.set(row.id, { url: routes.media(listKey), alt: row.coverAlt || row.name });
   }
   return out;
 }
@@ -216,6 +227,7 @@ export async function listStaffPickerProducts(db: AppDb): Promise<{ products: St
         categorySlug: productCategories.slug,
         categorySort: productCategories.sortOrder,
         coverKey: media.r2Key,
+        cardKey: media.cardR2Key,
         coverAlt: media.altText,
       })
       .from(products)
@@ -252,19 +264,22 @@ export async function listStaffPickerProducts(db: AppDb): Promise<{ products: St
     soldByProduct.set(row.productId, (soldByProduct.get(row.productId) ?? 0) + Number(row.sold));
   }
   const listed: StaffPickerProduct[] = rows
-    .map((row) => ({
-      id: row.id,
-      name: row.name,
-      price: row.price,
-      weightScale: readWeightScale(row.weightScale),
-      active: true as const,
-      categoryId: row.categoryId,
-      categoryName: row.categoryName ?? '',
-      categorySlug: row.categorySlug ?? '',
-      sold: soldByProduct.get(row.id) ?? 0,
-      coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
-      coverAlt: row.coverAlt ?? '',
-    }))
+    .map((row) => {
+      const listKey = listingMediaKey(row.coverKey, row.cardKey);
+      return {
+        id: row.id,
+        name: row.name,
+        price: row.price,
+        weightScale: readWeightScale(row.weightScale),
+        active: true as const,
+        categoryId: row.categoryId,
+        categoryName: row.categoryName ?? '',
+        categorySlug: row.categorySlug ?? '',
+        sold: soldByProduct.get(row.id) ?? 0,
+        coverUrl: listKey ? routes.media(listKey) : null,
+        coverAlt: row.coverAlt ?? '',
+      };
+    })
     .sort((a, b) => b.sold - a.sold || a.name.localeCompare(b.name, 'vi'));
   const seen = new Map<number, { name: string; sort: number }>();
   for (const row of rows) {

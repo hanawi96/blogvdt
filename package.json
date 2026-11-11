@@ -18,7 +18,9 @@
     "db:migrate:local": "wrangler d1 migrations apply vong-dau-tam --local",
     "db:seed:local": "node scripts/seed-local.mjs",
     "db:seed:demo-products": "node scripts/seed-demo-products.mjs",
-    "db:seed:demo-orders": "node scripts/seed-demo-orders.mjs"
+    "db:seed:demo-orders": "node scripts/seed-demo-orders.mjs",
+    "media:backfill:local": "node scripts/backfill-media-variants.mjs",
+    "media:verify:local": "node scripts/verify-media-variants.mjs"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.3.4",

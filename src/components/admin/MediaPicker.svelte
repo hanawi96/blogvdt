@@ -45,7 +45,18 @@
     librarySort?: 'newest' | 'name' | 'size';
   } = $props();
 
-  let library = $state<MediaItem[]>(untrack(() => items.map((item) => ({ ...item }))));
+  function normalizeItem(item: MediaItem): MediaItem {
+    return {
+      ...item,
+      cardUrl: item.cardUrl ?? null,
+      thumbUrl: item.thumbUrl ?? null,
+    };
+  }
+
+  const initialItems = untrack(() => items.map(normalizeItem));
+  const initialPreview = untrack(() => (manage ? initialItems[0] ?? null : null));
+
+  let library = $state<MediaItem[]>(initialItems);
   let useMap = $state<Record<string, MediaUse[]>>(untrack(() => ({ ...uses })));
   let libraryTotal = $state(untrack(() => total));
   let libraryPage = $state(untrack(() => page));
@@ -54,17 +65,19 @@
   let listSort = $state(untrack(() => librarySort));
   let loading = $state(false);
   let deleting = $state(false);
+  let backfilling = $state(false);
   let confirmDeleteId = $state<number | null>(null);
   let loadError = $state('');
   let progress = $state('');
-  let altDraft = $state('');
+  let backfillStatus = $state('');
+  let altDraft = $state(initialPreview?.alt ?? '');
   let altStatus = $state('');
   let filterTimer = 0;
   let chosen = $state<string[]>(untrack(() => selected.filter(Boolean)));
   let draft = $state<string[]>([]);
   let showing = $state(false);
   let query = $state('');
-  let previewId = $state<number | null>(null);
+  let previewId = $state<number | null>(initialPreview?.id ?? null);
   let message = $state('');
   let busy = $state(false);
   let hot = $state(false);
@@ -85,15 +98,18 @@
     return library.filter((item) => `${item.filename} ${item.alt}`.toLowerCase().includes(needle));
   });
   const pageCount = $derived(Math.max(1, Math.ceil(libraryTotal / Math.max(1, pageSize))));
-  // Trang quản lý khi thư viện trống hẳn: ẩn ô tìm + bộ lọc, chỉ giữ nút tải ảnh.
-  const manageEmpty = $derived(manage && libraryTotal === 0 && listQuery.trim() === '' && listUsage === 'all' && listSort === 'newest');
+  // Trống thật sự: không có item trên client (tránh ẩn lưới khi chỉ total hydrate sai).
+  const manageEmpty = $derived(
+    manage && library.length === 0 && libraryTotal === 0 && listQuery.trim() === '' && listUsage === 'all' && listSort === 'newest',
+  );
   const chosenItems = $derived(chosen.map((id) => library.find((item) => String(item.id) === id)).filter((item): item is MediaItem => !!item));
 
   onMount(() => {
     const onAdd = (event: Event) => {
       const item = (event as CustomEvent<MediaItem>).detail;
       if (!item || library.some((entry) => entry.id === item.id)) return;
-      library = [item, ...library];
+      library = [normalizeItem(item), ...library];
+      libraryTotal += 1;
     };
     const onAlt = (event: Event) => {
       const detail = (event as CustomEvent<{ id: number; alt: string }>).detail;
@@ -129,8 +145,6 @@
     altStatus = '';
   }
 
-  if (manage) rememberPreview(library);
-
   function scheduleLibrary() {
     window.clearTimeout(filterTimer);
     filterTimer = window.setTimeout(() => void loadPage(1), 300);
@@ -148,11 +162,11 @@
       const response = await fetch(url, { headers: { accept: 'application/json' } });
       if (!response.ok) throw new Error('Không tải được thư viện.');
       const payload = (await response.json()) as { items: MediaItem[]; uses: Record<string, MediaUse[]>; total: number; page: number };
-      library = payload.items;
+      library = (payload.items ?? []).map(normalizeItem);
       useMap = payload.uses ?? {};
       libraryTotal = payload.total;
       libraryPage = payload.page;
-      rememberPreview(payload.items);
+      rememberPreview(library);
       window.history.replaceState(null, '', `${url.pathname}${url.search}`);
     } catch (error) {
       loadError = error instanceof Error ? error.message : 'Không tải được thư viện.';
@@ -404,6 +418,47 @@
     if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
+
+  /** Ô lưới / preview chọn (~140px+): dùng card 800px, không dùng thumb 96 (bị mờ khi phóng). */
+  function tileSrc(item: MediaItem): string {
+    return item.cardUrl || item.url;
+  }
+
+  /** Chip nhỏ: thumb đủ nét. */
+  function chipSrc(item: MediaItem): string {
+    return item.thumbUrl || item.cardUrl || item.url;
+  }
+
+  async function runBackfill() {
+    if (backfilling) return;
+    backfilling = true;
+    backfillStatus = '';
+    message = '';
+    try {
+      const body = new FormData();
+      body.set('csrf', csrf);
+      body.set('intent', 'backfill-variants');
+      const response = await fetch(routes.adminMedia, {
+        method: 'POST',
+        headers: { accept: 'application/json' },
+        body,
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        updated?: number;
+        processed?: number;
+        remaining?: number;
+        skipped?: number;
+      };
+      if (!response.ok) throw new Error(payload.error ?? 'Không tạo được bản card/thumb.');
+      backfillStatus = `Đã cập nhật ${payload.updated ?? 0}/${payload.processed ?? 0} ảnh; còn ${payload.remaining ?? 0}.`;
+      await loadPage(libraryPage);
+    } catch (error) {
+      message = error instanceof Error ? error.message : 'Không tạo được bản card/thumb.';
+    } finally {
+      backfilling = false;
+    }
+  }
 </script>
 
 {#if manage}
@@ -450,9 +505,15 @@
         </select>
       {/if}
       <button class="btn btn-primary" type="button" disabled={busy} onclick={() => fileInput?.click()}>Tải ảnh lên</button>
+      {#if !manageEmpty}
+        <button class="btn" type="button" disabled={backfilling || busy} onclick={() => void runBackfill()}>
+          {backfilling ? 'Đang tạo…' : 'Tạo card/thumb còn thiếu'}
+        </button>
+      {/if}
     </div>
     <input class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple bind:this={fileInput} onchange={onPickFile} />
     {#if progress}<p class="media-meta" role="status">{progress}</p>{/if}
+    {#if backfillStatus}<p class="media-meta" role="status">{backfillStatus}</p>{/if}
     {#if message}<p class="error-text" role="alert">{message}</p>{/if}
     {#if loadError}<p class="error-text" role="alert">{loadError}</p>{/if}
     {#if !manageEmpty}
@@ -483,7 +544,7 @@
         <div class="media-chips">
           {#each chosenItems as item (item.id)}
             <button type="button" onclick={() => removeChip(item.id)}>
-              <img src={item.url} alt="" />
+              <img src={chipSrc(item)} alt="" />
               <span>{item.filename}</span>
             </button>
           {/each}
@@ -492,7 +553,7 @@
         <p class="media-meta">{chosen.length}/{max} ảnh</p>
       {:else if chosenItems[0]}
         <div class="media-picked">
-          <img src={chosenItems[0].url} alt={alt || chosenItems[0].filename} />
+          <img src={tileSrc(chosenItems[0])} alt={alt || chosenItems[0].filename} />
           <div class="media-picked-actions">
             <button type="button" onclick={openDialog}>Đổi ảnh</button>
             <button type="button" onclick={clearChoice}>Bỏ ảnh</button>
@@ -546,7 +607,7 @@
   </div>
 {/snippet}
 
-{#snippet dropzone(after?: () => void)}
+{#snippet dropzone(after: (() => void) | undefined = undefined)}
   <div
     class="media-drop"
     class:media-drop-hot={hot}
@@ -632,7 +693,7 @@
       {#each visible as item (item.id)}
         <li>
           <button class="media-tile" type="button" aria-pressed={marked(item.id) || previewId === item.id} onclick={() => chooseTile(item)}>
-            <img src={item.url} alt="" width={item.width ?? undefined} height={item.height ?? undefined} loading="lazy" />
+            <img src={tileSrc(item)} alt="" width="800" height="800" loading="lazy" />
             <span>{item.filename}</span>
             {#if showUses}
               <span class="media-use-flag" data-used={usesOf(item).length > 0 ? 'yes' : 'no'}>{usesOf(item).length > 0 ? 'Đang dùng' : 'Chưa dùng'}</span>

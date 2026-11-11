@@ -45,5 +45,9 @@
       "bucket_name": "vong-dau-tam-media",
       "remote": false
     }
-  ]
+  ],
+  // Resize/encode ảnh lúc upload (tạo thumb) trước khi ghi R2.
+  "images": {
+    "binding": "IMAGES"
+  }
 }

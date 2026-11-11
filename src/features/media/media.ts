@@ -1,18 +1,32 @@
-import { and, asc, count, desc, eq, inArray, isNotNull, like, notInArray, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, like, notInArray, or, type SQL } from 'drizzle-orm';
 import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
+import { optionalImagesBinding } from '../../lib/cloudflare/env';
 import type { AppDb } from '../../lib/db/client';
 import { adminUsers, categories, media, posts, productCategories, productMedia, products, siteSettings } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
-import { detectImageType, displayFilename, imageSizeError, mediaKeyFromPublicUrl, mediaObjectKey, readRasterSize } from './files';
+import {
+  createSquareWebp,
+  detectImageType,
+  displayFilename,
+  imageSizeError,
+  MEDIA_CARD_SIZE,
+  MEDIA_THUMB_SIZE,
+  mediaKeyFromPublicUrl,
+  mediaObjectKeys,
+  readRasterSize,
+  variantKeysForStoredKey,
+} from './files';
 import { clampMediaPage, MEDIA_PAGE_SIZE, type MediaLibraryQuery } from './library';
 import type { MediaItem, MediaUse } from './types';
-import { collectMediaUses } from './uses';
+import { collectMediaUses, extractMediaKeysFromText } from './uses';
 
 export async function listMedia(db: AppDb): Promise<MediaItem[]> {
   const rows = await db
     .select({
       id: media.id,
       r2Key: media.r2Key,
+      cardR2Key: media.cardR2Key,
+      thumbR2Key: media.thumbR2Key,
       filename: media.filename,
       altText: media.altText,
       mimeType: media.mimeType,
@@ -29,6 +43,8 @@ export async function listMedia(db: AppDb): Promise<MediaItem[]> {
 function toMediaItem(row: {
   id: number;
   r2Key: string;
+  cardR2Key: string | null;
+  thumbR2Key: string | null;
   filename: string;
   altText: string;
   mimeType: string;
@@ -40,6 +56,8 @@ function toMediaItem(row: {
   return {
     id: row.id,
     url: routes.media(row.r2Key),
+    cardUrl: row.cardR2Key ? routes.media(row.cardR2Key) : null,
+    thumbUrl: row.thumbR2Key ? routes.media(row.thumbR2Key) : null,
     alt: row.altText,
     filename: row.filename,
     mimeType: row.mimeType,
@@ -50,15 +68,80 @@ function toMediaItem(row: {
   };
 }
 
-export async function listMediaUses(db: AppDb) {
-  const [library, postRows, productRows, albumRows, settings, avatars, categoryRows, productCategoryRows] = await Promise.all([
-    db.select({ id: media.id, key: media.r2Key }).from(media),
-    db.select({ id: posts.id, title: posts.title, coverMediaId: posts.coverMediaId, contentJson: posts.contentJson }).from(posts),
-    db.select({ id: products.id, name: products.name, coverMediaId: products.coverMediaId }).from(products),
+/** Tập id ảnh đang được tham chiếu (cover/album/cài đặt + key nhúng trong nội dung). */
+export async function listUsedMediaIds(db: AppDb): Promise<number[]> {
+  const [postCovers, productCovers, albumRows, settings, avatars, productCategoryCovers, embedPosts, embedCategories] =
+    await Promise.all([
+      db.select({ id: posts.coverMediaId }).from(posts).where(isNotNull(posts.coverMediaId)),
+      db.select({ id: products.coverMediaId }).from(products).where(isNotNull(products.coverMediaId)),
+      db.select({ id: productMedia.mediaId }).from(productMedia),
+      db
+        .select({ value: siteSettings.value })
+        .from(siteSettings)
+        .where(or(eq(siteSettings.key, 'logo_media_id'), eq(siteSettings.key, 'favicon_media_id'), eq(siteSettings.key, 'og_media_id'))),
+      db.select({ id: adminUsers.avatarMediaId }).from(adminUsers).where(isNotNull(adminUsers.avatarMediaId)),
+      db
+        .select({ id: productCategories.coverMediaId })
+        .from(productCategories)
+        .where(isNotNull(productCategories.coverMediaId)),
+      db
+        .select({ contentJson: posts.contentJson })
+        .from(posts)
+        .where(like(posts.contentJson, '%/media/%')),
+      db
+        .select({ description: categories.description })
+        .from(categories)
+        .where(like(categories.description, '%/media/%')),
+    ]);
+
+  const used = new Set<number>();
+  for (const row of postCovers) if (row.id != null) used.add(row.id);
+  for (const row of productCovers) if (row.id != null) used.add(row.id);
+  for (const row of albumRows) used.add(row.id);
+  for (const row of avatars) if (row.id != null) used.add(row.id);
+  for (const row of productCategoryCovers) if (row.id != null) used.add(row.id);
+  for (const row of settings) {
+    const id = Number(row.value);
+    if (Number.isInteger(id) && id > 0) used.add(id);
+  }
+
+  const embedKeys = new Set<string>();
+  for (const row of embedPosts) for (const key of extractMediaKeysFromText(row.contentJson)) embedKeys.add(key);
+  for (const row of embedCategories) {
+    if (row.description) for (const key of extractMediaKeysFromText(row.description)) embedKeys.add(key);
+  }
+  if (embedKeys.size > 0) {
+    const keyList = [...embedKeys];
+    const byKey = await db
+      .select({ id: media.id, r2Key: media.r2Key, cardR2Key: media.cardR2Key, thumbR2Key: media.thumbR2Key })
+      .from(media)
+      .where(or(inArray(media.r2Key, keyList), inArray(media.cardR2Key, keyList), inArray(media.thumbR2Key, keyList)));
+    for (const row of byKey) used.add(row.id);
+  }
+
+  return [...used];
+}
+
+/** Uses chỉ cho các ảnh đang xem (một trang thư viện). */
+export async function listMediaUsesForItems(db: AppDb, items: { id: number; key: string }[]) {
+  if (items.length === 0) return {} as Record<string, MediaUse[]>;
+  const ids = items.map((item) => item.id);
+  // Tránh OR nhiều LIKE '%/media/{uuid}%' — D1/SQLite báo "LIKE or GLOB pattern too complex".
+  // Lọc rộng '%/media/%' rồi khớp key trong collectMediaUses.
+  const [postRows, productRows, albumRows, settings, avatars, categoryRows, productCategoryRows] = await Promise.all([
+    db
+      .select({ id: posts.id, title: posts.title, coverMediaId: posts.coverMediaId, contentJson: posts.contentJson })
+      .from(posts)
+      .where(or(inArray(posts.coverMediaId, ids), like(posts.contentJson, '%/media/%'))),
+    db
+      .select({ id: products.id, name: products.name, coverMediaId: products.coverMediaId })
+      .from(products)
+      .where(inArray(products.coverMediaId, ids)),
     db
       .select({ mediaId: productMedia.mediaId, productId: productMedia.productId, productName: products.name })
       .from(productMedia)
-      .innerJoin(products, eq(products.id, productMedia.productId)),
+      .innerJoin(products, eq(products.id, productMedia.productId))
+      .where(inArray(productMedia.mediaId, ids)),
     db
       .select({ key: siteSettings.key, value: siteSettings.value })
       .from(siteSettings)
@@ -66,13 +149,19 @@ export async function listMediaUses(db: AppDb) {
     db
       .select({ mediaId: adminUsers.avatarMediaId, userId: adminUsers.id, name: adminUsers.displayName })
       .from(adminUsers)
-      .where(isNotNull(adminUsers.avatarMediaId)),
-    db.select({ id: categories.id, name: categories.name, description: categories.description }).from(categories),
-    db.select({ id: productCategories.id, name: productCategories.name, coverMediaId: productCategories.coverMediaId }).from(productCategories),
+      .where(inArray(adminUsers.avatarMediaId, ids)),
+    db
+      .select({ id: categories.id, name: categories.name, description: categories.description })
+      .from(categories)
+      .where(like(categories.description, '%/media/%')),
+    db
+      .select({ id: productCategories.id, name: productCategories.name, coverMediaId: productCategories.coverMediaId })
+      .from(productCategories)
+      .where(inArray(productCategories.coverMediaId, ids)),
   ]);
   const setting = (key: string) => settings.find((row) => row.key === key)?.value ?? '';
   return collectMediaUses({
-    media: library,
+    media: items,
     posts: postRows,
     products: productRows,
     album: albumRows,
@@ -93,9 +182,9 @@ export async function queryMediaLibrary(db: AppDb, query: MediaLibraryQuery): Pr
   pageSize: number;
 }> {
   const pageSize = MEDIA_PAGE_SIZE;
-  const allUses = await listMediaUses(db);
-  const usedIds = Object.keys(allUses).map(Number).filter((id) => id > 0);
-  if (query.usage === 'used' && usedIds.length === 0) {
+  const usedIds =
+    query.usage === 'used' || query.usage === 'unused' ? await listUsedMediaIds(db) : null;
+  if (query.usage === 'used' && usedIds && usedIds.length === 0) {
     return { items: [], uses: {}, total: 0, page: 1, pageSize };
   }
   const filters: SQL[] = [];
@@ -105,8 +194,8 @@ export async function queryMediaLibrary(db: AppDb, query: MediaLibraryQuery): Pr
     const match = or(like(media.filename, term), like(media.altText, term));
     if (match) filters.push(match);
   }
-  if (query.usage === 'used') filters.push(inArray(media.id, usedIds));
-  if (query.usage === 'unused' && usedIds.length > 0) filters.push(notInArray(media.id, usedIds));
+  if (query.usage === 'used' && usedIds) filters.push(inArray(media.id, usedIds));
+  if (query.usage === 'unused' && usedIds && usedIds.length > 0) filters.push(notInArray(media.id, usedIds));
   const where = filters.length > 0 ? and(...filters) : undefined;
   const totalRows = await db.select({ value: count() }).from(media).where(where);
   const total = totalRows[0]?.value ?? 0;
@@ -121,6 +210,8 @@ export async function queryMediaLibrary(db: AppDb, query: MediaLibraryQuery): Pr
     .select({
       id: media.id,
       r2Key: media.r2Key,
+      cardR2Key: media.cardR2Key,
+      thumbR2Key: media.thumbR2Key,
       filename: media.filename,
       altText: media.altText,
       mimeType: media.mimeType,
@@ -135,11 +226,10 @@ export async function queryMediaLibrary(db: AppDb, query: MediaLibraryQuery): Pr
     .limit(pageSize)
     .offset((page - 1) * pageSize);
   const items = rows.map(toMediaItem);
-  const uses: Record<string, MediaUse[]> = {};
-  for (const item of items) {
-    const list = allUses[String(item.id)];
-    if (list) uses[String(item.id)] = list;
-  }
+  const uses = await listMediaUsesForItems(
+    db,
+    rows.map((row) => ({ id: row.id, key: row.r2Key })),
+  );
   return { items, uses, total, page, pageSize };
 }
 
@@ -262,6 +352,8 @@ export async function saveMedia(
   input: {
     bytes: Uint8Array;
     key: string;
+    cardKey: string;
+    thumbKey: string;
     filename: string;
     altText: string;
     mimeType: string;
@@ -269,13 +361,40 @@ export async function saveMedia(
     height: number | null;
   },
   now = Date.now(),
-): Promise<{ ok: true; id: number; url: string; createdAt: number } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; id: number; url: string; cardUrl: string | null; thumbUrl: string | null; createdAt: number }
+  | { ok: false; error: string }
+> {
+  const images = optionalImagesBinding();
+  if (!images) {
+    console.error(JSON.stringify({ event: 'media_variant_skipped', reason: 'images_binding_missing' }));
+  }
+  const [cardBytes, thumbBytes] = images
+    ? await Promise.all([
+        createSquareWebp(images, input.bytes, MEDIA_CARD_SIZE),
+        createSquareWebp(images, input.bytes, MEDIA_THUMB_SIZE),
+      ])
+    : [null, null];
+  const cardKey = cardBytes ? input.cardKey : null;
+  const thumbKey = thumbBytes ? input.thumbKey : null;
+
   await bucket.put(input.key, input.bytes, { httpMetadata: { contentType: input.mimeType } });
+  await Promise.all([
+    cardBytes && cardKey
+      ? bucket.put(cardKey, cardBytes, { httpMetadata: { contentType: 'image/webp' } })
+      : Promise.resolve(),
+    thumbBytes && thumbKey
+      ? bucket.put(thumbKey, thumbBytes, { httpMetadata: { contentType: 'image/webp' } })
+      : Promise.resolve(),
+  ]);
+
   try {
     const inserted = await db
       .insert(media)
       .values({
         r2Key: input.key,
+        cardR2Key: cardKey,
+        thumbR2Key: thumbKey,
         filename: input.filename,
         altText: input.altText,
         mimeType: input.mimeType,
@@ -287,9 +406,20 @@ export async function saveMedia(
       .returning({ id: media.id });
     const id = inserted[0]?.id;
     if (!id) throw new Error('missing media id');
-    return { ok: true, id, url: routes.media(input.key), createdAt: now };
+    return {
+      ok: true,
+      id,
+      url: routes.media(input.key),
+      cardUrl: cardKey ? routes.media(cardKey) : null,
+      thumbUrl: thumbKey ? routes.media(thumbKey) : null,
+      createdAt: now,
+    };
   } catch (error) {
-    await bucket.delete(input.key);
+    await Promise.all([
+      bucket.delete(input.key).catch(() => undefined),
+      cardKey ? bucket.delete(cardKey).catch(() => undefined) : undefined,
+      thumbKey ? bucket.delete(thumbKey).catch(() => undefined) : undefined,
+    ]);
     console.error(JSON.stringify({ event: 'media_insert_failed', name: error instanceof Error ? error.name : 'unknown' }));
     return { ok: false, error: 'Không lưu được ảnh.' };
   }
@@ -345,7 +475,11 @@ export async function deleteMedia(
         ]
       : []),
   ]);
-  await bucket.delete(item.r2Key);
+  await Promise.all([
+    bucket.delete(item.r2Key).catch(() => undefined),
+    item.cardR2Key ? bucket.delete(item.cardR2Key).catch(() => undefined) : undefined,
+    item.thumbR2Key ? bucket.delete(item.thumbR2Key).catch(() => undefined) : undefined,
+  ]);
   return { ok: true };
 }
 
@@ -372,6 +506,87 @@ async function mediaInUse(db: AppDb, id: number, key: string): Promise<string | 
   return null;
 }
 
+export const MEDIA_VARIANT_BACKFILL_LIMIT = 20;
+
+/** Tạo card/thumb còn thiếu cho ảnh cũ. Chỉ xử lý tối đa `limit` ảnh mỗi lần. */
+export async function backfillMediaVariants(
+  db: AppDb,
+  bucket: R2Bucket,
+  limit = MEDIA_VARIANT_BACKFILL_LIMIT,
+): Promise<{ ok: true; processed: number; updated: number; skipped: number; remaining: number } | { ok: false; error: string }> {
+  const images = optionalImagesBinding();
+  if (!images) return { ok: false, error: 'Thiếu binding Images (IMAGES).' };
+  const take = Math.max(1, Math.min(limit, MEDIA_VARIANT_BACKFILL_LIMIT));
+  const rows = await db
+    .select({
+      id: media.id,
+      r2Key: media.r2Key,
+      cardR2Key: media.cardR2Key,
+      thumbR2Key: media.thumbR2Key,
+    })
+    .from(media)
+    .where(or(isNull(media.cardR2Key), isNull(media.thumbR2Key)))
+    .orderBy(asc(media.id))
+    .limit(take);
+  const remainingRows = await db
+    .select({ value: count() })
+    .from(media)
+    .where(or(isNull(media.cardR2Key), isNull(media.thumbR2Key)));
+  const remainingBefore = remainingRows[0]?.value ?? 0;
+
+  let updated = 0;
+  let skipped = 0;
+  for (const row of rows) {
+    const keys = variantKeysForStoredKey(row.r2Key);
+    if (!keys) {
+      skipped += 1;
+      continue;
+    }
+    const needCard = !row.cardR2Key;
+    const needThumb = !row.thumbR2Key;
+    if (!needCard && !needThumb) {
+      skipped += 1;
+      continue;
+    }
+    const object = await bucket.get(row.r2Key);
+    if (!object) {
+      skipped += 1;
+      continue;
+    }
+    const bytes = new Uint8Array(await object.arrayBuffer());
+    let cardKey = row.cardR2Key;
+    let thumbKey = row.thumbR2Key;
+    if (needCard) {
+      const cardBytes = await createSquareWebp(images, bytes, MEDIA_CARD_SIZE);
+      if (cardBytes) {
+        await bucket.put(keys.card, cardBytes, { httpMetadata: { contentType: 'image/webp' } });
+        cardKey = keys.card;
+      }
+    }
+    if (needThumb) {
+      const thumbBytes = await createSquareWebp(images, bytes, MEDIA_THUMB_SIZE);
+      if (thumbBytes) {
+        await bucket.put(keys.thumb, thumbBytes, { httpMetadata: { contentType: 'image/webp' } });
+        thumbKey = keys.thumb;
+      }
+    }
+    if (cardKey === row.cardR2Key && thumbKey === row.thumbR2Key) {
+      skipped += 1;
+      continue;
+    }
+    await db.update(media).set({ cardR2Key: cardKey, thumbR2Key: thumbKey }).where(eq(media.id, row.id));
+    updated += 1;
+  }
+
+  return {
+    ok: true,
+    processed: rows.length,
+    updated,
+    skipped,
+    remaining: Math.max(0, remainingBefore - updated),
+  };
+}
+
 export async function parseUpload(form: FormData) {
   const file = form.get('file');
   if (!(file instanceof File)) return { ok: false as const, error: 'Chọn một ảnh.' };
@@ -381,10 +596,13 @@ export async function parseUpload(form: FormData) {
   const kind = detectImageType(bytes);
   if (!kind) return { ok: false as const, error: 'Chỉ nhận ảnh JPEG, PNG hoặc WebP.' };
   const alt = form.get('alt');
+  const keys = mediaObjectKeys(kind.extension);
   return {
     ok: true as const,
     bytes,
-    key: mediaObjectKey(kind.extension),
+    key: keys.original,
+    cardKey: keys.card,
+    thumbKey: keys.thumb,
     filename: displayFilename(file.name),
     altText: typeof alt === 'string' ? alt.trim().slice(0, 200) : '',
     mimeType: kind.mimeType,

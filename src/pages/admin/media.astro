@@ -2,7 +2,7 @@
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { mutationError } from '../../features/auth/session';
 import { parseMediaLibraryQuery } from '../../features/media/library';
-import { parseUpload, queryMediaLibrary, saveMedia, updateMediaAlt } from '../../features/media/media';
+import { backfillMediaVariants, parseUpload, queryMediaLibrary, saveMedia, updateMediaAlt } from '../../features/media/media';
 import MediaPicker from '../../components/admin/MediaPicker.svelte';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding, getMediaBucket } from '../../lib/cloudflare/env';
@@ -39,6 +39,17 @@ if (Astro.request.method === 'POST') {
       if (wantsJson) return json({ ok: true });
       return Astro.redirect(`${routes.adminMedia}?saved=1`, 303);
     }
+  } else if (String(form.get('intent') ?? '') === 'backfill-variants') {
+    const result = await backfillMediaVariants(db, getMediaBucket());
+    if (!result.ok) {
+      Astro.response.status = 422;
+      if (wantsJson) return json({ error: result.error }, 422);
+      formError = result.error;
+    } else if (wantsJson) {
+      return json(result);
+    } else {
+      return Astro.redirect(`${routes.adminMedia}?saved=1`, 303);
+    }
   } else {
     const parsed = await parseUpload(form);
     if (!parsed.ok) {
@@ -55,6 +66,8 @@ if (Astro.request.method === 'POST') {
         return json({
           id: saved.id,
           url: saved.url,
+          cardUrl: saved.cardUrl,
+          thumbUrl: saved.thumbUrl,
           alt: parsed.altText,
           filename: parsed.filename,
           mimeType: parsed.mimeType,

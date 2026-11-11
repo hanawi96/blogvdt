@@ -99,6 +99,10 @@ export const tags = sqliteTable(
 export const media = sqliteTable('media', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   r2Key: text('r2_key').notNull().unique(),
+  /** Card vuông WebP (~800px) cho lưới sản phẩm; null với ảnh cũ chưa tạo. */
+  cardR2Key: text('card_r2_key').unique(),
+  /** Thumb vuông WebP (~96px) cho pill/UI nhỏ; null với ảnh cũ chưa tạo. */
+  thumbR2Key: text('thumb_r2_key').unique(),
   filename: text('filename').notNull(),
   altText: text('alt_text').notNull().default(''),
   mimeType: text('mime_type').notNull(),

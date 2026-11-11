@@ -131,8 +131,105 @@ function jpegSize(bytes: Uint8Array): { width: number; height: number } | null {
   return null;
 }
 
-export function mediaObjectKey(extension: ImageKind['extension'], now = new Date()): string {
+/** Thumb vuông cho pill/UI nhỏ (~2x so với ~40px). */
+export const MEDIA_THUMB_SIZE = 96;
+/** Card vuông cho lưới sản phẩm (~2x so với ~358px trên điện thoại). */
+export const MEDIA_CARD_SIZE = 800;
+
+const ORIGINAL_KEY_RE =
+  /^original\/(\d{4}\/\d{2})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.[a-z0-9]+$/i;
+
+/**
+ * Cấu trúc object key trên R2 (URL public = /media/{key}):
+ * - original/YYYY/MM/{uuid}.ext  — ảnh gốc
+ * - card/YYYY/MM/{uuid}.webp     — card ~800px (cùng uuid)
+ * - thumb/YYYY/MM/{uuid}.webp    — thumb ~96px (cùng uuid)
+ * Ảnh cũ giữ key YYYY/MM/{uuid}.ext — không có card/thumb.
+ */
+export function mediaObjectKeys(extension: ImageKind['extension'], now = new Date(), id = crypto.randomUUID()) {
   const year = now.getUTCFullYear();
   const month = String(now.getUTCMonth() + 1).padStart(2, '0');
-  return `${year}/${month}/${crypto.randomUUID()}${extension}`;
+  const folder = `${year}/${month}`;
+  return {
+    id,
+    original: `original/${folder}/${id}${extension}`,
+    card: `card/${folder}/${id}.webp`,
+    thumb: `thumb/${folder}/${id}.webp`,
+  };
+}
+
+/** @deprecated Dùng mediaObjectKeys — giữ để tương thích test/cũ. */
+export function mediaObjectKey(extension: ImageKind['extension'], now = new Date()): string {
+  return mediaObjectKeys(extension, now).original;
+}
+
+function variantFolderFromOriginal(originalKey: string): { folder: string; id: string } | null {
+  const match = ORIGINAL_KEY_RE.exec(originalKey);
+  if (!match) return null;
+  return { folder: match[1], id: match[2] };
+}
+
+/** Suy ra key card từ key gốc mới; ảnh cũ trả null. */
+export function cardKeyFromOriginal(originalKey: string): string | null {
+  const parts = variantFolderFromOriginal(originalKey);
+  return parts ? `card/${parts.folder}/${parts.id}.webp` : null;
+}
+
+/** Suy ra key thumb từ key gốc mới; ảnh cũ trả null. */
+export function thumbKeyFromOriginal(originalKey: string): string | null {
+  const parts = variantFolderFromOriginal(originalKey);
+  return parts ? `thumb/${parts.folder}/${parts.id}.webp` : null;
+}
+
+const LEGACY_KEY_RE = /^(\d{4}\/\d{2})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.[a-z0-9]+$/i;
+
+/** Key card/thumb cho ảnh mới (original/…) hoặc legacy (YYYY/MM/uuid.ext). */
+export function variantKeysForStoredKey(r2Key: string): { card: string; thumb: string } | null {
+  const modern = variantFolderFromOriginal(r2Key);
+  if (modern) return { card: `card/${modern.folder}/${modern.id}.webp`, thumb: `thumb/${modern.folder}/${modern.id}.webp` };
+  const legacy = LEGACY_KEY_RE.exec(r2Key);
+  if (!legacy) return null;
+  return { card: `card/${legacy[1]}/${legacy[2]}.webp`, thumb: `thumb/${legacy[1]}/${legacy[2]}.webp` };
+}
+
+/** Ưu tiên card cho lưới/danh sách; không có thì gốc. */
+export function listingMediaKey(originalKey: string | null | undefined, cardKey: string | null | undefined): string | null {
+  return cardKey || originalKey || null;
+}
+
+export async function createSquareWebp(
+  images: ImagesBinding,
+  bytes: Uint8Array,
+  size: number,
+): Promise<Uint8Array | null> {
+  try {
+    // Images.input nhận ReadableStream; cast tránh lệch typings DOM vs Workers.
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      },
+    });
+    const output = await images
+      .input(stream as never)
+      .transform({ width: size, height: size, fit: 'cover' })
+      .output({ format: 'image/webp' });
+    const response = output.response();
+    return new Uint8Array(await response.arrayBuffer());
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'media_variant_failed',
+        size,
+        name: error instanceof Error ? error.name : 'unknown',
+        message: error instanceof Error ? error.message.slice(0, 120) : undefined,
+      }),
+    );
+    return null;
+  }
+}
+
+/** @deprecated Dùng createSquareWebp. */
+export function createThumbWebp(images: ImagesBinding, bytes: Uint8Array, size = MEDIA_THUMB_SIZE) {
+  return createSquareWebp(images, bytes, size);
 }

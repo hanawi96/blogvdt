@@ -5,6 +5,7 @@ import type { AppDb } from '../../lib/db/client';
 import { slugRedirectQueries } from '../../lib/db/redirects';
 import { media, productCategories, productMedia, products, redirects } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { listingMediaKey } from '../media/files';
 import { mediaMapByIds } from '../media/media';
 import type { RecipeLine } from '../materials/costing';
 import { insertRecipe, recipeWrites, validateRecipe } from '../materials/recipes';
@@ -161,6 +162,7 @@ export async function listProducts(
         isFeatured: products.isFeatured,
         updatedAt: products.updatedAt,
         coverKey: media.r2Key,
+        cardKey: media.cardR2Key,
         coverAlt: media.altText,
       })
       .from(products)
@@ -173,23 +175,26 @@ export async function listProducts(
   ]);
   const total = totalRows[0]?.value ?? 0;
   return {
-    rows: rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      slug: row.slug,
-      price: row.price,
-      comparePrice: row.comparePrice,
-      stockQty: row.stockQty,
-      rating: row.rating,
-      categoryId: row.categoryId,
-      categoryName: row.categoryName ?? '',
-      cordType: row.cordType,
-      status: row.status,
-      isFeatured: canFeatureProduct(row.status, row.isFeatured),
-      updatedAt: row.updatedAt,
-      coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
-      coverAlt: row.coverAlt ?? '',
-    })),
+    rows: rows.map((row) => {
+      const listKey = listingMediaKey(row.coverKey, row.cardKey);
+      return {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        price: row.price,
+        comparePrice: row.comparePrice,
+        stockQty: row.stockQty,
+        rating: row.rating,
+        categoryId: row.categoryId,
+        categoryName: row.categoryName ?? '',
+        cordType: row.cordType,
+        status: row.status,
+        isFeatured: canFeatureProduct(row.status, row.isFeatured),
+        updatedAt: row.updatedAt,
+        coverUrl: listKey ? routes.media(listKey) : null,
+        coverAlt: row.coverAlt ?? '',
+      };
+    }),
     total,
     page,
     pageSize: PRODUCT_PAGE_SIZE,

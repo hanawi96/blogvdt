@@ -50,3 +50,13 @@ export function optionalMediaBucket(): R2Bucket | null {
     return null;
   }
 }
+
+/** Binding Cloudflare Images — resize/encode lúc upload. Local/thiếu binding thì null. */
+export function optionalImagesBinding(): ImagesBinding | null {
+  try {
+    const images = (env as { IMAGES?: ImagesBinding }).IMAGES;
+    return images ?? null;
+  } catch {
+    return null;
+  }
+}

@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, like, sql, type SQL } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { media, productCategories, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { listingMediaKey, MEDIA_CARD_SIZE } from '../media/files';
 import { ratingFormValue } from './form';
 import { productShipBadge, type ProductShipBadge } from '../shipping/customer-fee';
 import { readWeightScale, type WeightScale } from './weight';
@@ -131,6 +132,7 @@ export async function listCatalogProducts(db: AppDb, query: CatalogQuery) {
       weightScale: productCategories.weightScale,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,
+      cardKey: media.cardR2Key,
       coverAlt: media.altText,
       coverWidth: media.width,
       coverHeight: media.height,
@@ -202,11 +204,14 @@ function toCard(row: {
   weightScale: string | null;
   categorySlug: string | null;
   coverKey: string | null;
+  cardKey: string | null;
   coverAlt: string | null;
   coverWidth: number | null;
   coverHeight: number | null;
 }): CatalogCard {
   const ratingLabel = ratingFormValue(row.rating);
+  const listKey = listingMediaKey(row.coverKey, row.cardKey);
+  const usingCard = Boolean(row.cardKey);
   return {
     id: row.id,
     name: row.name,
@@ -217,9 +222,9 @@ function toCard(row: {
     shipBadge: productShipBadge(row.price, row.categorySlug),
     ratingLabel: ratingLabel || null,
     sold: Math.max(0, Number(row.sold) || 0),
-    coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
+    coverUrl: listKey ? routes.media(listKey) : null,
     coverAlt: row.coverAlt ?? '',
-    coverWidth: row.coverWidth,
-    coverHeight: row.coverHeight,
+    coverWidth: usingCard ? MEDIA_CARD_SIZE : row.coverWidth,
+    coverHeight: usingCard ? MEDIA_CARD_SIZE : row.coverHeight,
   };
 }

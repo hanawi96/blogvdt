@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { detectImageType, displayFilename, imageSizeError, mediaKeyFromPublicUrl, readRasterSize, shareImageType } from './files';
+import {
+  detectImageType,
+  displayFilename,
+  imageSizeError,
+  mediaKeyFromPublicUrl,
+  cardKeyFromOriginal,
+  listingMediaKey,
+  mediaObjectKeys,
+  readRasterSize,
+  shareImageType,
+  thumbKeyFromOriginal,
+  variantKeysForStoredKey,
+} from './files';
 
 describe('tệp ảnh', () => {
   it('nhận jpeg, png, webp và từ chối svg', () => {
@@ -52,5 +64,22 @@ describe('tệp ảnh', () => {
   it('chặn ảnh quá lớn và làm sạch tên tệp', () => {
     expect(imageSizeError(2 * 1024 * 1024 + 1)).toBe('Ảnh lớn hơn 2 MB.');
     expect(displayFilename('C:\\anh\\vong dep!.png')).toBe('vong dep.png');
+  });
+
+  it('đặt key R2 original/card/thumb cùng uuid trong thư mục rõ ràng', () => {
+    const fixed = new Date(Date.UTC(2026, 10, 11));
+    const keys = mediaObjectKeys('.webp', fixed, '11111111-2222-4333-8444-555555555555');
+    expect(keys.original).toBe('original/2026/11/11111111-2222-4333-8444-555555555555.webp');
+    expect(keys.card).toBe('card/2026/11/11111111-2222-4333-8444-555555555555.webp');
+    expect(keys.thumb).toBe('thumb/2026/11/11111111-2222-4333-8444-555555555555.webp');
+    expect(cardKeyFromOriginal(keys.original)).toBe(keys.card);
+    expect(thumbKeyFromOriginal(keys.original)).toBe(keys.thumb);
+    expect(thumbKeyFromOriginal('2026/10/a.webp')).toBeNull();
+    expect(listingMediaKey(keys.original, keys.card)).toBe(keys.card);
+    expect(listingMediaKey(keys.original, null)).toBe(keys.original);
+    expect(variantKeysForStoredKey('2026/10/11111111-2222-4333-8444-555555555555.webp')).toEqual({
+      card: 'card/2026/10/11111111-2222-4333-8444-555555555555.webp',
+      thumb: 'thumb/2026/10/11111111-2222-4333-8444-555555555555.webp',
+    });
   });
 });

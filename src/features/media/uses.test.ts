@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { collectMediaUses } from './uses';
+import { collectMediaUses, extractMediaKeysFromText } from './uses';
 
 describe('nơi dùng ảnh', () => {
+  it('trích key từ đường dẫn /media/', () => {
+    expect(extractMediaKeysFromText('xem /media/2026/10/a.webp và /media/card/2026/11/b.webp')).toEqual([
+      '2026/10/a.webp',
+      'card/2026/11/b.webp',
+    ]);
+    expect(extractMediaKeysFromText('/media/../admin')).toEqual([]);
+  });
+
   it('gom bài, sản phẩm và cài đặt, mỗi nơi một lần', () => {
     const uses = collectMediaUses({
       media: [{ id: 4, key: '2026/10/bia.webp' }],
