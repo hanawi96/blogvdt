@@ -19,6 +19,7 @@
     "db:seed:local": "node scripts/seed-local.mjs",
     "db:seed:demo-products": "node scripts/seed-demo-products.mjs",
     "db:seed:demo-orders": "node scripts/seed-demo-orders.mjs",
+    "db:seed:demo-posts": "node scripts/seed-demo-posts.mjs",
     "media:backfill:local": "node scripts/backfill-media-variants.mjs",
     "media:verify:local": "node scripts/verify-media-variants.mjs"
   },

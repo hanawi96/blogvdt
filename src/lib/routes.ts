@@ -51,6 +51,7 @@ export const routes = {
   adminProductFeature: (id: number) => `/admin/products/${id}/feature`,
   adminOrder: (id: number) => `/admin/orders/${id}`,
   adminOrderEdit: (id: number) => `/admin/orders/${id}/edit`,
+  adminOrderDuplicate: (id: number) => `/admin/orders/new?from=${id}`,
   adminUser: (id: number) => `/admin/users/${id}`,
   adminMediaDelete: (id: number) => `/admin/media/${id}/delete`,
   media: (key: string) => `/media/${key}`,

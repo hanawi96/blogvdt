@@ -1,6 +1,6 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { hasInboundPostLink, inspectPostLinks, listPostLinkCounts, searchInternalLinks, suggestPosts } from '../../../features/posts/link-lookup';
+import { hasInboundPostLink, inspectPostLinks, listPostLinkCountsByIds, searchInternalLinks, suggestPosts } from '../../../features/posts/link-lookup';
 import { listPosts, searchPublishedPosts, slugIsTaken, type PostListSort } from '../../../features/posts/posts';
 import RetiredUrlDialog from '../../../components/admin/RetiredUrlDialog.astro';
 import { listPickerCategories, listRedirectPostTargets } from '../../../features/redirects/manage';
@@ -42,6 +42,13 @@ if (wantsJson) {
     const withCatalog = [{ title: 'Mẫu vòng dâu tằm', path: routes.catalog }, ...suggestions].slice(0, 8);
     return new Response(JSON.stringify({ suggestions: withCatalog }), { headers: jsonHeaders });
   }
+  if (Astro.url.searchParams.get('counts') === '1') {
+    const ids = Astro.url.searchParams.getAll('id').map((value) => Number(value));
+    const map = await listPostLinkCountsByIds(db, ids);
+    const counts: Record<string, { inbound: number; outbound: number }> = {};
+    for (const [id, value] of map) counts[String(id)] = value;
+    return new Response(JSON.stringify({ counts }), { headers: jsonHeaders });
+  }
   const q = Astro.url.searchParams.get('q') ?? '';
   if (Astro.url.searchParams.get('links') === '1') {
     const links = await searchInternalLinks(db, q, exclude);
@@ -79,17 +86,21 @@ const bulkNotice =
 let loadError = '';
 let result: Awaited<ReturnType<typeof listPosts>> | null = null;
 let targets: { title: string; path: string }[] = [];
-let linkCounts: Awaited<ReturnType<typeof listPostLinkCounts>> = new Map();
 let categoryOptions: { id: number; name: string }[] = [];
 try {
   const db = createDb(getDbBinding());
   result = await listPosts(db, { query, status, sort, page: Number.isInteger(page) ? page : 1 });
   const inTrash = status === 'trash';
-  [targets, linkCounts, categoryOptions] = await Promise.all([
-    listRedirectPostTargets(db),
-    inTrash ? Promise.resolve(new Map()) : listPostLinkCounts(db, result.rows),
-    inTrash ? Promise.resolve([]) : listPickerCategories(db),
-  ]);
+  try {
+    // Link vào/ra lazy qua JSON (?counts=1) — không chặn SSR danh sách.
+    [targets, categoryOptions] = await Promise.all([
+      listRedirectPostTargets(db),
+      inTrash ? Promise.resolve([]) : listPickerCategories(db),
+    ]);
+  } catch (error) {
+    // Danh sách bài đã có; chỉ thiếu picker / targets — không báo “không tải được danh sách”.
+    console.error(JSON.stringify({ event: 'post_list_extras_failed', name: error instanceof Error ? error.name : 'unknown' }));
+  }
 } catch (error) {
   console.error(JSON.stringify({ event: 'post_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
   loadError = 'Không tải được danh sách bài viết.';
@@ -290,7 +301,6 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                 {result.rows.map((post) => {
                   const published = post.status === 'published';
                   const wasPublic = published || post.publishedAt != null;
-                  const links = linkCounts.get(post.id);
                   return (
                     <tr>
                       <td class="product-check">
@@ -325,8 +335,8 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                           {isPostStatus(post.status) ? POST_STATUS_LABELS[post.status] : post.status}
                         </span>
                       </td>
-                      <td data-label="Link vào">{links?.inbound ?? '—'}</td>
-                      <td data-label="Link ra">{links?.outbound ?? '—'}</td>
+                      <td data-label="Link vào" data-link-in={post.id}>…</td>
+                      <td data-label="Link ra" data-link-out={post.id}>…</td>
                       <td>{formatDateTime(post.updatedAt)}</td>
                       <td>
                         <div class="post-actions">
@@ -409,6 +419,48 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
 
   const rowBoxes = () => (results ? [...results.querySelectorAll<HTMLInputElement>('input[name="ids"]')] : []);
   let anchor: HTMLInputElement | null = null;
+
+  async function fillLinkCounts() {
+    if (!results) return;
+    const cells = [...results.querySelectorAll<HTMLElement>('[data-link-in], [data-link-out]')];
+    const ids = [
+      ...new Set(
+        cells
+          .map((cell) => Number(cell.dataset.linkIn || cell.dataset.linkOut || ''))
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    ];
+    if (ids.length === 0) return;
+    const url = new URL(location.pathname, location.origin);
+    url.searchParams.set('counts', '1');
+    for (const id of ids) url.searchParams.append('id', String(id));
+    const fail = () => {
+      for (const id of ids) {
+        const inCell = results.querySelector(`[data-link-in="${id}"]`);
+        const outCell = results.querySelector(`[data-link-out="${id}"]`);
+        if (inCell) inCell.textContent = '—';
+        if (outCell) outCell.textContent = '—';
+      }
+    };
+    try {
+      const response = await fetch(url, { headers: { accept: 'application/json' } });
+      const data: unknown = await response.json().catch(() => null);
+      const counts =
+        data && typeof data === 'object' && 'counts' in data && data.counts && typeof data.counts === 'object'
+          ? (data.counts as Record<string, { inbound?: unknown; outbound?: unknown }>)
+          : null;
+      if (!response.ok || !counts) throw new Error('counts');
+      for (const id of ids) {
+        const row = counts[String(id)];
+        const inCell = results.querySelector(`[data-link-in="${id}"]`);
+        const outCell = results.querySelector(`[data-link-out="${id}"]`);
+        if (inCell) inCell.textContent = row && typeof row.inbound === 'number' ? String(row.inbound) : '—';
+        if (outCell) outCell.textContent = row && typeof row.outbound === 'number' ? String(row.outbound) : '—';
+      }
+    } catch {
+      fail();
+    }
+  }
 
   function syncSelection() {
     const boxes = rowBoxes();
@@ -550,6 +602,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
       anchor = null;
       syncSelection();
       armAdminFlashes(results);
+      void fillLinkCounts();
     } catch {
       bulkError('Không thực hiện được. Tải lại trang rồi thử lại.');
     } finally {
@@ -621,4 +674,5 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
   }
 
   syncSelection();
+  void fillLinkCounts();
 </script>

@@ -25,6 +25,8 @@ export type PublicPostCard = {
   categoryName: string | null;
   categorySlug: string | null;
   coverUrl: string | null;
+  /** Bản ảnh ~800px (WebP vuông) cho lưới card; null nếu ảnh cũ chưa có biến thể. */
+  cardUrl: string | null;
   coverAlt: string;
   coverWidth: number | null;
   coverHeight: number | null;
@@ -57,6 +59,7 @@ export async function listPublishedPosts(db: AppDb, filters: { page: number; cat
       categoryName: categories.name,
       categorySlug: categories.slug,
       coverKey: media.r2Key,
+      coverCardKey: media.cardR2Key,
       coverAlt: media.altText,
       coverWidth: media.width,
       coverHeight: media.height,
@@ -117,6 +120,7 @@ export async function getPostBySlug(db: AppDb, slug: string) {
       categoryName: categories.name,
       categorySlug: categories.slug,
       coverKey: media.r2Key,
+      coverCardKey: media.cardR2Key,
       coverAlt: media.altText,
       coverWidth: media.width,
       coverHeight: media.height,
@@ -180,6 +184,7 @@ export async function listRecentPublishedPosts(db: AppDb, limit = 3) {
       categoryName: categories.name,
       categorySlug: categories.slug,
       coverKey: media.r2Key,
+      coverCardKey: media.cardR2Key,
       coverAlt: media.altText,
       coverWidth: media.width,
       coverHeight: media.height,
@@ -215,6 +220,7 @@ export async function listRelatedPosts(db: AppDb, input: { id: number; categoryI
       categoryName: categories.name,
       categorySlug: categories.slug,
       coverKey: media.r2Key,
+      coverCardKey: media.cardR2Key,
       coverAlt: media.altText,
       coverWidth: media.width,
       coverHeight: media.height,
@@ -275,6 +281,7 @@ function toCard(row: {
   categoryName: string | null;
   categorySlug: string | null;
   coverKey: string | null;
+  coverCardKey?: string | null;
   coverAlt: string | null;
   coverWidth: number | null;
   coverHeight: number | null;
@@ -288,6 +295,7 @@ function toCard(row: {
     categoryName: row.categoryName,
     categorySlug: row.categorySlug,
     coverUrl: row.coverKey ? routes.media(row.coverKey) : null,
+    cardUrl: row.coverCardKey ? routes.media(row.coverCardKey) : null,
     coverAlt: row.coverAlt ?? '',
     coverWidth: row.coverWidth,
     coverHeight: row.coverHeight,

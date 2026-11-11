@@ -72,7 +72,16 @@
   let backfillStatus = $state('');
   let altDraft = $state(initialPreview?.alt ?? '');
   let altStatus = $state('');
+  /** Mở rộng danh sách nơi dùng (mặc định chỉ hiện vài dòng). */
+  let usesExpanded = $state(false);
   let filterTimer = 0;
+  const USES_PREVIEW_COUNT = 5;
+  /** Chế độ hiển thị lưới / danh sách (chỉ ảnh hưởng client). */
+  let viewMode = $state<'grid' | 'list'>('grid');
+  /** Id của ảnh đang mở menu "..." trên lưới. */
+  let menuFor = $state<number | null>(null);
+  /** Phóng to ảnh preview trong lightbox. */
+  let zoomed = $state(false);
   let chosen = $state<string[]>(untrack(() => selected.filter(Boolean)));
   let draft = $state<string[]>([]);
   let showing = $state(false);
@@ -98,6 +107,9 @@
     return library.filter((item) => `${item.filename} ${item.alt}`.toLowerCase().includes(needle));
   });
   const pageCount = $derived(Math.max(1, Math.ceil(libraryTotal / Math.max(1, pageSize))));
+  const rangeFrom = $derived(libraryTotal === 0 ? 0 : (libraryPage - 1) * pageSize + 1);
+  const rangeTo = $derived(Math.min(libraryTotal, libraryPage * pageSize));
+  const pageList = $derived(Array.from({ length: pageCount }, (_, index) => index + 1));
   // Trống thật sự: không có item trên client (tránh ẩn lưới khi chỉ total hydrate sai).
   const manageEmpty = $derived(
     manage && library.length === 0 && libraryTotal === 0 && listQuery.trim() === '' && listUsage === 'all' && listSort === 'newest',
@@ -116,11 +128,19 @@
       if (!detail) return;
       library = library.map((item) => (item.id === detail.id ? { ...item, alt: detail.alt } : item));
     };
+    const onDocClick = (event: MouseEvent) => {
+      if (menuFor === null) return;
+      const target = event.target as HTMLElement | null;
+      if (target && target.closest('.media-cell-menu')) return;
+      menuFor = null;
+    };
     window.addEventListener('media-uploaded', onAdd);
     window.addEventListener('media-alt', onAlt);
+    window.addEventListener('click', onDocClick);
     return () => {
       window.removeEventListener('media-uploaded', onAdd);
       window.removeEventListener('media-alt', onAlt);
+      window.removeEventListener('click', onDocClick);
     };
   });
 
@@ -140,7 +160,9 @@
   function rememberPreview(itemsOnPage: MediaItem[]) {
     const current = itemsOnPage.find((item) => item.id === previewId);
     const next = current ?? itemsOnPage[0] ?? null;
-    previewId = next?.id ?? null;
+    const nextId = next?.id ?? null;
+    if (nextId !== previewId) usesExpanded = false;
+    previewId = nextId;
     altDraft = next?.alt ?? '';
     altStatus = '';
   }
@@ -201,6 +223,7 @@
   }
 
   function chooseTile(item: MediaItem) {
+    if (item.id !== previewId) usesExpanded = false;
     previewId = item.id;
     confirmDeleteId = null;
     if (manage) {
@@ -373,6 +396,16 @@
     window.dispatchEvent(new CustomEvent('media-alt', { detail: { id: item.id, alt: next } }));
   }
 
+  /** Nút "Lưu thay đổi" ở khung preview: lưu mô tả ALT của ảnh đang xem. */
+  async function savePreviewAlt() {
+    if (!preview) return;
+    await saveTileAlt(preview, altDraft);
+  }
+
+  function toggleMenu(id: number) {
+    menuFor = menuFor === id ? null : id;
+  }
+
   async function removeItem(item: MediaItem) {
     if (usesOf(item).length > 0 || deleting) return;
     deleting = true;
@@ -404,13 +437,6 @@
   function meta(item: MediaItem): string {
     const pixels = item.width && item.height ? `${item.width} × ${item.height}` : 'Chưa có kích thước';
     return `${pixels} · ${formatBytes(item.sizeBytes)} · ${formatDateTime(item.createdAt)}`;
-  }
-
-  function formatMime(mime: string): string {
-    if (mime === 'image/jpeg') return 'JPEG';
-    if (mime === 'image/png') return 'PNG';
-    if (mime === 'image/webp') return 'WebP';
-    return mime || 'Không rõ';
   }
 
   function formatBytes(bytes: number): string {
@@ -490,46 +516,106 @@
         </ul>
       </section>
     {/if}
-    <div class="media-library-bar" class:is-empty={manageEmpty}>
-      {#if !manageEmpty}
-        <input class="field" type="search" placeholder="Tìm theo tên hoặc mô tả" value={listQuery} oninput={(event) => { listQuery = (event.currentTarget as HTMLInputElement).value; scheduleLibrary(); }} />
-        <select class="field" value={listUsage} onchange={(event) => { listUsage = (event.currentTarget as HTMLSelectElement).value as typeof listUsage; void loadPage(1); }}>
-          <option value="all">Tất cả</option>
-          <option value="used">Đang dùng</option>
-          <option value="unused">Chưa dùng</option>
-        </select>
-        <select class="field" value={listSort} onchange={(event) => { listSort = (event.currentTarget as HTMLSelectElement).value as typeof listSort; void loadPage(1); }}>
-          <option value="newest">Mới nhất</option>
-          <option value="name">Tên</option>
-          <option value="size">Dung lượng</option>
-        </select>
-      {/if}
-      <button class="btn btn-primary" type="button" disabled={busy} onclick={() => fileInput?.click()}>Tải ảnh lên</button>
-      {#if !manageEmpty}
-        <button class="btn" type="button" disabled={backfilling || busy} onclick={() => void runBackfill()}>
-          {backfilling ? 'Đang tạo…' : 'Tạo card/thumb còn thiếu'}
-        </button>
-      {/if}
-    </div>
     <input class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple bind:this={fileInput} onchange={onPickFile} />
-    {#if progress}<p class="media-meta" role="status">{progress}</p>{/if}
-    {#if backfillStatus}<p class="media-meta" role="status">{backfillStatus}</p>{/if}
-    {#if message}<p class="error-text" role="alert">{message}</p>{/if}
-    {#if loadError}<p class="error-text" role="alert">{loadError}</p>{/if}
-    {#if !manageEmpty}
-      <div class="media-layout" aria-busy={loading}>
-        {@render grid(true)}
+    {#if manageEmpty}
+      <div class="media-library-bar is-empty">
+        <button class="btn btn-primary" type="button" disabled={busy} onclick={() => fileInput?.click()}>Tải ảnh lên</button>
+      </div>
+    {:else}
+      <div class="media-shell" aria-busy={loading}>
+        <div class="media-main">
+          <div class="media-dropbar" class:media-dropbar-hot={hot}>
+            <div class="media-dropbar-text">
+              <p class="media-dropbar-title">Kéo thả ảnh vào đây hoặc</p>
+              <button class="btn btn-primary media-dropbar-pick" type="button" disabled={busy} onclick={() => fileInput?.click()}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 16V4" />
+                  <path d="m7 9 5-5 5 5" />
+                  <path d="M5 16v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" />
+                </svg>
+                Chọn ảnh từ máy
+              </button>
+              <p class="media-meta">Hỗ trợ JPG, PNG, WEBP · Tối đa 2MB/ảnh</p>
+            </div>
+          </div>
+          <div class="media-library-bar">
+            <label class="media-search">
+              <svg class="media-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+              <input class="field" type="search" placeholder="Tìm theo tên ảnh hoặc mô tả ALT..." value={listQuery} oninput={(event) => { listQuery = (event.currentTarget as HTMLInputElement).value; scheduleLibrary(); }} />
+            </label>
+            <select class="field" value={listUsage} onchange={(event) => { listUsage = (event.currentTarget as HTMLSelectElement).value as typeof listUsage; void loadPage(1); }}>
+              <option value="all">Tất cả ảnh</option>
+              <option value="used">Đang dùng</option>
+              <option value="unused">Chưa dùng</option>
+            </select>
+            <select class="field" value={listSort} onchange={(event) => { listSort = (event.currentTarget as HTMLSelectElement).value as typeof listSort; void loadPage(1); }}>
+              <option value="newest">Mới nhất</option>
+              <option value="name">Tên</option>
+              <option value="size">Dung lượng</option>
+            </select>
+            <div class="media-view-toggle" role="group" aria-label="Kiểu hiển thị">
+              <button class="media-view-btn" type="button" aria-pressed={viewMode === 'grid'} title="Lưới" onclick={() => (viewMode = 'grid')}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="3" y="3" width="7" height="7" rx="1" />
+                  <rect x="14" y="3" width="7" height="7" rx="1" />
+                  <rect x="3" y="14" width="7" height="7" rx="1" />
+                  <rect x="14" y="14" width="7" height="7" rx="1" />
+                </svg>
+                <span class="sr-only">Lưới</span>
+              </button>
+              <button class="media-view-btn" type="button" aria-pressed={viewMode === 'list'} title="Danh sách" onclick={() => (viewMode = 'list')}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M8 6h13" /><path d="M8 12h13" /><path d="M8 18h13" />
+                  <path d="M3 6h.01" /><path d="M3 12h.01" /><path d="M3 18h.01" />
+                </svg>
+                <span class="sr-only">Danh sách</span>
+              </button>
+            </div>
+          </div>
+          <div class="media-backfill-row">
+            <button class="media-backfill-link" type="button" disabled={backfilling || busy} onclick={() => void runBackfill()}>
+              {backfilling ? 'Đang tạo card/thumb…' : 'Tạo card/thumb còn thiếu'}
+            </button>
+          </div>
+          {#if progress}<p class="media-meta" role="status">{progress}</p>{/if}
+          {#if backfillStatus}<p class="media-meta" role="status">{backfillStatus}</p>{/if}
+          {#if message}<p class="error-text" role="alert">{message}</p>{/if}
+          {#if loadError}<p class="error-text" role="alert">{loadError}</p>{/if}
+          {@render grid(true)}
+          <div class="media-pages">
+            <span class="media-pages-count">Hiển thị {rangeFrom}–{rangeTo} trong {libraryTotal} ảnh</span>
+            <div class="media-pages-nav">
+              <button class="media-page-arrow" type="button" aria-label="Trang trước" disabled={libraryPage <= 1 || loading} onclick={() => void loadPage(libraryPage - 1)}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+              </button>
+              {#each pageList as pageNumber (pageNumber)}
+                <button class="media-page-num" type="button" aria-current={pageNumber === libraryPage ? 'page' : undefined} aria-pressed={pageNumber === libraryPage} disabled={loading} onclick={() => void loadPage(pageNumber)}>{pageNumber}</button>
+              {/each}
+              <button class="media-page-arrow" type="button" aria-label="Trang sau" disabled={libraryPage >= pageCount || loading} onclick={() => void loadPage(libraryPage + 1)}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+              </button>
+            </div>
+          </div>
+        </div>
         {@render previewPane()}
       </div>
     {/if}
-    {#if pageCount > 1}
-      <div class="media-pages">
-        <button class="btn" type="button" disabled={libraryPage <= 1 || loading} onclick={() => void loadPage(libraryPage - 1)}>Trước</button>
-        <span>Trang {libraryPage}/{pageCount}</span>
-        <button class="btn" type="button" disabled={libraryPage >= pageCount || loading} onclick={() => void loadPage(libraryPage + 1)}>Sau</button>
-      </div>
-    {/if}
   </div>
+  {#if zoomed && preview}
+    <div
+      class="media-lightbox"
+      role="button"
+      tabindex="0"
+      aria-label="Đóng xem ảnh"
+      onclick={() => (zoomed = false)}
+      onkeydown={(event) => { if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') { event.preventDefault(); zoomed = false; } }}
+    >
+      <img src={preview.url} alt={preview.alt || preview.filename} />
+    </div>
+  {/if}
 {:else}
   <div class="media-field">
     {#if multiple}
@@ -635,36 +721,64 @@
 {/snippet}
 
 {#snippet previewPane()}
-  <aside class="media-preview">
+  <aside class="media-preview" class:media-preview-card={manage}>
     {#if preview}
-      <img src={preview.url} alt={preview.alt || preview.filename} />
-      <p class="font-semibold">{preview.filename}</p>
-      <p class="media-meta">{meta(preview)}</p>
-      <button class="btn" type="button" onclick={() => preview && void copyPath(preview.url)}>{copied === preview.url ? 'Đã copy' : 'Copy đường dẫn'}</button>
       {#if manage}
-        <dl class="media-facts">
-          <div><dt>Định dạng</dt><dd>{formatMime(preview.mimeType)}</dd></div>
-          <div><dt>Kích thước</dt><dd>{preview.width && preview.height ? `${preview.width} × ${preview.height}` : 'Chưa có'}</dd></div>
-          <div><dt>Dung lượng</dt><dd>{formatBytes(preview.sizeBytes)}</dd></div>
-          <div><dt>Tải lên</dt><dd>{formatDateTime(preview.createdAt)}</dd></div>
-          <div><dt>URL</dt><dd>{preview.url}</dd></div>
-        </dl>
-        <label class="mt-3 block">
-          <span class="mb-1 block font-semibold">ALT mặc định</span>
-          <input class="field" maxlength="200" value={altDraft} oninput={(event) => { altDraft = (event.currentTarget as HTMLInputElement).value; altStatus = ''; }} onchange={() => { if (preview) void saveTileAlt(preview, altDraft); }} />
+        {@const inUse = usesOf(preview).length > 0}
+        <div class="media-preview-figure">
+          <img src={preview.url} alt={preview.alt || preview.filename} />
+          <button class="media-zoom-btn" type="button" aria-label="Phóng to ảnh" onclick={() => (zoomed = true)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+              <path d="M16 3h3a2 2 0 0 1 2 2v3" />
+              <path d="M8 21H5a2 2 0 0 1-2-2v-3" />
+              <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+            </svg>
+          </button>
+        </div>
+        <p class="media-preview-name">{preview.filename}</p>
+        <p class="media-meta">{formatBytes(preview.sizeBytes)} · {preview.width && preview.height ? `${preview.width} × ${preview.height}` : 'Chưa có kích thước'} · {formatDateTime(preview.createdAt)}</p>
+        <div class="media-preview-actions">
+          <button class="btn media-copy-btn" type="button" onclick={() => preview && void copyPath(preview.url)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+            {copied === preview.url ? 'Đã sao chép' : 'Sao chép URL'}
+          </button>
+          <button class="btn media-del-btn" type="button" disabled={inUse} title={inUse ? 'Ảnh đang được dùng, chưa xóa được.' : undefined} onclick={() => (confirmDeleteId = preview?.id ?? null)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M10 11v6" /><path d="M14 11v6" />
+            </svg>
+            Xóa
+          </button>
+        </div>
+        <label class="media-field-block">
+          <span class="media-field-label">ALT (mô tả ảnh)</span>
+          <input class="field" maxlength="200" placeholder="Mô tả ngắn gọn nội dung ảnh" value={altDraft} oninput={(event) => { altDraft = (event.currentTarget as HTMLInputElement).value; altStatus = ''; }} />
         </label>
+        <div class="media-status-row">
+          <span class="media-field-label">Trạng thái sử dụng</span>
+          {#if usesOf(preview).length > 0}
+            {@const allUses = usesOf(preview)}
+            {@const usesTotal = allUses.length}
+            {@const usesVisible = usesExpanded ? allUses : allUses.slice(0, USES_PREVIEW_COUNT)}
+            <span class="media-status-badge" data-used="yes">Đang dùng</span>
+            <ul class="media-uses" class:is-expanded={usesExpanded && usesTotal > USES_PREVIEW_COUNT}>
+              {#each usesVisible as place (place.href + place.label)}
+                <li><a href={place.href}>{place.label}</a></li>
+              {/each}
+            </ul>
+            {#if usesTotal > USES_PREVIEW_COUNT}
+              <button class="media-uses-more" type="button" onclick={() => (usesExpanded = !usesExpanded)}>
+                {usesExpanded ? 'Thu gọn' : `Xem thêm ${usesTotal - USES_PREVIEW_COUNT} nơi`}
+              </button>
+            {/if}
+            <p class="media-meta">Ảnh đang được dùng, chưa xóa được.</p>
+          {:else}
+            <span class="media-status-badge" data-used="no">Chưa dùng</span>
+          {/if}
+        </div>
         {#if altStatus}<p class="media-meta" role="status">{altStatus}</p>{/if}
-        <p class="mt-3 font-semibold">Nơi sử dụng</p>
-        {#if usesOf(preview).length > 0}
-          <ul class="media-uses">
-            {#each usesOf(preview) as place (place.href + place.label)}
-              <li><a href={place.href}>{place.label}</a></li>
-            {/each}
-          </ul>
-          <p class="media-meta">Ảnh đang được dùng, không xóa được.</p>
-        {:else}
-          <p class="media-meta">Chưa được dùng.</p>
-        {/if}
         {#if confirmDeleteId === preview.id}
           <div class="media-delete-confirm">
             <p class="media-meta">Xóa ảnh này? Không khôi phục được.</p>
@@ -673,9 +787,18 @@
               <button class="btn btn-accent" type="button" disabled={deleting} onclick={() => preview && void removeItem(preview)}>{deleting ? 'Đang xóa...' : 'Xác nhận xóa'}</button>
             </div>
           </div>
-        {:else}
-          <button class="btn btn-accent mt-3" type="button" disabled={usesOf(preview).length > 0} onclick={() => (confirmDeleteId = preview?.id ?? null)}>Xóa ảnh</button>
         {/if}
+        <button class="btn btn-primary media-save-btn" type="button" onclick={() => void savePreviewAlt()}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+          Lưu thay đổi
+        </button>
+      {:else}
+        <img src={preview.url} alt={preview.alt || preview.filename} />
+        <p class="font-semibold">{preview.filename}</p>
+        <p class="media-meta">{meta(preview)}</p>
+        <button class="btn" type="button" onclick={() => preview && void copyPath(preview.url)}>{copied === preview.url ? 'Đã copy' : 'Copy đường dẫn'}</button>
       {/if}
     {:else}
       <p class="media-meta">Chọn một ảnh để xem trước.</p>
@@ -689,16 +812,43 @@
   {:else if visible.length === 0}
     <p class="media-meta">{manage && (listQuery || listUsage !== 'all') ? 'Không thấy ảnh phù hợp.' : library.length === 0 ? 'Chưa có ảnh.' : 'Không thấy ảnh phù hợp.'}</p>
   {:else}
-    <ul class="media-grid">
+    <ul class="media-grid" class:media-grid-list={showUses && viewMode === 'list'}>
       {#each visible as item (item.id)}
-        <li>
-          <button class="media-tile" type="button" aria-pressed={marked(item.id) || previewId === item.id} onclick={() => chooseTile(item)}>
-            <img src={tileSrc(item)} alt="" width="800" height="800" loading="lazy" />
-            <span>{item.filename}</span>
+        {@const selectedTile = marked(item.id) || previewId === item.id}
+        {@const usedTile = usesOf(item).length > 0}
+        <li class="media-cell">
+          <button class="media-tile" type="button" aria-pressed={selectedTile} onclick={() => chooseTile(item)}>
+            <span class="media-thumb">
+              <img src={tileSrc(item)} alt="" width="800" height="800" loading="lazy" />
+              {#if showUses && selectedTile}
+                <span class="media-check" aria-hidden="true">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                </span>
+              {/if}
+            </span>
+            <span class="media-tile-name">{item.filename}</span>
             {#if showUses}
-              <span class="media-use-flag" data-used={usesOf(item).length > 0 ? 'yes' : 'no'}>{usesOf(item).length > 0 ? 'Đang dùng' : 'Chưa dùng'}</span>
+              <span class="media-tile-size">{formatBytes(item.sizeBytes)}</span>
+              <span class="media-tile-flag" data-used={usedTile ? 'yes' : 'no'}>{usedTile ? 'Đang dùng' : 'Chưa dùng'}</span>
             {/if}
           </button>
+          {#if showUses}
+            <div class="media-cell-menu">
+              <button class="media-dots" type="button" aria-haspopup="true" aria-expanded={menuFor === item.id} aria-label="Thao tác ảnh" onclick={(event) => { event.stopPropagation(); toggleMenu(item.id); }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
+              </button>
+              {#if menuFor === item.id}
+                <div class="media-menu" role="menu">
+                  <button class="media-menu-item" type="button" role="menuitem" onclick={() => { void copyPath(item.url); menuFor = null; }}>
+                    {copied === item.url ? 'Đã sao chép' : 'Sao chép URL'}
+                  </button>
+                  <button class="media-menu-item media-menu-del" type="button" role="menuitem" disabled={usedTile} onclick={() => { previewId = item.id; altDraft = item.alt; confirmDeleteId = item.id; menuFor = null; }}>
+                    Xóa ảnh
+                  </button>
+                </div>
+              {/if}
+            </div>
+          {/if}
         </li>
       {/each}
     </ul>

@@ -13,42 +13,47 @@ interface Props {
     coverWidth: number | null;
     coverHeight: number | null;
   };
+  /** 'row' = ảnh trái, nội dung phải (dùng ở "Sản phẩm nổi bật"); mặc định card dọc. */
+  layout?: 'card' | 'row';
 }
 
-const { product } = Astro.props;
+const { product, layout = 'card' } = Astro.props;
+const href = product.slug ? routes.product(product.slug) : null;
 ---
 
-<article class="overflow-hidden rounded-lg border border-line bg-surface">
-  {
-    product.coverUrl && (
-      product.slug ? (
-        <a href={routes.product(product.slug)} aria-hidden={product.coverAlt ? undefined : 'true'} tabindex={product.coverAlt ? undefined : -1}>
-          <img
-            src={product.coverUrl}
-            alt={product.coverAlt}
-            width={product.coverWidth ?? undefined}
-            height={product.coverHeight ?? undefined}
-            loading="lazy"
-            class="h-44 w-full object-cover"
-          />
+{layout === 'row' ? (
+  <article class="pcard-row">
+    {product.coverUrl &&
+      (href ? (
+        <a class="pcard-row-media" href={href} aria-hidden={product.coverAlt ? undefined : 'true'} tabindex={product.coverAlt ? undefined : -1}>
+          <img src={product.coverUrl} alt={product.coverAlt} width={product.coverWidth ?? undefined} height={product.coverHeight ?? undefined} loading="lazy" decoding="async" />
         </a>
       ) : (
-        <img
-          src={product.coverUrl}
-          alt={product.coverAlt}
-          width={product.coverWidth ?? undefined}
-          height={product.coverHeight ?? undefined}
-          loading="lazy"
-          class="h-44 w-full object-cover"
-        />
-      )
-    )
-  }
-  <div class="p-4">
-    <h3 class="text-lg font-semibold">
-      {product.slug ? <a href={routes.product(product.slug)}>{product.name}</a> : product.name}
-    </h3>
-    <p class="mt-1 font-semibold text-primary-strong">{formatVnd(product.price)}</p>
-    {product.description && <p class="mt-2 text-muted">{product.description}</p>}
-  </div>
-</article>
+        <span class="pcard-row-media">
+          <img src={product.coverUrl} alt={product.coverAlt} width={product.coverWidth ?? undefined} height={product.coverHeight ?? undefined} loading="lazy" decoding="async" />
+        </span>
+      ))}
+    <div class="pcard-row-body">
+      <h3 class="pcard-row-title">{href ? <a href={href}>{product.name}</a> : product.name}</h3>
+      <p class="pcard-row-price">{formatVnd(product.price)}</p>
+      {product.description && <p class="pcard-row-desc">{product.description}</p>}
+      {href && <a class="pcard-row-more" href={href}>Xem sản phẩm →</a>}
+    </div>
+  </article>
+) : (
+  <article class="overflow-hidden rounded-lg border border-line bg-surface">
+    {product.coverUrl &&
+      (href ? (
+        <a href={href} aria-hidden={product.coverAlt ? undefined : 'true'} tabindex={product.coverAlt ? undefined : -1}>
+          <img src={product.coverUrl} alt={product.coverAlt} width={product.coverWidth ?? undefined} height={product.coverHeight ?? undefined} loading="lazy" class="h-44 w-full object-cover" />
+        </a>
+      ) : (
+        <img src={product.coverUrl} alt={product.coverAlt} width={product.coverWidth ?? undefined} height={product.coverHeight ?? undefined} loading="lazy" class="h-44 w-full object-cover" />
+      ))}
+    <div class="p-4">
+      <h3 class="text-lg font-semibold">{href ? <a href={href}>{product.name}</a> : product.name}</h3>
+      <p class="mt-1 font-semibold text-primary-strong">{formatVnd(product.price)}</p>
+      {product.description && <p class="mt-2 text-muted">{product.description}</p>}
+    </div>
+  </article>
+)}

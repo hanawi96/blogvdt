@@ -6,11 +6,14 @@ import {
   listOrders,
   orderAdminQuery,
   orderListPayment,
+  listTheTenTagNotes,
+  orderListSort,
   orderListSource,
   orderListStatus,
   orderListTag,
   orderPanelQuery,
   type OrderDayBucket,
+  type OrderTagNote,
 } from '../../../features/orders/orders';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
@@ -28,6 +31,7 @@ const payment = orderListPayment(Astro.url.searchParams.get('payment'));
 const from = Astro.url.searchParams.get('from') ?? '';
 const to = Astro.url.searchParams.get('to') ?? '';
 const tag = orderListTag(Astro.url.searchParams.get('tag'));
+const sort = orderListSort(Astro.url.searchParams.get('sort'));
 const page = Number(Astro.url.searchParams.get('page') ?? '1');
 const range = orderCreatedRange(from, to);
 
@@ -40,6 +44,7 @@ if (range.invalid) {
 
 let result: Awaited<ReturnType<typeof listOrders>>;
 let dayBuckets: OrderDayBucket[] = [];
+let theTenTags: OrderTagNote[] = [];
 try {
   const db = createDb(getDbBinding());
   const listFilters = {
@@ -50,16 +55,19 @@ try {
     start: range.start,
     end: range.end,
     tag,
+    sort,
   };
-  const [listed, buckets] = await Promise.all([
+  const [listed, buckets, tags] = await Promise.all([
     listOrders(db, {
       ...listFilters,
       page: Number.isInteger(page) ? page : 1,
     }),
     listOrderDayBuckets(db, listFilters),
+    listTheTenTagNotes(db),
   ]);
   result = listed;
   dayBuckets = buckets;
+  theTenTags = tags;
 } catch (error) {
   console.error(JSON.stringify({ event: 'order_panel_failed', name: error instanceof Error ? error.name : 'unknown' }));
   return new Response('Không tải được danh sách đơn.', {
@@ -68,7 +76,7 @@ try {
   });
 }
 
-const listFilters = { query, status, source, payment, from, to, tag };
+const listFilters = { query, status, source, payment, from, to, tag, sort };
 function pageHref(nextPage: number): string {
   return orderAdminQuery({ ...listFilters, page: nextPage });
 }
@@ -92,6 +100,8 @@ Astro.response.headers.set('content-type', 'text/html; charset=utf-8');
   from={from}
   to={to}
   tag={tag}
+  sort={sort}
+  theTenTags={theTenTags}
   pageHref={pageHref}
   nextPanelHref={nextPanelHref}
   shippedPanelHref={shippedPanelHref}

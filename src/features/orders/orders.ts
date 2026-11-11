@@ -64,6 +64,13 @@ type OrderListLine = {
 /** Lọc list theo giao hàng. `processing` giữ cho link dashboard cũ. `''` = tất cả (`status=all`). */
 export type OrderListStatus = OrderListFilter | 'processing';
 
+/** Hướng sắp xếp theo ngày đặt. `oldest` = đặt sớm nhất lên đầu (mặc định, hàng đợi xử lý). */
+export type OrderSort = 'oldest' | 'newest';
+
+export function orderListSort(value: string | null | undefined): OrderSort {
+  return value === 'newest' ? 'newest' : 'oldest';
+}
+
 /** Mặc định «Chưa gửi hàng»: gồm chưa gửi, gửi sau, chờ gửi lại. `all` / `''` = mọi trạng thái. */
 export function orderListStatus(value: string | null | undefined): OrderListStatus {
   if (value === 'processing') return 'processing';
@@ -116,6 +123,7 @@ export function orderAdminQuery(input: {
   from?: string;
   to?: string;
   tag?: string;
+  sort?: string;
   page?: number;
   notice?: string;
   n?: number;
@@ -128,6 +136,7 @@ export function orderAdminQuery(input: {
   const from = dayParam(input.from);
   const to = dayParam(input.to);
   const tag = orderListTag(input.tag);
+  const sort = orderListSort(input.sort);
   const page = input.page && Number.isInteger(input.page) && input.page > 1 ? input.page : 0;
   const notice = (input.notice ?? '').trim();
   const count = input.n && Number.isInteger(input.n) && input.n > 0 ? input.n : 0;
@@ -139,6 +148,7 @@ export function orderAdminQuery(input: {
   if (from) params.set('from', from);
   if (to) params.set('to', to);
   if (tag) params.set('tag', tag);
+  if (sort === 'newest') params.set('sort', 'newest');
   if (page) params.set('page', String(page));
   if (notice) params.set('notice', notice);
   if (count) params.set('n', String(count));
@@ -155,6 +165,7 @@ export function orderPanelQuery(input: {
   from?: string;
   to?: string;
   tag?: string;
+  sort?: string;
   page?: number;
 }): string {
   const href = orderAdminQuery(input);
@@ -207,6 +218,8 @@ export type OrderListFilters = {
   start: number | null;
   end: number | null;
   tag?: OrderListTag;
+  /** Hướng theo ngày đặt; không áp cho tab «Đã gửi hàng» (luôn theo ngày gửi mới nhất). */
+  sort?: OrderSort;
 };
 
 export type OrderDayBucket = {
@@ -321,6 +334,61 @@ export async function listOrderDayBuckets(db: AppDb, filters: OrderListFilters):
   return groupOrdersByCreatedDay(rows);
 }
 
+export type OrderTagNote = {
+  orderId: number;
+  code: string;
+  text: string;
+};
+
+/** Lưu ý thẻ tên cần đặt làm: chứa từ «thẻ», lấy phần trước dấu phẩy đầu tiên. */
+export function extractTheTenNote(raw: string | null | undefined): string | null {
+  const text = (raw ?? '').trim();
+  if (!text) return null;
+  if (!text.toLowerCase().includes(ORDER_TAG_THE_TEN_MATCH.note)) return null;
+  const head = text.split(',')[0]?.trim() ?? '';
+  return head || null;
+}
+
+/**
+ * Chip lưu ý thẻ tên cho các đơn còn phải gửi (chưa gửi + gửi sau).
+ * Loại trừ «chờ gửi lại» (reship) và «đã gửi hàng». Gom lưu ý đơn + lưu ý từng dòng SP.
+ */
+export async function listTheTenTagNotes(db: AppDb, limit = ORDER_DAY_SCAN_MAX): Promise<OrderTagNote[]> {
+  const pending = and(
+    notInArray(orders.status, ['shipped', 'completed', 'cancelled']),
+    or(isNull(orders.fulfillStatus), eq(orders.fulfillStatus, 'unshipped')),
+  );
+  const rows = await db
+    .select({ id: orders.id, code: orders.code, note: orders.note, createdAt: orders.createdAt })
+    .from(orders)
+    .where(pending)
+    .orderBy(asc(orders.createdAt), asc(orders.id))
+    .limit(limit);
+  if (rows.length === 0) return [];
+  const ids = rows.map((row) => row.id);
+  const items = await db
+    .select({ orderId: orderItems.orderId, note: orderItems.note, sortOrder: orderItems.sortOrder, id: orderItems.id })
+    .from(orderItems)
+    .where(inArray(orderItems.orderId, ids))
+    .orderBy(asc(orderItems.sortOrder), asc(orderItems.id));
+  const itemNotes = new Map<number, string[]>();
+  for (const item of items) {
+    const list = itemNotes.get(item.orderId) ?? [];
+    list.push(item.note ?? '');
+    itemNotes.set(item.orderId, list);
+  }
+  const chips: OrderTagNote[] = [];
+  for (const row of rows) {
+    const orderNote = extractTheTenNote(row.note);
+    if (orderNote) chips.push({ orderId: row.id, code: row.code, text: orderNote });
+    for (const note of itemNotes.get(row.id) ?? []) {
+      const tag = extractTheTenNote(note);
+      if (tag) chips.push({ orderId: row.id, code: row.code, text: tag });
+    }
+  }
+  return chips;
+}
+
 export async function listOrders(
   db: AppDb,
   filters: OrderListFilters & {
@@ -366,8 +434,10 @@ export async function listOrders(
       .orderBy(
         ...(filters.status === 'shipped'
           ? [desc(orders.shippedAt), desc(orders.id)]
-          : // Chưa gửi: đơn đặt sớm lên trước để in/xử lý trước; ưu tiên vẫn nổi trên cùng.
-            [desc(orders.priority), asc(orders.createdAt), asc(orders.id)]),
+          : // Chưa gửi: ưu tiên nổi trên cùng; sau đó theo ngày đặt (mặc định sớm nhất trước, đảo được).
+            filters.sort === 'newest'
+            ? [desc(orders.priority), desc(orders.createdAt), desc(orders.id)]
+            : [desc(orders.priority), asc(orders.createdAt), asc(orders.id)]),
       )
       .limit(PAGE_SIZE)
       .offset((page - 1) * PAGE_SIZE),

@@ -4,7 +4,7 @@ import { activityActor } from '../../../features/activity/log';
 import { mutationError } from '../../../features/auth/session';
 import { orderCreatedRange } from '../../../features/orders/order';
 import OrderListPanel from '../../../components/admin/OrderListPanel.astro';
-import { deleteOrder, listOrderDayBuckets, listOrders, ORDER_TAG_THE_TEN, orderAdminQuery, orderListPayment, orderListSource, orderListStatus, orderListTag, orderPanelQuery, pendingUnshippedSummary, updateOrderFulfillStatus, updateOrderPriority, type OrderDayBucket } from '../../../features/orders/orders';
+import { deleteOrder, listOrderDayBuckets, listOrders, listTheTenTagNotes, ORDER_TAG_THE_TEN, orderAdminQuery, orderListPayment, orderListSort, orderListSource, orderListStatus, orderListTag, orderPanelQuery, pendingUnshippedSummary, updateOrderFulfillStatus, updateOrderPriority, type OrderDayBucket, type OrderTagNote } from '../../../features/orders/orders';
 import { ORDER_PAYMENT_FILTERS } from '../../../features/orders/payment';
 import { ORDER_SOURCES } from '../../../features/orders/staff';
 import { isFulfillStatus, ORDER_LIST_FILTERS } from '../../../features/orders/status';
@@ -24,6 +24,7 @@ const payment = orderListPayment(Astro.url.searchParams.get('payment'));
 const from = Astro.url.searchParams.get('from') ?? '';
 const to = Astro.url.searchParams.get('to') ?? '';
 const tag = orderListTag(Astro.url.searchParams.get('tag'));
+const sort = orderListSort(Astro.url.searchParams.get('sort'));
 const page = Number(Astro.url.searchParams.get('page') ?? '1');
 const range = orderCreatedRange(from, to);
 const vnToday = vnTodayParts();
@@ -70,6 +71,7 @@ if (Astro.request.method === 'POST') {
         from,
         to,
         tag,
+        sort,
         page: Number.isInteger(page) ? page : 1,
         notice: result.ok ? (on ? 'priority-on' : 'priority-off') : 'priority-error',
       }),
@@ -92,6 +94,7 @@ if (Astro.request.method === 'POST') {
           from,
           to,
           tag,
+          sort,
           page: Number.isInteger(page) ? page : 1,
           notice: result.ok ? 'status' : 'status-error',
         }),
@@ -113,6 +116,7 @@ if (Astro.request.method === 'POST') {
         from,
         to,
         tag,
+        sort,
         page: Number.isInteger(page) ? page : 1,
         notice: removed.ok ? 'deleted' : 'missing',
       }),
@@ -126,11 +130,17 @@ if (Astro.request.method === 'POST') {
 const db = createDb(getDbBinding());
 let result: Awaited<ReturnType<typeof listOrders>> | null = null;
 let dayBuckets: OrderDayBucket[] = [];
+let theTenTags: OrderTagNote[] = [];
 let pendingSummary = { revenue: 0, orderCount: 0 };
 try {
   pendingSummary = await pendingUnshippedSummary(db);
 } catch (error) {
   console.error(JSON.stringify({ event: 'order_pending_summary_failed', name: error instanceof Error ? error.name : 'unknown' }));
+}
+try {
+  theTenTags = await listTheTenTagNotes(db);
+} catch (error) {
+  console.error(JSON.stringify({ event: 'order_the_ten_tags_failed', name: error instanceof Error ? error.name : 'unknown' }));
 }
 if (!range.invalid) {
   const listFilters = {
@@ -141,6 +151,7 @@ if (!range.invalid) {
     start: range.start,
     end: range.end,
     tag,
+    sort,
   };
   try {
     const [listed, buckets] = await Promise.all([
@@ -159,10 +170,12 @@ if (!range.invalid) {
 }
 
 function pageHref(nextPage: number): string {
-  return orderAdminQuery({ query, status, source, payment, from, to, tag, page: nextPage });
+  return orderAdminQuery({ query, status, source, payment, from, to, tag, sort, page: nextPage });
 }
 
-const listFilters = { query, status, source, payment, from, to, tag };
+const listFilters = { query, status, source, payment, from, to, tag, sort };
+// Mặc định: không tìm, trạng thái «Chưa gửi hàng» (unshipped), không nguồn/thanh toán/ngày/thẻ.
+const filtersActive = Boolean(query || source || payment || from || to || tag) || (status !== '' && status !== 'unshipped') || status === '';
 const nextPanelHref =
   result && result.page < result.pageCount
     ? orderPanelQuery({ ...listFilters, page: result.page + 1 })
@@ -257,6 +270,7 @@ const shippedPanelHref =
           <input type="hidden" name="from" value={from} data-order-from />
           <input type="hidden" name="to" value={to} data-order-to />
           <input type="hidden" name="tag" value={tag} data-order-tag />
+          <input type="hidden" name="sort" value={sort === 'newest' ? 'newest' : ''} data-order-sort />
           <button
             class="field order-date-trigger"
             type="button"
@@ -278,6 +292,16 @@ const shippedPanelHref =
             title="Lọc đơn có sản phẩm thẻ tên hoặc lưu ý chứa «thẻ»"
           >
             Thẻ tên
+          </button>
+          <button
+            class="order-filter-reset"
+            type="button"
+            data-order-reset
+            title="Đặt lại bộ lọc về mặc định"
+            aria-label="Đặt lại bộ lọc về mặc định"
+            hidden={!filtersActive}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.64-6.36L3 8M3 3v5h5" /></svg>
           </button>
         </form>
         <dialog id="order-date-dialog" class="order-date-dialog" aria-labelledby="order-date-dialog-title" data-order-date-dialog>
@@ -361,6 +385,8 @@ const shippedPanelHref =
             from={from}
             to={to}
             tag={tag}
+            sort={sort}
+            theTenTags={theTenTags}
             pageHref={pageHref}
             nextPanelHref={nextPanelHref}
             shippedPanelHref={shippedPanelHref}
@@ -441,6 +467,7 @@ const shippedPanelHref =
     const from = read('from');
     const to = read('to');
     const tag = read('tag');
+    const sort = read('sort');
     if (term) params.set('q', term);
     if (status) params.set('status', status);
     if (source) params.set('source', source);
@@ -448,6 +475,7 @@ const shippedPanelHref =
     if (/^\d{4}-\d{2}-\d{2}$/.test(from)) params.set('from', from);
     if (/^\d{4}-\d{2}-\d{2}$/.test(to)) params.set('to', to);
     if (tag === 'the-ten') params.set('tag', tag);
+    if (sort === 'newest') params.set('sort', sort);
     return params;
   }
 
@@ -517,6 +545,7 @@ const shippedPanelHref =
     const from = form.querySelector('[data-order-from]');
     const to = form.querySelector('[data-order-to]');
     const tagInput = form.querySelector('[data-order-tag]');
+    const sortInput = form.querySelector('[data-order-sort]');
     const tagToggle = form.querySelector('[data-order-tag-toggle]');
     const label = form.querySelector('[data-order-date-label]');
     const trigger = form.querySelector('[data-order-date-open]');
@@ -530,6 +559,7 @@ const shippedPanelHref =
     if (from instanceof HTMLInputElement) from.value = fromVal;
     if (to instanceof HTMLInputElement) to.value = toVal;
     if (tagInput instanceof HTMLInputElement) tagInput.value = tagVal;
+    if (sortInput instanceof HTMLInputElement) sortInput.value = params.get('sort') === 'newest' ? 'newest' : '';
     if (tagToggle instanceof HTMLElement) {
       tagToggle.setAttribute('aria-pressed', tagVal ? 'true' : 'false');
       if (tagVal) tagToggle.dataset.active = 'true';
@@ -562,6 +592,14 @@ const shippedPanelHref =
           label.textContent = a[1] === b[1] ? `${a[2]}–${b[2]}/${b[1]}` : `${a[2]}/${a[1]}–${b[2]}/${b[1]}`;
         }
       } else label.textContent = 'Chọn ngày';
+    }
+    const reset = form.querySelector('[data-order-reset]');
+    if (reset instanceof HTMLElement) {
+      const statusVal = params.get('status') ?? '';
+      const active =
+        Boolean(params.get('q') || params.get('source') || params.get('payment') || fromVal || toVal || tagVal) ||
+        (statusVal !== '' && statusVal !== 'unshipped');
+      reset.hidden = !active;
     }
   }
 
@@ -635,6 +673,44 @@ const shippedPanelHref =
       tagInput.value = tagInput.value === 'the-ten' ? '' : 'the-ten';
       window.clearTimeout(timer);
       go();
+    });
+
+    form.querySelector('[data-order-reset]')?.addEventListener('click', () => {
+      window.clearTimeout(timer);
+      cache.clear();
+      clearSelection?.();
+      void softNavigate(LIST, { push: true, params: new URLSearchParams() });
+    });
+
+    // Nút đảo thứ tự ở header cột «Ngày đặt» (panel re-render nên dùng delegation trên board).
+    board?.addEventListener('click', (event) => {
+      const toggle = event.target instanceof Element ? event.target.closest('[data-order-sort-toggle]') : null;
+      if (!(toggle instanceof HTMLElement)) return;
+      const sortInput = form.querySelector('[data-order-sort]');
+      if (!(sortInput instanceof HTMLInputElement)) return;
+      sortInput.value = toggle.dataset.next === 'newest' ? 'newest' : '';
+      window.clearTimeout(timer);
+      go();
+    });
+
+    // Chip thẻ tên: copy từng lưu ý hoặc copy tất cả (panel re-render → delegation).
+    const flashCopied = (el: HTMLElement, label: string) => {
+      const prev = el.dataset.copiedPrev ?? el.textContent ?? '';
+      if (el.dataset.copied !== '1') el.dataset.copiedPrev = el.textContent ?? '';
+      el.dataset.copied = '1';
+      el.textContent = label;
+      window.setTimeout(() => {
+        if (el.dataset.copied !== '1') return;
+        delete el.dataset.copied;
+        el.textContent = el.dataset.copiedPrev ?? prev;
+      }, 1200);
+    };
+    board?.addEventListener('click', (event) => {
+      const el = event.target instanceof Element ? event.target : null;
+      const one = el?.closest('[data-tag-note-copy]');
+      if (!(one instanceof HTMLElement)) return;
+      const text = one.dataset.text ?? one.textContent ?? '';
+      void navigator.clipboard?.writeText(text).then(() => flashCopied(one, 'Đã copy'));
     });
 
     const statusSelect = form.querySelector('select[name="status"]');

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, like, ne, notInArray, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, like, ne, notInArray } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { postCategories, posts, redirects } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
@@ -117,21 +117,31 @@ export async function hasInboundPostLink(db: AppDb, input: { path: string; exclu
   return rows.some((row) => collectPostPaths(row.contentJson).paths.includes(path));
 }
 
-// Chỉ đọc bài của trang đang xem và bài xuất bản có chứa đường dẫn của chúng. LIKE lọc thô, parse JSON xác nhận.
+const LINK_COUNT_PAGE_CAP = 20;
+
+// Chỉ đọc bài của trang đang xem + bài XB có chứa link nội bộ. Tránh OR nhiều LIKE (D1: pattern too complex).
 export async function listPostLinkCounts(db: AppDb, rows: ReadonlyArray<{ id: number; slug: string }>): Promise<Map<number, PostLinkCount>> {
   if (rows.length === 0) return new Map();
-  const mentions = rows.map((row) => like(posts.contentJson, `%${routes.knowledge(row.slug)}%`));
+  const ids = rows.map((row) => row.id);
   const [page, sources] = await Promise.all([
     db
       .select({ id: posts.id, slug: posts.slug, contentJson: posts.contentJson })
       .from(posts)
-      .where(inArray(posts.id, rows.map((row) => row.id))),
+      .where(inArray(posts.id, ids)),
     db
       .select({ id: posts.id, contentJson: posts.contentJson })
       .from(posts)
-      .where(and(livePublished(), or(...mentions))),
+      .where(and(livePublished(), like(posts.contentJson, '%/kien-thuc/%'))),
   ]);
   return postLinkCounts(page, sources);
+}
+
+/** Đếm link vào/ra cho tối đa 20 id (một trang danh sách admin). */
+export async function listPostLinkCountsByIds(db: AppDb, ids: ReadonlyArray<number>): Promise<Map<number, PostLinkCount>> {
+  const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))].slice(0, LINK_COUNT_PAGE_CAP);
+  if (unique.length === 0) return new Map();
+  const rows = await db.select({ id: posts.id, slug: posts.slug }).from(posts).where(inArray(posts.id, unique));
+  return listPostLinkCounts(db, rows);
 }
 
 function slugOf(path: string): string {

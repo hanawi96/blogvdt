@@ -251,9 +251,9 @@ async function loadPost() {
             {loaded.products.length === 0 ? (
               <p class="post-band-empty">Chưa có sản phẩm đang bán.</p>
             ) : (
-              <ul class="post-product-grid">
+              <ul class="post-product-rows">
                 {loaded.products.map((product) => (
-                  <li><ProductCard product={product} /></li>
+                  <li><ProductCard product={product} layout="row" /></li>
                 ))}
               </ul>
             )}

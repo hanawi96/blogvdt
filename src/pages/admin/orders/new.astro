@@ -1,13 +1,15 @@
 ---
 import StaffOrderForm from '../../../components/admin/StaffOrderForm.astro';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import addressSelect from '../../../../public/data/address-select.json';
+import { matchComposedAddress, type AddressSelectRow } from '../../../features/address/parse';
 import { mutationError } from '../../../features/auth/session';
 import { listStaffDiscountChoices } from '../../../features/discounts/discounts';
-import { createStaffOrder } from '../../../features/orders/orders';
-import { parseStaffCustomer, priceStaffLines, readStaffFlags, readStaffLineInputs, type StaffFlagForm, type StaffLineInput } from '../../../features/orders/staff';
+import { createStaffOrder, getOrder } from '../../../features/orders/orders';
+import { orderLineSources, parseStaffCustomer, priceStaffLines, readStaffFlags, readStaffLineInputs, staffFlagForm, type StaffFlagForm, type StaffLineInput } from '../../../features/orders/staff';
 import { isShippingOrderCost, listOrderCosts } from '../../../features/costs/order-costs';
 import { baseCustomerShippingFee, qualifiesFreeShip, shipGroupOf } from '../../../features/shipping/customer-fee';
-import { listStaffPickerProducts } from '../../../features/products/public';
+import { listStaffPickerProducts, listStaffProductChoices } from '../../../features/products/public';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
 import { groupDigits } from '../../../lib/group-digits';
@@ -20,6 +22,16 @@ if (!session) return Astro.redirect(routes.adminLogin);
 const db = createDb(getDbBinding());
 const picker = await listStaffPickerProducts(db);
 const products = picker.products;
+
+// Nhân bản: ?from={id} nạp đơn gốc để điền sẵn form. Đơn mới hoàn toàn, không giữ mã/cọc/cờ gửi.
+const fromId = Number(Astro.url.searchParams.get('from') ?? '');
+const sourceOrder = Number.isInteger(fromId) && fromId > 0 ? await getOrder(db, fromId) : null;
+const clonedLines = sourceOrder ? orderLineSources(sourceOrder) : [];
+const keepIds = clonedLines.flatMap((line) => (line.productId ? [line.productId] : []));
+const keptChoices = keepIds.length > 0 ? await listStaffProductChoices(db, keepIds) : [];
+const pickerIds = new Set(products.map((product) => product.id));
+const editorChoices = [...products, ...keptChoices.filter((choice) => !pickerIds.has(choice.id))];
+
 const discountChoices = await listStaffDiscountChoices(db);
 const shippingCosts = (await listOrderCosts(db)).filter((cost) => cost.active && isShippingOrderCost(cost.name));
 const defaultShippingFeeAmount = baseCustomerShippingFee(shippingCosts);
@@ -29,18 +41,44 @@ let lineError = '';
 let flagError = '';
 let errors: FieldErrors = {};
 let postedLines: StaffLineInput[] | null = null;
-const values = { customerName: '', phone: '', address: '', note: '', provinceCode: '', wardCode: '', addressLine: '', orderTotal: '', discountCode: '', discountExtra: '' };
-const flagForm: StaffFlagForm = {
-  payState: 'cod',
-  source: '',
-  priority: false,
-  compensation: false,
-  shipLater: false,
-  shipOn: '',
-  shippingFee: defaultShippingFee,
-  freeShip: false,
-  depositAmount: '',
+
+const clonedAddress = sourceOrder ? matchComposedAddress(addressSelect as unknown as AddressSelectRow[], sourceOrder.address) : null;
+const values = {
+  customerName: sourceOrder?.customerName ?? '',
+  phone: sourceOrder?.phone ?? '',
+  address: sourceOrder?.address ?? '',
+  note: sourceOrder?.note ?? '',
+  provinceCode: clonedAddress?.provinceCode ?? '',
+  wardCode: clonedAddress?.wardCode ?? '',
+  addressLine: clonedAddress?.line ?? '',
+  orderTotal: '',
+  discountCode: '',
+  discountExtra: '',
 };
+const flagForm: StaffFlagForm = sourceOrder
+  ? {
+      // Nhân bản là đơn bình thường: thanh toán về COD; bỏ ưu tiên / gửi bù / gửi sau; phí ship về mặc định như đơn mới.
+      ...staffFlagForm(sourceOrder),
+      payState: 'cod',
+      depositAmount: '',
+      priority: false,
+      compensation: false,
+      shipLater: false,
+      shipOn: '',
+      shippingFee: defaultShippingFee,
+      freeShip: false,
+    }
+  : {
+      payState: 'cod',
+      source: '',
+      priority: false,
+      compensation: false,
+      shipLater: false,
+      shipOn: '',
+      shippingFee: defaultShippingFee,
+      freeShip: false,
+      depositAmount: '',
+    };
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -83,7 +121,7 @@ if (Astro.request.method === 'POST') {
   } else {
     if (!flags.ok) flagError = flags.error;
     const customer = parseStaffCustomer({ ...values, paymentMethod: flags.ok ? flags.flags.paymentMethod : 'cod' });
-    const priced = postedLines ? priceStaffLines(postedLines, products, []) : null;
+    const priced = postedLines ? priceStaffLines(postedLines, editorChoices, []) : null;
     if (!customer.ok) errors = customer.errors;
     if (!priced || !priced.ok) {
       lineError = !postedLines && form.getAll('lineSlot').length === 0
@@ -131,12 +169,27 @@ if (Astro.request.method === 'POST') {
   }
 }
 
-const editorLines: StaffLineInput[] = postedLines ?? [];
+// Dòng điền sẵn khi nhân bản: coi như dòng mới (slot không phải số → không bị khóa giá cũ),
+// giá tự lấy theo bảng giá hiện tại như khi thêm mới.
+const editorLines: StaffLineInput[] =
+  postedLines ??
+  clonedLines.map((line, index) => ({
+    slot: `clone-${index}`,
+    productId: line.productId ? String(line.productId) : '',
+    name: line.productName,
+    weight: line.optionLabel ?? '',
+    quantity: String(line.quantity),
+    note: line.note ?? '',
+  }));
+const pageTitle = sourceOrder ? `Nhân bản đơn ${sourceOrder.code}` : 'Thêm đơn';
+const pageLead = sourceOrder
+  ? `Sao chép từ đơn ${sourceOrder.code}. Chỉnh lại nếu cần rồi bấm Tạo đơn để tạo đơn mới.`
+  : 'Đơn khách đặt qua Zalo, Facebook hoặc điện thoại.';
 ---
 
-<AdminLayout title="Thêm đơn">
+<AdminLayout title={pageTitle}>
   <a slot="action" class="btn" href={routes.adminOrders}>Danh sách</a>
-  <p slot="lead">Đơn khách đặt qua Zalo, Facebook hoặc điện thoại.</p>
+  <p slot="lead">{pageLead}</p>
   {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
   <StaffOrderForm
     csrfToken={session.csrfToken}
@@ -147,7 +200,7 @@ const editorLines: StaffLineInput[] = postedLines ?? [];
     errors={errors}
     lineError={lineError}
     editorLines={editorLines}
-    editorChoices={products}
+    editorChoices={editorChoices}
     pickerProducts={products}
     pickerCategories={picker.categories}
     discountChoices={discountChoices}

@@ -12,7 +12,7 @@ import {
 import { formatDateShort, formatTimeHms } from '../../lib/datetime';
 import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
-import { ORDER_BULK_MAX, listOrders, type OrderDayBucket } from '../../features/orders/orders';
+import { ORDER_BULK_MAX, listOrders, type OrderDayBucket, type OrderTagNote } from '../../features/orders/orders';
 
 const listNow = Date.now();
 
@@ -21,6 +21,7 @@ type ListResult = Awaited<ReturnType<typeof listOrders>>;
 type Props = {
   result: ListResult;
   dayBuckets?: OrderDayBucket[];
+  theTenTags?: OrderTagNote[];
   csrfToken: string;
   canBulkDelete: boolean;
   query: string;
@@ -30,6 +31,7 @@ type Props = {
   from: string;
   to: string;
   tag?: string;
+  sort?: string;
   pageHref: (page: number) => string;
   nextPanelHref?: string;
   shippedPanelHref?: string;
@@ -38,6 +40,7 @@ type Props = {
 const {
   result,
   dayBuckets = [],
+  theTenTags = [],
   csrfToken,
   canBulkDelete,
   query,
@@ -47,12 +50,16 @@ const {
   from,
   to,
   tag = '',
+  sort = 'oldest',
   pageHref,
   nextPanelHref = '',
   shippedPanelHref = '',
 } = Astro.props;
 
 const statusParam = status === '' ? 'all' : status;
+const sortNewest = sort === 'newest';
+// Tab «Đã gửi hàng» luôn theo ngày gửi mới nhất — không cho đảo theo ngày đặt.
+const canToggleSort = status !== 'shipped';
 ---
 <div
   data-order-panel
@@ -123,9 +130,8 @@ const statusParam = status === '' ? 'all' : status;
     <span class="order-bulk-demo" role="status" data-bulk-demo-msg hidden></span>
   </form>
   <div data-order-list>
-  {dayBuckets.length > 0 ? (
+  {dayBuckets.length > 0 || theTenTags.length > 0 ? (
     <div class="order-day-select" data-order-day-select data-bulk-max={String(ORDER_BULK_MAX)} role="group" aria-label="Chọn nhanh theo ngày đặt">
-      <span class="order-day-select-label">Theo ngày</span>
       <div class="order-day-select-list">
         {dayBuckets.map((bucket) => (
           <button
@@ -142,6 +148,17 @@ const statusParam = status === '' ? 'all' : status;
           >
             {bucket.label}
             <span class="order-day-chip-count">({bucket.count} đơn)</span>
+          </button>
+        ))}
+        {theTenTags.map((tagNote) => (
+          <button
+            class="order-day-chip order-tag-note-chip"
+            type="button"
+            data-tag-note-copy
+            data-text={tagNote.text}
+            title={`Đơn ${tagNote.code} — bấm để copy`}
+          >
+            {tagNote.text}
           </button>
         ))}
       </div>
@@ -161,7 +178,26 @@ const statusParam = status === '' ? 'all' : status;
           <th>Sản phẩm</th>
           <th>Giá trị</th>
           <th>Lãi ròng</th>
-          <th>Ngày đặt</th>
+          <th>
+            <span class="order-sort-th">
+              Ngày đặt
+              {canToggleSort && (
+                <button
+                  class="order-sort-toggle"
+                  type="button"
+                  data-order-sort-toggle
+                  data-next={sortNewest ? 'oldest' : 'newest'}
+                  aria-label={sortNewest ? 'Đang xếp mới nhất trước — bấm để xếp cũ nhất trước' : 'Đang xếp cũ nhất trước — bấm để xếp mới nhất trước'}
+                  title={sortNewest ? 'Mới nhất trước' : 'Cũ nhất trước'}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" data-dir={sortNewest ? 'newest' : 'oldest'}>
+                    <path d="M7 4v16M7 20l-3-3M7 20l3-3" />
+                    <path d="M13 6h7M13 11h5M13 16h3" />
+                  </svg>
+                </button>
+              )}
+            </span>
+          </th>
           <th>Thao tác</th>
         </tr>
       </thead>
@@ -388,6 +424,12 @@ const statusParam = status === '' ? 'all' : status;
                     </svg>
                   </a>
                 )}
+                <a class="order-icon-btn is-duplicate" href={routes.adminOrderDuplicate(order.id)} aria-label={`Nhân bản đơn ${order.code}`} title="Nhân bản">
+                  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                    <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M9 9h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z" />
+                    <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M5 15H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v1" />
+                  </svg>
+                </a>
                 {canBulkDelete ? (
                   <form
                     method="post"

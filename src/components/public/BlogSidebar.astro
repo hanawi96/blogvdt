@@ -1,0 +1,49 @@
+---
+import type { PublicPostCard } from '../../features/posts/public';
+import type { PublicSite } from '../../features/settings/settings';
+import { routes } from '../../lib/routes';
+
+interface Props {
+  recent: PublicPostCard[];
+  site: PublicSite;
+}
+
+const { recent, site } = Astro.props;
+const contactHref = site.zaloUrl || site.facebookUrl || (site.phone ? `tel:${site.phone.replace(/[^\d+]/g, '')}` : '');
+---
+
+<aside class="blog-aside">
+  {recent.length > 0 && (
+    <section class="blog-panel">
+      <h2 class="blog-panel-title">Bài mới nhất</h2>
+      <ul class="blog-recent">
+        {recent.map((post) => (
+          <li>
+            <a class="blog-recent-row" href={routes.knowledge(post.slug)}>
+              {post.coverUrl ? (
+                <img class="blog-recent-thumb" src={post.coverUrl} alt="" width="72" height="54" loading="lazy" decoding="async" />
+              ) : (
+                <span class="blog-recent-thumb blog-recent-thumb-empty" aria-hidden="true"></span>
+              )}
+              <span class="blog-recent-copy">
+                <span class="blog-recent-name">{post.title}</span>
+                {post.categoryName && <small class="blog-recent-cat">{post.categoryName}</small>}
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  {contactHref && (
+    <section class="blog-panel blog-panel-cta">
+      <h2 class="blog-panel-title">Cần tư vấn thêm?</h2>
+      <p class="blog-cta-text">Nhắn cho xưởng để được tư vấn chọn vòng dâu tằm phù hợp cho bé.</p>
+      <a class="btn btn-primary blog-cta-btn" href={contactHref} target={contactHref.startsWith('http') ? '_blank' : undefined} rel={contactHref.startsWith('http') ? 'noopener noreferrer' : undefined}>
+        Liên hệ tư vấn
+      </a>
+      {site.phone && <p class="blog-cta-phone">Hoặc gọi {site.phone}</p>}
+    </section>
+  )}
+</aside>

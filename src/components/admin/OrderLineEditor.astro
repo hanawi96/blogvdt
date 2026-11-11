@@ -757,6 +757,34 @@ function coverOf(line: StaffLineInput): string {
       if (total instanceof HTMLInputElement) delete total.dataset.lock;
     }
 
+    /** Dòng cùng sản phẩm + cùng cân + cùng lưu ý (để gộp số lượng thay vì tạo dòng mới). */
+    function findMergeRow(productId: string, weightValue: string, note: string): HTMLElement | null {
+      if (!productId) return null;
+      for (const row of rows()) {
+        const product = row.querySelector('[data-product]');
+        const weight = weightControl(row);
+        const noteInput = row.querySelector('[data-line-note]') ?? row.querySelector('input[name="lineNote"]');
+        if (!(product instanceof HTMLInputElement) || !weight) continue;
+        const rowNote = noteInput instanceof HTMLInputElement ? noteInput.value.trim() : '';
+        if (product.value === productId && weight.value.trim() === weightValue.trim() && rowNote === note.trim()) return row;
+      }
+      return null;
+    }
+
+    /** Gộp vào dòng sẵn có: tăng số lượng, chặn theo max của ô số lượng. Trả về false nếu không gộp được. */
+    function mergeIntoRow(row: HTMLElement, addQuantity: number): boolean {
+      const qty = row.querySelector('[data-qty]');
+      if (!(qty instanceof HTMLInputElement)) return false;
+      const max = Number(qty.max || '20');
+      const current = Number(qty.value);
+      const base = Number.isInteger(current) && current >= 1 ? current : 1;
+      const next = Math.min(max, base + Math.max(1, addQuantity));
+      if (next === base) return false;
+      qty.value = String(next);
+      qty.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }
+
     function appendLine(
       productId: string,
       weightValue = '',
@@ -916,6 +944,10 @@ function coverOf(line: StaffLineInput): string {
         const quantity = 'quantity' in detail && typeof detail.quantity === 'string' ? detail.quantity : undefined;
         const note = 'note' in detail && typeof detail.note === 'string' ? detail.note : undefined;
         const cover = 'cover' in detail && typeof detail.cover === 'string' ? detail.cover : undefined;
+        // Cùng sản phẩm + cùng cân + cùng lưu ý: gộp vào dòng sẵn có thay vì tạo dòng mới.
+        const addQty = quantity && /^\d+$/.test(quantity) ? Number(quantity) : 1;
+        const existing = findMergeRow(detail.id, weight, note ?? '');
+        if (existing && mergeIntoRow(existing, addQty)) return;
         appendLine(detail.id, weight, focus, { quantity, note, cover });
       }
     });
