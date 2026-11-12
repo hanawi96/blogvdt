@@ -28,7 +28,7 @@ describe('render HTML bài viết', () => {
             {
               type: 'text',
               text: ' nội bộ',
-              marks: [{ type: 'link', attrs: { href: '/kien-thuc/bai-noi-bo' } }],
+              marks: [{ type: 'link', attrs: { href: '/bai-noi-bo' } }],
             },
           ],
         },
@@ -39,9 +39,9 @@ describe('render HTML bài viết', () => {
     expect(html).toContain('<h2 id="cach-nhin-to">Cách nhìn &lt;tơ&gt;</h2>');
     expect(html).not.toContain('javascript:');
     expect(html).toContain('href="https://example.com/bai" target="_blank" rel="nofollow noopener noreferrer"');
-    expect(html).toContain('href="/kien-thuc/bai-noi-bo"');
+    expect(html).toContain('href="/bai-noi-bo"');
     // Link nội bộ không mở tab mới.
-    expect(html).not.toContain('href="/kien-thuc/bai-noi-bo" target');
+    expect(html).not.toContain('href="/bai-noi-bo" target');
     expect(html).toContain('src="/media/2026/10/a.png"');
     expect(html).not.toContain('width=');
     expect(html).toContain('<figcaption>Chú thích &lt;x&gt;</figcaption>');
@@ -84,7 +84,7 @@ describe('render HTML bài viết', () => {
       { cardsById },
     );
     expect(html).toContain('class="post-cards"');
-    expect(html).toContain('href="/kien-thuc/chon-chi-an-toan"');
+    expect(html).toContain('href="/chon-chi-an-toan"');
     expect(html).toContain('Chọn chỉ an toàn');
     expect(html).not.toContain('Mất');
   });

@@ -1,29 +1,29 @@
 ---
 import type { JSONContent } from '@tiptap/core';
-import AuthorCard from '../../components/public/AuthorCard.astro';
-import DataError from '../../components/public/DataError.astro';
-import NotFound from '../../components/public/NotFound.astro';
-import PostCard from '../../components/public/PostCard.astro';
-import ProductCard from '../../components/public/ProductCard.astro';
-import { listFeaturedProducts } from '../../features/products/featured';
-import { getPublicPostAuthor } from '../../features/posts/author';
-import { collectMediaSrcs, sanitizePostContent } from '../../features/posts/content';
-import { collectHeadings } from '../../features/posts/headings';
-import { collectPostCardIds, listPublishedPostCardsByIds } from '../../features/posts/post-cards';
-import { collectProductCardIds, listActiveProductCardsByIds } from '../../features/posts/product-cards';
-import { getPostBySlug, listRelatedPosts } from '../../features/posts/public';
-import { redirectHttpResponse } from '../../features/redirects/http';
-import { resolvePublicRedirect } from '../../features/redirects/lookup';
-import { renderPostHtml } from '../../features/posts/render';
-import { applyCoverMeasure, layoutContentImages } from '../../features/media/media';
-import { getPublicSite } from '../../features/settings/settings';
-import PublicLayout from '../../layouts/PublicLayout.astro';
-import { createDb } from '../../lib/db/client';
-import { getDbBinding, getSiteOrigin, optionalMediaBucket } from '../../lib/cloudflare/env';
-import { formatDateTime } from '../../lib/datetime';
-import { blogPostingSchema, breadcrumbSchema, buildMeta, canonicalUrl, jsonLd, notFoundMeta, postPageMeta, toAbsoluteUrl, unavailableMeta } from '../../lib/seo/meta';
-import { blogReadStatus, FRESH_PAGE_CACHE, PRIVATE_PAGE_CACHE } from '../../lib/seo/cache';
-import { routes } from '../../lib/routes';
+import AuthorCard from '../components/public/AuthorCard.astro';
+import DataError from '../components/public/DataError.astro';
+import NotFound from '../components/public/NotFound.astro';
+import PostCard from '../components/public/PostCard.astro';
+import ProductCard from '../components/public/ProductCard.astro';
+import { listFeaturedProducts } from '../features/products/featured';
+import { getPublicPostAuthor } from '../features/posts/author';
+import { collectMediaSrcs, sanitizePostContent } from '../features/posts/content';
+import { collectHeadings } from '../features/posts/headings';
+import { collectPostCardIds, listPublishedPostCardsByIds } from '../features/posts/post-cards';
+import { collectProductCardIds, listActiveProductCardsByIds } from '../features/posts/product-cards';
+import { getPostBySlug, listRelatedPosts } from '../features/posts/public';
+import { redirectHttpResponse } from '../features/redirects/http';
+import { resolvePublicRedirect } from '../features/redirects/lookup';
+import { renderPostHtml } from '../features/posts/render';
+import { applyCoverMeasure, layoutContentImages } from '../features/media/media';
+import { getPublicSite } from '../features/settings/settings';
+import PublicLayout from '../layouts/PublicLayout.astro';
+import { createDb } from '../lib/db/client';
+import { getDbBinding, getSiteOrigin, optionalMediaBucket } from '../lib/cloudflare/env';
+import { formatDateTime } from '../lib/datetime';
+import { blogPostingSchema, breadcrumbSchema, buildMeta, canonicalUrl, jsonLd, notFoundMeta, postPageMeta, toAbsoluteUrl, unavailableMeta } from '../lib/seo/meta';
+import { blogReadStatus, FRESH_PAGE_CACHE, PRIVATE_PAGE_CACHE } from '../lib/seo/cache';
+import { routes } from '../lib/routes';
 
 const slug = Astro.params.slug ?? '';
 const loaded = await loadPost();
@@ -162,6 +162,7 @@ async function loadPost() {
   jsonLd={jsonLdBlocks}
   faviconUrl={loaded.site?.faviconUrl || '/favicon.svg'}
   chrome={loaded.site}
+  trackEvent={loaded.post ? 'view' : null}
 >
   {
     !loaded.site ? (

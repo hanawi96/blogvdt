@@ -61,7 +61,7 @@
   async function checkLinks(form: HTMLFormElement) {
     const published = read(form, 'status') === 'published';
     const slug = read(form, 'slug').trim();
-    const current = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) ? `/kien-thuc/${slug}` : '';
+    const current = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) ? routes.knowledge(slug) : '';
     const collected = collectPostPaths(read(form, 'contentJson'));
     const key = `${published}|${current}|${collected.paths.join('|')}|${collected.truncated}`;
     if (key === linkKey) return;

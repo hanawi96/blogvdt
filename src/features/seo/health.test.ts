@@ -75,7 +75,7 @@ describe('kiểm tra SEO một bài', () => {
   });
 
   it('slug trùng redirect và canonical rỗng khi chưa có origin', () => {
-    const blocked = assessPost(post({ blocked: new Set(['/kien-thuc/cach-chon-vong-dau-tam']) }));
+    const blocked = assessPost(post({ blocked: new Set(['/cach-chon-vong-dau-tam']) }));
     expect(blocked.map((issue) => issue.code)).toEqual(['slug', 'sitemap']);
     const local = assessPost(post({ origin: '', slug: 'Bad_Slug' }));
     expect(local.map((issue) => issue.code)).toEqual(['slug']);
@@ -111,9 +111,9 @@ describe('kiểm tra SEO một bài', () => {
     const issues = assessPost(
       post({
         linkIssues: [
-          { path: '/kien-thuc/khong-co', kind: 'missing' },
-          { path: '/kien-thuc/nhap', kind: 'unpublished' },
-          { path: '/kien-thuc/cu', kind: 'redirect', official: '/kien-thuc/moi' },
+          { path: '/khong-co', kind: 'missing' },
+          { path: '/nhap', kind: 'unpublished' },
+          { path: '/cu', kind: 'redirect', official: '/moi' },
         ],
         linkTruncated: true,
       }),
@@ -138,7 +138,7 @@ describe('kiểm tra SEO một bài', () => {
 
 describe('sitemap và bài chưa được trỏ tới', () => {
   it('chỉ bài xuất bản, slug hợp lệ, không bị redirect và có canonical mới vào sitemap', () => {
-    const blocked = new Set(['/kien-thuc/cach-chon-vong-dau-tam']);
+    const blocked = new Set(['/cach-chon-vong-dau-tam']);
     expect(sitemapDecision({ status: 'draft', slug: 'cach-chon-vong-dau-tam', origin, blocked: new Set() }).included).toBe(false);
     expect(sitemapDecision({ status: 'published', slug: 'Bad_Slug', origin, blocked: new Set() }).included).toBe(false);
     expect(sitemapDecision({ status: 'published', slug: 'cach-chon-vong-dau-tam', origin, blocked }).included).toBe(false);
@@ -153,7 +153,7 @@ describe('sitemap và bài chưa được trỏ tới', () => {
         { id: 2, title: 'Đã được trỏ', slug: 'da-duoc-tro' },
         { id: 3, title: 'Slug hỏng', slug: 'Slug_Hong' },
       ],
-      new Set(['/kien-thuc/da-duoc-tro']),
+      new Set(['/da-duoc-tro']),
       false,
     );
     expect(issues).toHaveLength(1);

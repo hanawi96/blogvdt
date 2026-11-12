@@ -14,6 +14,7 @@ import {
   searchPickerPosts,
   setRedirectEnabled,
 } from '../../features/redirects/manage';
+import { knowledgeSlug } from '../../features/posts/redirects';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
 import { routes } from '../../lib/routes';
@@ -107,7 +108,7 @@ if (editing) {
 }
 const selectedTarget =
   targets.find((target) => target.path === toPath) ??
-  (toPath.startsWith('/kien-thuc/') ? await publishedRedirectTarget(db, toPath) : null);
+  (knowledgeSlug(toPath) ? await publishedRedirectTarget(db, toPath) : null);
 const listHref = query ? `${routes.adminRedirects}?q=${encodeURIComponent(query)}` : routes.adminRedirects;
 
 function codeLabel(code: number): string {
@@ -130,7 +131,7 @@ function codeLabel(code: number): string {
       {editingId && <input type="hidden" name="id" value={editingId} />}
       <label class="block">
         <span class="mb-1 block font-semibold">URL nguồn</span>
-        <input class="field" name="fromPath" required maxlength="300" value={fromPath} placeholder="/kien-thuc/slug-cu" />
+        <input class="field" name="fromPath" required maxlength="300" value={fromPath} placeholder="/slug-cu" />
       </label>
       <div class="mt-4">
         <span class="mb-1 block font-semibold">Bài đích đã xuất bản</span>
@@ -138,7 +139,7 @@ function codeLabel(code: number): string {
       </div>
       <label class="mt-4 block">
         <span class="mb-1 block font-semibold">Hoặc đường dẫn đích</span>
-        <input class="field" name="toPath" maxlength="300" value={toPath} placeholder="/kien-thuc/slug-moi" />
+        <input class="field" name="toPath" maxlength="300" value={toPath} placeholder="/slug-moi" />
       </label>
       <label class="mt-4 block">
         <span class="mb-1 block font-semibold">Mã HTTP</span>

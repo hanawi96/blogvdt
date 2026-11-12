@@ -107,7 +107,10 @@ export function mergeTracking(primary: Tracking, fallback: Tracking): Tracking {
   return merged;
 }
 
-export type TrackingEvent = 'view' | 'lead';
+export type TrackingEvent = 'view' | 'lead' | 'purchase';
+
+// Giá trị đơn hàng (VND) gửi kèm sự kiện Purchase. Chỉ dùng khi event === 'purchase'.
+export type TrackingValue = { amount: number; currency: string };
 
 export type TrackingSnippets = {
   // Chèn trong <head>: nạp thư viện + khởi tạo + bắn sự kiện trang.
@@ -118,11 +121,26 @@ export type TrackingSnippets = {
   bodyNoscript: string[];
 };
 
+// Chuẩn hóa giá trị Purchase: số nguyên không âm + mã tiền tệ chữ (ISO 4217). Sai -> bỏ (an toàn khi nội suy).
+function safePurchaseValue(value: TrackingValue | null | undefined): { amount: number; currency: string } | null {
+  if (!value) return null;
+  const amount = Math.round(value.amount);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  const currency = /^[A-Z]{3}$/.test(value.currency) ? value.currency : '';
+  if (!currency) return null;
+  return { amount, currency };
+}
+
 // Sinh toàn bộ mã nhúng. ID đã qua cleanTracking nên an toàn để nội suy vào chuỗi script.
-export function buildTrackingSnippets(tracking: Tracking, event: TrackingEvent | null): TrackingSnippets {
+export function buildTrackingSnippets(
+  tracking: Tracking,
+  event: TrackingEvent | null,
+  purchaseValue: TrackingValue | null = null,
+): TrackingSnippets {
   const headScripts: string[] = [];
   const headSrc: string[] = [];
   const bodyNoscript: string[] = [];
+  const purchase = event === 'purchase' ? safePurchaseValue(purchaseValue) : null;
 
   // Google Tag Manager — "cửa" để đối tác tự quản mọi thẻ khác.
   if (tracking.gtmId) {
@@ -143,10 +161,17 @@ export function buildTrackingSnippets(tracking: Tracking, event: TrackingEvent |
     ];
     if (tracking.gaMeasurementId) lines.push(`gtag('config','${tracking.gaMeasurementId}');`);
     if (tracking.googleAdsId) lines.push(`gtag('config','${tracking.googleAdsId}');`);
-    if (event === 'lead') {
-      if (tracking.gaMeasurementId) lines.push(`gtag('event','generate_lead');`);
+    if (event === 'lead' || event === 'purchase') {
+      if (tracking.gaMeasurementId) {
+        lines.push(
+          event === 'purchase' && purchase
+            ? `gtag('event','purchase',{value:${purchase.amount},currency:'${purchase.currency}'});`
+            : `gtag('event','generate_lead');`,
+        );
+      }
       if (tracking.googleAdsId && tracking.googleAdsLabel) {
-        lines.push(`gtag('event','conversion',{'send_to':'${tracking.googleAdsId}/${tracking.googleAdsLabel}'});`);
+        const extra = event === 'purchase' && purchase ? `,'value':${purchase.amount},'currency':'${purchase.currency}'` : '';
+        lines.push(`gtag('event','conversion',{'send_to':'${tracking.googleAdsId}/${tracking.googleAdsLabel}'${extra}});`);
       }
     }
     headScripts.push(lines.join(''));
@@ -154,7 +179,16 @@ export function buildTrackingSnippets(tracking: Tracking, event: TrackingEvent |
 
   // Meta (Facebook) Pixel.
   if (tracking.metaPixelId) {
-    const extra = event === 'view' ? `fbq('track','ViewContent');` : event === 'lead' ? `fbq('track','Lead');` : '';
+    const extra =
+      event === 'view'
+        ? `fbq('track','ViewContent');`
+        : event === 'purchase'
+          ? purchase
+            ? `fbq('track','Purchase',{value:${purchase.amount},currency:'${purchase.currency}'});`
+            : `fbq('track','Purchase');`
+          : event === 'lead'
+            ? `fbq('track','Lead');`
+            : '';
     headScripts.push(
       `!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${tracking.metaPixelId}');fbq('track','PageView');${extra}`,
     );
@@ -165,7 +199,16 @@ export function buildTrackingSnippets(tracking: Tracking, event: TrackingEvent |
 
   // TikTok Pixel.
   if (tracking.tiktokPixelId) {
-    const extra = event === 'view' ? `ttq.track('ViewContent');` : event === 'lead' ? `ttq.track('SubmitForm');` : '';
+    const extra =
+      event === 'view'
+        ? `ttq.track('ViewContent');`
+        : event === 'purchase'
+          ? purchase
+            ? `ttq.track('CompletePayment',{value:${purchase.amount},currency:'${purchase.currency}'});`
+            : `ttq.track('CompletePayment');`
+          : event === 'lead'
+            ? `ttq.track('SubmitForm');`
+            : '';
     headScripts.push(
       `!function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie"];ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e};ttq.load=function(e,n){var i="https://analytics.tiktok.com/i18n/pixel/events.js";ttq._i=ttq._i||{};ttq._i[e]=[];ttq._i[e]._u=i;ttq._t=ttq._t||{};ttq._t[e]=+new Date;ttq._o=ttq._o||{};ttq._o[e]=n||{};var o=d.createElement("script");o.type="text/javascript";o.async=!0;o.src=i+"?sdkid="+e+"&lib="+t;var a=d.getElementsByTagName("script")[0];a.parentNode.insertBefore(o,a)};ttq.load('${tracking.tiktokPixelId}');ttq.page();${extra}}(window,document,'ttq');`,
     );

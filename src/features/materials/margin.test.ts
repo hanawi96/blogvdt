@@ -152,9 +152,12 @@ describe('cập nhật giá bán sau khi đổi đơn giá', () => {
     expect(lines[0]).toMatchObject({ nextPrice: null, changed: false, blocked: false });
   });
 
-  it('làm tròn xong không đổi giá thì không mở bảng', () => {
+  it('giữ tiền lời không đổi nhưng còn dưới biên mục tiêu thì vẫn mở bảng (chọn sẵn không đổi)', () => {
+    // Đơn giá giảm nhẹ: giữ-tiền-lời làm tròn về đúng giá cũ, nhưng giá 167.000 với vốn 99.900
+    // đang dưới biên mục tiêu 60% nên cách tính theo biên gợi ý giá khác → mở bảng, mode 'none'.
     const rows = [{ productId: 1, name: 'Vòng A', price: 167000, comparePrice: null, cost: 99900, quantity: 1, status: 'active' }];
-    expect(repriceOffer(rows, 35000, 34900)).toEqual({ open: false, mode: 'none' });
+    expect(repriceOffer(rows, 35000, 34900)).toEqual({ open: true, mode: 'none' });
+    // Không còn sản phẩm thì không mở.
     expect(repriceOffer([], 35000, 60000)).toEqual({ open: false, mode: 'none' });
   });
 

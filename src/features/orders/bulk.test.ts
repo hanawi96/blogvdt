@@ -23,9 +23,13 @@ describe('readOrderBulk', () => {
     expect(parsed).toEqual({ action: 'delete', ids: [3, 5] });
   });
 
+  it('nhận action export hợp lệ và gom id', () => {
+    expect(readOrderBulk(form([['bulk', 'export'], ['ids', '1']]))).toEqual({ action: 'export', ids: [1] });
+  });
+
   it('từ chối khi thiếu action, action lạ hoặc không có id', () => {
     expect(readOrderBulk(form([['ids', '1']]))).toBeNull();
-    expect(readOrderBulk(form([['bulk', 'export'], ['ids', '1']]))).toBeNull();
+    expect(readOrderBulk(form([['bulk', 'xoa-het'], ['ids', '1']]))).toBeNull();
     expect(readOrderBulk(form([['bulk', 'delete']]))).toBeNull();
   });
 
@@ -39,7 +43,7 @@ describe('readOrderBulk', () => {
     expect(readOrderBulk(form(exactly))?.ids).toHaveLength(ORDER_BULK_MAX);
   });
 
-  it('bộ action cố định đúng thao tác xóa', () => {
-    expect([...ORDER_BULK_ACTIONS]).toEqual(['delete']);
+  it('bộ action cố định gồm xóa và export', () => {
+    expect([...ORDER_BULK_ACTIONS]).toEqual(['delete', 'export']);
   });
 });

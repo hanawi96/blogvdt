@@ -82,6 +82,7 @@ const orderAttrs = {
             <input type="hidden" name="slug" value={product.slug} />
             <input type="hidden" name="weight" value="" />
             <input type="hidden" name="quantity" value="1" />
+            <input type="hidden" name="price" value={product.price} />
             <button class="btn" type="submit">Thêm giỏ</button>
           </form>
         )
@@ -100,6 +101,7 @@ const orderAttrs = {
           <p class="font-semibold text-primary-strong">{formatVnd(product.price)}</p>
           <input type="hidden" name="intent" value="add" />
           <input type="hidden" name="slug" value={product.slug} />
+          <input type="hidden" name="price" value={product.price} />
           <fieldset class="mt-3">
             <legend class="text-sm font-semibold">Cân nặng của bé</legend>
             <div class="weight-grid mt-2" role="radiogroup">

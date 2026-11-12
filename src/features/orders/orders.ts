@@ -590,6 +590,14 @@ export async function getOrder(db: AppDb, id: number) {
   return { ...order, items };
 }
 
+/** Giá trị đơn (VND) theo mã, dùng cho sự kiện Purchase ở trang cảm ơn. Không trả PII. */
+export async function orderValueByCode(db: AppDb, code: string): Promise<number | null> {
+  if (!/^VD\d{8}-\d{4}$/.test(code)) return null;
+  const rows = await db.select({ totalPrice: orders.totalPrice }).from(orders).where(eq(orders.code, code)).limit(1);
+  const total = rows[0]?.totalPrice;
+  return typeof total === 'number' && total >= 0 ? total : null;
+}
+
 export async function updateOrderStatus(
   db: AppDb,
   id: number,

@@ -1,8 +1,16 @@
 import { isHttpUrl } from '../../lib/http';
 import { routes } from '../../lib/routes';
+import { knowledgeSlug } from './redirects';
 
-const INTERNAL_SLUG_PATH = /^\/(?:kien-thuc|san-pham)\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const PRODUCT_SLUG_PATH = /^\/san-pham\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const INTERNAL_FIXED_PATHS = new Set([routes.catalog]);
+
+/** Path nội bộ gắn link được: bài (root /{slug}), sản phẩm (/san-pham/{slug}), trang catalog. */
+function isInternalLinkPath(path: string): boolean {
+  if (INTERNAL_FIXED_PATHS.has(path)) return true;
+  if (PRODUCT_SLUG_PATH.test(path)) return true;
+  return knowledgeSlug(path) !== null;
+}
 
 /** Chuẩn hóa path nội bộ (bỏ query/hash, slash cuối). */
 export function normalizeSitePath(value: string): string {
@@ -21,10 +29,15 @@ export function normalizeSitePath(value: string): string {
   return (pathname.split(/[?#]/, 1)[0] ?? '').replace(/\/+$/, '') || '/';
 }
 
-/** Path nội bộ được gắn link: bài, sản phẩm, trang mẫu vòng. */
+/**
+ * Path nội bộ gắn link: bài (root /{slug}), sản phẩm, catalog.
+ * Chỉ nhận đường dẫn TƯƠNG ĐỐI `/...`; link nội bộ luôn lưu dạng path, không dạng URL tuyệt đối.
+ * (URL tuyệt đối — kể cả cùng domain — coi là link ngoài để gắn rel/nofollow nhất quán.)
+ */
 export function isInternalPostPath(value: string): boolean {
-  const path = normalizeSitePath(value);
-  return INTERNAL_SLUG_PATH.test(path) || INTERNAL_FIXED_PATHS.has(path);
+  const raw = value.trim();
+  if (!raw.startsWith('/')) return false;
+  return isInternalLinkPath(normalizeSitePath(raw));
 }
 
 export function isInternalHref(value: string, host = ''): boolean {
@@ -67,8 +80,7 @@ export function catalogLinkMatch(query: string): InternalLinkHit | null {
   return ok ? { title: 'Mẫu vòng dâu tằm', path: routes.catalog, kind: 'catalog' } : null;
 }
 
-const POST_PATH = /^\/kien-thuc\/([a-z0-9]+(?:-[a-z0-9]+)*)$/;
-
+/** Chuẩn hóa href về path bài root `/{slug}`; trả null nếu không phải link bài. */
 export function postPathFromHref(value: string): string | null {
   const raw = value.trim();
   if (!raw || raw.length > 300) return null;
@@ -85,8 +97,14 @@ export function postPathFromHref(value: string): string | null {
     return null;
   }
   pathname = (pathname.split(/[?#]/, 1)[0] ?? '').replace(/\/+$/, '');
-  const match = pathname.match(POST_PATH);
-  return match ? `/kien-thuc/${match[1]}` : null;
+  const slug = knowledgeSlug(pathname);
+  return slug ? routes.knowledge(slug) : null;
+}
+
+/** Slug bài từ href/path; '' nếu không phải link bài. */
+export function postSlugFromHref(value: string): string {
+  const path = postPathFromHref(value);
+  return path ? (knowledgeSlug(path) ?? '') : '';
 }
 
 type LinkNode = {
@@ -137,10 +155,10 @@ export function postLinkCounts(
   page: ReadonlyArray<{ id: number; slug: string; contentJson: string }>,
   sources: ReadonlyArray<{ id: number; contentJson: string }>,
 ): Map<number, PostLinkCount> {
-  const byPath = new Map(page.map((row) => [`/kien-thuc/${row.slug}`, row.id]));
+  const byPath = new Map(page.map((row) => [routes.knowledge(row.slug), row.id]));
   const counts = new Map<number, PostLinkCount>();
   for (const row of page) {
-    const own = `/kien-thuc/${row.slug}`;
+    const own = routes.knowledge(row.slug);
     const outbound = collectPostPaths(row.contentJson, COUNT_LIMIT).paths.filter((path) => path !== own).length;
     counts.set(row.id, { inbound: 0, outbound });
   }

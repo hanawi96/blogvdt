@@ -553,7 +553,7 @@
   function linkKindFromPath(path: string): InternalLinkHit['kind'] | null {
     if (path === routes.catalog) return 'catalog';
     if (path.startsWith('/san-pham/')) return 'product';
-    if (path.startsWith('/kien-thuc/')) return 'post';
+    if (postPathFromHref(path)) return 'post';
     return null;
   }
 
@@ -567,7 +567,7 @@
     if (!editor) return;
     const href = next.trim();
     if (!isPostHref(href)) {
-      linkError = 'Dùng http/https hoặc đường dẫn nội bộ (/kien-thuc/…, /san-pham/…, /mau-vong-dau-tam).';
+      linkError = 'Dùng http/https hoặc đường dẫn nội bộ (/slug-bai, /san-pham/…, /mau-vong-dau-tam).';
       return;
     }
     linkUrl = href;
@@ -635,7 +635,7 @@
     url.searchParams.set('check', '1');
     url.searchParams.set('path', path);
     const slug = formValue('slug').trim();
-    if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) url.searchParams.set('current', `/kien-thuc/${slug}`);
+    if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) url.searchParams.set('current', routes.knowledge(slug));
     try {
       const response = await fetch(url, { headers: { accept: 'application/json' } });
       if (!response.ok || postPathFromHref(linkUrl) !== path) return;
@@ -745,7 +745,7 @@
         const record = entry as { id?: unknown; title?: unknown; path?: unknown };
         if (typeof record.id !== 'number' || !Number.isInteger(record.id) || record.id < 1) return [];
         if (typeof record.title !== 'string' || typeof record.path !== 'string') return [];
-        if (!record.path.startsWith('/kien-thuc/')) return [];
+        if (!postPathFromHref(record.path)) return [];
         return [{ id: record.id, title: record.title, path: record.path }];
       });
       cardsNote = cardsHits.length === 0 ? 'Không có bài đã xuất bản khớp.' : '';
@@ -1327,7 +1327,7 @@
     <h2 id="link-dialog-title" class="text-lg font-semibold">{linkHasMark ? 'Sửa liên kết' : 'Chèn liên kết'}</h2>
     <label class="mt-4 block">
       <span class="mb-1 block font-semibold">Địa chỉ liên kết</span>
-      <input class="field" type="text" placeholder="https://… hoặc /kien-thuc/…, /san-pham/…, /mau-vong-dau-tam" bind:this={linkUrlEl} bind:value={linkUrl} oninput={() => { linkError = ''; queueFieldCheck(); }} onkeydown={onLinkKey} />
+      <input class="field" type="text" placeholder="https://… hoặc /slug-bai, /san-pham/…, /mau-vong-dau-tam" bind:this={linkUrlEl} bind:value={linkUrl} oninput={() => { linkError = ''; queueFieldCheck(); }} onkeydown={onLinkKey} />
     </label>
     {#if linkIssue}
       <p class="seo-hint">

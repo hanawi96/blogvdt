@@ -118,4 +118,28 @@ describe('buildTrackingSnippets', () => {
     expect(snippets.headScripts.join('')).toContain(`ttq.load('C9ABCD1234EF')`);
     expect(snippets.headScripts.join('')).toContain('ViewContent');
   });
+
+  it('Meta Pixel bắn Purchase kèm value + currency khi purchase', () => {
+    const snippets = buildTrackingSnippets(make({ metaPixelId: '123456' }), 'purchase', { amount: 250000, currency: 'VND' });
+    expect(snippets.headScripts.join('')).toContain(`fbq('track','Purchase',{value:250000,currency:'VND'})`);
+  });
+
+  it('Purchase không có value hợp lệ thì bắn Purchase trần (không value)', () => {
+    const missing = buildTrackingSnippets(make({ metaPixelId: '123456' }), 'purchase', null);
+    expect(missing.headScripts.join('')).toContain(`fbq('track','Purchase')`);
+    expect(missing.headScripts.join('')).not.toContain('value:');
+    const bad = buildTrackingSnippets(make({ metaPixelId: '123456' }), 'purchase', { amount: -5, currency: 'vnd' });
+    expect(bad.headScripts.join('')).toContain(`fbq('track','Purchase')`);
+    expect(bad.headScripts.join('')).not.toContain('value:');
+  });
+
+  it('Purchase cũng kích hoạt chuyển đổi GA4 + Google Ads kèm value', () => {
+    const snippets = buildTrackingSnippets(
+      make({ gaMeasurementId: 'G-ABC123', googleAdsId: 'AW-123456', googleAdsLabel: 'xyz' }),
+      'purchase',
+      { amount: 99000, currency: 'VND' },
+    );
+    expect(snippets.headScripts.join('')).toContain(`gtag('event','purchase',{value:99000,currency:'VND'})`);
+    expect(snippets.headScripts.join('')).toContain(`send_to':'AW-123456/xyz','value':99000,'currency':'VND'`);
+  });
 });

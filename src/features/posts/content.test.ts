@@ -18,7 +18,7 @@ describe('nội dung bài viết', () => {
                 text: 'Xem',
                 marks: [
                   { type: 'link', attrs: { href: 'https://example.com/bai' } },
-                  { type: 'link', attrs: { href: '/kien-thuc/bai-noi-bo' } },
+                  { type: 'link', attrs: { href: '/bai-noi-bo' } },
                   { type: 'link', attrs: { href: 'javascript:alert(1)' } },
                   { type: 'link', attrs: { href: '/kien-thuc/../admin' } },
                 ],
@@ -33,7 +33,7 @@ describe('nội dung bài viết', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.json).toContain('https://example.com/bai');
-    expect(result.json).toContain('/kien-thuc/bai-noi-bo');
+    expect(result.json).toContain('/bai-noi-bo');
     expect(result.json).not.toContain('javascript:');
     expect(result.json).not.toContain('/kien-thuc/../admin');
     expect(result.json).toContain('/media/2026/10/a.webp');

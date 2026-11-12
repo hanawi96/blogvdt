@@ -1,4 +1,6 @@
--- Cột shipped_at có thể đã tồn tại trên DB cũ (schema ship_state). Chỉ tạo index + backfill.
+-- Mốc thời điểm đơn đã gửi.
+ALTER TABLE `orders` ADD `shipped_at` integer;
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `orders_shipped_at_idx` ON `orders` (`shipped_at`,`id`);
 --> statement-breakpoint
 -- Backfill từ lần tải export đầu tiên (nếu có).

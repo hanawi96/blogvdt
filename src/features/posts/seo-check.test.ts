@@ -18,7 +18,7 @@ const base = {
           {
             type: 'text',
             text: 'Xem thêm',
-            marks: [{ type: 'link', attrs: { href: '/kien-thuc/cac-buoc-lam-vong' } }],
+            marks: [{ type: 'link', attrs: { href: '/cac-buoc-lam-vong' } }],
           },
         ],
       },
@@ -131,15 +131,15 @@ describe('kiểm tra SEO', () => {
     const checks = checkPostSeo({
       ...base,
       linkIssues: [
-        { path: '/kien-thuc/slug-cu', kind: 'redirect', official: '/kien-thuc/slug-moi' },
-        { path: '/kien-thuc/ban-nhap', kind: 'unpublished' },
+        { path: '/slug-cu', kind: 'redirect', official: '/slug-moi' },
+        { path: '/ban-nhap', kind: 'unpublished' },
       ],
       published: true,
       inbound: false,
     });
     const byId = Object.fromEntries(checks.map((check) => [check.id, check]));
     expect(byId.links?.state).toBe('improve');
-    expect(byId.links?.detail).toContain('/kien-thuc/slug-moi');
+    expect(byId.links?.detail).toContain('/slug-moi');
     expect(byId.links?.detail).toContain('không còn');
     expect(byId.inbound?.detail).toContain('Chưa có bài khác');
   });

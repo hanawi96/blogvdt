@@ -22,7 +22,7 @@ const TAB_FIELDS: Record<SettingsTab, Array<keyof SiteSettingValues>> = {
   contact: ['phone', 'contact_info', 'facebook_url', 'zalo_url'],
   brand: ['logo_media_id', 'favicon_media_id'],
   seo: ['default_seo_title', 'default_seo_description', 'og_media_id'],
-  tracking: ['meta_pixel_id', 'ga_measurement_id'],
+  tracking: ['meta_pixel_id', 'ga_measurement_id', 'google_ads_id', 'google_ads_label', 'tiktok_pixel_id', 'gtm_id'],
 };
 
 const session = Astro.locals.adminSession;

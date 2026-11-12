@@ -4,7 +4,7 @@ import SiteHeader from '../components/public/SiteHeader.astro';
 import { shareImageType } from '../features/media/files';
 import type { PublicSite } from '../features/settings/settings';
 import { plainMetaText, shareImageUrl, shareMetadata, shareOriginFrom, type ShareTags } from '../lib/seo/meta';
-import { EMPTY_TRACKING, buildTrackingSnippets, type Tracking, type TrackingEvent } from '../features/tracking/tracking';
+import { EMPTY_TRACKING, buildTrackingSnippets, type Tracking, type TrackingEvent, type TrackingValue } from '../features/tracking/tracking';
 import '../styles/global.css';
 
 interface Props {
@@ -24,12 +24,16 @@ interface Props {
   jsonLd?: string[];
   faviconUrl?: string;
   chrome?: PublicSite | null;
+  /** URL ảnh LCP (ví dụ ảnh hero trang chủ) để preload, giúp trình duyệt tải sớm trước CSS/JS. */
+  preloadImage?: string | null;
   /** Bỏ header/footer — dùng trong iframe xem trước CMS. */
   embed?: boolean;
   /** Cấu hình theo dõi quảng cáo (đã hợp nhất landing + site). Mặc định rỗng = không nhúng gì. */
   tracking?: Tracking;
-  /** Sự kiện cần bắn ngay khi tải: 'view' (xem trang) hoặc 'lead' (gửi đơn thành công). */
+  /** Sự kiện cần bắn ngay khi tải: 'view' (xem trang), 'lead' hoặc 'purchase' (gửi đơn thành công). */
   trackEvent?: TrackingEvent | null;
+  /** Giá trị đơn hàng gửi kèm sự kiện 'purchase' (ví dụ { amount, currency: 'VND' }). */
+  purchaseValue?: TrackingValue | null;
 }
 
 const {
@@ -49,13 +53,18 @@ const {
   jsonLd = [],
   faviconUrl = '/favicon.svg',
   chrome = null,
+  preloadImage = null,
   embed = false,
-  tracking = EMPTY_TRACKING,
+  tracking,
   trackEvent = null,
+  purchaseValue = null,
 } = Astro.props;
 const showChrome = Boolean(chrome) && !embed;
+// Mặc định dùng mã theo dõi chung của site (chrome.tracking) để mọi trang công khai tự có PageView;
+// trang nào cần ghi đè (ví dụ landing) thì truyền prop tracking riêng.
+const activeTracking = tracking ?? chrome?.tracking ?? EMPTY_TRACKING;
 // Không bắn mã theo dõi khi xem trước trong CMS (embed).
-const trackingSnippets = buildTrackingSnippets(embed ? EMPTY_TRACKING : tracking, embed ? null : trackEvent);
+const trackingSnippets = buildTrackingSnippets(embed ? EMPTY_TRACKING : activeTracking, embed ? null : trackEvent, embed ? null : purchaseValue);
 const robotsContent = Astro.locals.allowIndex === false ? 'noindex,nofollow' : robots;
 const shareOrigin = shareOriginFrom(canonical, Astro.url.origin);
 const share = shareMetadata({
@@ -101,6 +110,7 @@ async function reachableShareImage(
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width" />
+    {!embed && preloadImage && <link rel="preload" as="image" href={preloadImage} fetchpriority="high" />}
     <title>{share.title}</title>
     <meta name="description" content={share.description} />
     {author && plainMetaText(author) && <meta name="author" content={plainMetaText(author)} />}

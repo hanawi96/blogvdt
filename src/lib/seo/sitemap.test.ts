@@ -5,13 +5,13 @@ import { sitemapLastmod, sitemapXml } from './sitemap';
 describe('sitemap', () => {
   it('ghi loc trùng canonical và bỏ đường dẫn không hợp lệ', () => {
     const xml = sitemapXml('https://vongdautam.vn/', [
-      { path: '/kien-thuc/bai', lastmod: '2026-10-14T00:00:00.000Z' },
+      { path: '/bai', lastmod: '2026-10-14T00:00:00.000Z' },
       { path: '/tag/vong-dau-tam', lastmod: '2026-10-15T00:00:00.000Z' },
       { path: '/kien-thuc/ky-tu', lastmod: 'a<b>&"c\'' },
       { path: '/kien-thuc?utm_source=zalo' },
       { path: '/kien-thuc/../admin' },
     ]);
-    expect(xml).toContain(`<loc>${canonicalUrl('https://vongdautam.vn', '/kien-thuc/bai')}</loc>`);
+    expect(xml).toContain(`<loc>${canonicalUrl('https://vongdautam.vn', '/bai')}</loc>`);
     expect(xml).toContain(`<loc>${canonicalUrl('https://vongdautam.vn', '/tag/vong-dau-tam')}</loc>`);
     expect(xml).toContain('<loc>https://vongdautam.vn/kien-thuc</loc>');
     expect(xml).toContain('<lastmod>2026-10-14T00:00:00.000Z</lastmod>');
@@ -22,7 +22,7 @@ describe('sitemap', () => {
   });
 
   it('không trả urlset rỗng khi không có origin', () => {
-    expect(sitemapXml('', [{ path: '/kien-thuc/bai' }])).toBeNull();
+    expect(sitemapXml('', [{ path: '/bai' }])).toBeNull();
   });
 
   it('bỏ lastmod khi mốc thời gian không dùng được', () => {

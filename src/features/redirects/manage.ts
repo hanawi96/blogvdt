@@ -5,6 +5,7 @@ import type { AppDb } from '../../lib/db/client';
 import { dropPathQueries, goneQueries, listRedirectEdges, redirectHopQueries } from '../../lib/db/redirects';
 import { categories, posts, redirects } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { knowledgeSlug } from '../posts/redirects';
 import { publicPathExists } from './lookup';
 import {
   collapseTarget,
@@ -84,8 +85,8 @@ export async function listPickerCategories(db: AppDb) {
 }
 
 export async function publishedRedirectTarget(db: AppDb, path: string) {
-  const slug = path.startsWith('/kien-thuc/') ? path.slice('/kien-thuc/'.length) : '';
-  if (!slug || slug.includes('/')) return null;
+  const slug = knowledgeSlug(path);
+  if (!slug) return null;
   const rows = await publishedTargets(db)
     .where(and(eq(posts.status, 'published'), isNull(posts.deletedAt), eq(posts.slug, slug)))
     .limit(1);
@@ -93,7 +94,7 @@ export async function publishedRedirectTarget(db: AppDb, path: string) {
 }
 
 export async function searchPickerPosts(db: AppDb, query: string, categoryId: number | null) {
-  const term = query.replace(/[%_]/g, '').trim().slice(0, 80).replace(/^\/kien-thuc\//, '');
+  const term = query.replace(/[%_]/g, '').trim().slice(0, 80).replace(/^\//, '');
   if (term.length < 2 && categoryId === null) return listPickerPosts(db);
   const filters = [eq(posts.status, 'published'), isNull(posts.deletedAt)];
   if (term.length >= 2 || (categoryId !== null && term.length >= 1)) {

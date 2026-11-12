@@ -2,7 +2,8 @@
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { mutationError } from '../../features/auth/session';
 import { parseMediaLibraryQuery } from '../../features/media/library';
-import { backfillMediaVariants, parseUpload, queryMediaLibrary, saveMedia, updateMediaAlt } from '../../features/media/media';
+import { activityActor } from '../../features/activity/log';
+import { backfillMediaVariants, parseReplaceUpload, parseUpload, queryMediaLibrary, replaceMedia, saveMedia, updateMediaAlt } from '../../features/media/media';
 import MediaPicker from '../../components/admin/MediaPicker.svelte';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding, getMediaBucket } from '../../lib/cloudflare/env';
@@ -38,6 +39,31 @@ if (Astro.request.method === 'POST') {
       await updateMediaAlt(db, id, alt);
       if (wantsJson) return json({ ok: true });
       return Astro.redirect(`${routes.adminMedia}?saved=1`, 303);
+    }
+  } else if (String(form.get('intent') ?? '') === 'replace') {
+    const id = Number(form.get('id'));
+    if (!Number.isInteger(id) || id < 1) {
+      Astro.response.status = 422;
+      if (wantsJson) return json({ error: 'Ảnh không hợp lệ.' }, 422);
+      formError = 'Ảnh không hợp lệ.';
+    } else {
+      const parsed = await parseReplaceUpload(form);
+      if (!parsed.ok) {
+        Astro.response.status = 422;
+        if (wantsJson) return json({ error: parsed.error }, 422);
+        formError = parsed.error;
+      } else {
+        const result = await replaceMedia(db, getMediaBucket(), id, parsed, await activityActor(db, session.userId));
+        if (!result.ok) {
+          Astro.response.status = 422;
+          if (wantsJson) return json({ error: result.error }, 422);
+          formError = result.error;
+        } else if (wantsJson) {
+          return json({ id, ...result });
+        } else {
+          return Astro.redirect(`${routes.adminMedia}?saved=1`, 303);
+        }
+      }
     }
   } else if (String(form.get('intent') ?? '') === 'backfill-variants') {
     const result = await backfillMediaVariants(db, getMediaBucket());

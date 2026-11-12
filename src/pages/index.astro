@@ -259,10 +259,11 @@ async function loadHome(query: CatalogQuery) {
   faviconUrl={site?.faviconUrl || '/favicon.svg'}
   chrome={site}
   jsonLd={schemaEntries}
+  preloadImage={heroPhoto?.url ?? null}
 >
   {
     site ? (
-      <div class="home">
+      <main class="home">
         <section class="home-hero" aria-labelledby="home-title">
           <div class="home-wrap home-hero-grid">
             <div class="home-hero-copy">
@@ -300,7 +301,7 @@ async function loadHome(query: CatalogQuery) {
                   })}
                 </div>
                 <div class="home-hero-rating">
-                  <p class="home-hero-stars" aria-label="5 sao">
+                  <p class="home-hero-stars" role="img" aria-label="5 sao">
                     <span aria-hidden="true">★★★★★</span>
                   </p>
                   <p class="home-hero-sold">30.000+ chiếc vòng đã bán</p>
@@ -333,7 +334,6 @@ async function loadHome(query: CatalogQuery) {
                   height={heroPhoto.height ?? 1000}
                   fetchpriority="high"
                   decoding="async"
-                  sizes="(min-width: 56rem) 36rem, 92vw"
                 />
               ) : (
                 <div class="home-hero-photo home-hero-placeholder" aria-hidden="true">
@@ -382,16 +382,29 @@ async function loadHome(query: CatalogQuery) {
           </div>
           <figure class="home-process-video">
             <div class="home-process-video-frame">
-              <iframe
-                src={`https://www.youtube-nocookie.com/embed/${PROCESS_SHORT_ID}?rel=0&modestbranding=1`}
-                title="Video quy trình làm vòng dâu tằm"
-                width="315"
-                height="560"
-                loading="lazy"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                referrerpolicy="strict-origin-when-cross-origin"
-                allowfullscreen
-              />
+              {/* Facade: chỉ tải trình phát YouTube (nặng ~590 KiB) khi khách bấm play. */}
+              <button
+                class="home-process-video-play"
+                type="button"
+                data-yt-facade={PROCESS_SHORT_ID}
+                aria-label="Phát video quy trình làm vòng dâu tằm"
+              >
+                <img
+                  class="home-process-video-thumb"
+                  src={`https://i.ytimg.com/vi/${PROCESS_SHORT_ID}/hqdefault.jpg`}
+                  alt=""
+                  width="315"
+                  height="560"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <span class="home-process-video-icon" aria-hidden="true">
+                  <svg viewBox="0 0 68 48" width="54" height="38">
+                    <path d="M66.5 7.7a8 8 0 0 0-5.6-5.7C56 .6 34 .6 34 .6s-22 0-26.9 1.4A8 8 0 0 0 1.5 7.7 83 83 0 0 0 0 24a83 83 0 0 0 1.5 16.3 8 8 0 0 0 5.6 5.7C12 47.4 34 47.4 34 47.4s22 0 26.9-1.4a8 8 0 0 0 5.6-5.7A83 83 0 0 0 68 24a83 83 0 0 0-1.5-16.3z" fill="#f00"/>
+                    <path d="M27 34 44 24 27 14z" fill="#fff"/>
+                  </svg>
+                </span>
+              </button>
             </div>
             <figcaption>
               <a class="home-process-video-link" href="#danh-muc-me">Xem mẫu sau khi hoàn thiện <span aria-hidden="true">→</span></a>
@@ -613,6 +626,7 @@ async function loadHome(query: CatalogQuery) {
         </section>
         <script>
           import '../scripts/home-shop';
+          import '../scripts/youtube-facade';
         </script>
 
         <section id="danh-gia" class="home-feedback home-defer" aria-labelledby="danh-gia-title">
@@ -699,7 +713,7 @@ async function loadHome(query: CatalogQuery) {
             <a class="home-fab-btn home-fab-fb" href={site.facebookUrl} rel="noopener" target="_blank" aria-label="Facebook">f</a>
           )}
         </div>
-      </div>
+      </main>
     ) : (
       <DataError failed={loaded.failed} />
     )

@@ -5,8 +5,8 @@ describe('danh mục', () => {
   it('chỉ tạo redirect khi slug đổi', () => {
     expect(categoryRedirect('cach-chon-vong', 'cach-chon-vong')).toBeNull();
     expect(categoryRedirect('cach-chon-vong', 'chon-vong')).toEqual({
-      from: '/kien-thuc/danh-muc/cach-chon-vong',
-      to: '/kien-thuc/danh-muc/chon-vong',
+      from: '/danh-muc/cach-chon-vong',
+      to: '/danh-muc/chon-vong',
     });
   });
 

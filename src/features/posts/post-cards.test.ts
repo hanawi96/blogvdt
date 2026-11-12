@@ -49,7 +49,7 @@ describe('hộp bài liên quan', () => {
     const html = renderPostCardsHtml([sample(1, 'Cách chọn vòng <x>')]);
     expect(html).toContain('class="post-cards"');
     expect(html).toContain('Đọc tiếp cho mẹ');
-    expect(html).toContain('href="/kien-thuc/bai-1"');
+    expect(html).toContain('href="/bai-1"');
     expect(html).toContain('Cách chọn vòng &lt;x&gt;');
     expect(html).not.toContain('<x>');
   });

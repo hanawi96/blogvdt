@@ -4,6 +4,7 @@
   import { routes } from '../../lib/routes';
   import type { MediaItem, MediaUse } from '../../features/media/types';
   import { uploadMedia } from './upload-media';
+  import { resizeImage } from './resize-image';
 
   let {
     csrf,
@@ -65,6 +66,7 @@
   let listSort = $state(untrack(() => librarySort));
   let loading = $state(false);
   let deleting = $state(false);
+  let replacing = $state(false);
   let backfilling = $state(false);
   let confirmDeleteId = $state<number | null>(null);
   let loadError = $state('');
@@ -97,6 +99,7 @@
   let searchEl = $state<HTMLInputElement | null>(null);
   let idInput = $state<HTMLInputElement | null>(null);
   let fileInput = $state<HTMLInputElement | null>(null);
+  let replaceInput = $state<HTMLInputElement | null>(null);
 
   const dialogOpen = $derived(manage ? false : hideTrigger ? open : showing);
   const preview = $derived(library.find((item) => item.id === previewId) ?? null);
@@ -485,6 +488,63 @@
       backfilling = false;
     }
   }
+
+  /** Thêm tham số cache-bust để <img> tải lại ngay sau khi thay (URL/key không đổi). */
+  function bust(url: string): string {
+    return `${url}${url.includes('?') ? '&' : '?'}v=${Date.now()}`;
+  }
+
+  function onPickReplace(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = '';
+    if (file) void replacePreview(file);
+  }
+
+  /** Thay nội dung ảnh đang xem bằng file mới; giữ nguyên id nên mọi nơi dùng tự cập nhật. */
+  async function replacePreview(file: File) {
+    if (!preview || replacing) return;
+    const target = preview;
+    replacing = true;
+    message = '';
+    altStatus = 'Đang thay ảnh...';
+    try {
+      const image = await resizeImage(file);
+      const body = new FormData();
+      body.set('csrf', csrf);
+      body.set('intent', 'replace');
+      body.set('id', String(target.id));
+      body.set('file', image.file, image.file.name);
+      body.set('width', String(image.width));
+      body.set('height', String(image.height));
+      const response = await fetch(routes.adminMedia, { method: 'POST', headers: { accept: 'application/json' }, body });
+      const payload = (await response.json().catch(() => null)) as
+        | ({ ok?: boolean; url?: string; cardUrl?: string | null; thumbUrl?: string | null; filename?: string; mimeType?: string; width?: number | null; height?: number | null; sizeBytes?: number } & { error?: string })
+        | null;
+      if (!response.ok || !payload?.ok || !payload.url) {
+        altStatus = '';
+        message = payload?.error ?? 'Không thay được ảnh.';
+        return;
+      }
+      const next: Partial<MediaItem> = {
+        url: bust(payload.url),
+        cardUrl: payload.cardUrl ? bust(payload.cardUrl) : null,
+        thumbUrl: payload.thumbUrl ? bust(payload.thumbUrl) : null,
+        filename: payload.filename ?? target.filename,
+        mimeType: payload.mimeType ?? target.mimeType,
+        width: payload.width ?? null,
+        height: payload.height ?? null,
+        sizeBytes: payload.sizeBytes ?? target.sizeBytes,
+      };
+      library = library.map((entry) => (entry.id === target.id ? { ...entry, ...next } : entry));
+      altStatus = 'Đã thay ảnh.';
+    } catch (error) {
+      altStatus = '';
+      message = error instanceof Error ? error.message : 'Không thay được ảnh.';
+    } finally {
+      replacing = false;
+    }
+  }
 </script>
 
 {#if manage}
@@ -745,12 +805,19 @@
             </svg>
             {copied === preview.url ? 'Đã sao chép' : 'Sao chép URL'}
           </button>
+          <button class="btn media-replace-btn" type="button" disabled={replacing} title="Giữ nguyên mọi nơi đang dùng, chỉ đổi nội dung ảnh" onclick={() => replaceInput?.click()}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+            </svg>
+            {replacing ? 'Đang thay...' : 'Thay ảnh'}
+          </button>
           <button class="btn media-del-btn" type="button" disabled={inUse} title={inUse ? 'Ảnh đang được dùng, chưa xóa được.' : undefined} onclick={() => (confirmDeleteId = preview?.id ?? null)}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M10 11v6" /><path d="M14 11v6" />
             </svg>
             Xóa
           </button>
+          <input class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" bind:this={replaceInput} onchange={onPickReplace} />
         </div>
         <label class="media-field-block">
           <span class="media-field-label">ALT (mô tả ảnh)</span>

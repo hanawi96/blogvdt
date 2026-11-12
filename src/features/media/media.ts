@@ -429,6 +429,101 @@ export async function updateMediaAlt(db: AppDb, id: number, altText: string): Pr
   await db.update(media).set({ altText: altText.slice(0, 200) }).where(eq(media.id, id));
 }
 
+/**
+ * Thay nội dung ảnh cho một media id: ghi đè bytes mới lên đúng r2Key cũ (và tạo lại card/thumb
+ * trên đúng key cũ nếu có). Giữ nguyên id + mọi r2 key nên tất cả nơi tham chiếu (theo id hoặc
+ * theo URL nhúng trong nội dung) tự dùng ảnh mới mà không phải sửa gì. ETag R2 đổi theo bytes
+ * mới nên trình duyệt/CDN tải lại bản mới.
+ */
+export async function replaceMedia(
+  db: AppDb,
+  bucket: R2Bucket,
+  id: number,
+  parsed: { bytes: Uint8Array; filename: string; mimeType: string; width: number | null; height: number | null },
+  actor?: ActivityActor,
+): Promise<
+  | { ok: true; url: string; cardUrl: string | null; thumbUrl: string | null; filename: string; mimeType: string; width: number | null; height: number | null; sizeBytes: number }
+  | { ok: false; error: string }
+> {
+  const rows = await db.select().from(media).where(eq(media.id, id)).limit(1);
+  const item = rows[0];
+  if (!item) return { ok: false, error: 'Không tìm thấy ảnh.' };
+
+  // Ghi đè bản gốc trên đúng key cũ (giữ nguyên URL /media/{r2Key}).
+  await bucket.put(item.r2Key, parsed.bytes, { httpMetadata: { contentType: parsed.mimeType } });
+
+  // Tạo lại card/thumb nếu Images binding sẵn sàng. Dùng key cũ khi đã có; suy ra key mới nếu chưa có.
+  const images = optionalImagesBinding();
+  const variantKeys = variantKeysForStoredKey(item.r2Key);
+  let cardKey = item.cardR2Key;
+  let thumbKey = item.thumbR2Key;
+  if (images) {
+    const targetCardKey = item.cardR2Key ?? variantKeys?.card ?? null;
+    const targetThumbKey = item.thumbR2Key ?? variantKeys?.thumb ?? null;
+    const [cardBytes, thumbBytes] = await Promise.all([
+      targetCardKey ? createSquareWebp(images, parsed.bytes, MEDIA_CARD_SIZE) : Promise.resolve(null),
+      targetThumbKey ? createSquareWebp(images, parsed.bytes, MEDIA_THUMB_SIZE) : Promise.resolve(null),
+    ]);
+    if (cardBytes && targetCardKey) {
+      await bucket.put(targetCardKey, cardBytes, { httpMetadata: { contentType: 'image/webp' } });
+      cardKey = targetCardKey;
+    }
+    if (thumbBytes && targetThumbKey) {
+      await bucket.put(targetThumbKey, thumbBytes, { httpMetadata: { contentType: 'image/webp' } });
+      thumbKey = targetThumbKey;
+    }
+  }
+
+  try {
+    await commitWrites(db, [
+      db
+        .update(media)
+        .set({
+          cardR2Key: cardKey,
+          thumbR2Key: thumbKey,
+          filename: parsed.filename,
+          mimeType: parsed.mimeType,
+          sizeBytes: parsed.bytes.byteLength,
+          width: parsed.width,
+          height: parsed.height,
+        })
+        .where(eq(media.id, id)),
+      ...(actor
+        ? [
+            activityWrite(
+              db,
+              {
+                actorId: actor.id,
+                actorName: actor.name,
+                action: 'media.replace',
+                objectType: 'media',
+                objectId: String(id),
+                summary: `Đã thay ảnh ${quotedLabel(parsed.filename, 'Không tên')}.`,
+                createdAt: Date.now(),
+              },
+              true,
+            ),
+          ]
+        : []),
+    ]);
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'media_replace_failed', name: error instanceof Error ? error.name : 'unknown' }));
+    return { ok: false, error: 'Không thay được ảnh.' };
+  }
+
+  return {
+    ok: true,
+    url: routes.media(item.r2Key),
+    cardUrl: cardKey ? routes.media(cardKey) : null,
+    thumbUrl: thumbKey ? routes.media(thumbKey) : null,
+    filename: parsed.filename,
+    mimeType: parsed.mimeType,
+    width: parsed.width,
+    height: parsed.height,
+    sizeBytes: parsed.bytes.byteLength,
+  };
+}
+
 export type MediaRef = { url: string; alt: string; width: number | null; height: number | null };
 
 /** Lấy nhanh url/alt/kích thước cho một nhóm media id (ví dụ ảnh hero/OG của landing). */
@@ -584,6 +679,25 @@ export async function backfillMediaVariants(
     updated,
     skipped,
     remaining: Math.max(0, remainingBefore - updated),
+  };
+}
+
+/** Validate file cho thao tác thay ảnh (giữ nguyên key cũ nên không sinh object key mới). */
+export async function parseReplaceUpload(form: FormData) {
+  const file = form.get('file');
+  if (!(file instanceof File)) return { ok: false as const, error: 'Chọn một ảnh.' };
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const sizeError = imageSizeError(bytes.byteLength);
+  if (sizeError) return { ok: false as const, error: sizeError };
+  const kind = detectImageType(bytes);
+  if (!kind) return { ok: false as const, error: 'Chỉ nhận ảnh JPEG, PNG hoặc WebP.' };
+  return {
+    ok: true as const,
+    bytes,
+    filename: displayFilename(file.name),
+    mimeType: kind.mimeType,
+    width: dimension(form.get('width')),
+    height: dimension(form.get('height')),
   };
 }
 

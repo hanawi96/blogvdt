@@ -1,20 +1,20 @@
 ---
-import BlogSidebar from '../../../components/public/BlogSidebar.astro';
-import DataError from '../../../components/public/DataError.astro';
-import NotFound from '../../../components/public/NotFound.astro';
-import Pagination from '../../../components/public/Pagination.astro';
-import PostCard from '../../../components/public/PostCard.astro';
-import { getCategoryBySlug, listPublicCategories, listPublishedPosts, listRecentPublishedPosts, parseListPage } from '../../../features/posts/public';
-import { redirectHttpResponse } from '../../../features/redirects/http';
-import { resolvePublicRedirect } from '../../../features/redirects/lookup';
-import { getPublicSite } from '../../../features/settings/settings';
-import PublicLayout from '../../../layouts/PublicLayout.astro';
-import { createDb } from '../../../lib/db/client';
-import { applyCoverMeasure } from '../../../features/media/media';
-import { getDbBinding, getSiteOrigin, optionalMediaBucket } from '../../../lib/cloudflare/env';
-import { buildMeta, categoryPageMeta, notFoundMeta, unavailableMeta } from '../../../lib/seo/meta';
-import { blogReadStatus, FRESH_PAGE_CACHE, PRIVATE_PAGE_CACHE } from '../../../lib/seo/cache';
-import { routes } from '../../../lib/routes';
+import BlogSidebar from '../../components/public/BlogSidebar.astro';
+import DataError from '../../components/public/DataError.astro';
+import NotFound from '../../components/public/NotFound.astro';
+import Pagination from '../../components/public/Pagination.astro';
+import PostCard from '../../components/public/PostCard.astro';
+import { getCategoryBySlug, listPublicCategories, listPublishedPosts, listRecentPublishedPosts, parseListPage } from '../../features/posts/public';
+import { redirectHttpResponse } from '../../features/redirects/http';
+import { resolvePublicRedirect } from '../../features/redirects/lookup';
+import { getPublicSite } from '../../features/settings/settings';
+import PublicLayout from '../../layouts/PublicLayout.astro';
+import { createDb } from '../../lib/db/client';
+import { applyCoverMeasure } from '../../features/media/media';
+import { getDbBinding, getSiteOrigin, optionalMediaBucket } from '../../lib/cloudflare/env';
+import { buildMeta, categoryPageMeta, notFoundMeta, unavailableMeta } from '../../lib/seo/meta';
+import { blogReadStatus, FRESH_PAGE_CACHE, PRIVATE_PAGE_CACHE } from '../../lib/seo/cache';
+import { routes } from '../../lib/routes';
 
 const slug = Astro.params.slug ?? '';
 const requestedPage = parseListPage(Astro.url.searchParams.get('page'));

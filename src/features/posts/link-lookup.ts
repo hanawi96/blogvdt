@@ -8,6 +8,7 @@ import {
   collectPostPaths,
   postLinkCounts,
   postPathFromHref,
+  postSlugFromHref,
   rankLinkSuggestions,
   type InternalLinkHit,
   type PostLinkCount,
@@ -131,7 +132,8 @@ export async function listPostLinkCounts(db: AppDb, rows: ReadonlyArray<{ id: nu
     db
       .select({ id: posts.id, contentJson: posts.contentJson })
       .from(posts)
-      .where(and(livePublished(), like(posts.contentJson, '%/kien-thuc/%'))),
+      // Bài ở root /{slug} nên không còn tiền tố chung; lọc theo mark link của Tiptap.
+      .where(and(livePublished(), like(posts.contentJson, '%"type":"link"%'))),
   ]);
   return postLinkCounts(page, sources);
 }
@@ -145,5 +147,5 @@ export async function listPostLinkCountsByIds(db: AppDb, ids: ReadonlyArray<numb
 }
 
 function slugOf(path: string): string {
-  return postPathFromHref(path)?.slice('/kien-thuc/'.length) ?? '';
+  return postSlugFromHref(path);
 }

@@ -4,7 +4,7 @@ import { sanitizePostContent } from './content';
 import { parseCategoryIds } from './post-categories';
 import { parseTagIds } from './post-tags';
 import type { PostInput } from './posts';
-import { SLUG_PATTERN } from './slug';
+import { isReservedSlug, SLUG_PATTERN } from './slug';
 import { isPostStatus } from './status';
 
 const postFields = z.object({
@@ -35,6 +35,7 @@ export function parsePostForm(form: FormData): { ok: true; input: PostInput } | 
     status: formValue(form, 'status'),
   });
   if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
+  if (isReservedSlug(parsed.data.slug)) return { ok: false, errors: { slug: 'Slug này trùng đường dẫn hệ thống, hãy chọn slug khác.' } };
   if (!isPostStatus(parsed.data.status)) return { ok: false, errors: { status: 'Trạng thái không hợp lệ.' } };
   const categories = parseCategoryIds(form);
   if (!categories.ok) return { ok: false, errors: { categoryIds: categories.error } };

@@ -101,6 +101,7 @@ const orderAttrs = {
             <input type="hidden" name="slug" value={product.slug} />
             <input type="hidden" name="weight" value="" />
             <input type="hidden" name="quantity" value="1" />
+            <input type="hidden" name="price" value={product.price} />
             <button class="btn home-shop-cart" type="submit">
               <svg class="home-shop-btn-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"></path>
@@ -123,6 +124,7 @@ const orderAttrs = {
           <p class="font-semibold text-primary-strong">{formatVnd(product.price)}</p>
           <input type="hidden" name="intent" value="add" />
           <input type="hidden" name="slug" value={product.slug} />
+          <input type="hidden" name="price" value={product.price} />
           <fieldset class="mt-3">
             <legend class="text-sm font-semibold">Cân nặng của bé</legend>
             <div class="weight-grid mt-2" role="radiogroup">

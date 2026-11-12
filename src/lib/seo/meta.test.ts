@@ -6,10 +6,10 @@ describe('SEO', () => {
     const meta = buildMeta('http://localhost:4321/', {
       title: 'Bài',
       description: 'Mô tả',
-      path: '/kien-thuc/bai',
+      path: '/bai',
       image: '/media/2026/10/a.png',
     });
-    expect(meta.canonical).toBe('http://localhost:4321/kien-thuc/bai');
+    expect(meta.canonical).toBe('http://localhost:4321/bai');
     expect(meta.image).toBe('http://localhost:4321/media/2026/10/a.png');
   });
 
@@ -18,7 +18,7 @@ describe('SEO', () => {
     expect(siteOrigin('http://vongdautam.vn')).toBe('https://vongdautam.vn');
     expect(canonicalUrl('https://vongdautam.vn', '/kien-thuc/?utm_source=zalo&fbclid=1')).toBe('https://vongdautam.vn/kien-thuc');
     expect(canonicalUrl('https://vongdautam.vn', '/kien-thuc?page=1&utm_campaign=a')).toBe('https://vongdautam.vn/kien-thuc');
-    expect(canonicalUrl('https://vongdautam.vn', '/kien-thuc/danh-muc/goc-chia-se?page=2&utm_source=fb')).toBe('https://vongdautam.vn/kien-thuc/danh-muc/goc-chia-se?page=2');
+    expect(canonicalUrl('https://vongdautam.vn', '/danh-muc/goc-chia-se?page=2&utm_source=fb')).toBe('https://vongdautam.vn/danh-muc/goc-chia-se?page=2');
     expect(canonicalUrl('https://vongdautam.vn', '/')).toBe('https://vongdautam.vn/');
     expect(canonicalUrl('https://vongdautam.vn', '/kien-thuc/nh%C3%ACn')).toBe('https://vongdautam.vn/kien-thuc/nh%C3%ACn');
     expect(canonicalUrl('https://vongdautam.vn', '/kien-thuc/a%20%26%20b')).toBe('https://vongdautam.vn/kien-thuc/a%20%26%20b');
@@ -30,14 +30,14 @@ describe('SEO', () => {
     const schema = blogPostingSchema({
       headline: 'Bài',
       description: 'Mô tả',
-      canonical: 'http://localhost:4321/kien-thuc/bai',
+      canonical: 'http://localhost:4321/bai',
       image: null,
       publishedTime: '2026-10-01T00:00:00.000Z',
       siteName: 'Vòng Dâu Tằm',
       logo: null,
     });
     expect(schema?.['@type']).toBe('BlogPosting');
-    expect(schema?.url).toBe('http://localhost:4321/kien-thuc/bai');
+    expect(schema?.url).toBe('http://localhost:4321/bai');
     expect(schema?.datePublished).toBe('2026-10-01T00:00:00.000Z');
     expect(schema).not.toHaveProperty('dateModified');
     expect(schema).not.toHaveProperty('image');
@@ -47,7 +47,7 @@ describe('SEO', () => {
     const pictured = blogPostingSchema({
       headline: 'Bài',
       description: 'Mô tả',
-      canonical: 'http://localhost:4321/kien-thuc/bai',
+      canonical: 'http://localhost:4321/bai',
       image: { url: 'http://localhost:4321/media/a.png', width: 800, height: 600 },
       publishedTime: '2026-10-02T00:00:00.000Z',
       modifiedTime: '2026-10-01T00:00:00.000Z',
@@ -58,7 +58,7 @@ describe('SEO', () => {
     const authored = blogPostingSchema({
       headline: 'Bài',
       description: 'Mô tả',
-      canonical: 'http://localhost:4321/kien-thuc/bai',
+      canonical: 'http://localhost:4321/bai',
       siteName: 'Vòng Dâu Tằm',
       authorUrl: 'http://localhost:4321/',
       author: { name: 'Nguyễn An', url: 'https://facebook.com/an', image: 'https://cdn.test/a.png' },
@@ -67,7 +67,7 @@ describe('SEO', () => {
     const authoredNoLinks = blogPostingSchema({
       headline: 'Bài',
       description: 'Mô tả',
-      canonical: 'http://localhost:4321/kien-thuc/bai',
+      canonical: 'http://localhost:4321/bai',
       siteName: 'Vòng Dâu Tằm',
       author: { name: 'Nguyễn An', url: 'javascript:alert(1)', image: null },
     });
@@ -85,12 +85,12 @@ describe('SEO', () => {
     const trail = breadcrumbSchema('http://localhost:4321', [
       { name: 'Trang chủ', path: '/' },
       { name: 'Kiến thức', path: '/kien-thuc' },
-      { name: 'Bài', path: '/kien-thuc/bai' },
+      { name: 'Bài', path: '/bai' },
     ]);
     expect(trail?.itemListElement).toEqual([
       { '@type': 'ListItem', position: 1, name: 'Trang chủ', item: 'http://localhost:4321/' },
       { '@type': 'ListItem', position: 2, name: 'Kiến thức', item: 'http://localhost:4321/kien-thuc' },
-      { '@type': 'ListItem', position: 3, name: 'Bài', item: 'http://localhost:4321/kien-thuc/bai' },
+      { '@type': 'ListItem', position: 3, name: 'Bài', item: 'http://localhost:4321/bai' },
     ]);
     expect(breadcrumbSchema('http://localhost:4321', [{ name: 'Bài', path: '/kien-thuc/../admin' }])).toBeNull();
     expect(blogPostingSchema({
@@ -185,23 +185,23 @@ describe('title và description', () => {
   });
 
   it('metadata chia sẻ dùng canonical và ảnh cùng host', () => {
-    expect(shareOriginFrom('https://vongdautam.vn/kien-thuc/bai', 'http://localhost:4321')).toBe('https://vongdautam.vn');
+    expect(shareOriginFrom('https://vongdautam.vn/bai', 'http://localhost:4321')).toBe('https://vongdautam.vn');
     expect(shareImageUrl('https://vongdautam.vn', '/media/2026/10/a.webp')).toBe('https://vongdautam.vn/media/2026/10/a.webp');
     expect(shareImageUrl('https://vongdautam.vn', 'https://evil.example/media/a.webp')).toBeNull();
     expect(shareImageUrl('https://vongdautam.vn', 'javascript:alert(1)')).toBeNull();
     const share = shareMetadata({
       title: 'Bé & "mẹ" <script>',
       description: 'Mô tả "SEO" & bé.',
-      canonical: 'https://vongdautam.vn/kien-thuc/bai?utm_source=zalo',
+      canonical: 'https://vongdautam.vn/bai?utm_source=zalo',
       type: 'article',
       image: { url: 'https://vongdautam.vn/media/2026/10/a.webp', alt: 'Ảnh bé', width: 1200, height: 630, mimeType: 'image/webp' },
     });
     expect(share.title).toBe('Bé & "mẹ" <script>');
     expect(share.description).toBe('Mô tả "SEO" & bé.');
-    expect(share.url).toBe('https://vongdautam.vn/kien-thuc/bai?utm_source=zalo');
+    expect(share.url).toBe('https://vongdautam.vn/bai?utm_source=zalo');
     expect(share.image).toMatchObject({ url: 'https://vongdautam.vn/media/2026/10/a.webp', alt: 'Ảnh bé', width: 1200, height: 630, mimeType: 'image/webp' });
     expect(share.card).toBe('summary_large_image');
-    expect(shareMetadata({ title: 'Không ảnh', description: 'Mô tả', canonical: 'https://vongdautam.vn/kien-thuc/bai' }).card).toBe('summary');
+    expect(shareMetadata({ title: 'Không ảnh', description: 'Mô tả', canonical: 'https://vongdautam.vn/bai' }).card).toBe('summary');
     expect(shareMetadata({ title: 'Ảnh lạ', description: 'Mô tả', image: { url: 'https://evil.example/a.jpg', mimeType: 'image/jpeg' } }).image).toBeNull();
     expect(shareMetadata({ title: 'Svg', description: 'Mô tả', image: { url: 'https://vongdautam.vn/media/a.svg', mimeType: 'image/svg+xml' } }).image).toBeNull();
     expect(shareMetadata({ title: 'Thiếu cạnh', description: 'Mô tả', image: { url: 'https://vongdautam.vn/media/a.webp', width: 800 } }).image).toMatchObject({ width: null, height: null });

@@ -12,6 +12,42 @@ const LETTERS: Record<string, string> = {
 
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+/**
+ * Slug bài viết nằm ở root `/{slug}` nên không được trùng các path hệ thống cấp 1
+ * (route tĩnh, API, file đặc biệt). Giữ đồng bộ với src/pages và public/.
+ */
+export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
+  'admin',
+  'api',
+  'media',
+  'kien-thuc',
+  'danh-muc',
+  'tag',
+  'tim-kiem',
+  'san-pham',
+  'mau-vong-dau-tam',
+  'gio-hang',
+  'dat-hang',
+  'chinh-sach',
+  'lp',
+  'sitemap.xml',
+  'robots.txt',
+  'favicon.svg',
+  'favicon.ico',
+  '404',
+  '_astro',
+  '_image',
+  // Thư mục asset tĩnh trong public/ (phục vụ ở root).
+  'data',
+  'fonts',
+  'gioi-thieu',
+  'lien-he',
+]);
+
+export function isReservedSlug(slug: string): boolean {
+  return RESERVED_SLUGS.has(slug.toLowerCase());
+}
+
 export function slugify(value: string): string {
   const lower = value.trim().toLowerCase();
   let result = '';
