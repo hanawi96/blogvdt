@@ -110,6 +110,9 @@ async function reachableShareImage(
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width" />
+    {/* Preload font body chính (Be Vietnam Pro 400 subset Việt + Latin) để đổi font sớm, giảm nhấp nháy. */}
+    <link rel="preload" as="font" type="font/woff2" href="/fonts/be-vietnam-pro-vietnamese-400.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="/fonts/be-vietnam-pro-latin-400.woff2" crossorigin />
     {!embed && preloadImage && <link rel="preload" as="image" href={preloadImage} fetchpriority="high" />}
     <title>{share.title}</title>
     <meta name="description" content={share.description} />

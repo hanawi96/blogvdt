@@ -42,6 +42,11 @@ export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   'fonts',
   'gioi-thieu',
   'lien-he',
+  'chinh-sach-bao-mat',
+  'chinh-sach-doi-tra',
+  'chinh-sach-van-chuyen',
+  'chinh-sach-thanh-toan',
+  'dieu-khoan-va-dich-vu',
 ]);
 
 export function isReservedSlug(slug: string): boolean {

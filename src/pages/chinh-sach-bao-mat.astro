@@ -1,0 +1,337 @@
+---
+import { staticChrome } from '../features/content/policies';
+import { getPublicSite } from '../features/settings/settings';
+import PublicLayout from '../layouts/PublicLayout.astro';
+import { createDb } from '../lib/db/client';
+import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
+import { PUBLIC_PAGE_CACHE } from '../lib/seo/cache';
+import { buildMeta } from '../lib/seo/meta';
+import { routes } from '../lib/routes';
+
+const PATH = routes.policyPrivacy;
+const UPDATED = '12/11/2026';
+
+const chrome = await loadChrome();
+Astro.response.headers.set('Cache-Control', PUBLIC_PAGE_CACHE);
+
+const title = 'Chính sách bảo mật thông tin';
+const description =
+  'Cách Vòng Dâu Tằm By Anh thu thập, sử dụng và bảo vệ thông tin của mẹ và bé khi tư vấn, chế tác vòng và giao hàng.';
+const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
+  title,
+  description,
+  path: PATH,
+  siteName: chrome.siteName,
+});
+
+async function loadChrome() {
+  try {
+    return (await getPublicSite(createDb(getDbBinding()))) ?? staticChrome;
+  } catch {
+    return staticChrome;
+  }
+}
+---
+
+<PublicLayout
+  title={meta.title}
+  description={meta.description}
+  canonical={meta.canonical}
+  robots="index,follow"
+  siteName={chrome.siteName}
+  faviconUrl={chrome.faviconUrl || '/favicon.svg'}
+  chrome={chrome}
+>
+  <main class="policy-page">
+    <article class="policy-article">
+      <header class="policy-hero">
+        <p class="policy-kicker">Cam kết của chúng mình</p>
+        <h1 class="policy-title">
+          Chính sách bảo mật
+          <span class="policy-title-script">thông tin của mẹ &amp; bé</span>
+        </h1>
+        <p class="policy-updated">Cập nhật lần cuối: {UPDATED}</p>
+        <p class="policy-rule" aria-hidden="true"><span>♥</span></p>
+      </header>
+
+      <div class="policy-lead">
+        <p>
+          Tại <strong>Vòng Dâu Tằm By Anh</strong>, chúng mình hiểu rằng sự riêng tư và an toàn thông tin của mẹ và
+          bé luôn là điều quan trọng.
+        </p>
+        <p>
+          Mỗi chiếc vòng dâu tằm đều được làm thủ công và điều chỉnh kích thước theo cân nặng riêng của từng bé. Vì
+          vậy, khi mẹ đặt hàng, chúng mình cần thu thập một số thông tin cần thiết để tư vấn, chế tác vòng và giao
+          sản phẩm đến tận tay mẹ.
+        </p>
+        <p>
+          Chúng mình trân trọng sự tin tưởng của mẹ và luôn hướng đến việc sử dụng thông tin cá nhân một cách minh
+          bạch, đúng mục đích và phù hợp với quy định pháp luật.
+        </p>
+      </div>
+
+      <section class="policy-section" aria-labelledby="ps-1">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">01</span>
+          <h2 id="ps-1">Thông tin chúng mình thu thập</h2>
+        </div>
+        <p>
+          Khi mẹ truy cập website, liên hệ tư vấn hoặc đặt mua sản phẩm, Vòng Dâu Tằm By Anh có thể thu thập những
+          thông tin sau:
+        </p>
+        <p class="policy-subhead">Thông tin của người đặt hàng</p>
+        <ul class="policy-list">
+          <li>Họ và tên người nhận.</li>
+          <li>Số điện thoại liên hệ.</li>
+          <li>Địa chỉ giao hàng.</li>
+          <li>Email (nếu mẹ cung cấp).</li>
+          <li>Thông tin về mẫu vòng, đơn hàng và phương thức thanh toán.</li>
+        </ul>
+        <p class="policy-subhead">Thông tin của bé</p>
+        <ul class="policy-list">
+          <li>Cân nặng của bé, nhằm lựa chọn kích thước vòng phù hợp.</li>
+        </ul>
+        <p>
+          Chúng mình không yêu cầu cung cấp tên, ngày sinh, giấy khai sinh hoặc thông tin sức khỏe của bé để đặt
+          vòng.
+        </p>
+        <p class="policy-subhead">Thông tin khi sử dụng website</p>
+        <p>
+          Website có sử dụng các công cụ của Google và Meta Pixel. Tùy theo cấu hình và lựa chọn quyền riêng tư của
+          khách hàng, các công cụ này có thể thu thập những dữ liệu như:
+        </p>
+        <ul class="policy-list">
+          <li>Địa chỉ IP và thông tin thiết bị, trình duyệt.</li>
+          <li>Trang sản phẩm đã xem và hoạt động tương tác trên website.</li>
+          <li>Nguồn truy cập và các sự kiện liên quan đến quá trình mua hàng.</li>
+          <li>Cookie và các mã định danh trực tuyến khác.</li>
+        </ul>
+      </section>
+
+      <section class="policy-section" aria-labelledby="ps-2">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">02</span>
+          <h2 id="ps-2">Mục đích sử dụng thông tin</h2>
+        </div>
+        <p>Thông tin được thu thập để phục vụ những mục đích sau:</p>
+        <p class="policy-subhead">Tư vấn và làm vòng theo cân nặng của bé</p>
+        <p>
+          Cân nặng mẹ cung cấp được sử dụng để lựa chọn kích thước vòng theo quy trình chế tác thủ công của Vòng Dâu
+          Tằm By Anh.
+        </p>
+        <p class="policy-subhead">Xử lý và giao đơn hàng</p>
+        <p>
+          Sử dụng tên, số điện thoại, địa chỉ và thông tin sản phẩm để xác nhận đơn hàng, liên hệ khi cần thiết và
+          thực hiện giao hàng.
+        </p>
+        <p class="policy-subhead">Chăm sóc và hỗ trợ khách hàng</p>
+        <p>
+          Giải đáp thắc mắc, hướng dẫn sử dụng, hỗ trợ điều chỉnh vòng và giải quyết những vấn đề liên quan đến đơn
+          hàng.
+        </p>
+        <p class="policy-subhead">Phân tích và cải thiện website</p>
+        <p>
+          Sử dụng dữ liệu truy cập phù hợp để tìm hiểu hiệu quả hoạt động của website và cải thiện trải nghiệm mua
+          sắm.
+        </p>
+        <p class="policy-subhead">Đo lường và tối ưu quảng cáo</p>
+        <p>
+          Các công cụ Google và Meta Pixel có thể được sử dụng để đo lường hiệu quả quảng cáo, ghi nhận các tương
+          tác trên website và hỗ trợ hoạt động quảng cáo theo cấu hình được triển khai và sự lựa chọn quyền riêng tư
+          của khách hàng.
+        </p>
+        <p>
+          Vòng Dâu Tằm By Anh không sử dụng thông tin liên hệ của khách hàng để tự động gửi tin nhắn quảng cáo,
+          chương trình khuyến mãi hoặc email tiếp thị sau khi mua hàng.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="ps-3">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">03</span>
+          <h2 id="ps-3">Bảo vệ thông tin cá nhân của mẹ và bé</h2>
+        </div>
+        <p>Chúng mình đặc biệt coi trọng quyền riêng tư của trẻ nhỏ.</p>
+        <p>
+          Thông tin cân nặng của bé chỉ được yêu cầu nhằm phục vụ việc lựa chọn kích thước vòng, không nhằm chẩn
+          đoán, đánh giá hoặc theo dõi tình trạng sức khỏe.
+        </p>
+        <p>
+          Cha mẹ hoặc người đại diện hợp pháp của bé là người cung cấp thông tin và thực hiện các quyền liên quan đến
+          dữ liệu cá nhân của bé theo quy định pháp luật.
+        </p>
+        <p>
+          Vòng Dâu Tằm By Anh có trách nhiệm áp dụng các biện pháp bảo vệ dữ liệu phù hợp, hạn chế việc truy cập, sử
+          dụng hoặc tiết lộ thông tin trái phép.
+        </p>
+        <p>
+          Chúng mình không chủ động công khai thông tin cá nhân của mẹ và bé phục vụ hoạt động bán hàng khi chưa có
+          căn cứ hợp pháp phù hợp.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="ps-4">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">04</span>
+          <h2 id="ps-4">Chia sẻ thông tin với bên thứ ba</h2>
+        </div>
+        <p>
+          Thông tin khách hàng có thể được chia sẻ với những bên liên quan khi cần thiết để cung cấp dịch vụ, bao
+          gồm:
+        </p>
+        <ul class="policy-list">
+          <li><strong>Đơn vị vận chuyển:</strong> thông tin người nhận, số điện thoại và địa chỉ để thực hiện giao hàng.</li>
+          <li><strong>Đơn vị xử lý thanh toán:</strong> những thông tin cần thiết để hỗ trợ giao dịch, nếu khách hàng sử dụng phương thức thanh toán qua đơn vị này.</li>
+          <li><strong>Nền tảng website và dịch vụ kỹ thuật:</strong> dữ liệu cần thiết để vận hành, lưu trữ và duy trì website.</li>
+          <li><strong>Google và Meta:</strong> một số dữ liệu về hoạt động truy cập và tương tác có thể được xử lý nhằm phục vụ phân tích, đo lường và quảng cáo.</li>
+          <li><strong>Cơ quan nhà nước có thẩm quyền:</strong> trong trường hợp có yêu cầu hợp pháp.</li>
+        </ul>
+        <p>
+          Việc chia sẻ và xử lý thông tin phải có mục đích phù hợp và tuân thủ các yêu cầu bảo vệ dữ liệu cá nhân có
+          liên quan.
+        </p>
+        <p>Chúng mình không chủ trương bán danh sách thông tin khách hàng cho các đơn vị khác.</p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="ps-5">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">05</span>
+          <h2 id="ps-5">Cookie, Google và Meta Pixel</h2>
+        </div>
+        <p>
+          Website <strong>vongdautambyanh.vn</strong> có sử dụng các công nghệ theo dõi và đo lường, bao gồm các công
+          cụ của Google và Meta Pixel.
+        </p>
+        <p>Những công nghệ này có thể giúp chúng mình:</p>
+        <ul class="policy-list">
+          <li>Thống kê lượt truy cập website.</li>
+          <li>Hiểu cách khách hàng tương tác với các trang sản phẩm.</li>
+          <li>Đo lường hiệu quả chiến dịch quảng cáo.</li>
+          <li>Hỗ trợ tối ưu quảng cáo và trải nghiệm mua sắm.</li>
+        </ul>
+        <p>
+          Một số cookie hoặc dữ liệu có thể được xử lý bởi Google, Meta và các nhà cung cấp dịch vụ có liên quan, tùy
+          thuộc vào cấu hình thực tế.
+        </p>
+        <p>
+          Đối với hoạt động xử lý dữ liệu cần sự đồng ý theo quy định pháp luật, website sẽ cần cung cấp cơ chế để
+          khách hàng lựa chọn trước khi tiến hành.
+        </p>
+        <p>
+          Mẹ có thể sử dụng các tùy chọn quyền riêng tư trên website (nếu được cung cấp) hoặc cài đặt trình duyệt để
+          quản lý cookie. Việc tắt một số cookie có thể ảnh hưởng đến một số chức năng của website.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="ps-6">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">06</span>
+          <h2 id="ps-6">Thời gian lưu trữ thông tin</h2>
+        </div>
+        <p>Thông tin đơn hàng và thông tin khách hàng được lưu trữ trong khoảng thời gian cần thiết để:</p>
+        <ul class="policy-list">
+          <li>Xử lý và hoàn tất đơn hàng.</li>
+          <li>Hỗ trợ khách hàng sau khi mua.</li>
+          <li>Giải quyết khiếu nại hoặc tranh chấp nếu phát sinh.</li>
+          <li>Thực hiện những nghĩa vụ lưu trữ theo quy định pháp luật.</li>
+        </ul>
+        <p>
+          Thông tin cân nặng của bé không được sử dụng cho các mục đích không liên quan đến việc tư vấn và chế tác
+          vòng.
+        </p>
+        <p>
+          Khi mục đích sử dụng đã hoàn thành và không còn căn cứ pháp lý để tiếp tục lưu trữ, thông tin sẽ được xử lý
+          theo quy định pháp luật về bảo vệ dữ liệu cá nhân.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="ps-7">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">07</span>
+          <h2 id="ps-7">Quyền của khách hàng đối với dữ liệu cá nhân</h2>
+        </div>
+        <p>
+          Mẹ có quyền liên hệ Vòng Dâu Tằm By Anh để thực hiện các quyền đối với thông tin cá nhân theo quy định, bao
+          gồm:
+        </p>
+        <ul class="policy-list">
+          <li>Yêu cầu xem hoặc cung cấp thông tin cá nhân.</li>
+          <li>Yêu cầu chỉnh sửa thông tin chưa chính xác.</li>
+          <li>Yêu cầu xóa hoặc hạn chế xử lý dữ liệu trong những trường hợp được pháp luật quy định.</li>
+          <li>Rút lại sự đồng ý đối với hoạt động xử lý dữ liệu dựa trên sự đồng ý.</li>
+          <li>Phản đối hoạt động xử lý dữ liệu theo quy định.</li>
+          <li>Khiếu nại về việc thu thập hoặc sử dụng thông tin cá nhân.</li>
+        </ul>
+        <p>
+          Đối với dữ liệu của bé, cha mẹ hoặc người đại diện theo pháp luật có thể thực hiện các quyền liên quan theo
+          quy định hiện hành.
+        </p>
+        <p>Khách hàng có thể gửi yêu cầu qua số điện thoại hoặc email được cung cấp ở cuối chính sách.</p>
+        <p>
+          Các yêu cầu sẽ được tiếp nhận, xem xét và xử lý theo quy định pháp luật. Trong một số trường hợp, chúng
+          mình có thể cần xác minh người gửi yêu cầu để tránh việc cung cấp thông tin cho người không có quyền.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="ps-8">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">08</span>
+          <h2 id="ps-8">Bảo mật thông tin khi đặt hàng và thanh toán</h2>
+        </div>
+        <p>
+          Khách hàng có thể đặt mua sản phẩm trực tiếp trên website hoặc liên hệ với Vòng Dâu Tằm By Anh qua các kênh
+          tư vấn như Zalo, Messenger và điện thoại.
+        </p>
+        <p>Khi đặt hàng, mẹ chỉ nên cung cấp những thông tin cần thiết để tư vấn, xác nhận và giao sản phẩm.</p>
+        <p>
+          Chúng mình không yêu cầu khách hàng cung cấp mật khẩu tài khoản ngân hàng, mã PIN hay mã OTP để hoàn tất
+          việc đặt vòng.
+        </p>
+        <p>
+          Đối với các giao dịch thực hiện qua nền tảng thanh toán hoặc liên lạc bên thứ ba, dữ liệu cũng có thể chịu
+          sự điều chỉnh của chính sách quyền riêng tư từ nhà cung cấp dịch vụ tương ứng.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="ps-9">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">09</span>
+          <h2 id="ps-9">Thay đổi chính sách bảo mật</h2>
+        </div>
+        <p>
+          Vòng Dâu Tằm By Anh có thể cập nhật chính sách này khi có thay đổi về hoạt động kinh doanh, tính năng
+          website, công cụ xử lý dữ liệu hoặc quy định pháp luật.
+        </p>
+        <p>Nội dung cập nhật sẽ được công bố trên website cùng ngày cập nhật mới nhất.</p>
+        <p>
+          Trong những trường hợp pháp luật yêu cầu thông báo hoặc xin sự đồng ý mới, chúng mình sẽ thực hiện trước
+          khi áp dụng hoạt động xử lý dữ liệu tương ứng.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="ps-10">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">10</span>
+          <h2 id="ps-10">Thông tin liên hệ</h2>
+        </div>
+        <p>
+          Nếu mẹ có bất kỳ câu hỏi, thắc mắc hoặc yêu cầu nào liên quan đến chính sách bảo mật, vui lòng liên hệ:
+        </p>
+        <div class="policy-contact">
+          <p class="policy-contact-name">Vòng Dâu Tằm By Anh</p>
+          <ul class="policy-contact-list">
+            <li><span>Website</span><a href="https://vongdautambyanh.vn" target="_blank" rel="noopener">vongdautambyanh.vn</a></li>
+            <li><span>Điện thoại / Zalo</span><a href="tel:0972483892">0972 483 892</a></li>
+            <li><span>Email</span><a href="mailto:vondautambyanh@gmail.com">vondautambyanh@gmail.com</a></li>
+            <li><span>Địa chỉ</span><p>Xóm 4, Đông Cao, Mê Linh, Hà Nội.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <footer class="policy-closing">
+        <p>Chúng mình luôn trân trọng sự tin tưởng của mẹ và mong muốn mang đến trải nghiệm mua sắm gần gũi, rõ ràng và an tâm.</p>
+        <p class="policy-closing-script">Vòng Dâu Tằm By Anh — tỉ mỉ trong từng chiếc vòng nhỏ, trân trọng từng niềm tin của mẹ.</p>
+      </footer>
+    </article>
+  </main>
+</PublicLayout>

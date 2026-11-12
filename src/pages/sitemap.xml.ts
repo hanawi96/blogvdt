@@ -25,11 +25,17 @@ export const GET: APIRoute = async ({ url }) => {
       { path: routes.home, lastmod: contentLastmod },
       { path: routes.knowledgeList, lastmod: contentLastmod },
       { path: routes.catalog },
+      { path: routes.about },
+      { path: routes.terms },
       ...categories.map((category) => ({ path: routes.knowledgeCategory(category.slug), lastmod: sitemapLastmod(category.updatedAt) })),
       ...tagPages.map((tag) => ({ path: routes.tag(tag.slug), lastmod: sitemapLastmod(tag.updatedAt) })),
       ...posts.map((post) => ({ path: routes.knowledge(post.slug), lastmod: sitemapLastmod(post.updatedAt) })),
       ...productPages.map((product) => ({ path: routes.product(product.slug), lastmod: sitemapLastmod(product.updatedAt) })),
       ...POLICIES.map((policy) => ({ path: routes.policy(policy.slug) })),
+      { path: routes.policyPrivacy },
+      { path: routes.policyReturn },
+      { path: routes.policyShipping },
+      { path: routes.policyPayment },
     ].filter((entry) => !blocked.has(entry.path));
     const xml = sitemapXml(getSiteOrigin(url.origin), entries);
     if (!xml) {

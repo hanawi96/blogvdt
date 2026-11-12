@@ -1,0 +1,185 @@
+---
+import { staticChrome } from '../features/content/policies';
+import { getPublicSite } from '../features/settings/settings';
+import PublicLayout from '../layouts/PublicLayout.astro';
+import { createDb } from '../lib/db/client';
+import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
+import { PUBLIC_PAGE_CACHE } from '../lib/seo/cache';
+import { buildMeta } from '../lib/seo/meta';
+import { routes } from '../lib/routes';
+
+const chrome = await loadChrome();
+Astro.response.headers.set('Cache-Control', PUBLIC_PAGE_CACHE);
+
+const title = 'Giới thiệu Vòng Dâu Tằm By Ánh';
+const description =
+  'Câu chuyện của hai chị em làm vòng dâu tằm thủ công từ cành dâu quê nhà — nguồn gốc thật, chế tác tỉ mỉ, làm riêng theo cân nặng của bé.';
+const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
+  title,
+  description,
+  path: routes.about,
+  siteName: chrome.siteName,
+});
+
+const zaloHref = chrome.zaloUrl || 'https://zalo.me/0972483892';
+
+const PROCESS = [
+  { img: '/Images/quy-trinh/quy-trinh-lam-vong_1.webp', step: 'Chọn nguyên liệu', text: 'Chọn cành dâu già, chắc, đặc lõi từ vườn nhà.' },
+  { img: '/Images/quy-trinh/quy-trinh-lam-vong_2.webp', step: 'Bóc & phơi', text: 'Bóc vỏ rồi phơi nắng khoảng 4 ngày cho cành khô.' },
+  { img: '/Images/quy-trinh/quy-trinh-lam-vong_3.webp', step: 'Mài nhỏ cành', text: 'Mài bằng giấy mài đến kích thước phù hợp.' },
+  { img: '/Images/quy-trinh/quy-trinh-lam-vong_4.webp', step: 'Cắt hạt & khoan', text: 'Cắt thành hạt nhỏ rồi khoan lỗ để xỏ vòng.' },
+  { img: '/Images/quy-trinh/quy-trinh-lam-vong_5.webp', step: 'Mài mịn viền', text: 'Mài nhẵn từng hạt, loại bỏ dăm gỗ ở viền.' },
+  { img: '/Images/quy-trinh/quy-trinh-lam-vong_6.webp', step: 'Xỏ & hoàn thiện', text: 'Kết hạt, phối charm bạc theo mẫu mẹ chọn.' },
+];
+
+const VALUES = [
+  { title: 'Chân thật trong nguyên liệu', text: 'Chọn cành dâu tằm thật từ nguồn trồng dâu mà gia đình biết rõ.' },
+  { title: 'Tỉ mỉ trong cách làm', text: 'Từ mài nhỏ cành dâu đến hoàn thiện từng hạt, chú trọng từng công đoạn.' },
+  { title: 'Rõ ràng khi tư vấn', text: 'Mẫu vòng, kích thước và chi phí đều trao đổi trước khi mẹ lựa chọn.' },
+  { title: 'Trách nhiệm sau khi bán', text: 'Vòng chưa phù hợp hoặc cần điều chỉnh, chúng mình tiếp nhận theo chính sách.' },
+];
+
+async function loadChrome() {
+  try {
+    return (await getPublicSite(createDb(getDbBinding()))) ?? staticChrome;
+  } catch {
+    return staticChrome;
+  }
+}
+---
+
+<PublicLayout
+  title={meta.title}
+  description={meta.description}
+  canonical={meta.canonical}
+  robots="index,follow"
+  siteName={chrome.siteName}
+  faviconUrl={chrome.faviconUrl || '/favicon.svg'}
+  chrome={chrome}
+>
+  <main class="about-page">
+    <header class="about-hero">
+      <div class="about-hero-copy">
+        <p class="about-kicker">Vòng Dâu Tằm By Ánh</p>
+        <h1 class="about-title">
+          Từ những cành dâu quê nhà,
+          <span class="about-title-script">gửi gắm yêu thương đến bé</span>
+        </h1>
+        <p class="about-hero-lead">
+          Chào các mẹ, em là Ánh — người đứng sau thương hiệu Vòng Dâu Tằm By Ánh. Em muốn kể một chút về cơ duyên
+          làm vòng dâu tằm của hai chị em và hành trình đưa những chiếc vòng nhỏ xinh từ quê nhà đến tay các bé.
+        </p>
+      </div>
+      <div class="about-hero-media">
+        <img
+          src="/Images/quy-trinh/quy-trinh-lam-vong_6.webp"
+          alt="Vòng dâu tằm thủ công hoàn thiện"
+          width="400"
+          height="400"
+          loading="eager"
+          fetchpriority="high"
+          decoding="async"
+        />
+      </div>
+    </header>
+
+    <article class="about-body">
+      <section class="about-section" aria-labelledby="gt-1">
+        <h2 id="gt-1" class="about-h2">Câu chuyện bắt đầu từ những cây dâu tằm quê em</h2>
+        <p>Quê em trước đây trồng rất nhiều cây dâu tằm. Với em, cây dâu là một hình ảnh rất đỗi quen thuộc. Những cành dâu mộc mạc, tưởng chừng chẳng có gì đặc biệt, lại chính là thứ nguyên liệu để hai chị em bắt đầu công việc làm vòng sau này.</p>
+        <p>Khi tìm hiểu về vòng dâu tằm cho bé, em nhận thấy trên thị trường có nhiều sản phẩm được giới thiệu là vòng dâu tằm nhưng thông tin về chất liệu và nguồn gốc chưa rõ ràng.</p>
+        <p>Em nghĩ, quê mình có sẵn cây dâu tằm thật, vậy tại sao không tự chọn những cành dâu tốt rồi làm thành những chiếc vòng nhỏ xinh cho các bé?</p>
+        <p>Thế là từ năm <strong>2024</strong>, em cùng em gái bắt đầu làm vòng dâu tằm thủ công. Ban đầu chỉ là tận dụng nguồn nguyên liệu quen thuộc của quê nhà. Nhưng càng làm, hai chị em càng nhận ra rằng để tạo nên một chiếc vòng nhỏ bé lại cần rất nhiều thời gian và sự tỉ mỉ. Và cứ như thế, <strong>Vòng Dâu Tằm By Ánh</strong> ra đời.</p>
+      </section>
+
+      <section class="about-section" aria-labelledby="gt-2">
+        <h2 id="gt-2" class="about-h2">Từ cành dâu mộc mạc đến chiếc vòng nhỏ xinh</h2>
+        <p>Một chiếc vòng dâu tằm nhìn nhỏ xíu vậy thôi, nhưng để hoàn thiện lại phải trải qua khá nhiều công đoạn thủ công — từ chọn cành, phơi khô, mài nhỏ, cắt hạt, khoan lỗ cho đến mài mịn và xỏ thành vòng.</p>
+        <ol class="about-process">
+          {PROCESS.map((p, i) => (
+            <li class="about-process-card">
+              <span class="about-process-num" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
+              <img src={p.img} alt={`Bước ${i + 1}: ${p.step}`} width="400" height="400" loading="lazy" decoding="async" sizes="(min-width: 48rem) 15rem, 42vw" />
+              <strong>{p.step}</strong>
+              <span>{p.text}</span>
+            </li>
+          ))}
+        </ol>
+        <p>Từ một cành dâu ban đầu, qua nhiều công đoạn thủ công, chiếc vòng nhỏ xinh dành cho bé mới dần được hoàn thiện.</p>
+      </section>
+
+      <section class="about-section" aria-labelledby="gt-3">
+        <h2 id="gt-3" class="about-h2">Điều chúng mình trân trọng nhất là nguồn gốc thật của chiếc vòng</h2>
+        <p>Giữa rất nhiều mẫu vòng trên thị trường, điều hai chị em muốn gìn giữ từ đầu đến nay chính là <strong>sử dụng cành dâu tằm thật, có nguồn gốc rõ ràng</strong>.</p>
+        <p>Chúng mình không muốn mẹ phải băn khoăn rằng chiếc vòng mình chọn cho con được làm từ chất liệu gì hay có đúng là gỗ dâu tằm hay không. Vì vậy, chúng mình lựa chọn nguyên liệu từ vườn nhà và các hộ trồng dâu, đồng thời trực tiếp thực hiện các công đoạn chế tác thủ công.</p>
+        <p>Với chúng mình, sự rõ ràng về nguyên liệu và quá trình làm vòng chính là điều quan trọng nhất để xây dựng niềm tin với khách hàng.</p>
+      </section>
+
+      <section class="about-section" aria-labelledby="gt-4">
+        <h2 id="gt-4" class="about-h2">Mỗi bé một cân nặng, mỗi chiếc vòng một kích thước riêng</h2>
+        <p>Các mẹ có thể cùng thích một mẫu vòng, nhưng cân nặng của mỗi bé lại khác nhau. Vì vậy, Vòng Dâu Tằm By Ánh không chỉ làm một kích thước chung cho tất cả các bé.</p>
+        <p>Khi đặt hàng, mẹ chỉ cần chọn mẫu vòng yêu thích và cung cấp cân nặng hiện tại của bé. Dựa trên thông tin đó, chúng mình sẽ lựa chọn kích thước vòng theo quy trình chế tác của cửa hàng. Mẹ cũng có thể chọn mẫu phối charm bạc để chiếc vòng thêm xinh xắn.</p>
+        <p>Ngoài ra, một số mẫu vòng có thể điều chỉnh độ rộng khi cần. Nếu mẹ muốn thay đổi kích thước trong quá trình sử dụng, chúng mình hỗ trợ tiếp nhận vòng để kiểm tra và điều chỉnh.</p>
+      </section>
+
+      <section class="about-highlight" aria-labelledby="gt-5">
+        <p class="about-stat">30.000+</p>
+        <h2 id="gt-5" class="about-stat-label">chiếc vòng đã được bán ra</h2>
+        <p>Từ những ngày bắt đầu vào năm 2024 đến nay, với hai chị em, đây không chỉ là một con số — mà còn là những đơn hàng được gửi đi, những lần mẹ nhắn tin hỏi về chất liệu và những góp ý giúp chúng mình cải thiện sản phẩm mỗi ngày. Hai chị em rất trân trọng sự tin tưởng ấy và gìn giữ nó bằng chất lượng chế tác, nguồn gốc nguyên liệu và cách phục vụ khách hàng.</p>
+      </section>
+
+      <section class="about-section" aria-labelledby="gt-6">
+        <h2 id="gt-6" class="about-h2">Một công việc nhỏ của gia đình, làm bằng sự tỉ mỉ</h2>
+        <p>Vòng Dâu Tằm By Ánh bắt đầu từ công việc làm vòng thủ công của hai chị em. Đến nay, việc chế tác vẫn có sự tham gia trực tiếp của các thành viên trong gia đình — cùng nhau chọn nguyên liệu, chuẩn bị hạt dâu và hoàn thiện những chiếc vòng theo đơn đặt hàng.</p>
+        <p>Có những công đoạn khá lâu, nhất là việc mài nhỏ cành dâu hay làm nhẵn từng hạt. Nhưng chính những công đoạn ấy tạo nên nét riêng của sản phẩm thủ công. Chúng mình mong qua những hình ảnh và video về quá trình làm vòng, mẹ hiểu được chiếc vòng ấy đã được làm ra như thế nào.</p>
+      </section>
+
+      <section class="about-section" aria-labelledby="gt-7">
+        <h2 id="gt-7" class="about-h2">Điều chúng mình muốn gửi đến các mẹ</h2>
+        <p>Nếu hỏi điều gì quan trọng nhất với Vòng Dâu Tằm By Ánh, em nghĩ đó là sự chân thật.</p>
+        <ul class="about-values">
+          {VALUES.map((v) => (
+            <li>
+              <span class="about-value-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+              </span>
+              <div>
+                <strong>{v.title}</strong>
+                <p>{v.text}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <p>Hai chị em không có một câu chuyện khởi nghiệp quá lớn lao. Chúng mình chỉ bắt đầu từ những cây dâu tằm quen thuộc của quê nhà, từ mong muốn làm ra những chiếc vòng dâu tằm thật và từ công việc thủ công mà gia đình có thể tự tay thực hiện. Và chúng mình hy vọng sẽ tiếp tục giữ được những điều giản dị ấy trong từng chiếc vòng gửi đến các mẹ.</p>
+      </section>
+
+      <section class="about-cta" aria-labelledby="gt-8">
+        <h2 id="gt-8" class="about-cta-title">Mẹ đang tìm một chiếc vòng dâu tằm thật cho bé?</h2>
+        <p>Chọn mẫu yêu thích, gửi cân nặng của bé — chúng mình sẽ tư vấn kích thước và thông tin đặt hàng phù hợp.</p>
+        <div class="about-cta-actions">
+          <a class="btn btn-cta" href={routes.catalog}>Xem các mẫu vòng <span aria-hidden="true">→</span></a>
+          <a class="btn btn-soft" href={zaloHref} target="_blank" rel="noopener">Nhắn Zalo để được tư vấn</a>
+        </div>
+      </section>
+
+      <section class="about-contact" aria-labelledby="gt-contact">
+        <h2 id="gt-contact" class="about-contact-head">Thông tin liên hệ</h2>
+        <div class="policy-contact">
+          <p class="policy-contact-name">Vòng Dâu Tằm By Ánh</p>
+          <ul class="policy-contact-list">
+            <li><span>Đơn vị kinh doanh</span><p>Hộ kinh doanh Nguyễn Văn Yên 1996</p></li>
+            <li><span>Website</span><a href="https://vongdautambyanh.vn" target="_blank" rel="noopener">vongdautambyanh.vn</a></li>
+            <li><span>Zalo / Điện thoại</span><a href="tel:0972483892">0972 483 892</a></li>
+            <li><span>Email</span><a href="mailto:vondautambyanh@gmail.com">vondautambyanh@gmail.com</a></li>
+            <li><span>Địa chỉ</span><p>Xóm 4, Đông Cao, Mê Linh, Hà Nội.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <footer class="policy-closing">
+        <p>Cảm ơn các mẹ đã dành thời gian đọc câu chuyện của hai chị em. Mong rằng qua những chia sẻ này, mẹ sẽ hiểu hơn về chiếc vòng dâu tằm nhỏ xinh và những người đang trực tiếp làm ra nó.</p>
+        <p class="policy-closing-script">Vòng Dâu Tằm By Ánh — từ cành dâu thật, làm nên những chiếc vòng nhỏ bằng sự tỉ mỉ và chân thành.</p>
+      </footer>
+    </article>
+  </main>
+</PublicLayout>

@@ -9,7 +9,12 @@ import { PRIVATE_PAGE_CACHE, PUBLIC_PAGE_CACHE } from '../../lib/seo/cache';
 import { buildMeta, notFoundMeta, policyPageMeta } from '../../lib/seo/meta';
 import { routes } from '../../lib/routes';
 
-const policy = getPolicy(Astro.params.slug ?? '');
+const slug = Astro.params.slug ?? '';
+// Các trang chính sách cũ đã chuyển sang URL riêng — giữ SEO bằng 301.
+if (slug === 'bao-mat') return Astro.redirect(routes.policyPrivacy, 301);
+if (slug === 'doi-tra') return Astro.redirect(routes.policyReturn, 301);
+
+const policy = getPolicy(slug);
 const chrome = await loadPolicyChrome();
 if (!policy) {
   Astro.response.status = 404;

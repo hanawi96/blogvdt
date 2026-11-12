@@ -1,0 +1,298 @@
+---
+import { staticChrome } from '../features/content/policies';
+import { getPublicSite } from '../features/settings/settings';
+import PublicLayout from '../layouts/PublicLayout.astro';
+import { createDb } from '../lib/db/client';
+import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
+import { PUBLIC_PAGE_CACHE } from '../lib/seo/cache';
+import { buildMeta } from '../lib/seo/meta';
+import { routes } from '../lib/routes';
+
+const PATH = routes.policyPayment;
+const UPDATED = '12/11/2026';
+
+const chrome = await loadChrome();
+Astro.response.headers.set('Cache-Control', PUBLIC_PAGE_CACHE);
+
+const title = 'Chính sách thanh toán';
+const description =
+  'Các hình thức thanh toán của Vòng Dâu Tằm By Anh: COD, chuyển khoản, đặt cọc, cùng quy định hủy đơn, hoàn tiền và xử lý giao dịch.';
+const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
+  title,
+  description,
+  path: PATH,
+  siteName: chrome.siteName,
+});
+
+async function loadChrome() {
+  try {
+    return (await getPublicSite(createDb(getDbBinding()))) ?? staticChrome;
+  } catch {
+    return staticChrome;
+  }
+}
+---
+
+<PublicLayout
+  title={meta.title}
+  description={meta.description}
+  canonical={meta.canonical}
+  robots="index,follow"
+  siteName={chrome.siteName}
+  faviconUrl={chrome.faviconUrl || '/favicon.svg'}
+  chrome={chrome}
+>
+  <main class="policy-page">
+    <article class="policy-article">
+      <header class="policy-hero">
+        <p class="policy-kicker">Thanh toán nhẹ nhàng, rõ ràng</p>
+        <h1 class="policy-title">
+          Chính sách
+          <span class="policy-title-script">thanh toán</span>
+        </h1>
+        <p class="policy-updated">Cập nhật lần cuối: {UPDATED}</p>
+        <p class="policy-rule" aria-hidden="true"><span>♥</span></p>
+      </header>
+
+      <div class="policy-lead">
+        <p>
+          Tại <strong>Vòng Dâu Tằm By Anh</strong>, chúng mình mong muốn mang đến cho mẹ trải nghiệm mua sắm đơn
+          giản, thuận tiện và rõ ràng.
+        </p>
+        <p>
+          Mỗi chiếc vòng dâu tằm đều được làm thủ công và điều chỉnh kích thước theo cân nặng riêng của từng bé. Vì
+          vậy, trước khi tiến hành làm vòng, chúng mình sẽ trao đổi với mẹ về mẫu vòng, giá bán, thông tin đơn hàng
+          và phương thức thanh toán.
+        </p>
+        <p>Để mẹ thuận tiện lựa chọn, Vòng Dâu Tằm By Anh hiện hỗ trợ các hình thức thanh toán sau đây.</p>
+      </div>
+
+      <section class="policy-section" aria-labelledby="pt-1">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">01</span>
+          <h2 id="pt-1">Thanh toán khi nhận hàng (COD)</h2>
+        </div>
+        <p>
+          Với hình thức thanh toán khi nhận hàng, mẹ có thể đặt vòng trước và thanh toán khi sản phẩm được giao đến
+          địa chỉ nhận hàng.
+        </p>
+        <p class="policy-subhead">Quy trình thanh toán</p>
+        <ul class="policy-list">
+          <li>Mẹ lựa chọn mẫu vòng và cung cấp cân nặng của bé.</li>
+          <li>Chúng mình tư vấn, xác nhận mẫu vòng và tổng giá trị đơn hàng.</li>
+          <li>Vòng được hoàn thiện và gửi đến địa chỉ mẹ cung cấp.</li>
+          <li>Khi nhận hàng, mẹ thanh toán số tiền đã được xác nhận.</li>
+        </ul>
+        <p>
+          Tổng số tiền thanh toán bao gồm giá sản phẩm và phí vận chuyển (nếu có), sau khi áp dụng các ưu đãi hợp lệ.
+        </p>
+        <p>
+          Nếu đơn hàng đã được đặt cọc, số tiền mẹ cần thanh toán khi nhận hàng sẽ được trừ đi khoản cọc đã thanh
+          toán.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pt-2">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">02</span>
+          <h2 id="pt-2">Thanh toán bằng chuyển khoản ngân hàng</h2>
+        </div>
+        <p>Mẹ có thể lựa chọn thanh toán trước bằng hình thức chuyển khoản ngân hàng.</p>
+        <p>Sau khi xác nhận đơn hàng, mẹ vui lòng chuyển khoản theo thông tin sau:</p>
+        <div class="policy-bank">
+          <p class="policy-bank-title">Thông tin tài khoản nhận thanh toán</p>
+          <ul class="policy-bank-list">
+            <li><span>Ngân hàng</span><p>Techcombank – Ngân hàng TMCP Kỹ Thương Việt Nam</p></li>
+            <li><span>Chủ tài khoản</span><p>HỘ KINH DOANH NGUYỄN VĂN YÊN 1996</p></li>
+            <li><span>Số tài khoản</span><p class="policy-bank-number">0386190596</p></li>
+          </ul>
+        </div>
+        <p>
+          Trước khi chuyển khoản, mẹ vui lòng kiểm tra chính xác tên người nhận, số tài khoản và số tiền cần thanh
+          toán.
+        </p>
+        <p>Sau khi giao dịch được xác nhận, chúng mình sẽ tiếp tục xử lý đơn hàng theo thông tin đã thống nhất.</p>
+        <p>
+          Nếu gặp khó khăn trong quá trình chuyển khoản, mẹ có thể liên hệ qua Zalo
+          <a href="tel:0972483892"><strong>0972 483 892</strong></a> để được hỗ trợ.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pt-3">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">03</span>
+          <h2 id="pt-3">Chính sách đặt cọc khi đặt vòng</h2>
+        </div>
+        <p>
+          Vì mỗi chiếc vòng được làm thủ công theo cân nặng của bé, <strong>một số đơn hàng đặc biệt có thể cần đặt
+          cọc trước khi tiến hành chế tác</strong>.
+        </p>
+        <p>Việc đặt cọc không áp dụng bắt buộc cho tất cả đơn hàng.</p>
+        <p>
+          Đối với những đơn hàng cần đặt cọc, chúng mình sẽ thông báo rõ số tiền cọc và tổng giá trị đơn hàng để mẹ
+          cân nhắc trước khi xác nhận.
+        </p>
+        <p class="policy-subhead">Quy trình đặt cọc</p>
+        <ol class="policy-steps">
+          <li>Mẹ lựa chọn mẫu vòng và cung cấp cân nặng của bé.</li>
+          <li>Chúng mình xác nhận mẫu vòng, giá bán và số tiền cần đặt cọc.</li>
+          <li>Mẹ thực hiện chuyển khoản khoản cọc theo thông tin đã được xác nhận.</li>
+          <li>Chúng mình tiến hành chế tác vòng theo đơn hàng.</li>
+          <li>Phần tiền còn lại sẽ được thanh toán theo phương thức hai bên thống nhất.</li>
+        </ol>
+        <p>Khoản tiền đặt cọc được tính vào tổng giá trị đơn hàng, không phải khoản phí cộng thêm.</p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pt-4">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">04</span>
+          <h2 id="pt-4">Quy định hủy đơn hàng và hoàn tiền đặt cọc</h2>
+        </div>
+        <p>Chúng mình hiểu rằng đôi khi mẹ có thể thay đổi kế hoạch hoặc muốn điều chỉnh đơn hàng đã đặt.</p>
+        <p>Để bảo đảm quyền lợi của hai bên, Vòng Dâu Tằm By Anh áp dụng quy định sau:</p>
+        <p class="policy-subhead">Trường hợp 1: Mẹ hủy đơn trước khi sản phẩm được gửi đi</p>
+        <p>
+          Nếu mẹ yêu cầu hủy đơn khi sản phẩm chưa được bàn giao cho đơn vị vận chuyển, chúng mình sẽ hỗ trợ hủy đơn
+          và hoàn lại khoản tiền đặt cọc đã thanh toán.
+        </p>
+        <p class="policy-subhead">Trường hợp 2: Mẹ yêu cầu hủy đơn khi sản phẩm đã được gửi đi</p>
+        <p>
+          Khi đơn hàng đã được bàn giao cho đơn vị vận chuyển, khoản đặt cọc sẽ không được hoàn lại chỉ trên cơ sở
+          yêu cầu hủy đơn.
+        </p>
+        <p>
+          Tuy nhiên, nếu mẹ đã nhận sản phẩm và có yêu cầu trả hàng đáp ứng điều kiện của <strong>Chính sách đổi trả
+          &amp; hoàn tiền trong 14 ngày</strong>, yêu cầu sẽ được xem xét và xử lý theo chính sách đó, bao gồm việc
+          hoàn các khoản thanh toán đủ điều kiện.
+        </p>
+        <p>
+          Quy định về đặt cọc không làm mất quyền yêu cầu đổi trả, hoàn tiền của khách hàng trong những trường hợp
+          được chính sách đã công bố hoặc pháp luật bảo vệ.
+        </p>
+        <p>
+          Mẹ có thể tham khảo thêm tại:
+          <a href={routes.policyReturn}>Chính sách đổi trả &amp; hoàn tiền</a>.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pt-5">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">05</span>
+          <h2 id="pt-5">Giá sản phẩm và tổng số tiền thanh toán</h2>
+        </div>
+        <p>
+          Giá vòng dâu tằm có thể thay đổi tùy theo mẫu vòng, loại charm và những lựa chọn riêng của mẹ.
+        </p>
+        <p>Trước khi xác nhận đơn hàng, chúng mình sẽ thông báo:</p>
+        <ul class="policy-list">
+          <li>Giá sản phẩm theo mẫu đã chọn.</li>
+          <li>Chi phí charm hoặc các tùy chọn bổ sung (nếu có).</li>
+          <li>Phí vận chuyển hoặc điều kiện miễn phí vận chuyển.</li>
+          <li>Số tiền đặt cọc đối với đơn hàng áp dụng.</li>
+          <li>Tổng số tiền cần thanh toán và khoản còn lại.</li>
+        </ul>
+        <p>Các khoản phí liên quan đến đơn hàng sẽ được trao đổi rõ ràng trước khi mẹ xác nhận mua.</p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pt-6">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">06</span>
+          <h2 id="pt-6">Xác nhận và xử lý đơn hàng</h2>
+        </div>
+        <p>Mẹ có thể đặt vòng trực tiếp trên website hoặc liên hệ với chúng mình qua Zalo, Messenger và điện thoại.</p>
+        <p>
+          Sau khi tiếp nhận đơn hàng, chúng mình sẽ xác nhận những thông tin cần thiết, bao gồm mẫu vòng, cân nặng
+          của bé, giá bán, địa chỉ nhận hàng và phương thức thanh toán.
+        </p>
+        <p class="policy-highlight">Thời gian chế tác vòng dự kiến là 2–3 ngày kể từ khi đơn hàng được xác nhận, chưa bao gồm thời gian vận chuyển.</p>
+        <p>Thời gian vận chuyển dự kiến:</p>
+        <ul class="policy-list">
+          <li><strong>Miền Bắc:</strong> 1–3 ngày.</li>
+          <li><strong>Miền Trung:</strong> 3–5 ngày.</li>
+          <li><strong>Miền Nam:</strong> 3–5 ngày.</li>
+        </ul>
+        <p>Đây là thời gian dự kiến và có thể thay đổi tùy theo tình hình vận chuyển thực tế.</p>
+        <p>
+          Chi tiết được trình bày tại:
+          <a href={routes.policyShipping}>Chính sách vận chuyển &amp; giao hàng</a>.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pt-7">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">07</span>
+          <h2 id="pt-7">Xử lý các vấn đề liên quan đến thanh toán</h2>
+        </div>
+        <p>
+          Nếu mẹ gặp vấn đề trong quá trình thanh toán như chuyển khoản nhầm số tiền, giao dịch chưa được ghi nhận
+          hoặc cần kiểm tra khoản thanh toán, hãy liên hệ trực tiếp với chúng mình.
+        </p>
+        <p>Chúng mình sẽ tiếp nhận thông tin và hỗ trợ đối chiếu giao dịch để xác định phương án xử lý phù hợp.</p>
+        <p>
+          Để bảo vệ thông tin cá nhân, mẹ không nên chia sẻ mật khẩu tài khoản ngân hàng, mã PIN hoặc mã OTP cho bất
+          kỳ ai.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pt-8">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">08</span>
+          <h2 id="pt-8">Hoàn tiền đối với đơn hàng đổi trả</h2>
+        </div>
+        <p>
+          Nếu sản phẩm đáp ứng điều kiện đổi trả và hoàn tiền, chúng mình sẽ tiếp nhận và xử lý theo Chính sách đổi
+          trả &amp; hoàn tiền của cửa hàng.
+        </p>
+        <p class="policy-highlight">Thời gian xử lý hoàn tiền là 3 ngày làm việc, kể từ khi sản phẩm trả về được tiếp nhận, kiểm tra và yêu cầu hoàn tiền được xác nhận hợp lệ.</p>
+        <p>Phương thức nhận tiền hoàn lại sẽ được trao đổi trực tiếp với mẹ.</p>
+        <p>Thời gian tiền thực tế được ghi nhận có thể phụ thuộc vào ngân hàng hoặc dịch vụ thanh toán liên quan.</p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pt-9">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">09</span>
+          <h2 id="pt-9">Bảo mật thông tin thanh toán</h2>
+        </div>
+        <p>Vòng Dâu Tằm By Anh trân trọng thông tin cá nhân mà mẹ cung cấp trong quá trình đặt hàng.</p>
+        <p>Chúng mình chỉ yêu cầu các thông tin cần thiết để xác nhận đơn hàng, xử lý thanh toán và giao sản phẩm.</p>
+        <p>
+          Đối với các giao dịch qua ngân hàng hoặc nền tảng bên thứ ba, việc xử lý dữ liệu giao dịch cũng có thể chịu
+          sự điều chỉnh của chính sách bảo mật từ đơn vị cung cấp dịch vụ tương ứng.
+        </p>
+        <p>
+          Thông tin chi tiết về việc thu thập và sử dụng dữ liệu khách hàng được trình bày tại:
+          <a href={routes.policyPrivacy}>Chính sách bảo mật</a>.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pt-10">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">10</span>
+          <h2 id="pt-10">Thông tin liên hệ hỗ trợ thanh toán</h2>
+        </div>
+        <p>
+          Nếu mẹ có thắc mắc về giá bán, đặt cọc, chuyển khoản hoặc cần hỗ trợ kiểm tra giao dịch, vui lòng liên hệ:
+        </p>
+        <div class="policy-contact">
+          <p class="policy-contact-name">Vòng Dâu Tằm By Anh</p>
+          <ul class="policy-contact-list">
+            <li><span>Website</span><a href="https://vongdautambyanh.vn" target="_blank" rel="noopener">vongdautambyanh.vn</a></li>
+            <li><span>Điện thoại / Zalo</span><a href="tel:0972483892">0972 483 892</a></li>
+            <li><span>Email</span><a href="mailto:vondautambyanh@gmail.com">vondautambyanh@gmail.com</a></li>
+            <li><span>Địa chỉ</span><p>Xóm 4, Đông Cao, Mê Linh, Hà Nội.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <footer class="policy-closing">
+        <p>Chúng mình hiểu rằng mỗi chiếc vòng là một món quà nhỏ mẹ dành cho bé yêu.</p>
+        <p>
+          Vì vậy, từ lúc tư vấn mẫu vòng đến khi xác nhận thanh toán, chúng mình luôn mong muốn mang đến cho mẹ trải
+          nghiệm mua sắm thuận tiện và rõ ràng.
+        </p>
+        <p>Nếu có điều gì chưa rõ, mẹ cứ nhắn cho chúng mình để được giải đáp trước khi đặt vòng nhé.</p>
+        <p class="policy-closing-script">Cảm ơn mẹ đã tin tưởng lựa chọn Vòng Dâu Tằm By Anh!</p>
+      </footer>
+    </article>
+  </main>
+</PublicLayout>

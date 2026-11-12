@@ -799,23 +799,26 @@
         <p class="media-preview-name">{preview.filename}</p>
         <p class="media-meta">{formatBytes(preview.sizeBytes)} · {preview.width && preview.height ? `${preview.width} × ${preview.height}` : 'Chưa có kích thước'} · {formatDateTime(preview.createdAt)}</p>
         <div class="media-preview-actions">
-          <button class="btn media-copy-btn" type="button" onclick={() => preview && void copyPath(preview.url)}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
-            {copied === preview.url ? 'Đã sao chép' : 'Sao chép URL'}
+          <button class="btn media-action-btn media-copy-btn" type="button" aria-label={copied === preview.url ? 'Đã sao chép URL' : 'Sao chép URL'} title={copied === preview.url ? 'Đã sao chép' : 'Sao chép URL'} onclick={() => preview && void copyPath(preview.url)}>
+            {#if copied === preview.url}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+            {:else}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+            {/if}
           </button>
-          <button class="btn media-replace-btn" type="button" disabled={replacing} title="Giữ nguyên mọi nơi đang dùng, chỉ đổi nội dung ảnh" onclick={() => replaceInput?.click()}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <button class="btn media-action-btn media-replace-btn" type="button" disabled={replacing} aria-label="Thay ảnh" title="Thay ảnh (giữ nguyên mọi nơi đang dùng, chỉ đổi nội dung)" onclick={() => replaceInput?.click()}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class:media-spin={replacing}>
               <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
             </svg>
-            {replacing ? 'Đang thay...' : 'Thay ảnh'}
           </button>
-          <button class="btn media-del-btn" type="button" disabled={inUse} title={inUse ? 'Ảnh đang được dùng, chưa xóa được.' : undefined} onclick={() => (confirmDeleteId = preview?.id ?? null)}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <button class="btn media-action-btn media-del-btn" type="button" disabled={inUse} aria-label="Xóa ảnh" title={inUse ? 'Ảnh đang được dùng, chưa xóa được.' : 'Xóa ảnh'} onclick={() => (confirmDeleteId = preview?.id ?? null)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M10 11v6" /><path d="M14 11v6" />
             </svg>
-            Xóa
           </button>
           <input class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" bind:this={replaceInput} onchange={onPickReplace} />
         </div>

@@ -1,0 +1,436 @@
+---
+import { staticChrome } from '../features/content/policies';
+import { getPublicSite } from '../features/settings/settings';
+import PublicLayout from '../layouts/PublicLayout.astro';
+import { createDb } from '../lib/db/client';
+import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
+import { PUBLIC_PAGE_CACHE } from '../lib/seo/cache';
+import { buildMeta } from '../lib/seo/meta';
+import { routes } from '../lib/routes';
+
+const UPDATED = '12/11/2026';
+const chrome = await loadChrome();
+Astro.response.headers.set('Cache-Control', PUBLIC_PAGE_CACHE);
+
+const title = 'Điều khoản và dịch vụ';
+const description =
+  'Điều khoản, điều kiện mua hàng, quy trình đặt mua, thanh toán, đổi trả, giao hàng và quyền lợi khách hàng tại Vòng Dâu Tằm By Ánh.';
+const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
+  title,
+  description,
+  path: routes.terms,
+  siteName: chrome.siteName,
+});
+
+async function loadChrome() {
+  try {
+    return (await getPublicSite(createDb(getDbBinding()))) ?? staticChrome;
+  } catch {
+    return staticChrome;
+  }
+}
+---
+
+<PublicLayout
+  title={meta.title}
+  description={meta.description}
+  canonical={meta.canonical}
+  robots="index,follow"
+  siteName={chrome.siteName}
+  faviconUrl={chrome.faviconUrl || '/favicon.svg'}
+  chrome={chrome}
+>
+  <main class="policy-page">
+    <article class="policy-article">
+      <header class="policy-hero">
+        <p class="policy-kicker">Minh bạch khi mua sắm</p>
+        <h1 class="policy-title">
+          Điều khoản
+          <span class="policy-title-script">&amp; dịch vụ</span>
+        </h1>
+        <p class="policy-updated">Cập nhật lần cuối: {UPDATED}</p>
+        <p class="policy-rule" aria-hidden="true"><span>♥</span></p>
+      </header>
+
+      <div class="policy-lead">
+        <p>Chào mừng mẹ đến với <strong>Vòng Dâu Tằm By Ánh</strong>!</p>
+        <p>
+          Chúng mình rất vui khi mẹ ghé thăm website và dành sự quan tâm cho những chiếc vòng dâu tằm thủ công được
+          làm từ cành dâu tằm thật.
+        </p>
+        <p>
+          Để quá trình mua sắm diễn ra thuận tiện và rõ ràng, chúng mình xin chia sẻ một số điều khoản và điều kiện
+          áp dụng khi mẹ tìm hiểu, đặt mua và sử dụng dịch vụ của cửa hàng. Mẹ vui lòng dành ít phút tham khảo trước
+          khi xác nhận đơn hàng nhé!
+        </p>
+      </div>
+
+      <section class="policy-section" aria-labelledby="dk-1">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">01</span>
+          <h2 id="dk-1">Thông tin về cửa hàng</h2>
+        </div>
+        <p>
+          <strong>Vòng Dâu Tằm By Ánh</strong> là thương hiệu chuyên chế tác và kinh doanh vòng dâu tằm thủ công
+          dành cho bé. Sản phẩm được làm từ những cành dâu tằm lựa chọn từ vườn nhà và các hộ trồng dâu khác.
+        </p>
+        <p>
+          Mỗi chiếc vòng trải qua nhiều công đoạn như chọn cành, bóc vỏ, phơi khô, mài nhỏ, cắt hạt, khoan lỗ và hoàn
+          thiện thủ công. Cửa hàng hỗ trợ làm vòng theo cân nặng riêng của từng bé và cung cấp các mẫu có thể phối
+          thêm charm bạc theo lựa chọn của khách hàng.
+        </p>
+        <div class="policy-contact">
+          <p class="policy-contact-name">Thông tin liên hệ</p>
+          <ul class="policy-contact-list">
+            <li><span>Thương hiệu</span><p>Vòng Dâu Tằm By Ánh</p></li>
+            <li><span>Website</span><a href="https://vongdautambyanh.vn" target="_blank" rel="noopener">vongdautambyanh.vn</a></li>
+            <li><span>Điện thoại / Zalo</span><a href="tel:0972483892">0972 483 892</a></li>
+            <li><span>Email</span><a href="mailto:vondautambyanh@gmail.com">vondautambyanh@gmail.com</a></li>
+            <li><span>Địa chỉ</span><p>Xóm 4, Đông Cao, Mê Linh, Hà Nội.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="policy-section" aria-labelledby="dk-2">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">02</span>
+          <h2 id="dk-2">Phạm vi áp dụng</h2>
+        </div>
+        <p>
+          Các điều khoản này áp dụng đối với khách hàng truy cập website, tìm hiểu sản phẩm hoặc đặt mua vòng dâu tằm
+          tại Vòng Dâu Tằm By Ánh.
+        </p>
+        <p>Khách hàng có thể đặt hàng thông qua:</p>
+        <ul class="policy-list">
+          <li>Website chính thức của cửa hàng.</li>
+          <li>Zalo hoặc Messenger của cửa hàng.</li>
+          <li>Liên hệ trực tiếp qua số điện thoại được công bố.</li>
+        </ul>
+        <p>
+          Trước khi xác nhận mua hàng, mẹ có thể trao đổi với chúng mình về sản phẩm, giá bán, kích thước, phương
+          thức thanh toán và những điều kiện liên quan. Các điều khoản được công bố nhằm giúp mẹ nắm rõ thông tin và
+          quyền lợi của mình trong quá trình mua sắm.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="dk-3">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">03</span>
+          <h2 id="dk-3">Thông tin sản phẩm</h2>
+        </div>
+        <p>Vòng Dâu Tằm By Ánh cung cấp các mẫu vòng dâu tằm được chế tác thủ công từ cành dâu tằm thật.</p>
+        <p>
+          Thông tin về mẫu vòng, lựa chọn charm và giá bán được thể hiện trên website hoặc trao đổi trực tiếp khi mẹ
+          đặt hàng.
+        </p>
+        <p>
+          Vì sản phẩm được làm thủ công từ nguyên liệu tự nhiên nên màu sắc, vân gỗ hoặc hình dáng của từng hạt dâu
+          có thể có sự khác biệt nhất định. Những khác biệt tự nhiên này không đồng nghĩa với lỗi sản phẩm. Tuy
+          nhiên, nếu mẹ nhận được chiếc vòng không đúng mẫu hoặc có vấn đề về chất lượng chế tác, chúng mình sẽ tiếp
+          nhận và hỗ trợ theo Chính sách đổi trả.
+        </p>
+        <p>
+          Hình ảnh sản phẩm trên website được sử dụng để mẹ tham khảo mẫu mã và kiểu dáng. Với những yêu cầu đặc
+          biệt, chúng mình sẽ trao đổi để mẹ hiểu rõ sản phẩm trước khi đặt mua.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="dk-4">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">04</span>
+          <h2 id="dk-4">Quy trình đặt mua sản phẩm</h2>
+        </div>
+        <p>Để đặt vòng dâu tằm cho bé, mẹ có thể thực hiện theo các bước sau:</p>
+        <p class="policy-subhead">Bước 1: Lựa chọn mẫu vòng</p>
+        <p>Mẹ tham khảo các mẫu vòng trên website hoặc liên hệ để được tư vấn.</p>
+        <p class="policy-subhead">Bước 2: Cung cấp thông tin cần thiết</p>
+        <p>
+          Mẹ cung cấp mẫu vòng lựa chọn, cân nặng của bé, số lượng sản phẩm và thông tin nhận hàng. Cân nặng được sử
+          dụng để lựa chọn kích thước vòng theo quy trình chế tác của cửa hàng.
+        </p>
+        <p class="policy-subhead">Bước 3: Xác nhận đơn hàng</p>
+        <p>Chúng mình trao đổi và xác nhận với mẹ các thông tin cần thiết, bao gồm:</p>
+        <ul class="policy-list">
+          <li>Mẫu vòng và lựa chọn charm (nếu có).</li>
+          <li>Số lượng sản phẩm.</li>
+          <li>Giá bán và tổng giá trị đơn hàng.</li>
+          <li>Phí vận chuyển hoặc ưu đãi áp dụng.</li>
+          <li>Phương thức thanh toán.</li>
+          <li>Thông tin người nhận hàng.</li>
+        </ul>
+        <p class="policy-subhead">Bước 4: Chế tác và chuẩn bị sản phẩm</p>
+        <p>Sau khi đơn hàng được xác nhận và đáp ứng điều kiện thanh toán tương ứng, chúng mình tiến hành chế tác vòng.</p>
+        <p class="policy-subhead">Bước 5: Giao hàng</p>
+        <p>
+          Sản phẩm sau khi hoàn thiện được bàn giao cho đơn vị vận chuyển để giao đến địa chỉ mẹ cung cấp. Thông tin
+          đơn hàng và các điều kiện cần thiết sẽ được xác nhận trước khi tiến hành xử lý.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="dk-5">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">05</span>
+          <h2 id="dk-5">Giá bán và phương thức thanh toán</h2>
+        </div>
+        <p>
+          Giá sản phẩm có thể khác nhau tùy theo mẫu vòng, loại charm và các lựa chọn đi kèm. Tổng số tiền thanh toán
+          sẽ được thông báo trước khi mẹ xác nhận đơn hàng.
+        </p>
+        <p>Cửa hàng hiện hỗ trợ các phương thức thanh toán:</p>
+        <ul class="policy-list">
+          <li>Thanh toán khi nhận hàng (COD).</li>
+          <li>Chuyển khoản ngân hàng.</li>
+          <li>Đặt cọc trước đối với một số đơn hàng đặc biệt.</li>
+        </ul>
+        <div class="policy-bank">
+          <p class="policy-bank-title">Thông tin chuyển khoản chính thức</p>
+          <ul class="policy-bank-list">
+            <li><span>Ngân hàng</span><p>Techcombank</p></li>
+            <li><span>Chủ tài khoản</span><p>HỘ KINH DOANH NGUYỄN VĂN YÊN 1996</p></li>
+            <li><span>Số tài khoản</span><p class="policy-bank-number">0386190596</p></li>
+          </ul>
+        </div>
+        <p>Đối với những đơn hàng cần đặt cọc, số tiền và điều kiện đặt cọc sẽ được trao đổi trước khi mẹ xác nhận.</p>
+        <p>
+          Mẹ có thể tham khảo thông tin đầy đủ tại:
+          <a href={routes.policyPayment}>Chính sách thanh toán</a>.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="dk-6">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">06</span>
+          <h2 id="dk-6">Thay đổi và hủy đơn hàng</h2>
+        </div>
+        <p>
+          Nếu mẹ muốn thay đổi mẫu vòng, thông tin nhận hàng hoặc hủy đơn, vui lòng liên hệ với chúng mình sớm nhất
+          có thể.
+        </p>
+        <p class="policy-subhead">Trường hợp đơn hàng chưa được gửi đi</p>
+        <p>
+          Nếu mẹ yêu cầu hủy đơn trước khi sản phẩm được bàn giao cho đơn vị vận chuyển, chúng mình hỗ trợ hủy đơn và
+          hoàn lại khoản tiền đặt cọc đã thanh toán.
+        </p>
+        <p class="policy-subhead">Trường hợp đơn hàng đã được gửi đi</p>
+        <p>
+          Nếu mẹ yêu cầu hủy đơn sau khi sản phẩm đã được bàn giao cho đơn vị vận chuyển, khoản đặt cọc không được
+          hoàn lại chỉ trên cơ sở yêu cầu hủy đơn, theo điều kiện đặt cọc đã được mẹ chấp thuận.
+        </p>
+        <p>
+          Tuy nhiên, nếu sản phẩm thuộc trường hợp được đổi trả và hoàn tiền theo chính sách đã công bố, quyền lợi
+          của mẹ vẫn được giải quyết theo chính sách đó và quy định pháp luật có liên quan.
+        </p>
+        <p>
+          Việc thay đổi thông tin giao hàng khi đơn đang vận chuyển cũng có thể làm phát sinh chi phí. Nếu có, chúng
+          mình sẽ thông báo để mẹ cân nhắc trước khi thực hiện.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="dk-7">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">07</span>
+          <h2 id="dk-7">Thời gian chế tác và giao hàng</h2>
+        </div>
+        <p>Vì vòng dâu tằm được làm thủ công theo cân nặng riêng của bé, cửa hàng cần thời gian để chuẩn bị sản phẩm.</p>
+        <p class="policy-highlight">Thời gian chế tác dự kiến: 2–3 ngày kể từ khi đơn hàng được xác nhận.</p>
+        <p>Sau khi vòng hoàn thiện và được gửi đi, thời gian vận chuyển dự kiến như sau:</p>
+        <ul class="policy-list">
+          <li>Miền Bắc: 1–3 ngày.</li>
+          <li>Miền Trung: 3–5 ngày.</li>
+          <li>Miền Nam: 3–5 ngày.</li>
+        </ul>
+        <p>
+          Thời gian trên chưa bao gồm thời gian chế tác và có thể thay đổi tùy theo địa chỉ nhận hàng, điều kiện vận
+          chuyển hoặc những tình huống phát sinh.
+        </p>
+        <p>
+          Chúng mình hỗ trợ giao hàng trên toàn quốc và cung cấp mã vận đơn để mẹ theo dõi. Phí vận chuyển được thông
+          báo trước khi xác nhận đơn hàng. Những đơn hàng đạt điều kiện của chương trình miễn phí vận chuyển sẽ được
+          áp dụng ưu đãi tương ứng.
+        </p>
+        <p>
+          Thông tin chi tiết tại:
+          <a href={routes.policyShipping}>Chính sách vận chuyển &amp; giao hàng</a>.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="dk-8">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">08</span>
+          <h2 id="dk-8">Chính sách đổi trả và hoàn tiền</h2>
+        </div>
+        <p>
+          Vòng Dâu Tằm By Ánh tiếp nhận yêu cầu đổi trả trong vòng <strong>14 ngày kể từ ngày mẹ nhận được sản
+          phẩm</strong>.
+        </p>
+        <p>Các trường hợp được hỗ trợ bao gồm:</p>
+        <ul class="policy-list">
+          <li>Vòng gặp lỗi trong quá trình chế tác.</li>
+          <li>Giao sai mẫu hoặc sai sản phẩm.</li>
+          <li>Vòng chưa vừa với bé dù mẹ đã cung cấp đúng cân nặng.</li>
+          <li>Sản phẩm bị hư hỏng trong quá trình vận chuyển.</li>
+          <li>Mẹ muốn đổi mẫu hoặc không còn nhu cầu sử dụng, theo điều kiện đổi trả áp dụng.</li>
+        </ul>
+        <p>Đối với trường hợp lỗi thuộc trách nhiệm cửa hàng, chúng mình chịu phí vận chuyển đổi trả.</p>
+        <p>Đối với trường hợp đổi trả theo nhu cầu riêng, mẹ chịu phí vận chuyển phát sinh.</p>
+        <p class="policy-highlight">
+          Những yêu cầu hoàn tiền hợp lệ được xử lý trong vòng 3 ngày làm việc kể từ khi sản phẩm trả về được tiếp
+          nhận, kiểm tra và xác nhận đủ điều kiện hoàn tiền.
+        </p>
+        <p>
+          Mẹ có thể xem đầy đủ các trường hợp và quy trình hỗ trợ tại:
+          <a href={routes.policyReturn}>Chính sách đổi trả &amp; hoàn tiền</a>.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="dk-9">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">09</span>
+          <h2 id="dk-9">Hướng dẫn sử dụng và lưu ý khi bé đeo vòng</h2>
+        </div>
+        <p>Vòng dâu tằm là sản phẩm phụ kiện được chế tác từ gỗ tự nhiên.</p>
+        <p>
+          Khi cho bé sử dụng, mẹ vui lòng lựa chọn kích thước phù hợp, kiểm tra tình trạng vòng và theo dõi bé trong
+          quá trình đeo.
+        </p>
+        <p>Do vòng có các hạt nhỏ và có thể được phối thêm charm, mẹ cần lưu ý:</p>
+        <ul class="policy-list">
+          <li>Không để bé ngậm hoặc cho vòng vào miệng.</li>
+          <li>Không để bé tự chơi với vòng khi không có người lớn giám sát.</li>
+          <li>Kiểm tra dây vòng, hạt gỗ và charm trước khi sử dụng.</li>
+          <li>Ngừng sử dụng nếu vòng bị đứt, lỏng hạt hoặc có dấu hiệu hư hỏng.</li>
+          <li>Tháo vòng khi bé ngủ hoặc trong những tình huống không thể giám sát trực tiếp.</li>
+        </ul>
+        <p>
+          Vòng dâu tằm không phải thiết bị y tế và không được sử dụng thay thế cho các biện pháp chăm sóc sức khỏe
+          hoặc giấc ngủ của bé.
+        </p>
+        <p>Nếu mẹ cần hướng dẫn lựa chọn và điều chỉnh kích thước, có thể liên hệ trực tiếp với chúng mình.</p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="dk-10">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">10</span>
+          <h2 id="dk-10">Quyền và trách nhiệm của khách hàng</h2>
+        </div>
+        <p>Khi mua sắm tại Vòng Dâu Tằm By Ánh, mẹ có quyền:</p>
+        <ul class="policy-list">
+          <li>Được cung cấp thông tin rõ ràng về sản phẩm, giá bán và điều kiện mua hàng.</li>
+          <li>Được tư vấn trước khi xác nhận đơn hàng.</li>
+          <li>Nhận sản phẩm theo nội dung đơn hàng đã thống nhất.</li>
+          <li>Yêu cầu hỗ trợ khi sản phẩm gặp vấn đề.</li>
+          <li>Thực hiện các quyền đổi trả, hoàn tiền và những quyền lợi khác theo quy định pháp luật.</li>
+        </ul>
+        <p>Để quá trình mua hàng được thuận tiện, mẹ vui lòng:</p>
+        <ul class="policy-list">
+          <li>Cung cấp thông tin đặt hàng và địa chỉ nhận hàng chính xác.</li>
+          <li>Cung cấp đúng cân nặng của bé khi đặt vòng.</li>
+          <li>Kiểm tra các thông tin về mẫu vòng, số lượng và tổng tiền trước khi xác nhận.</li>
+          <li>Thanh toán theo phương thức và điều kiện đã thống nhất.</li>
+          <li>Liên hệ với cửa hàng khi cần thay đổi đơn hoặc hỗ trợ sau mua.</li>
+          <li>Sử dụng sản phẩm theo hướng dẫn và lưu ý phù hợp.</li>
+        </ul>
+      </section>
+
+      <section class="policy-section" aria-labelledby="dk-11">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">11</span>
+          <h2 id="dk-11">Trách nhiệm của Vòng Dâu Tằm By Ánh</h2>
+        </div>
+        <p>Chúng mình có trách nhiệm:</p>
+        <ul class="policy-list">
+          <li>Cung cấp thông tin sản phẩm rõ ràng, phù hợp với thực tế.</li>
+          <li>Tư vấn mẫu vòng và lựa chọn kích thước dựa trên thông tin mẹ cung cấp.</li>
+          <li>Xử lý đơn hàng theo những nội dung đã được xác nhận.</li>
+          <li>Thông báo giá bán, phí vận chuyển và các khoản thanh toán liên quan.</li>
+          <li>Tiếp nhận, giải quyết những yêu cầu đổi trả hoặc hoàn tiền theo chính sách và quy định pháp luật.</li>
+          <li>Bảo vệ thông tin cá nhân của khách hàng theo quy định.</li>
+        </ul>
+        <p>
+          Nếu có vấn đề phát sinh trong quá trình mua bán, chúng mình sẽ chủ động trao đổi với mẹ để tìm phương án xử
+          lý phù hợp trên cơ sở quyền lợi và trách nhiệm của hai bên.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="dk-12">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">12</span>
+          <h2 id="dk-12">Bảo vệ thông tin cá nhân</h2>
+        </div>
+        <p>Khi đặt hàng, mẹ có thể cần cung cấp họ tên, số điện thoại, địa chỉ nhận hàng và cân nặng của bé.</p>
+        <p>Các thông tin này được sử dụng để tư vấn, chế tác vòng, xác nhận đơn hàng và giao sản phẩm.</p>
+        <p>
+          Website cũng có sử dụng các công cụ đo lường và quảng cáo của Google và Meta theo nội dung được công bố tại
+          Chính sách bảo mật.
+        </p>
+        <p>Chúng mình có trách nhiệm xử lý thông tin cá nhân minh bạch, đúng mục đích và phù hợp với quy định pháp luật.</p>
+        <p>
+          Mẹ có thể tham khảo thêm tại:
+          <a href={routes.policyPrivacy}>Chính sách bảo mật</a>.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="dk-13">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">13</span>
+          <h2 id="dk-13">Giải quyết thắc mắc và khiếu nại</h2>
+        </div>
+        <p>
+          Nếu mẹ có bất kỳ thắc mắc nào về sản phẩm, đơn hàng, thanh toán hoặc quyền lợi mua sắm, vui lòng liên hệ
+          trực tiếp với Vòng Dâu Tằm By Ánh.
+        </p>
+        <p>Chúng mình sẽ tiếp nhận thông tin, trao đổi để làm rõ vấn đề và tìm phương án giải quyết phù hợp.</p>
+        <p>
+          Trong trường hợp hai bên không đạt được thỏa thuận, việc giải quyết tranh chấp sẽ được thực hiện theo quy
+          định pháp luật Việt Nam. Những điều khoản trong chính sách này không nhằm hạn chế hoặc loại trừ các quyền
+          hợp pháp của người tiêu dùng.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="dk-14">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">14</span>
+          <h2 id="dk-14">Thay đổi điều khoản và điều kiện</h2>
+        </div>
+        <p>
+          Vòng Dâu Tằm By Ánh có thể cập nhật nội dung điều khoản và điều kiện khi có thay đổi về hoạt động kinh
+          doanh hoặc quy định pháp luật. Phiên bản cập nhật sẽ được công bố trên website cùng ngày cập nhật.
+        </p>
+        <p>
+          Đối với những đơn hàng đã được xác nhận, các điều kiện giao dịch đã thống nhất sẽ tiếp tục được tôn trọng.
+          Những thay đổi ảnh hưởng đến đơn hàng chỉ được thực hiện trên cơ sở thỏa thuận phù hợp hoặc theo quy định
+          pháp luật.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="dk-15">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">15</span>
+          <h2 id="dk-15">Thông tin liên hệ</h2>
+        </div>
+        <p>Nếu mẹ cần hỗ trợ hoặc muốn tìm hiểu thêm về sản phẩm và điều kiện mua hàng, vui lòng liên hệ:</p>
+        <div class="policy-contact">
+          <p class="policy-contact-name">Vòng Dâu Tằm By Ánh</p>
+          <ul class="policy-contact-list">
+            <li><span>Website</span><a href="https://vongdautambyanh.vn" target="_blank" rel="noopener">vongdautambyanh.vn</a></li>
+            <li><span>Điện thoại / Zalo</span><a href="tel:0972483892">0972 483 892</a></li>
+            <li><span>Email</span><a href="mailto:vondautambyanh@gmail.com">vondautambyanh@gmail.com</a></li>
+            <li><span>Địa chỉ</span><p>Xóm 4, Đông Cao, Mê Linh, Hà Nội.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <footer class="policy-closing">
+        <p>
+          Chúng mình hiểu rằng khi lựa chọn một món đồ dành cho bé, mẹ luôn mong muốn mọi thông tin được rõ ràng và
+          đáng tin cậy.
+        </p>
+        <p>
+          Vì vậy, Vòng Dâu Tằm By Ánh luôn hướng đến việc chia sẻ trung thực về nguồn gốc nguyên liệu, quá trình chế
+          tác và các điều kiện mua hàng để mẹ có thể yên tâm tìm hiểu trước khi lựa chọn.
+        </p>
+        <p class="policy-closing-script">Cảm ơn mẹ đã tin tưởng và đồng hành cùng Vòng Dâu Tằm By Ánh!</p>
+      </footer>
+    </article>
+  </main>
+</PublicLayout>

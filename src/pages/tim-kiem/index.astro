@@ -74,47 +74,64 @@ async function loadSearch() {
     ) : (
       <main class="search-page">
         <header class="search-page-head">
-          <h1>{ready ? `Kết quả cho “${q}”` : 'Tìm kiếm'}</h1>
+          <p class="search-page-kicker">Tìm kiếm</p>
+          <h1 class="search-page-title">
+            {ready ? 'Kết quả cho' : 'Mẹ đang tìm'}
+            <span class="search-page-term">{ready ? `“${q}”` : 'điều gì?'}</span>
+          </h1>
+          <p class="search-page-rule" aria-hidden="true"><span>♥</span></p>
+
           <form class="search-page-form" action={routes.search} method="get" role="search">
             <label class="sr-only" for="search-page-q">Từ khóa</label>
-            <input
-              id="search-page-q"
-              class="search-page-input"
-              type="search"
-              name="q"
-              value={q}
-              maxlength="80"
-              placeholder="Bài viết hoặc mẫu vòng…"
-              autocomplete="off"
-              enterkeyhint="search"
-            />
-            <button class="btn btn-primary" type="submit">Tìm</button>
+            <span class="search-page-field">
+              <svg class="search-page-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+              <input
+                id="search-page-q"
+                class="search-page-input"
+                type="search"
+                name="q"
+                value={q}
+                maxlength="80"
+                placeholder="Tìm bài viết hoặc mẫu vòng…"
+                autocomplete="off"
+                enterkeyhint="search"
+              />
+            </span>
+            <button class="search-page-submit" type="submit">
+              <span>Tìm</span>
+            </button>
           </form>
         </header>
 
         {
           !ready ? (
-            <p class="search-page-hint">Nhập ít nhất 2 ký tự để tìm bài viết và sản phẩm.</p>
+            <div class="search-page-state">
+              <span class="search-page-state-icon" aria-hidden="true">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+              </span>
+              <p class="search-page-state-title">Nhập từ khóa để bắt đầu</p>
+              <p class="search-page-state-text">Gõ ít nhất 2 ký tự để tìm bài viết kiến thức và mẫu vòng dâu tằm.</p>
+            </div>
           ) : empty ? (
-            <p class="search-page-hint">Không có kết quả phù hợp. Thử từ ngắn hơn hoặc tên mẫu vòng.</p>
+            <div class="search-page-state">
+              <span class="search-page-state-icon" aria-hidden="true">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9" /><path d="M21 3 3 21" /></svg>
+              </span>
+              <p class="search-page-state-title">Chưa tìm thấy kết quả</p>
+              <p class="search-page-state-text">Thử từ khóa ngắn hơn, hoặc tên mẫu vòng mẹ đang quan tâm nha.</p>
+            </div>
           ) : (
-            <>
-              {
-                loaded.posts.length > 0 && (
-                  <section class="search-page-section" aria-labelledby="search-posts">
-                    <h2 id="search-posts">Bài viết</h2>
-                    <ul class="search-page-grid search-page-posts">
-                      {loaded.posts.map((post) => (
-                        <li><PostCard post={post} level="h3" /></li>
-                      ))}
-                    </ul>
-                  </section>
-                )
-              }
+            <div class="search-page-results">
               {
                 loaded.products.length > 0 && (
                   <section class="search-page-section" aria-labelledby="search-products">
-                    <h2 id="search-products">Mẫu vòng</h2>
+                    <div class="search-page-section-head">
+                      <h2 id="search-products">Mẫu vòng</h2>
+                      <span class="search-page-count">{loaded.products.length} mẫu</span>
+                    </div>
                     <ul class="search-page-grid search-page-products">
                       {loaded.products.map((product) => (
                         <li><ProductCard product={product} /></li>
@@ -123,7 +140,22 @@ async function loadSearch() {
                   </section>
                 )
               }
-            </>
+              {
+                loaded.posts.length > 0 && (
+                  <section class="search-page-section" aria-labelledby="search-posts">
+                    <div class="search-page-section-head">
+                      <h2 id="search-posts">Bài viết</h2>
+                      <span class="search-page-count">{loaded.posts.length} bài</span>
+                    </div>
+                    <ul class="search-page-grid search-page-posts">
+                      {loaded.posts.map((post) => (
+                        <li><PostCard post={post} level="h3" /></li>
+                      ))}
+                    </ul>
+                  </section>
+                )
+              }
+            </div>
           )
         }
       </main>

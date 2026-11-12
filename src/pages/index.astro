@@ -1,8 +1,6 @@
 ---
-import BeadRing from '../components/public/BeadRing.astro';
 import DataError from '../components/public/DataError.astro';
 import HomeProductCard from '../components/public/HomeProductCard.astro';
-import LeafSprig from '../components/public/LeafSprig.astro';
 import OrderDialog from '../components/public/OrderDialog.astro';
 import { listHomeCatalogCategories } from '../features/products/categories';
 import {
@@ -34,13 +32,16 @@ type DemoPhoto = {
 };
 
 const PROCESS_STEPS = [
-  { title: 'Chọn nguyên liệu', text: 'Chọn cành dâu tằm phù hợp trước khi tách và làm sạch.' },
-  { title: 'Bóc dâu tằm', text: 'Tách phần gỗ dùng làm hạt, giữ vẻ mộc tự nhiên.' },
-  { title: 'Phơi khô', text: 'Phơi đều để hạt khô, ổn định trước khi mài.' },
-  { title: 'Mài nhỏ cành dâu', text: 'Tạo hình hạt vừa tay bé, đều từng viên.' },
-  { title: 'Mài mịn viền hạt', text: 'Mài tay cho nhẵn, hạn chế cạnh sắc.' },
-  { title: 'Xỏ vòng', text: 'Xỏ dây, chỉnh size theo bé và hoàn thiện.' },
+  { title: 'Chọn nguyên liệu', text: 'Chọn cành dâu tằm phù hợp trước khi tách và làm sạch.', img: '/Images/quy-trinh/quy-trinh-lam-vong_1.webp' },
+  { title: 'Bóc dâu tằm', text: 'Tách phần gỗ dùng làm hạt, giữ vẻ mộc tự nhiên.', img: '/Images/quy-trinh/quy-trinh-lam-vong_2.webp' },
+  { title: 'Phơi khô', text: 'Phơi đều để hạt khô, ổn định trước khi mài.', img: '/Images/quy-trinh/quy-trinh-lam-vong_3.webp' },
+  { title: 'Mài nhỏ cành dâu', text: 'Tạo hình hạt vừa tay bé, đều từng viên.', img: '/Images/quy-trinh/quy-trinh-lam-vong_4.webp' },
+  { title: 'Mài mịn viền hạt', text: 'Mài tay cho nhẵn, hạn chế cạnh sắc.', img: '/Images/quy-trinh/quy-trinh-lam-vong_5.webp' },
+  { title: 'Xỏ vòng', text: 'Xỏ dây, chỉnh size theo bé và hoàn thiện.', img: '/Images/quy-trinh/quy-trinh-lam-vong_6.webp' },
 ] as const;
+
+// Ảnh phản hồi cố định (dọc). Đã nén 600px WebP trong /public/Images/feedback.
+const FEEDBACK_PHOTOS = Array.from({ length: 10 }, (_, i) => `/Images/feedback/${i + 1}.webp`);
 
 const BENEFITS = [
   {
@@ -61,26 +62,32 @@ const WHY_POINTS = [
   {
     title: 'Làm thủ công từ cành dâu tằm Việt Nam',
     text: 'Vòng đều được làm từ cây dâu tằm ta Việt Nam mà các cụ dùng ngày xưa, không phải dâu tằm lai hiện nay ạ.',
+    img: '/Images/usp/USP_1.webp',
   },
   {
     title: 'Không tẩm hóa chất, không sơn bóng',
     text: 'Nếu bé có vô tình mút, ngậm phải vòng thì cũng không lo lắng',
+    img: '/Images/usp/USP_2.webp',
   },
   {
     title: 'Hạt dâu được mài tay, nhẵn, mịn',
     text: 'Các hạt dâu tằm đều đã được em mài mịn viền, đeo không cấn, không đau tay bé',
+    img: '/Images/usp/USP_3.webp',
   },
   {
     title: 'Dây kéo rút điều chỉnh kích thước',
     text: 'Mẹ mua 1 lần bé đeo được từ lúc nhỏ tới lúc lớn, không lo chật',
+    img: '/Images/usp/USP_4.webp',
   },
   {
     title: 'Làm theo size riêng của mỗi bé',
     text: 'Tất cả vòng dâu tằm bên em sẽ làm theo cân nặng riêng của từng bé, nên các mẹ yên tâm không lo bị chật hay rộng ạ.',
+    img: '/Images/usp/USP_5.webp',
   },
   {
     title: 'Kiểm tra hàng thoải mái',
     text: 'Các mẹ khi nhận hàng cứ mở ra kiểm tra hàng thoải mái, nếu không hài lòng cứ trả lại cho shiper ạ.',
+    img: '/Images/usp/USP_6.webp',
   },
 ] as const;
 
@@ -149,13 +156,7 @@ const shopFiltered = Boolean(shopQuery.category) || Astro.url.searchParams.has('
 const nextCatalogHref = catalogPath({ ...shopQuery, page: 2 });
 const nextApiHref = catalogApiPath({ ...shopQuery, page: 2 });
 const heroPhoto = photoAt(photos, 0);
-const benefitPhotos = [photoAt(photos, 1), photoAt(photos, 2)];
 const PROCESS_SHORT_ID = '15TVzfA-Jys';
-// Demo: ảnh cover sản phẩm làm ảnh phản hồi tạm — thay bằng screenshot chat thật trong /public/feedback/ khi có.
-const feedbackPhotos = (photos.length > 0 ? [0, 1, 2, 3, 4] : []).flatMap((index) => {
-  const photo = photoAt(photos, index);
-  return photo ? [photo] : [];
-});
 const site = loaded.site;
 const origin = getSiteOrigin(Astro.url.origin);
 
@@ -259,7 +260,7 @@ async function loadHome(query: CatalogQuery) {
   faviconUrl={site?.faviconUrl || '/favicon.svg'}
   chrome={site}
   jsonLd={schemaEntries}
-  preloadImage={heroPhoto?.url ?? null}
+  preloadImage="/Images/anh-hero-section.webp"
 >
   {
     site ? (
@@ -325,21 +326,16 @@ async function loadHome(query: CatalogQuery) {
               </div>
             </div>
             <div class="home-hero-media">
-              {heroPhoto ? (
-                <img
-                  class="home-hero-photo"
-                  src={heroPhoto.url}
-                  alt={heroPhoto.alt}
-                  width={heroPhoto.width ?? 800}
-                  height={heroPhoto.height ?? 1000}
-                  fetchpriority="high"
-                  decoding="async"
-                />
-              ) : (
-                <div class="home-hero-photo home-hero-placeholder" aria-hidden="true">
-                  <BeadRing />
-                </div>
-              )}
+              <img
+                class="home-hero-photo"
+                src="/Images/anh-hero-section.webp"
+                alt="Vòng dâu tằm thật làm thủ công cho bé"
+                width="1000"
+                height="1000"
+                loading="eager"
+                fetchpriority="high"
+                decoding="async"
+              />
             </div>
           </div>
         </section>
@@ -354,30 +350,23 @@ async function loadHome(query: CatalogQuery) {
           </div>
           <div class="home-process-rail">
             <ol class="home-process">
-              {PROCESS_STEPS.map((step, index) => {
-                const photo = photoAt(photos, index);
-                return (
-                  <li class="home-process-card">
-                    <span class="home-process-num" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
-                    {photo ? (
-                      <img
-                        class="home-process-photo"
-                        src={photo.url}
-                        alt=""
-                        width={photo.width ?? 400}
-                        height={photo.height ?? 400}
-                        loading="lazy"
-                        decoding="async"
-                        sizes="(min-width: 64rem) 10rem, 42vw"
-                      />
-                    ) : (
-                      <span class="home-process-photo home-media-fallback" aria-hidden="true"><LeafSprig /></span>
-                    )}
-                    <strong>{step.title}</strong>
-                    <span>{step.text}</span>
-                  </li>
-                );
-              })}
+              {PROCESS_STEPS.map((step, index) => (
+                <li class="home-process-card">
+                  <span class="home-process-num" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+                  <img
+                    class="home-process-photo"
+                    src={step.img}
+                    alt={`Bước ${index + 1}: ${step.title}`}
+                    width="400"
+                    height="400"
+                    loading="lazy"
+                    decoding="async"
+                    sizes="(min-width: 64rem) 10rem, 42vw"
+                  />
+                  <strong>{step.title}</strong>
+                  <span>{step.text}</span>
+                </li>
+              ))}
             </ol>
           </div>
           <figure class="home-process-video">
@@ -414,22 +403,16 @@ async function loadHome(query: CatalogQuery) {
 
         <section id="gioi-thieu" class="home-benefits home-defer" aria-labelledby="loi-ich-title">
           <div class="home-wrap home-benefits-grid">
-            <div class="home-benefits-media" aria-hidden={benefitPhotos.every((p) => !p) ? 'true' : undefined}>
-              {benefitPhotos.map((photo) =>
-                photo ? (
-                  <img
-                    src={photo.url}
-                    alt={photo.alt}
-                    width={photo.width ?? 480}
-                    height={photo.height ?? 640}
-                    loading="lazy"
-                    decoding="async"
-                    sizes="(min-width: 56rem) 14rem, 42vw"
-                  />
-                ) : (
-                  <span class="home-media-fallback"><LeafSprig /></span>
-                ),
-              )}
+            <div class="home-benefits-media home-benefits-media-single">
+              <img
+                src="/Images/tac-dung/1.webp"
+                alt="Vòng dâu tằm ta em làm thủ công"
+                width="600"
+                height="800"
+                loading="lazy"
+                decoding="async"
+                sizes="(min-width: 56rem) 22rem, 70vw"
+              />
               <p class="home-benefits-caption">Vòng dâu tằm ta em làm thủ công</p>
             </div>
             <div class="home-benefits-copy">
@@ -467,33 +450,26 @@ async function loadHome(query: CatalogQuery) {
               <p class="home-why-lead">Những lý do khiến hàng ngàn mẹ tin tưởng và lựa chọn vòng dâu tằm của em Ánh.</p>
             </div>
             <ol class="home-why">
-              {WHY_POINTS.map((point, index) => {
-                const photo = photoAt(photos, index);
-                return (
-                  <li class:list={['home-why-row', index % 2 === 1 && 'is-flip']}>
-                    <div class="home-why-media">
-                      {photo ? (
-                        <img
-                          src={photo.url}
-                          alt=""
-                          width={photo.width ?? 640}
-                          height={photo.height ?? 640}
-                          loading="lazy"
-                          decoding="async"
-                          sizes="(min-width: 56rem) 22rem, 88vw"
-                        />
-                      ) : (
-                        <span class="home-media-fallback" aria-hidden="true"><LeafSprig /></span>
-                      )}
-                    </div>
-                    <div class="home-why-copy">
-                      <span class="home-why-num" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
-                      <h3>{point.title}</h3>
-                      <p>{point.text}</p>
-                    </div>
-                  </li>
-                );
-              })}
+              {WHY_POINTS.map((point, index) => (
+                <li class:list={['home-why-row', index % 2 === 1 && 'is-flip']}>
+                  <div class="home-why-media">
+                    <img
+                      src={point.img}
+                      alt={point.title}
+                      width="700"
+                      height="700"
+                      loading="lazy"
+                      decoding="async"
+                      sizes="(min-width: 56rem) 22rem, 88vw"
+                    />
+                  </div>
+                  <div class="home-why-copy">
+                    <span class="home-why-num" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+                    <h3>{point.title}</h3>
+                    <p>{point.text}</p>
+                  </div>
+                </li>
+              ))}
             </ol>
             <div class="home-why-cta">
               <a class="btn home-why-cta-btn" href="#danh-muc-me">Chọn vòng cho bé ngay <span aria-hidden="true">→</span></a>
@@ -642,27 +618,23 @@ async function loadHome(query: CatalogQuery) {
               </p>
             </div>
           </div>
-          {feedbackPhotos.length > 0 ? (
-            <div class="home-feedback-rail" tabindex="0" aria-label="Ảnh phản hồi từ mẹ — vuốt ngang để xem thêm">
-              <ul class="home-feedback-list">
-                {feedbackPhotos.map((photo, index) => (
-                  <li class="home-feedback-card">
-                    <img
-                      src={photo.url}
-                      alt={`Ảnh phản hồi minh họa ${index + 1}`}
-                      width={photo.width ?? 480}
-                      height={photo.height ?? 860}
-                      loading="lazy"
-                      decoding="async"
-                      sizes="(min-width: 48rem) 16rem, 72vw"
-                    />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <p class="home-wrap home-empty">Chưa có ảnh phản hồi để hiển thị.</p>
-          )}
+          <div class="home-feedback-rail" tabindex="0" aria-label="Ảnh phản hồi từ mẹ — vuốt ngang để xem thêm">
+            <ul class="home-feedback-list">
+              {FEEDBACK_PHOTOS.map((src, index) => (
+                <li class="home-feedback-card">
+                  <img
+                    src={src}
+                    alt={`Ảnh phản hồi từ khách hàng ${index + 1}`}
+                    width="600"
+                    height="752"
+                    loading="lazy"
+                    decoding="async"
+                    sizes="(min-width: 48rem) 16rem, 72vw"
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
           <p class="home-feedback-hint">Vuốt ngang để xem <span aria-hidden="true">≫</span></p>
           <aside class="home-promise" aria-labelledby="loi-cam-ket">
             <span class="home-promise-seal" aria-hidden="true">♥</span>
@@ -708,9 +680,6 @@ async function loadHome(query: CatalogQuery) {
                 <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
               </svg>
             </a>
-          )}
-          {site.facebookUrl && site.zaloUrl && (
-            <a class="home-fab-btn home-fab-fb" href={site.facebookUrl} rel="noopener" target="_blank" aria-label="Facebook">f</a>
           )}
         </div>
       </main>

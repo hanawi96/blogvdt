@@ -1,0 +1,286 @@
+---
+import { staticChrome } from '../features/content/policies';
+import { getPublicSite } from '../features/settings/settings';
+import PublicLayout from '../layouts/PublicLayout.astro';
+import { createDb } from '../lib/db/client';
+import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
+import { PUBLIC_PAGE_CACHE } from '../lib/seo/cache';
+import { buildMeta } from '../lib/seo/meta';
+import { routes } from '../lib/routes';
+
+const PATH = routes.policyShipping;
+const UPDATED = '12/11/2026';
+
+const chrome = await loadChrome();
+Astro.response.headers.set('Cache-Control', PUBLIC_PAGE_CACHE);
+
+const title = 'Chính sách vận chuyển & giao hàng';
+const description =
+  'Phạm vi giao hàng toàn quốc, thời gian chế tác và vận chuyển, phí ship, phương thức thanh toán và cách theo dõi đơn của Vòng Dâu Tằm By Anh.';
+const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
+  title,
+  description,
+  path: PATH,
+  siteName: chrome.siteName,
+});
+
+async function loadChrome() {
+  try {
+    return (await getPublicSite(createDb(getDbBinding()))) ?? staticChrome;
+  } catch {
+    return staticChrome;
+  }
+}
+---
+
+<PublicLayout
+  title={meta.title}
+  description={meta.description}
+  canonical={meta.canonical}
+  robots="index,follow"
+  siteName={chrome.siteName}
+  faviconUrl={chrome.faviconUrl || '/favicon.svg'}
+  chrome={chrome}
+>
+  <main class="policy-page">
+    <article class="policy-article">
+      <header class="policy-hero">
+        <p class="policy-kicker">Gửi vòng đến tận tay mẹ</p>
+        <h1 class="policy-title">
+          Chính sách vận chuyển
+          <span class="policy-title-script">&amp; giao hàng</span>
+        </h1>
+        <p class="policy-updated">Cập nhật lần cuối: {UPDATED}</p>
+        <p class="policy-rule" aria-hidden="true"><span>♥</span></p>
+      </header>
+
+      <div class="policy-lead">
+        <p>
+          Tại <strong>Vòng Dâu Tằm By Anh</strong>, mỗi chiếc vòng dâu tằm đều được làm thủ công, tỉ mỉ qua nhiều
+          công đoạn và điều chỉnh kích thước dựa trên cân nặng riêng của từng bé.
+        </p>
+        <p>
+          Chúng mình hiểu rằng sau khi chọn được mẫu vòng ưng ý, mẹ luôn mong sớm nhận được món quà nhỏ xinh dành cho
+          con.
+        </p>
+        <p>
+          Vì vậy, chúng mình luôn cố gắng chuẩn bị đơn hàng chu đáo, đóng gói cẩn thận và thông tin rõ ràng về quá
+          trình giao hàng để mẹ yên tâm khi đặt mua sản phẩm.
+        </p>
+      </div>
+
+      <section class="policy-section" aria-labelledby="pv-1">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">01</span>
+          <h2 id="pv-1">Phạm vi giao hàng</h2>
+        </div>
+        <p>
+          Vòng Dâu Tằm By Anh hỗ trợ giao hàng trên toàn quốc, bao gồm các tỉnh, thành phố tại Việt Nam.
+        </p>
+        <p>
+          Dù mẹ ở miền Bắc, miền Trung hay miền Nam, chúng mình đều có thể tiếp nhận đơn hàng và sắp xếp vận chuyển
+          đến địa chỉ mẹ cung cấp.
+        </p>
+        <p>
+          Đối với một số khu vực có điều kiện vận chuyển đặc biệt, thời gian giao hàng có thể thay đổi tùy theo khả
+          năng phục vụ của đơn vị vận chuyển.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pv-2">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">02</span>
+          <h2 id="pv-2">Thời gian chuẩn bị và hoàn thiện vòng</h2>
+        </div>
+        <p>
+          Vì vòng dâu tằm được làm thủ công theo cân nặng riêng của bé nên chúng mình cần thời gian để chuẩn bị và
+          hoàn thiện sản phẩm.
+        </p>
+        <p class="policy-highlight">Thời gian chế tác dự kiến: 2–3 ngày kể từ khi đơn hàng được xác nhận.</p>
+        <p>Trong thời gian này, chúng mình thực hiện các công đoạn cần thiết để hoàn thiện chiếc vòng theo mẫu mẹ đã lựa chọn.</p>
+        <p>
+          Đối với một số mẫu vòng có yêu cầu riêng hoặc cần thêm thời gian chế tác, chúng mình sẽ trao đổi với mẹ về
+          thời gian dự kiến trước khi tiến hành.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pv-3">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">03</span>
+          <h2 id="pv-3">Thời gian vận chuyển dự kiến</h2>
+        </div>
+        <p>Sau khi vòng được hoàn thiện và bàn giao cho đơn vị vận chuyển, thời gian giao hàng dự kiến như sau:</p>
+        <div class="policy-table-wrap">
+          <table class="policy-table">
+            <thead>
+              <tr>
+                <th scope="col">Khu vực</th>
+                <th scope="col">Thời gian vận chuyển</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Miền Bắc</th><td>1–3 ngày</td></tr>
+              <tr><th scope="row">Miền Trung</th><td>3–5 ngày</td></tr>
+              <tr><th scope="row">Miền Nam</th><td>3–5 ngày</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p><strong>Lưu ý:</strong> thời gian trên là thời gian vận chuyển dự kiến, chưa bao gồm 2–3 ngày chế tác vòng.</p>
+        <p>
+          Thời gian nhận hàng thực tế có thể thay đổi do địa chỉ nhận hàng, lịch làm việc của đơn vị vận chuyển, thời
+          tiết, ngày lễ hoặc những tình huống phát sinh ngoài dự kiến.
+        </p>
+        <p>
+          Nếu có thông tin về việc giao hàng chậm hơn dự kiến, chúng mình sẽ hỗ trợ mẹ kiểm tra tình trạng đơn hàng
+          khi mẹ liên hệ.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pv-4">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">04</span>
+          <h2 id="pv-4">Chính sách phí vận chuyển</h2>
+        </div>
+        <p>
+          Vòng Dâu Tằm By Anh có hỗ trợ <strong>miễn phí vận chuyển cho những đơn hàng đạt giá trị tối thiểu theo
+          chương trình đang áp dụng</strong>.
+        </p>
+        <ul class="policy-list">
+          <li><strong>Đơn hàng đạt mức tối thiểu theo chương trình đang áp dụng:</strong> được miễn phí vận chuyển theo điều kiện áp dụng.</li>
+          <li><strong>Đơn hàng dưới mức trên:</strong> phí vận chuyển được xác định theo địa chỉ nhận hàng và dịch vụ vận chuyển được sử dụng.</li>
+        </ul>
+        <p>Phí vận chuyển sẽ được thông báo cho mẹ trước khi xác nhận đặt hàng.</p>
+        <p>Đối với các chương trình ưu đãi vận chuyển khác, điều kiện áp dụng sẽ được thông tin tại thời điểm mua hàng.</p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pv-5">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">05</span>
+          <h2 id="pv-5">Phương thức thanh toán</h2>
+        </div>
+        <p>Để thuận tiện cho mẹ khi đặt vòng, Vòng Dâu Tằm By Anh hỗ trợ các hình thức thanh toán sau:</p>
+        <p class="policy-subhead">Thanh toán khi nhận hàng (COD)</p>
+        <p>Mẹ có thể lựa chọn thanh toán khi nhận sản phẩm theo số tiền đã được xác nhận trong đơn hàng.</p>
+        <p class="policy-subhead">Chuyển khoản ngân hàng</p>
+        <p>Mẹ có thể thanh toán trước bằng hình thức chuyển khoản theo thông tin được cửa hàng cung cấp khi xác nhận đơn.</p>
+        <p class="policy-subhead">Đặt cọc trước khi làm vòng</p>
+        <p>
+          Đối với những đơn hàng có thỏa thuận đặt cọc, chúng mình sẽ trao đổi rõ với mẹ về số tiền cần đặt cọc và số
+          tiền còn lại trước khi tiến hành chế tác.
+        </p>
+        <p>Thông tin thanh toán, phí vận chuyển và tổng giá trị đơn hàng sẽ được xác nhận với mẹ trước khi hoàn tất đặt hàng.</p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pv-6">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">06</span>
+          <h2 id="pv-6">Đơn vị vận chuyển</h2>
+        </div>
+        <p>
+          Vòng Dâu Tằm By Anh hợp tác với nhiều đơn vị vận chuyển để giao sản phẩm đến tay khách hàng trên toàn quốc.
+        </p>
+        <p>Đơn vị vận chuyển được lựa chọn tùy theo khu vực nhận hàng và điều kiện giao nhận tại thời điểm gửi đơn.</p>
+        <p>
+          Sau khi đơn hàng được bàn giao cho đơn vị vận chuyển, chúng mình sẽ cung cấp <strong>mã vận đơn</strong> để
+          mẹ tiện theo dõi quá trình giao hàng.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pv-7">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">07</span>
+          <h2 id="pv-7">Theo dõi tình trạng đơn hàng</h2>
+        </div>
+        <p>Khi vòng đã được hoàn thiện và gửi đi, mẹ sẽ được cung cấp mã vận đơn để theo dõi hành trình giao hàng.</p>
+        <p>
+          Nếu chưa rõ cách kiểm tra mã vận đơn hoặc muốn biết tình trạng đơn hàng, mẹ có thể liên hệ trực tiếp với
+          chúng mình qua Zalo <a href="tel:0972483892"><strong>0972 483 892</strong></a>.
+        </p>
+        <p>
+          Chúng mình sẽ hỗ trợ kiểm tra thông tin vận chuyển dựa trên tình trạng đơn hàng được đơn vị vận chuyển cập
+          nhật.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pv-8">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">08</span>
+          <h2 id="pv-8">Thay đổi địa chỉ hoặc giao hàng không thành công</h2>
+        </div>
+        <p>
+          Nếu mẹ cần thay đổi địa chỉ hoặc số điện thoại nhận hàng, hãy liên hệ với chúng mình sớm nhất có thể để
+          được hỗ trợ.
+        </p>
+        <p class="policy-subhead">Trường hợp đơn hàng chưa được gửi đi</p>
+        <p>Chúng mình sẽ kiểm tra và hỗ trợ cập nhật thông tin giao hàng theo yêu cầu của mẹ.</p>
+        <p class="policy-subhead">Trường hợp đơn hàng đang vận chuyển</p>
+        <p>Chúng mình sẽ hỗ trợ liên hệ đơn vị vận chuyển để kiểm tra khả năng thay đổi thông tin nhận hàng.</p>
+        <p>Việc thay đổi địa chỉ có thể làm phát sinh thêm thời gian hoặc chi phí vận chuyển.</p>
+        <p>Nếu có khoản phí phát sinh, chúng mình sẽ thông báo để mẹ biết trước khi thực hiện.</p>
+        <p class="policy-subhead">Trường hợp giao hàng không thành công</p>
+        <p>
+          Nếu đơn hàng chưa thể giao thành công do người nhận vắng mặt, không liên hệ được hoặc các lý do khác, chúng
+          mình sẽ hỗ trợ kiểm tra và trao đổi phương án giao lại khi cần.
+        </p>
+        <p>Chi phí phát sinh trong quá trình giao lại, nếu có, sẽ được thông báo trước để mẹ cân nhắc và xác nhận.</p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pv-9">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">09</span>
+          <h2 id="pv-9">Kiểm tra sản phẩm khi nhận hàng</h2>
+        </div>
+        <p>
+          Khi nhận được đơn hàng, mẹ nên kiểm tra sản phẩm để bảo đảm chiếc vòng đúng với mẫu đã đặt và tình trạng
+          sản phẩm phù hợp.
+        </p>
+        <p>Nếu phát hiện những vấn đề như:</p>
+        <ul class="policy-list">
+          <li>Vòng bị hư hỏng trong quá trình vận chuyển.</li>
+          <li>Sản phẩm không đúng mẫu đã đặt.</li>
+          <li>Đơn hàng bị thiếu sản phẩm.</li>
+          <li>Vòng có vấn đề về kích thước hoặc chất lượng chế tác.</li>
+        </ul>
+        <p>Mẹ vui lòng liên hệ với chúng mình để được hỗ trợ.</p>
+        <p>
+          Vòng Dâu Tằm By Anh tiếp nhận yêu cầu đổi trả trong vòng <strong>14 ngày kể từ ngày mẹ nhận được sản
+          phẩm</strong>, theo các điều kiện được công bố tại trang Chính sách đổi trả &amp; hoàn tiền.
+        </p>
+        <p>
+          Mẹ có thể tham khảo chi tiết tại:
+          <a href={routes.policyReturn}>Chính sách đổi trả &amp; hoàn tiền</a>.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pv-10">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">10</span>
+          <h2 id="pv-10">Thông tin liên hệ hỗ trợ giao hàng</h2>
+        </div>
+        <p>
+          Nếu mẹ có câu hỏi về thời gian chế tác, phí vận chuyển, mã vận đơn hoặc tình trạng giao hàng, vui lòng liên
+          hệ:
+        </p>
+        <div class="policy-contact">
+          <p class="policy-contact-name">Vòng Dâu Tằm By Anh</p>
+          <ul class="policy-contact-list">
+            <li><span>Website</span><a href="https://vongdautambyanh.vn" target="_blank" rel="noopener">vongdautambyanh.vn</a></li>
+            <li><span>Zalo hỗ trợ</span><a href="tel:0972483892">0972 483 892</a></li>
+            <li><span>Điện thoại</span><a href="tel:0972483892">0972 483 892</a></li>
+            <li><span>Email</span><a href="mailto:vondautambyanh@gmail.com">vondautambyanh@gmail.com</a></li>
+            <li><span>Địa chỉ</span><p>Xóm 4, Đông Cao, Mê Linh, Hà Nội.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <footer class="policy-closing">
+        <p>Chúng mình hiểu rằng mỗi chiếc vòng đều là món quà mẹ dành nhiều sự quan tâm khi lựa chọn cho con.</p>
+        <p>
+          Vì vậy, từ lúc tiếp nhận đơn hàng, hoàn thiện vòng cho đến khi gửi sản phẩm đi, chúng mình luôn mong muốn
+          mang đến cho mẹ trải nghiệm mua sắm rõ ràng và thuận tiện.
+        </p>
+        <p class="policy-closing-script">Cảm ơn mẹ đã tin tưởng lựa chọn Vòng Dâu Tằm By Anh!</p>
+      </footer>
+    </article>
+  </main>
+</PublicLayout>

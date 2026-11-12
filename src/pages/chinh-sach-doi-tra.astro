@@ -1,0 +1,277 @@
+---
+import { staticChrome } from '../features/content/policies';
+import { getPublicSite } from '../features/settings/settings';
+import PublicLayout from '../layouts/PublicLayout.astro';
+import { createDb } from '../lib/db/client';
+import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
+import { PUBLIC_PAGE_CACHE } from '../lib/seo/cache';
+import { buildMeta } from '../lib/seo/meta';
+import { routes } from '../lib/routes';
+
+const PATH = routes.policyReturn;
+const UPDATED = '12/11/2026';
+
+const chrome = await loadChrome();
+Astro.response.headers.set('Cache-Control', PUBLIC_PAGE_CACHE);
+
+const title = 'Chính sách đổi trả & hoàn tiền';
+const description =
+  'Cách Vòng Dâu Tằm By Anh hỗ trợ mẹ đổi trả, điều chỉnh kích thước vòng và hoàn tiền trong vòng 14 ngày kể từ khi nhận hàng.';
+const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
+  title,
+  description,
+  path: PATH,
+  siteName: chrome.siteName,
+});
+
+async function loadChrome() {
+  try {
+    return (await getPublicSite(createDb(getDbBinding()))) ?? staticChrome;
+  } catch {
+    return staticChrome;
+  }
+}
+---
+
+<PublicLayout
+  title={meta.title}
+  description={meta.description}
+  canonical={meta.canonical}
+  robots="index,follow"
+  siteName={chrome.siteName}
+  faviconUrl={chrome.faviconUrl || '/favicon.svg'}
+  chrome={chrome}
+>
+  <main class="policy-page">
+    <article class="policy-article">
+      <header class="policy-hero">
+        <p class="policy-kicker">Mẹ yên tâm mua sắm</p>
+        <h1 class="policy-title">
+          Chính sách đổi trả
+          <span class="policy-title-script">&amp; hoàn tiền</span>
+        </h1>
+        <p class="policy-updated">Cập nhật lần cuối: {UPDATED}</p>
+        <p class="policy-rule" aria-hidden="true"><span>♥</span></p>
+      </header>
+
+      <div class="policy-lead">
+        <p>
+          Tại <strong>Vòng Dâu Tằm By Anh</strong>, mỗi chiếc vòng dâu tằm đều được làm thủ công, tỉ mỉ từ khâu chọn
+          cành dâu, mài nhẵn từng hạt cho đến khi hoàn thiện chiếc vòng nhỏ xinh dành riêng cho bé.
+        </p>
+        <p>Chúng mình hiểu rằng khi mua một món đồ cho con, mẹ luôn mong muốn lựa chọn được sản phẩm thật ưng ý.</p>
+        <p>
+          Vì vậy, nếu chiếc vòng mẹ nhận được chưa phù hợp, chúng mình luôn sẵn lòng lắng nghe và hỗ trợ mẹ theo
+          chính sách dưới đây.
+        </p>
+      </div>
+
+      <section class="policy-section" aria-labelledby="pr-1">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">01</span>
+          <h2 id="pr-1">Thời gian hỗ trợ đổi trả</h2>
+        </div>
+        <p>
+          Vòng Dâu Tằm By Anh tiếp nhận yêu cầu đổi trả trong vòng <strong>14 ngày kể từ ngày mẹ nhận được sản
+          phẩm</strong>.
+        </p>
+        <p>
+          Trong thời gian này, nếu vòng có vấn đề hoặc mẹ muốn thay đổi lựa chọn, mẹ có thể liên hệ trực tiếp với
+          chúng mình qua Zalo để được tư vấn và hướng dẫn.
+        </p>
+        <p>
+          Việc đổi trả sẽ được thực hiện dựa trên tình trạng sản phẩm, lý do đổi trả và các điều kiện được nêu trong
+          chính sách.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pr-2">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">02</span>
+          <h2 id="pr-2">Những trường hợp được hỗ trợ đổi trả</h2>
+        </div>
+        <p>Chúng mình hỗ trợ mẹ đổi trả trong các trường hợp sau:</p>
+        <p class="policy-subhead">Vòng có lỗi trong quá trình chế tác</p>
+        <p>
+          Nếu vòng có vấn đề phát sinh từ quá trình làm thủ công, mẹ có thể liên hệ để chúng mình kiểm tra và hỗ trợ
+          đổi hoặc hoàn tiền theo điều kiện áp dụng.
+        </p>
+        <p class="policy-subhead">Giao nhầm mẫu vòng</p>
+        <p>Nếu sản phẩm mẹ nhận được không đúng mẫu đã đặt, chúng mình sẽ hỗ trợ đổi sang sản phẩm đúng với đơn hàng.</p>
+        <p class="policy-subhead">Vòng chưa vừa với bé</p>
+        <p>
+          Mỗi chiếc vòng được làm dựa trên cân nặng mẹ cung cấp. Nếu mẹ đã cung cấp đúng cân nặng nhưng khi nhận vòng
+          lại chưa vừa với bé, chúng mình sẽ tiếp nhận vòng để kiểm tra và hỗ trợ điều chỉnh kích thước.
+        </p>
+        <p class="policy-subhead">Sản phẩm bị hư hỏng trong quá trình vận chuyển</p>
+        <p>Nếu vòng bị hư hỏng khi đến tay mẹ, hãy liên hệ với chúng mình để được hỗ trợ kiểm tra và giải quyết.</p>
+        <p class="policy-subhead">Mẹ muốn đổi sang mẫu khác hoặc không còn nhu cầu sử dụng</p>
+        <p>Trong thời hạn 14 ngày, nếu mẹ thay đổi lựa chọn, chúng mình vẫn tiếp nhận yêu cầu đổi trả.</p>
+        <p>
+          Vì vòng được chế tác riêng theo cân nặng của từng bé, việc đổi sang mẫu khác hoặc hoàn tiền sẽ được xem xét
+          dựa trên tình trạng thực tế của sản phẩm và điều kiện đổi trả đã thống nhất với mẹ.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pr-3">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">03</span>
+          <h2 id="pr-3">Điều kiện đổi trả sản phẩm</h2>
+        </div>
+        <p>
+          Để việc đổi trả được thuận tiện, mẹ vui lòng liên hệ với chúng mình trong thời hạn 14 ngày kể từ khi nhận
+          hàng.
+        </p>
+        <p>Khi tiếp nhận yêu cầu, chúng mình sẽ trao đổi với mẹ về tình trạng vòng và phương án xử lý phù hợp.</p>
+        <p>
+          Đối với trường hợp mẹ muốn đổi mẫu hoặc không còn nhu cầu sử dụng, việc hỗ trợ sẽ phụ thuộc vào tình trạng
+          sản phẩm tại thời điểm tiếp nhận.
+        </p>
+        <p>
+          Đối với sản phẩm có lỗi từ quá trình chế tác, giao sai mẫu hoặc hư hỏng trong quá trình vận chuyển, chúng
+          mình sẽ kiểm tra nguyên nhân để đưa ra hướng xử lý phù hợp và bảo đảm quyền lợi của mẹ theo quy định.
+        </p>
+        <p>
+          Mẹ không bắt buộc phải gửi ảnh hoặc video khi liên hệ đổi trả. Chúng mình sẽ trao đổi trực tiếp và hướng
+          dẫn thêm nếu cần kiểm tra sản phẩm.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pr-4">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">04</span>
+          <h2 id="pr-4">Chính sách điều chỉnh kích thước vòng</h2>
+        </div>
+        <p>
+          Vì mỗi bé có cân nặng và kích thước tay khác nhau nên đôi khi chiếc vòng mẹ nhận được có thể chưa thật sự
+          vừa ý.
+        </p>
+        <p>
+          Nếu mẹ đã cung cấp đúng cân nặng nhưng vòng chưa vừa với bé, chúng mình hỗ trợ tiếp nhận sản phẩm để điều
+          chỉnh kích thước.
+        </p>
+        <p>
+          Trường hợp bé lớn lên và mẹ muốn thay đổi kích thước vòng, mẹ cũng có thể liên hệ để được hướng dẫn gửi
+          vòng về kiểm tra và điều chỉnh.
+        </p>
+        <p>
+          Chi phí vận chuyển hoặc chi phí phát sinh, nếu có, sẽ được thông báo và thống nhất với mẹ trước khi thực
+          hiện.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pr-5">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">05</span>
+          <h2 id="pr-5">Chi phí vận chuyển khi đổi trả</h2>
+        </div>
+        <p>Chính sách phí vận chuyển được áp dụng như sau:</p>
+        <p class="policy-subhead">Trường hợp lỗi từ phía cửa hàng</p>
+        <p>
+          Vòng Dâu Tằm By Anh chịu chi phí vận chuyển đổi trả khi xác định sản phẩm gặp lỗi từ quá trình chế tác,
+          giao sai mẫu hoặc phát sinh vấn đề thuộc trách nhiệm của cửa hàng.
+        </p>
+        <p class="policy-subhead">Trường hợp đổi trả theo nhu cầu của khách hàng</p>
+        <p>
+          Nếu mẹ muốn đổi sang mẫu khác, đổi ý hoặc không còn nhu cầu sử dụng sản phẩm, mẹ sẽ chịu chi phí vận chuyển
+          phát sinh khi đổi trả.
+        </p>
+        <p>Chúng mình sẽ trao đổi rõ về chi phí trước khi mẹ gửi sản phẩm về cửa hàng.</p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pr-6">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">06</span>
+          <h2 id="pr-6">Chính sách hoàn tiền</h2>
+        </div>
+        <p>
+          Vòng Dâu Tằm By Anh hỗ trợ hoàn tiền đối với những yêu cầu trả hàng đáp ứng điều kiện của chính sách.
+        </p>
+        <p>
+          Sau khi tiếp nhận sản phẩm trả về, kiểm tra và xác nhận yêu cầu hoàn tiền hợp lệ, chúng mình sẽ tiến hành
+          xử lý hoàn tiền trong vòng <strong>3 ngày làm việc</strong>.
+        </p>
+        <p>
+          Thông tin và phương thức nhận tiền hoàn lại sẽ được trao đổi trực tiếp với mẹ trong quá trình giải quyết
+          yêu cầu.
+        </p>
+        <p>
+          Thời gian tiền thực tế được ghi nhận vào tài khoản có thể phụ thuộc vào ngân hàng hoặc đơn vị cung cấp dịch
+          vụ thanh toán.
+        </p>
+        <p>
+          Nếu phát sinh chi phí liên quan đến việc trả hàng theo nhu cầu riêng, chúng mình sẽ thông báo rõ cho mẹ
+          trước khi thực hiện.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pr-7">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">07</span>
+          <h2 id="pr-7">Quy trình đổi trả và hoàn tiền</h2>
+        </div>
+        <p>Để đổi trả sản phẩm, mẹ chỉ cần thực hiện các bước sau:</p>
+        <p class="policy-subhead">Bước 1: Liên hệ với cửa hàng</p>
+        <p>
+          Trong vòng 14 ngày kể từ khi nhận hàng, mẹ nhắn tin qua Zalo <strong>0972 483 892</strong> để thông báo
+          nhu cầu đổi trả.
+        </p>
+        <p>Mẹ có thể cung cấp số điện thoại đặt hàng, thông tin đơn hàng và mô tả vấn đề đang gặp phải.</p>
+        <p class="policy-subhead">Bước 2: Trao đổi và xác nhận phương án hỗ trợ</p>
+        <p>
+          Chúng mình sẽ tiếp nhận thông tin, trao đổi với mẹ và hướng dẫn phương án phù hợp, chẳng hạn như điều chỉnh
+          kích thước, đổi mẫu hoặc hoàn tiền.
+        </p>
+        <p>Các điều kiện và chi phí phát sinh, nếu có, sẽ được thông báo trước khi thực hiện.</p>
+        <p class="policy-subhead">Bước 3: Gửi sản phẩm về cửa hàng</p>
+        <p>Sau khi trao đổi và thống nhất phương án, mẹ gửi vòng về địa chỉ tiếp nhận đổi trả:</p>
+        <div class="policy-contact">
+          <p class="policy-contact-name">Vòng Dâu Tằm By Anh</p>
+          <ul class="policy-contact-list">
+            <li><span>Địa chỉ</span><p>Xóm 4, Đông Cao, Mê Linh, Hà Nội.</p></li>
+            <li><span>Điện thoại</span><a href="tel:0972483892">0972 483 892</a></li>
+          </ul>
+        </div>
+        <p>Mẹ nên đóng gói sản phẩm cẩn thận để hạn chế va đập hoặc hư hỏng trong quá trình vận chuyển.</p>
+        <p class="policy-subhead">Bước 4: Kiểm tra và xử lý yêu cầu</p>
+        <p>
+          Sau khi nhận được sản phẩm, chúng mình sẽ kiểm tra tình trạng vòng và thực hiện phương án đã thống nhất.
+        </p>
+        <p>
+          Đối với trường hợp hoàn tiền đủ điều kiện, yêu cầu sẽ được xử lý trong vòng 3 ngày làm việc kể từ khi xác
+          nhận hoàn tiền hợp lệ.
+        </p>
+        <p>
+          Đối với trường hợp đổi vòng hoặc điều chỉnh kích thước, thời gian thực hiện sẽ được trao đổi với mẹ dựa
+          trên tình trạng sản phẩm và yêu cầu cụ thể.
+        </p>
+      </section>
+
+      <section class="policy-section" aria-labelledby="pr-8">
+        <div class="policy-section-head">
+          <span class="policy-num" aria-hidden="true">08</span>
+          <h2 id="pr-8">Thông tin liên hệ hỗ trợ đổi trả</h2>
+        </div>
+        <p>Nếu mẹ có bất kỳ thắc mắc nào về sản phẩm hoặc cần hỗ trợ đổi trả, vui lòng liên hệ:</p>
+        <div class="policy-contact">
+          <p class="policy-contact-name">Vòng Dâu Tằm By Anh</p>
+          <ul class="policy-contact-list">
+            <li><span>Website</span><a href="https://vongdautambyanh.vn" target="_blank" rel="noopener">vongdautambyanh.vn</a></li>
+            <li><span>Zalo hỗ trợ</span><a href="tel:0972483892">0972 483 892</a></li>
+            <li><span>Email</span><a href="mailto:vondautambyanh@gmail.com">vondautambyanh@gmail.com</a></li>
+            <li><span>Địa chỉ</span><p>Xóm 4, Đông Cao, Mê Linh, Hà Nội.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <footer class="policy-closing">
+        <p>Chúng mình luôn mong mỗi chiếc vòng đến tay mẹ đều là một món quà nhỏ xinh và phù hợp với bé.</p>
+        <p>
+          Nếu có điều gì chưa ưng ý, mẹ cứ nhắn cho chúng mình nhé. Chúng mình sẽ lắng nghe và cùng mẹ tìm phương án
+          giải quyết phù hợp.
+        </p>
+        <p class="policy-closing-script">Cảm ơn mẹ đã tin tưởng và lựa chọn Vòng Dâu Tằm By Anh!</p>
+      </footer>
+    </article>
+  </main>
+</PublicLayout>
