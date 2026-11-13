@@ -1,26 +1,63 @@
+import { vnAddDays, vnTodayParts, vnYmd, type VnDayParts } from '../../lib/datetime';
 import { routes } from '../../lib/routes';
 
-export const DASHBOARD_PERIODS = [7, 30, 90] as const;
-export type DashboardPeriod = (typeof DASHBOARD_PERIODS)[number];
-export const DEFAULT_PERIOD: DashboardPeriod = 30;
-
+export const OVERVIEW_DAYS = 7;
 export const DAY_MS = 24 * 60 * 60 * 1000;
-// Đơn mới quá ngưỡng này mà chưa xác nhận thì cảnh báo; bài nháp quá ngưỡng này gọi là "để lâu".
+/** Đơn mới quá ngưỡng này mà chưa xác nhận thì cảnh báo; bài nháp quá ngưỡng này gọi là "để lâu". */
 export const AGED_ORDER_MS = DAY_MS;
 export const OLD_DRAFT_MS = 30 * DAY_MS;
+
+/** Giữ helper kỳ cũ cho test; overview cố định 7 ngày. */
+export const DASHBOARD_PERIODS = [7, 30, 90] as const;
+export type DashboardPeriod = (typeof DASHBOARD_PERIODS)[number];
+export const DEFAULT_PERIOD: DashboardPeriod = 7;
 
 export function readPeriod(value: string | null): DashboardPeriod {
   const days = Number(value);
   return DASHBOARD_PERIODS.find((period) => period === days) ?? DEFAULT_PERIOD;
 }
 
-// Kỳ hiện tại là N*24 giờ gần nhất; kỳ trước là N*24 giờ liền trước đó, cùng độ dài để so sánh công bằng.
 export function periodRange(days: DashboardPeriod, now: number): { start: number; previousStart: number } {
   const start = now - days * DAY_MS;
   return { start, previousStart: start - days * DAY_MS };
 }
 
-// null khi kỳ trước bằng 0 mà kỳ này có số (không chia được cho 0).
+function dayList(from: VnDayParts, count: number): string[] {
+  return Array.from({ length: count }, (_, index) => vnYmd(vnAddDays(from, index)));
+}
+
+function vnMidnight(parts: VnDayParts): number {
+  return Date.parse(`${vnYmd(parts)}T00:00:00+07:00`);
+}
+
+/** 7 ngày lịch VN gần nhất (gồm hôm nay) vs 7 ngày liền trước. */
+export function overviewWindows(now = Date.now()): {
+  currentStart: number;
+  previousStart: number;
+  currentDays: string[];
+  previousDays: string[];
+} {
+  const today = vnTodayParts(now);
+  const currentFrom = vnAddDays(today, -(OVERVIEW_DAYS - 1));
+  const previousTo = vnAddDays(currentFrom, -1);
+  const previousFrom = vnAddDays(previousTo, -(OVERVIEW_DAYS - 1));
+  return {
+    currentStart: vnMidnight(currentFrom),
+    previousStart: vnMidnight(previousFrom),
+    currentDays: dayList(currentFrom, OVERVIEW_DAYS),
+    previousDays: dayList(previousFrom, OVERVIEW_DAYS),
+  };
+}
+
+/** Điền 0 cho ngày thiếu; giữ đúng thứ tự `days`. */
+export function fillDailySeries(
+  days: readonly string[],
+  rows: ReadonlyArray<{ day: string; value: number }>,
+): number[] {
+  const map = new Map(rows.map((row) => [row.day, row.value]));
+  return days.map((day) => map.get(day) ?? 0);
+}
+
 export function percentChange(current: number, previous: number): number | null {
   if (previous === 0) return current === 0 ? 0 : null;
   return Math.round(((current - previous) / previous) * 100);
@@ -37,7 +74,6 @@ export function cancelRate(cancelled: number, orders: number): number {
 
 export type DeltaTone = 'good' | 'bad' | 'flat';
 
-// invert = true cho chỉ số "tăng là xấu" (vd tỉ lệ hủy).
 export function describeDelta(change: number | null, invert = false): { text: string; tone: DeltaTone } {
   if (change === null) return { text: 'Kỳ trước chưa có', tone: 'flat' };
   if (change === 0) return { text: 'Không đổi so với kỳ trước', tone: 'flat' };
@@ -80,7 +116,6 @@ export type ActionInput = {
   seo: { state: 'none' | 'checked'; errors: number };
 };
 
-// Chỉ trả những việc thật sự có; rỗng nghĩa là không có gì cần xử lý.
 export function buildActionItems(input: ActionInput): ActionItem[] {
   const items: ActionItem[] = [];
   if (input.admin) {
@@ -159,7 +194,6 @@ export function buildActionItems(input: ActionInput): ActionItem[] {
   return items;
 }
 
-// Gộp số lượng bán từ đơn một mẫu và đơn nhiều mẫu, lấy top N theo số lượng giảm dần (hòa thì id nhỏ trước).
 export function mergeTopProducts(
   parts: ReadonlyArray<ReadonlyArray<{ productId: number | null; sold: number }>>,
   limit: number,

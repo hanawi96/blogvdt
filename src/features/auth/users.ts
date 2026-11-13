@@ -199,26 +199,39 @@ export function describeUserChange(
 
 export async function createUser(
   db: AppDb,
-  input: { displayName: string; email: string; role: AdminRole },
+  input: { displayName: string; email: string; role: AdminRole; password?: string; confirmPassword?: string },
   now = Date.now(),
   actor?: ActivityActor,
-): Promise<{ ok: true; id: number; token: string; expiresAt: number } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; id: number; activated: true }
+  | { ok: true; id: number; activated: false; token: string; expiresAt: number }
+  | { ok: false; error: string }
+> {
   const name = input.displayName.trim();
   const email = normalizeEmail(input.email);
+  const password = input.password ?? '';
+  const confirmPassword = input.confirmPassword ?? '';
   const nameError = displayNameError(name);
   if (nameError) return { ok: false, error: nameError };
   const invalidEmail = emailError(email);
   if (invalidEmail) return { ok: false, error: invalidEmail };
+  const setPassword = password.length > 0 || confirmPassword.length > 0;
+  if (setPassword) {
+    if (password !== confirmPassword) return { ok: false, error: 'Mật khẩu mới không khớp.' };
+    const invalidPassword = passwordError(password);
+    if (invalidPassword) return { ok: false, error: invalidPassword };
+  }
   const taken = await findIdentity(db, email);
   if (taken) return { ok: false, error: 'Email đã được dùng.' };
-  const passwordHash = await hashPassword(randomToken());
+  const passwordHash = await hashPassword(setPassword ? password : randomToken());
+  const status = setPassword ? ('active' as const) : ('invited' as const);
   await commitWrites(db, [
     db.insert(adminUsers).values({
       username: email,
       displayName: name,
       email,
       role: input.role,
-      status: 'invited',
+      status,
       passwordHash,
       createdAt: now,
       updatedAt: now,
@@ -233,7 +246,9 @@ export async function createUser(
               action: 'user.create',
               objectType: 'user',
               objectId: null,
-              summary: `Đã tạo tài khoản ${activityText(name, 80)}, vai trò ${ROLE_LABELS[input.role]}.`,
+              summary: setPassword
+                ? `Đã tạo tài khoản ${activityText(name, 80)}, vai trò ${ROLE_LABELS[input.role]}, đã đặt mật khẩu.`
+                : `Đã tạo tài khoản ${activityText(name, 80)}, vai trò ${ROLE_LABELS[input.role]}.`,
               createdAt: now,
               useLastInsertId: true,
             },
@@ -245,9 +260,10 @@ export async function createUser(
   const created = await db.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.email, email)).limit(1);
   const id = created[0]?.id;
   if (!id) return { ok: false, error: 'Không tạo được tài khoản.' };
+  if (setPassword) return { ok: true, id, activated: true };
   const issued = await issuePasswordReset(db, id, now);
   if (!issued.ok) return issued;
-  return { ok: true, id, token: issued.token, expiresAt: issued.expiresAt };
+  return { ok: true, id, activated: false, token: issued.token, expiresAt: issued.expiresAt };
 }
 
 export async function updateUser(

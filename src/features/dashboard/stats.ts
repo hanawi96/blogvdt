@@ -1,25 +1,34 @@
 import { and, count, desc, eq, gte, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
-import { activityLogs, orderItems, orders, posts, products, seoHealthIssues, seoHealthRuns } from '../../lib/db/schema';
-import { adTotals } from '../costs/ads';
+import { routes } from '../../lib/routes';
+import { media, orderItems, orders, posts, products, seoHealthIssues, seoHealthRuns } from '../../lib/db/schema';
+import { provinceLabel } from '../address/provinces';
 import { notTrashed } from '../posts/visibility';
+import { sourceLabel } from '../orders/staff';
 import {
   AGED_ORDER_MS,
   OLD_DRAFT_MS,
-  averageValue,
+  OVERVIEW_DAYS,
   buildActionItems,
-  cancelRate,
+  describeDelta,
+  fillDailySeries,
   mergeTopProducts,
+  overviewWindows,
   percentChange,
-  periodRange,
-  type DashboardPeriod,
 } from './metrics';
 
-const TOP_PRODUCTS = 5;
-const RECENT_ORDERS = 6;
-const RECENT_ACTIVITY = 6;
+const TOP_PRODUCTS = 10;
+const TOP_PROVINCES = 5;
 
 const num = (expression: ReturnType<typeof sql>) => sql<number>`coalesce(${expression}, 0)`.mapWith(Number);
+
+/** Ngày lịch VN từ created_at (ms). */
+const dayVn = sql<string>`strftime('%Y-%m-%d', ${orders.createdAt} / 1000, 'unixepoch', '+7 hours')`;
+
+const live = sql`${orders.status} <> 'cancelled'`;
+const revenueOk = sql`${orders.status} <> 'cancelled' AND ${orders.compensation} = 0`;
+const costed = sql`${orders.costGoods} is not null and ${orders.costExtra} is not null`;
+const profitExpr = sql`${orders.totalPrice} - ${orders.costGoods} - ${orders.costExtra} - coalesce(${orders.shippingCost}, 0)`;
 
 async function loadPosts(db: AppDb, now: number) {
   const rows = await db
@@ -47,43 +56,6 @@ async function loadProducts(db: AppDb) {
   return { active: row?.active ?? 0, noCover: row?.noCover ?? 0, noCategory: row?.noCategory ?? 0 };
 }
 
-// Một truy vấn cho cả hai kỳ: chỉ quét đơn từ đầu kỳ trước, dùng index theo ngày tạo.
-async function loadKpi(db: AppDb, start: number, previousStart: number) {
-  const inCurrent = sql`${orders.createdAt} >= ${start}`;
-  const inPrevious = sql`${orders.createdAt} < ${start}`;
-  const live = sql`${orders.status} <> 'cancelled'`;
-  const cancelled = sql`${orders.status} = 'cancelled'`;
-  // Chỉ tính lợi nhuận cho đơn có đủ số liệu chi phí lúc đặt (đơn cũ hoặc thiếu công thức thì bỏ qua).
-  const costed = sql`${orders.costGoods} is not null and ${orders.costExtra} is not null`;
-  const profit = sql`${orders.totalPrice} - ${orders.costGoods} - ${orders.costExtra}`;
-  const rows = await db
-    .select({
-      curOrders: num(sql`sum(case when ${inCurrent} and ${live} then 1 else 0 end)`),
-      curValue: num(sql`sum(case when ${inCurrent} and ${live} then ${orders.totalPrice} else 0 end)`),
-      curCancelled: num(sql`sum(case when ${inCurrent} and ${cancelled} then 1 else 0 end)`),
-      prevOrders: num(sql`sum(case when ${inPrevious} and ${live} then 1 else 0 end)`),
-      prevValue: num(sql`sum(case when ${inPrevious} and ${live} then ${orders.totalPrice} else 0 end)`),
-      prevCancelled: num(sql`sum(case when ${inPrevious} and ${cancelled} then 1 else 0 end)`),
-      curCosted: num(sql`sum(case when ${inCurrent} and ${live} and ${costed} then 1 else 0 end)`),
-      curProfit: num(sql`sum(case when ${inCurrent} and ${live} and ${costed} then ${profit} else 0 end)`),
-      prevProfit: num(sql`sum(case when ${inPrevious} and ${live} and ${costed} then ${profit} else 0 end)`),
-    })
-    .from(orders)
-    .where(gte(orders.createdAt, previousStart));
-  const row = rows[0];
-  return {
-    curOrders: row?.curOrders ?? 0,
-    curValue: row?.curValue ?? 0,
-    curCancelled: row?.curCancelled ?? 0,
-    prevOrders: row?.prevOrders ?? 0,
-    prevValue: row?.prevValue ?? 0,
-    prevCancelled: row?.prevCancelled ?? 0,
-    curCosted: row?.curCosted ?? 0,
-    curProfit: row?.curProfit ?? 0,
-    prevProfit: row?.prevProfit ?? 0,
-  };
-}
-
 async function loadStatusCounts(db: AppDb, now: number) {
   const rows = await db
     .select({
@@ -93,67 +65,19 @@ async function loadStatusCounts(db: AppDb, now: number) {
     })
     .from(orders)
     .groupBy(orders.status);
-  let all = 0;
   let newOrders = 0;
   let agedNewOrders = 0;
   let processing = 0;
   for (const row of rows) {
-    all += row.value;
     if (row.status === 'new') {
       newOrders += row.value;
       agedNewOrders += row.aged;
     }
     if (row.status === 'confirmed' || row.status === 'preparing' || row.status === 'shipped') processing += row.value;
   }
-  return { all, newOrders, agedNewOrders, processing };
+  return { newOrders, agedNewOrders, processing };
 }
 
-// Số lượng bán trong kỳ = đơn một mẫu (orders) + đơn nhiều mẫu (order_items), bỏ đơn đã hủy.
-async function loadTopProducts(db: AppDb, start: number) {
-  const inRange = and(gte(orders.createdAt, start), ne(orders.status, 'cancelled'));
-  const [single, many] = await Promise.all([
-    db
-      .select({ productId: orders.productId, sold: num(sql`sum(${orders.quantity})`) })
-      .from(orders)
-      .where(and(inRange, isNotNull(orders.productId)))
-      .groupBy(orders.productId),
-    db
-      .select({ productId: orderItems.productId, sold: num(sql`sum(${orderItems.quantity})`) })
-      .from(orderItems)
-      .innerJoin(orders, eq(orders.id, orderItems.orderId))
-      .where(and(inRange, isNotNull(orderItems.productId)))
-      .groupBy(orderItems.productId),
-  ]);
-  const top = mergeTopProducts([single, many], TOP_PRODUCTS);
-  if (top.length === 0) return [];
-  const names = await db
-    .select({ id: products.id, name: products.name })
-    .from(products)
-    .where(inArray(products.id, top.map((item) => item.productId)));
-  const byId = new Map(names.map((item) => [item.id, item.name]));
-  return top.flatMap((item) => {
-    const name = byId.get(item.productId);
-    return name ? [{ productId: item.productId, name, sold: item.sold }] : [];
-  });
-}
-
-function loadRecentOrders(db: AppDb) {
-  return db
-    .select({
-      id: orders.id,
-      code: orders.code,
-      customerName: orders.customerName,
-      productName: orders.productName,
-      totalPrice: orders.totalPrice,
-      status: orders.status,
-      createdAt: orders.createdAt,
-    })
-    .from(orders)
-    .orderBy(desc(orders.createdAt), desc(orders.id))
-    .limit(RECENT_ORDERS);
-}
-
-// Đọc kết quả kiểm tra SEO đã lưu, không quét lại. Chỉ tính lỗi của bài đang xuất bản (giống trang kiểm tra SEO).
 async function loadSeo(db: AppDb): Promise<{ state: 'none' | 'checked'; errors: number }> {
   const runs = await db.select({ id: seoHealthRuns.id }).from(seoHealthRuns).orderBy(desc(seoHealthRuns.id)).limit(1);
   const run = runs[0];
@@ -171,40 +95,176 @@ async function loadSeo(db: AppDb): Promise<{ state: 'none' | 'checked'; errors: 
   return { state: 'checked', errors: rows[0]?.value ?? 0 };
 }
 
-function loadRecentActivity(db: AppDb) {
-  return db
-    .select({ id: activityLogs.id, actorName: activityLogs.actorName, summary: activityLogs.summary, createdAt: activityLogs.createdAt })
-    .from(activityLogs)
-    .orderBy(desc(activityLogs.createdAt), desc(activityLogs.id))
-    .limit(RECENT_ACTIVITY);
+/** KPI 7 ngày + kỳ trước trong một query trên cửa sổ 14 ngày. */
+async function loadPeriodKpi(db: AppDb, currentStart: number, previousStart: number) {
+  const inCurrent = sql`${orders.createdAt} >= ${currentStart}`;
+  const inPrevious = sql`${orders.createdAt} < ${currentStart}`;
+  const rows = await db
+    .select({
+      curOrders: num(sql`sum(case when ${inCurrent} and ${live} then 1 else 0 end)`),
+      curRevenue: num(sql`sum(case when ${inCurrent} and ${revenueOk} then ${orders.totalPrice} else 0 end)`),
+      curProfit: num(sql`sum(case when ${inCurrent} and ${live} and ${costed} then ${profitExpr} else 0 end)`),
+      curCosted: num(sql`sum(case when ${inCurrent} and ${live} and ${costed} then 1 else 0 end)`),
+      prevOrders: num(sql`sum(case when ${inPrevious} and ${live} then 1 else 0 end)`),
+      prevRevenue: num(sql`sum(case when ${inPrevious} and ${revenueOk} then ${orders.totalPrice} else 0 end)`),
+      prevProfit: num(sql`sum(case when ${inPrevious} and ${live} and ${costed} then ${profitExpr} else 0 end)`),
+    })
+    .from(orders)
+    .where(gte(orders.createdAt, previousStart));
+  const row = rows[0];
+  return {
+    curOrders: row?.curOrders ?? 0,
+    curRevenue: row?.curRevenue ?? 0,
+    curProfit: row?.curProfit ?? 0,
+    curCosted: row?.curCosted ?? 0,
+    prevOrders: row?.prevOrders ?? 0,
+    prevRevenue: row?.prevRevenue ?? 0,
+    prevProfit: row?.prevProfit ?? 0,
+  };
 }
 
-export async function getDashboard(db: AppDb, options: { admin: boolean; days: DashboardPeriod; now?: number }) {
-  const now = options.now ?? Date.now();
-  const { start, previousStart } = periodRange(options.days, now);
-  const empty = {
-    kpi: {
-      orders: 0,
-      value: 0,
-      average: 0,
-      cancelRate: 0,
-      previousCancelRate: 0,
-      profit: 0,
-      adSpend: 0,
-      costedOrders: 0,
-      changes: { orders: 0 as number | null, value: 0 as number | null, average: 0 as number | null, profit: 0 as number | null },
-    },
-    totalOrders: 0,
-    topProducts: [] as Awaited<ReturnType<typeof loadTopProducts>>,
-    recentOrders: [] as Awaited<ReturnType<typeof loadRecentOrders>>,
-    activity: [] as Awaited<ReturnType<typeof loadRecentActivity>>,
-    activeProducts: 0,
+/** Một query: số đơn + doanh thu theo ngày (cửa sổ 14 ngày). */
+async function loadDailySeries(db: AppDb, previousStart: number) {
+  return db
+    .select({
+      day: dayVn,
+      orders: num(sql`sum(case when ${live} then 1 else 0 end)`),
+      revenue: num(sql`sum(case when ${revenueOk} then ${orders.totalPrice} else 0 end)`),
+    })
+    .from(orders)
+    .where(gte(orders.createdAt, previousStart))
+    .groupBy(dayVn);
+}
+
+async function loadTopProvinces(db: AppDb, start: number) {
+  const rows = await db
+    .select({
+      provinceCode: orders.provinceCode,
+      ordersCount: num(sql`sum(case when ${live} then 1 else 0 end)`),
+      revenue: num(sql`sum(case when ${revenueOk} then ${orders.totalPrice} else 0 end)`),
+    })
+    .from(orders)
+    .where(gte(orders.createdAt, start))
+    .groupBy(orders.provinceCode)
+    .orderBy(sql`sum(case when ${live} then 1 else 0 end) desc`)
+    .limit(TOP_PROVINCES);
+  return rows
+    .filter((row) => row.ordersCount > 0)
+    .map((row) => ({
+      provinceCode: row.provinceCode,
+      name: provinceLabel(row.provinceCode),
+      orders: row.ordersCount,
+      revenue: row.revenue,
+    }));
+}
+
+async function loadBySource(db: AppDb, start: number) {
+  const rows = await db
+    .select({
+      source: orders.source,
+      ordersCount: num(sql`sum(case when ${live} then 1 else 0 end)`),
+      revenue: num(sql`sum(case when ${revenueOk} then ${orders.totalPrice} else 0 end)`),
+    })
+    .from(orders)
+    .where(gte(orders.createdAt, start))
+    .groupBy(orders.source)
+    .orderBy(sql`sum(case when ${live} then 1 else 0 end) desc`);
+  return rows
+    .filter((row) => row.ordersCount > 0)
+    .map((row) => ({
+      source: row.source,
+      name: sourceLabel(row.source) || 'Khác',
+      orders: row.ordersCount,
+      revenue: row.revenue,
+    }));
+}
+
+async function loadTopProducts(db: AppDb, start: number) {
+  const inRange = and(gte(orders.createdAt, start), ne(orders.status, 'cancelled'));
+  const legacyOnly = sql`not exists (select 1 from order_items where order_items.order_id = ${orders.id})`;
+  const [single, many] = await Promise.all([
+    db
+      .select({ productId: orders.productId, sold: num(sql`sum(${orders.quantity})`) })
+      .from(orders)
+      .where(and(inRange, isNotNull(orders.productId), legacyOnly))
+      .groupBy(orders.productId),
+    db
+      .select({ productId: orderItems.productId, sold: num(sql`sum(${orderItems.quantity})`) })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .where(and(inRange, isNotNull(orderItems.productId)))
+      .groupBy(orderItems.productId),
+  ]);
+  const top = mergeTopProducts([single, many], TOP_PRODUCTS);
+  if (top.length === 0) return [];
+  const details = await db
+    .select({
+      id: products.id,
+      name: products.name,
+      coverKey: media.r2Key,
+      cardKey: media.cardR2Key,
+      thumbKey: media.thumbR2Key,
+      coverAlt: media.altText,
+    })
+    .from(products)
+    .leftJoin(media, eq(products.coverMediaId, media.id))
+    .where(inArray(products.id, top.map((item) => item.productId)));
+  const byId = new Map(details.map((row) => [row.id, row]));
+  return top.flatMap((item) => {
+    const row = byId.get(item.productId);
+    if (!row) return [];
+    const key = row.thumbKey || row.cardKey || row.coverKey || null;
+    return [
+      {
+        productId: item.productId,
+        name: row.name,
+        sold: item.sold,
+        imageUrl: key ? routes.media(key) : null,
+        imageAlt: row.coverAlt || row.name,
+      },
+    ];
+  });
+}
+
+/** Lifetime: tránh double-count — đơn có order_items chỉ đếm items; đơn legacy (không có item) đếm orders.quantity. */
+async function loadLifetimeSales(db: AppDb) {
+  const [orderAgg, itemQty, legacyQty] = await Promise.all([
+    db
+      .select({
+        ordersCount: num(sql`sum(case when ${live} then 1 else 0 end)`),
+        revenue: num(sql`sum(case when ${revenueOk} then ${orders.totalPrice} else 0 end)`),
+      })
+      .from(orders),
+    db
+      .select({ sold: num(sql`sum(${orderItems.quantity})`) })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .where(ne(orders.status, 'cancelled')),
+    db
+      .select({ sold: num(sql`sum(${orders.quantity})`) })
+      .from(orders)
+      .where(
+        and(
+          ne(orders.status, 'cancelled'),
+          sql`not exists (select 1 from order_items where order_items.order_id = ${orders.id})`,
+        ),
+      ),
+  ]);
+  return {
+    orders: orderAgg[0]?.ordersCount ?? 0,
+    revenue: orderAgg[0]?.revenue ?? 0,
+    soldQty: (itemQty[0]?.sold ?? 0) + (legacyQty[0]?.sold ?? 0),
   };
+}
+
+export async function getDashboardOverview(db: AppDb, options: { admin: boolean; now?: number }) {
+  const now = options.now ?? Date.now();
+  const windows = overviewWindows(now);
 
   if (!options.admin) {
     const postStats = await loadPosts(db, now);
     return {
-      ...empty,
+      admin: false as const,
       posts: postStats,
       actions: buildActionItems({
         admin: false,
@@ -221,46 +281,66 @@ export async function getDashboard(db: AppDb, options: { admin: boolean; days: D
     };
   }
 
-  const [postStats, productStats, kpiRaw, statusCounts, topProducts, recentOrders, seo, activity, ads] = await Promise.all([
-    loadPosts(db, now),
-    loadProducts(db),
-    loadKpi(db, start, previousStart),
-    loadStatusCounts(db, now),
-    loadTopProducts(db, start),
-    loadRecentOrders(db),
-    loadSeo(db),
-    loadRecentActivity(db),
-    adTotals(db, now, options.days),
-  ]);
+  const [postStats, productStats, statusCounts, seo, kpiRaw, seriesRows, provinces, sources, topProducts, lifetime] =
+    await Promise.all([
+      loadPosts(db, now),
+      loadProducts(db),
+      loadStatusCounts(db, now),
+      loadSeo(db),
+      loadPeriodKpi(db, windows.currentStart, windows.previousStart),
+      loadDailySeries(db, windows.previousStart),
+      loadTopProvinces(db, windows.currentStart),
+      loadBySource(db, windows.currentStart),
+      loadTopProducts(db, windows.currentStart),
+      loadLifetimeSales(db),
+    ]);
 
-  // Lợi nhuận = lợi nhuận các đơn có đủ chi phí trừ quảng cáo của cả kỳ.
-  const profit = kpiRaw.curProfit - ads.current;
-  const previousProfit = kpiRaw.prevProfit - ads.previous;
-  const average = averageValue(kpiRaw.curValue, kpiRaw.curOrders);
-  const previousAverage = averageValue(kpiRaw.prevValue, kpiRaw.prevOrders);
+  const orderRows = seriesRows.map((row) => ({ day: row.day, value: row.orders }));
+  const revenueRows = seriesRows.map((row) => ({ day: row.day, value: row.revenue }));
+  const labels = windows.currentDays.map((day) => `${day.slice(8, 10)}/${day.slice(5, 7)}`);
+
   return {
+    admin: true as const,
+    days: OVERVIEW_DAYS,
+    posts: postStats,
     kpi: {
       orders: kpiRaw.curOrders,
-      value: kpiRaw.curValue,
-      average,
-      cancelRate: cancelRate(kpiRaw.curCancelled, kpiRaw.curOrders),
-      previousCancelRate: cancelRate(kpiRaw.prevCancelled, kpiRaw.prevOrders),
-      profit,
-      adSpend: ads.current,
+      revenue: kpiRaw.curRevenue,
+      profit: kpiRaw.curProfit,
       costedOrders: kpiRaw.curCosted,
       changes: {
         orders: percentChange(kpiRaw.curOrders, kpiRaw.prevOrders),
-        value: percentChange(kpiRaw.curValue, kpiRaw.prevValue),
-        average: percentChange(average, previousAverage),
-        profit: percentChange(profit, previousProfit),
+        revenue: percentChange(kpiRaw.curRevenue, kpiRaw.prevRevenue),
+        profit: percentChange(kpiRaw.curProfit, kpiRaw.prevProfit),
+      },
+      deltas: {
+        orders: describeDelta(percentChange(kpiRaw.curOrders, kpiRaw.prevOrders)),
+        revenue: describeDelta(percentChange(kpiRaw.curRevenue, kpiRaw.prevRevenue)),
+        profit: describeDelta(percentChange(kpiRaw.curProfit, kpiRaw.prevProfit)),
       },
     },
-    totalOrders: statusCounts.all,
+    chart: {
+      labels,
+      orders: {
+        current: fillDailySeries(windows.currentDays, orderRows),
+        previous: fillDailySeries(windows.previousDays, orderRows),
+      },
+      revenue: {
+        current: fillDailySeries(windows.currentDays, revenueRows),
+        previous: fillDailySeries(windows.previousDays, revenueRows),
+      },
+    },
+    provinces,
+    sources,
     topProducts,
-    recentOrders,
-    activity,
-    activeProducts: productStats.active,
-    posts: postStats,
+    lifetime: {
+      products: productStats.active,
+      publishedPosts: postStats.published,
+      drafts: postStats.drafts,
+      soldQty: lifetime.soldQty,
+      revenue: lifetime.revenue,
+      orders: lifetime.orders,
+    },
     actions: buildActionItems({
       admin: true,
       newOrders: statusCounts.newOrders,
@@ -275,3 +355,6 @@ export async function getDashboard(db: AppDb, options: { admin: boolean; days: D
     }),
   };
 }
+
+/** Alias cũ — trang admin gọi getDashboardOverview. */
+export const getDashboard = getDashboardOverview;

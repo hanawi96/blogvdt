@@ -6297,16 +6297,6 @@
     display: grid;
     gap: 0.2rem;
   }
-  .order-profit-link {
-    color: var(--color-muted);
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-decoration: underline;
-    text-underline-offset: 0.12em;
-  }
-  .order-profit-link:hover {
-    color: var(--color-primary-strong);
-  }
   .order-date-cell {
     display: grid;
     gap: 0.15rem;
@@ -7145,10 +7135,16 @@
   }
   .dash-actions {
     display: grid;
+    grid-template-columns: 1fr;
     gap: 0.6rem;
     margin: 0;
     padding: 0;
     list-style: none;
+  }
+  @media (min-width: 768px) {
+    .dash-actions {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
   .dash-action {
     display: flex;
@@ -7208,6 +7204,9 @@
     padding: 0;
     list-style: none;
   }
+  .dash-kpis-3 {
+    grid-template-columns: 1fr;
+  }
   .dash-kpi {
     min-width: 0;
   }
@@ -7233,86 +7232,79 @@
   .dash-delta[data-tone='bad'] {
     color: var(--color-accent);
   }
-  .dash-foot {
-    margin-top: 0.6rem;
-    color: var(--color-muted);
-    font-size: 0.8125rem;
-  }
-  .dash-orders,
-  .dash-log,
-  .dash-top {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-  .dash-orders li {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 0.4rem 1rem;
-    padding: 0.7rem 0;
-    border-top: 1px solid var(--color-line);
-  }
-  .dash-orders li:first-child {
-    padding-top: 0;
-    border-top: 0;
-  }
-  .dash-order-main {
-    min-width: 0;
-    flex: 1 1 12rem;
-  }
-  .dash-order-meta {
-    overflow: hidden;
-    color: var(--color-muted);
-    font-size: 0.8125rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .dash-order-side {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 0.25rem 0.6rem;
-  }
-  .dash-order-time {
-    color: var(--color-muted);
-    font-size: 0.75rem;
-  }
-  .dash-stats {
+  .dash-life {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.75rem;
+    gap: 0.85rem 1rem;
     margin: 0;
     padding: 0;
     list-style: none;
   }
-  .dash-stats span {
+  .dash-life span {
     display: block;
     color: var(--color-muted);
     font-size: 0.8125rem;
   }
-  .dash-stats strong {
-    font-size: 1.35rem;
+  .dash-life strong {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 1.15rem;
+    font-weight: 700;
+    overflow-wrap: anywhere;
   }
-  .dash-top li {
-    padding: 0.5rem 0;
+  .dash-split {
+    display: grid;
+    gap: 1.25rem;
   }
-  .dash-top-row {
+  .dash-rank {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .dash-rank li {
+    padding: 0.55rem 0;
+  }
+  .dash-rank li + li {
+    border-top: 1px solid var(--color-line);
+  }
+  .dash-rank-row {
     display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
     justify-content: space-between;
-    gap: 1rem;
-    margin-bottom: 0.3rem;
+    gap: 0.35rem 1rem;
+    margin-bottom: 0.35rem;
   }
-  .dash-top-row a {
+  .dash-rank-name {
     min-width: 0;
     overflow-wrap: anywhere;
     font-weight: 600;
   }
-  .dash-top-row strong {
+  .dash-rank-meta {
     flex: none;
-    font-size: 0.875rem;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .dash-top-row {
+    align-items: center;
+  }
+  .dash-top-product {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    min-width: 0;
+    flex: 1 1 12rem;
+    color: inherit;
+    text-decoration: none;
+  }
+  .dash-top-product:hover .dash-rank-name {
+    color: var(--color-primary-strong);
+  }
+  .dash-top-product .product-thumb {
+    width: 2.75rem;
+    height: 2.75rem;
   }
   .dash-bar {
     height: 0.4rem;
@@ -7325,31 +7317,97 @@
     border-radius: inherit;
     background: var(--color-primary);
   }
-  .dash-log li {
-    padding: 0.6rem 0;
-    border-top: 1px solid var(--color-line);
-    font-size: 0.875rem;
+  .trend-chart {
+    display: grid;
+    gap: 0.75rem;
   }
-  .dash-log li:first-child {
-    padding-top: 0;
-    border-top: 0;
+  .trend-chart svg {
+    display: block;
+    width: 100%;
+    height: auto;
   }
-  .dash-log-meta {
-    margin-top: 0.15rem;
+  .trend-grid {
+    stroke: var(--color-line);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+  }
+  .trend-axis,
+  .trend-label {
+    fill: var(--color-muted);
+    font-size: 10px;
+  }
+  .trend-line {
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    /* Giữ độ dày theo pixel màn hình — không phóng theo scale width:100% của SVG. */
+    vector-effect: non-scaling-stroke;
+  }
+  .trend-line.is-cur {
+    stroke: var(--color-primary-strong);
+  }
+  .trend-line.is-prev {
+    stroke: var(--color-muted);
+    stroke-dasharray: 5 4;
+    opacity: 0.85;
+  }
+  .trend-dot {
+    fill: var(--color-primary-strong);
+  }
+  .trend-hit {
+    fill: transparent;
+    cursor: crosshair;
+  }
+  .trend-tip rect {
+    fill: var(--color-ink);
+    opacity: 0.92;
+  }
+  .trend-tip text {
+    fill: var(--color-surface);
+    font-size: 10px;
+  }
+  .trend-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
     color: var(--color-muted);
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
+  }
+  .trend-legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .trend-swatch {
+    width: 1.1rem;
+    height: 0.2rem;
+    border-radius: 999px;
+  }
+  .trend-swatch.is-cur {
+    background: var(--color-primary-strong);
+  }
+  .trend-swatch.is-prev {
+    background: var(--color-muted);
+    background-image: repeating-linear-gradient(
+      90deg,
+      var(--color-muted) 0 4px,
+      transparent 4px 8px
+    );
   }
   @media (min-width: 640px) {
-    .dash-stats {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+    .dash-kpis-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .dash-life {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
   @media (min-width: 1024px) {
-    .dash-kpis {
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-    }
-    .dash-columns:has(> .dash-col + .dash-col) {
-      grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+    .dash-split {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       align-items: start;
     }
   }

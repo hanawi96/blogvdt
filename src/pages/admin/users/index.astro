@@ -1,7 +1,9 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { activityActor } from '../../../features/activity/log';
 import { isAdminRole, isAdminStatus, ROLE_LABELS, STATUS_LABELS } from '../../../features/auth/access';
-import { listUsers, userInitials, type UserListFilters } from '../../../features/auth/users';
+import { mutationError } from '../../../features/auth/session';
+import { createUser, listUsers, userInitials, type UserListFilters } from '../../../features/auth/users';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
 import { formatDateTime } from '../../../lib/datetime';
@@ -10,6 +12,50 @@ import { routes } from '../../../lib/routes';
 const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
 if (session.role !== 'admin') return new Response('Bạn không có quyền vào trang này.', { status: 403 });
+
+let displayName = '';
+let email = '';
+let role = 'editor';
+let formError = '';
+let createdOk = Astro.url.searchParams.get('tao') === '1';
+let createdActive = Astro.url.searchParams.get('kich-hoat') === '1';
+let openCreate = Astro.url.searchParams.get('them') === '1';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  if (String(form.get('intent') ?? '') === 'create') {
+    displayName = String(form.get('displayName') ?? '');
+    email = String(form.get('email') ?? '');
+    role = String(form.get('role') ?? 'editor');
+    const password = String(form.get('password') ?? '');
+    const confirmPassword = String(form.get('confirmPassword') ?? '');
+    openCreate = true;
+    const blocked = mutationError(Astro.request, session, form);
+    if (blocked) {
+      Astro.response.status = 403;
+      formError = blocked;
+    } else if (!isAdminRole(role)) {
+      Astro.response.status = 422;
+      formError = 'Vai trò không hợp lệ.';
+    } else {
+      const db = createDb(getDbBinding());
+      const created = await createUser(
+        db,
+        { displayName, email, role, password, confirmPassword },
+        Date.now(),
+        await activityActor(db, session.userId),
+      );
+      if (!created.ok) {
+        Astro.response.status = 422;
+        formError = created.error;
+      } else {
+        const params = new URLSearchParams({ tao: '1' });
+        if (created.activated) params.set('kich-hoat', '1');
+        return Astro.redirect(`${routes.adminUsers}?${params}`);
+      }
+    }
+  }
+}
 
 const query = Astro.url.searchParams.get('q') ?? '';
 const roleParam = Astro.url.searchParams.get('role') ?? '';
@@ -42,7 +88,16 @@ function pageHref(page: number): string {
 
 <AdminLayout title="Người dùng">
   <p slot="lead">{result ? `${result.libraryTotal} tài khoản` : 'Danh sách tài khoản'}</p>
-  <a slot="action" class="btn btn-primary" href={routes.adminUserNew}>Thêm tài khoản</a>
+  <button slot="action" class="btn btn-primary" type="button" data-user-create-open>Thêm tài khoản</button>
+  {
+    createdOk && (
+      <p class="mb-4 text-primary-strong" role="status" data-admin-flash>
+        {createdActive
+          ? 'Đã tạo tài khoản và đặt mật khẩu. Đăng nhập bằng email vừa nhập.'
+          : 'Đã tạo người dùng. Vào Sửa tài khoản để lấy liên kết đặt mật khẩu.'}
+      </p>
+    )
+  }
   {loadError && <p class="error-text" role="alert">{loadError}</p>}
   {
     result && (
@@ -118,6 +173,54 @@ function pageHref(page: number): string {
       </>
     )
   }
+
+  <dialog
+    id="user-create-dialog"
+    class="category-dialog"
+    aria-labelledby="user-create-title"
+    data-user-create-dialog
+    data-open={openCreate ? '1' : undefined}
+  >
+    <h2 id="user-create-title" class="text-lg font-semibold">Thêm tài khoản</h2>
+    <p class="mt-2 text-sm text-muted">
+      Email dùng để đăng nhập. Có thể đặt mật khẩu ngay, hoặc để trống rồi lấy liên kết đặt mật khẩu ở trang Sửa.
+    </p>
+    {formError && <p class="error-text mt-3" role="alert">{formError}</p>}
+    <form class="mt-4" method="post" data-busy autocomplete="off">
+      <input type="hidden" name="csrf" value={session.csrfToken} />
+      <input type="hidden" name="intent" value="create" />
+      <label class="block">
+        <span class="mb-1 block font-semibold">Họ tên</span>
+        <input class="field" name="displayName" required maxlength="80" value={displayName} autocomplete="name" />
+      </label>
+      <label class="mt-3 block">
+        <span class="mb-1 block font-semibold">Email (đăng nhập)</span>
+        <input class="field" type="email" name="email" required maxlength="120" value={email} autocomplete="off" />
+      </label>
+      <label class="mt-3 block">
+        <span class="mb-1 block font-semibold">Vai trò</span>
+        <select class="field" name="role">
+          <option value="editor" selected={role === 'editor'}>Biên tập</option>
+          <option value="admin" selected={role === 'admin'}>Quản trị</option>
+        </select>
+      </label>
+      <label class="mt-3 block">
+        <span class="mb-1 block font-semibold">Mật khẩu <span class="font-normal text-muted">(không bắt buộc)</span></span>
+        <input class="field" type="password" name="password" minlength="12" maxlength="200" autocomplete="new-password" />
+      </label>
+      <label class="mt-3 block">
+        <span class="mb-1 block font-semibold">Nhập lại mật khẩu</span>
+        <input class="field" type="password" name="confirmPassword" minlength="12" maxlength="200" autocomplete="new-password" />
+      </label>
+      <p class="mt-3 text-sm text-muted">
+        Mật khẩu tối thiểu 12 ký tự. Biên tập quản lý bài viết, danh mục và thư viện ảnh. Quản trị thêm cài đặt, người dùng, sản phẩm và đơn hàng.
+      </p>
+      <div class="category-actions">
+        <button class="btn" type="button" data-user-create-cancel>Hủy</button>
+        <button class="btn btn-primary" type="submit">Tạo tài khoản</button>
+      </div>
+    </form>
+  </dialog>
 </AdminLayout>
 
 <script>
@@ -161,5 +264,37 @@ function pageHref(page: number): string {
       window.clearTimeout(timer);
       go();
     });
+  }
+
+  const dialog = document.querySelector('[data-user-create-dialog]');
+  const openBtn = document.querySelector('[data-user-create-open]');
+  const cancelBtn = document.querySelector('[data-user-create-cancel]');
+  if (dialog instanceof HTMLDialogElement) {
+    const open = () => {
+      if (!dialog.open) dialog.showModal();
+      const first = dialog.querySelector<HTMLInputElement>('input[name="displayName"]');
+      first?.focus();
+    };
+    const close = () => dialog.close();
+    openBtn?.addEventListener('click', open);
+    cancelBtn?.addEventListener('click', close);
+    dialog.addEventListener('click', (event) => {
+      if (event.target !== dialog) return;
+      const box = dialog.getBoundingClientRect();
+      const outside =
+        event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+      if (outside) close();
+    });
+    if (dialog.dataset.open === '1') open();
+  }
+
+  {
+    const params = new URLSearchParams(location.search);
+    if (params.has('tao') || params.has('kich-hoat')) {
+      const url = new URL(location.href);
+      url.searchParams.delete('tao');
+      url.searchParams.delete('kich-hoat');
+      history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? `?${url.searchParams}` : ''));
+    }
   }
 </script>

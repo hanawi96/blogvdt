@@ -25,3 +25,19 @@ export function matchComposedAddress(
   }
   return null;
 }
+
+/** Ưu tiên khớp đủ xã+tỉnh; fallback chỉ đuôi tên tỉnh (địa chỉ cũ / lệch xã). */
+export function provinceCodeFromAddress(rows: readonly AddressSelectRow[], composed: string): string | null {
+  const full = matchComposedAddress(rows, composed);
+  if (full) return full.provinceCode;
+  const text = composed.trim();
+  if (!text) return null;
+  for (const [provinceCode, provinceName] of rows) {
+    if (text === provinceName || text.endsWith(`, ${provinceName}`)) return provinceCode;
+  }
+  return null;
+}
+
+export function provinceNameMap(rows: readonly AddressSelectRow[]): Map<string, string> {
+  return new Map(rows.map(([code, name]) => [code, name]));
+}

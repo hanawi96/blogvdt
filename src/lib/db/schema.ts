@@ -296,6 +296,8 @@ export const orders = sqliteTable(
     customerName: text('customer_name').notNull(),
     phone: text('phone').notNull(),
     address: text('address').notNull(),
+    /** Mã tỉnh từ địa chỉ ghép (denormalize cho thống kê). NULL nếu không parse được. */
+    provinceCode: text('province_code'),
     note: text('note'),
     internalNote: text('internal_note'),
     productId: integer('product_id').references(() => products.id, { onDelete: 'set null' }),
@@ -372,6 +374,7 @@ export const orders = sqliteTable(
     index('orders_shipped_at_idx').on(table.shippedAt, table.id),
     index('orders_invoice_exported_at_idx').on(table.invoiceExportedAt, table.shippedAt, table.id),
     index('orders_source_idx').on(table.source),
+    index('orders_province_code_idx').on(table.provinceCode),
     index('orders_payment_method_idx').on(table.paymentMethod),
     check('orders_quantity_check', sql`${table.quantity} > 0`),
     check('orders_unit_price_check', sql`${table.unitPrice} >= 0`),

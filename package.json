@@ -21,7 +21,10 @@
     "db:seed:demo-orders": "node scripts/seed-demo-orders.mjs",
     "db:seed:demo-posts": "node scripts/seed-demo-posts.mjs",
     "media:backfill:local": "node scripts/backfill-media-variants.mjs",
-    "media:verify:local": "node scripts/verify-media-variants.mjs"
+    "media:verify:local": "node scripts/verify-media-variants.mjs",
+    "feedback:sync:remote:dry": "node scripts/sync-feedback-to-remote.mjs",
+    "feedback:sync:remote": "node scripts/sync-feedback-to-remote.mjs --apply",
+    "orders:backfill:province:local": "node scripts/backfill-order-province.mjs"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.3.4",

@@ -6,6 +6,7 @@ import { orderItems, orders, productCategories, products } from '../../lib/db/sc
 import { activityWrite, commitWrites, type ActivityActor } from '../activity/log';
 import { claimDiscount, quoteStaffDiscount, releaseDiscount, restoreDiscountQuery } from '../discounts/discounts';
 import { normalizeDiscountCode } from '../discounts/quote';
+import { resolveProvinceCode } from '../address/provinces';
 import { encodeCostLines, listOrderCosts, snapshotOrderCosts } from '../costs/order-costs';
 import { baseCustomerShippingFee, resolveCustomerShippingFee, shipGroupOf } from '../shipping/customer-fee';
 import {
@@ -723,6 +724,7 @@ export async function updateStaffOrderCustomer(
       customerName: parsed.customerName,
       phone: parsed.phone,
       address: parsed.address,
+      provinceCode: resolveProvinceCode(parsed.address),
       note: parsed.note || null,
       updatedAt: now,
     })
@@ -863,6 +865,7 @@ export async function placeOrder(
           customerName: draft.customerName,
           phone: draft.phone,
           address: draft.address,
+          provinceCode: resolveProvinceCode(draft.address),
           note: draft.note || null,
           productId: draft.productId,
           productName: draft.productName,
@@ -959,6 +962,7 @@ export async function placeCartOrder(
             customerName: draft.customerName,
             phone: draft.phone,
             address: draft.address,
+            provinceCode: resolveProvinceCode(draft.address),
             note: draft.note || null,
             productId: null,
             productName: draft.productName,
@@ -1098,6 +1102,7 @@ export async function createStaffOrder(
           customerName: draft.customerName,
           phone: draft.phone,
           address: draft.address,
+          provinceCode: resolveProvinceCode(draft.address),
           note: draft.note || null,
           productId: columns.productId,
           productName: columns.productName,
@@ -1204,6 +1209,7 @@ export async function updateStaffOrder(
           customerName: draft.customerName,
           phone: draft.phone,
           address: draft.address,
+          provinceCode: resolveProvinceCode(draft.address),
           note: draft.note || null,
           productId: columns.productId,
           productName: columns.productName,

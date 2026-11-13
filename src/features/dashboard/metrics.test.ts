@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   DAY_MS,
+  OVERVIEW_DAYS,
   averageValue,
   buildActionItems,
   cancelRate,
   describeDelta,
+  fillDailySeries,
   mergeTopProducts,
+  overviewWindows,
   percentChange,
   periodRange,
   readPeriod,
@@ -27,17 +30,49 @@ const quiet: ActionInput = {
 };
 
 describe('kỳ thống kê', () => {
-  it('chỉ nhận 7, 30, 90 ngày và mặc định 30', () => {
+  it('chỉ nhận 7, 30, 90 ngày và mặc định 7', () => {
     expect(readPeriod('7')).toBe(7);
     expect(readPeriod('90')).toBe(90);
-    expect(readPeriod('15')).toBe(30);
-    expect(readPeriod(null)).toBe(30);
-    expect(readPeriod('abc')).toBe(30);
+    expect(readPeriod('15')).toBe(7);
+    expect(readPeriod(null)).toBe(7);
+    expect(readPeriod('abc')).toBe(7);
   });
 
   it('kỳ trước liền kề và cùng độ dài kỳ hiện tại', () => {
     const now = 1_000 * DAY_MS;
     expect(periodRange(30, now)).toEqual({ start: now - 30 * DAY_MS, previousStart: now - 60 * DAY_MS });
+  });
+
+  it('cửa sổ overview 7 ngày lịch VN liền kề kỳ trước', () => {
+    const now = Date.parse('2026-11-13T15:00:00+07:00');
+    const win = overviewWindows(now);
+    expect(OVERVIEW_DAYS).toBe(7);
+    expect(win.currentDays).toEqual([
+      '2026-11-07',
+      '2026-11-08',
+      '2026-11-09',
+      '2026-11-10',
+      '2026-11-11',
+      '2026-11-12',
+      '2026-11-13',
+    ]);
+    expect(win.previousDays).toEqual([
+      '2026-10-31',
+      '2026-11-01',
+      '2026-11-02',
+      '2026-11-03',
+      '2026-11-04',
+      '2026-11-05',
+      '2026-11-06',
+    ]);
+    expect(win.currentStart).toBe(Date.parse('2026-11-07T00:00:00+07:00'));
+    expect(win.previousStart).toBe(Date.parse('2026-10-31T00:00:00+07:00'));
+  });
+
+  it('điền 0 cho ngày thiếu trong series', () => {
+    expect(fillDailySeries(['2026-11-01', '2026-11-02', '2026-11-03'], [{ day: '2026-11-02', value: 4 }])).toEqual([
+      0, 4, 0,
+    ]);
   });
 });
 
