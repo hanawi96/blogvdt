@@ -25,6 +25,7 @@ export const GET: APIRoute = async ({ url }) => {
       { path: routes.home, lastmod: contentLastmod },
       { path: routes.knowledgeList, lastmod: contentLastmod },
       { path: routes.catalog },
+      { path: routes.feedback },
       { path: routes.about },
       { path: routes.terms },
       ...categories.map((category) => ({ path: routes.knowledgeCategory(category.slug), lastmod: sitemapLastmod(category.updatedAt) })),

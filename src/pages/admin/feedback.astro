@@ -1,0 +1,116 @@
+---
+import FeedbackManager from '../../components/admin/FeedbackManager.svelte';
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { mutationError } from '../../features/auth/session';
+import {
+  attachFeedbackMedia,
+  deleteFeedbackPhoto,
+  listAdminFeedback,
+  pinFeedbackPhoto,
+  reorderPinnedFeedback,
+  unpinFeedbackPhoto,
+  type FeedbackPinMove,
+} from '../../features/feedback/feedback';
+import { readFeedbackPage } from '../../features/feedback/query';
+import { createDb } from '../../lib/db/client';
+import { getDbBinding } from '../../lib/cloudflare/env';
+import { routes } from '../../lib/routes';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+
+const db = createDb(getDbBinding());
+const page = readFeedbackPage(Astro.url.searchParams.get('page'));
+const wantsJson = Astro.request.headers.get('accept')?.includes('application/json') ?? false;
+const jsonHeaders = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: jsonHeaders });
+}
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const blocked = mutationError(Astro.request, session, form);
+  if (blocked) {
+    Astro.response.status = 403;
+    if (wantsJson) return json({ ok: false, error: blocked }, 403);
+    return Astro.redirect(`${routes.adminFeedback}?error=1`, 303);
+  }
+
+  const intent = String(form.get('intent') ?? '');
+  if (intent === 'delete') {
+    const id = Number(form.get('id'));
+    if (!Number.isInteger(id) || id < 1) {
+      if (wantsJson) return json({ ok: false, error: 'Ảnh không hợp lệ.' }, 422);
+      return Astro.redirect(routes.adminFeedback, 303);
+    }
+    await deleteFeedbackPhoto(db, id);
+    if (wantsJson) return json({ ok: true });
+    return Astro.redirect(`${routes.adminFeedback}?page=${page}&saved=1`, 303);
+  }
+
+  if (intent === 'pin' || intent === 'unpin') {
+    const id = Number(form.get('id'));
+    const result = intent === 'pin' ? await pinFeedbackPhoto(db, id) : await unpinFeedbackPhoto(db, id);
+    if (!result.ok) {
+      if (wantsJson) return json({ ok: false, error: result.error }, 422);
+      return Astro.redirect(`${routes.adminFeedback}?error=1`, 303);
+    }
+    if (wantsJson) {
+      return json({
+        ok: true,
+        pinRank: 'pinRank' in result ? result.pinRank : null,
+        pinnedCount: result.pinnedCount,
+      });
+    }
+    return Astro.redirect(`${routes.adminFeedback}?page=${page}&saved=1`, 303);
+  }
+
+  if (intent === 'reorder') {
+    const id = Number(form.get('id'));
+    const direction = String(form.get('direction') ?? '') as FeedbackPinMove;
+    const result = await reorderPinnedFeedback(db, id, direction);
+    if (!result.ok) {
+      if (wantsJson) return json({ ok: false, error: result.error }, 422);
+      return Astro.redirect(`${routes.adminFeedback}?error=1`, 303);
+    }
+    if (wantsJson) return json({ ok: true, updates: result.updates });
+    return Astro.redirect(`${routes.adminFeedback}?page=${page}&saved=1`, 303);
+  }
+
+  if (intent === 'attach') {
+    const mediaId = Number(form.get('mediaId'));
+    const widthRaw = Number(form.get('width'));
+    const heightRaw = Number(form.get('height'));
+    const attached = await attachFeedbackMedia(db, {
+      mediaId,
+      altText: String(form.get('alt') ?? ''),
+      width: Number.isInteger(widthRaw) && widthRaw > 0 ? widthRaw : null,
+      height: Number.isInteger(heightRaw) && heightRaw > 0 ? heightRaw : null,
+    });
+    if (!attached.ok) {
+      if (wantsJson) return json({ ok: false, error: attached.error }, 422);
+      return Astro.redirect(`${routes.adminFeedback}?error=1`, 303);
+    }
+    if (wantsJson) return json({ ok: true, photo: attached.photo }, 201);
+    return Astro.redirect(`${routes.adminFeedback}?saved=1`, 303);
+  }
+
+  if (wantsJson) return json({ ok: false, error: 'Thao tác không hợp lệ.' }, 400);
+  return Astro.redirect(routes.adminFeedback, 303);
+}
+
+const list = await listAdminFeedback(db, page);
+---
+
+<AdminLayout title="Feedback mua hàng">
+  <FeedbackManager
+    client:load
+    csrf={session.csrfToken}
+    items={list.photos}
+    total={list.total}
+    pinnedCount={list.pinnedCount}
+    page={list.page}
+    pageCount={list.pageCount}
+  />
+</AdminLayout>

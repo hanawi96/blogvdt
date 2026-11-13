@@ -13,6 +13,7 @@ import {
   type CatalogQuery,
 } from '../features/products/catalog';
 import { listFeaturedProducts } from '../features/products/featured';
+import { listHomeFeedback } from '../features/feedback/feedback';
 import { getPublicSite } from '../features/settings/settings';
 import { createDb } from '../lib/db/client';
 import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
@@ -39,9 +40,6 @@ const PROCESS_STEPS = [
   { title: 'Mài mịn viền hạt', text: 'Mài tay cho nhẵn, hạn chế cạnh sắc.', img: '/Images/quy-trinh/quy-trinh-lam-vong_5.webp' },
   { title: 'Xỏ vòng', text: 'Xỏ dây, chỉnh size theo bé và hoàn thiện.', img: '/Images/quy-trinh/quy-trinh-lam-vong_6.webp' },
 ] as const;
-
-// Ảnh phản hồi cố định (dọc). Đã nén 600px WebP trong /public/Images/feedback.
-const FEEDBACK_PHOTOS = Array.from({ length: 10 }, (_, i) => `/Images/feedback/${i + 1}.webp`);
 
 const BENEFITS = [
   {
@@ -215,6 +213,7 @@ async function loadHome(query: CatalogQuery) {
     failed: false,
     products: [] as Awaited<ReturnType<typeof listCatalogProducts>>['products'],
     photos: [] as Awaited<ReturnType<typeof listFeaturedProducts>>,
+    feedback: [] as Awaited<ReturnType<typeof listHomeFeedback>>,
     categories: [] as Awaited<ReturnType<typeof listHomeCatalogCategories>>,
     total: 0,
     page: 1,
@@ -224,16 +223,18 @@ async function loadHome(query: CatalogQuery) {
     const db = createDb(getDbBinding());
     const siteRow = await getPublicSite(db);
     if (!siteRow) return empty;
-    // 3 query hẹp song song: cover hero (featured), danh mục pill, 12 SP trang 1.
-    const [photos, categories, shop] = await Promise.all([
+    // Query hẹp song song: cover hero, danh mục, SP trang 1, feedback rail.
+    const [photos, categories, shop, feedback] = await Promise.all([
       listFeaturedProducts(db, HOME_PHOTO_LIMIT),
       listHomeCatalogCategories(db),
       listCatalogProducts(db, query),
+      listHomeFeedback(db),
     ]);
     return {
       site: siteRow,
       failed: false,
       photos,
+      feedback,
       categories,
       products: shop.products,
       total: shop.total,
@@ -619,24 +620,30 @@ async function loadHome(query: CatalogQuery) {
               </p>
             </div>
           </div>
-          <div class="home-feedback-rail" tabindex="0" aria-label="Ảnh phản hồi từ mẹ — vuốt ngang để xem thêm">
-            <ul class="home-feedback-list">
-              {FEEDBACK_PHOTOS.map((src, index) => (
-                <li class="home-feedback-card">
-                  <img
-                    src={src}
-                    alt={`Ảnh phản hồi từ khách hàng ${index + 1}`}
-                    width="600"
-                    height="752"
-                    loading="lazy"
-                    decoding="async"
-                    sizes="(min-width: 48rem) 16rem, 72vw"
-                  />
-                </li>
-              ))}
-            </ul>
-          </div>
-          <p class="home-feedback-hint">Vuốt ngang để xem <span aria-hidden="true">≫</span></p>
+          {
+            loaded.feedback.length > 0 && (
+              <div class="home-feedback-rail" tabindex="0" aria-label="Ảnh phản hồi từ mẹ — vuốt ngang để xem thêm">
+                <ul class="home-feedback-list">
+                  {loaded.feedback.map((photo) => (
+                    <li class="home-feedback-card">
+                      <img
+                        src={photo.src}
+                        alt={photo.alt}
+                        width={photo.width}
+                        height={photo.height}
+                        loading="lazy"
+                        decoding="async"
+                        sizes="(min-width: 48rem) 16rem, 72vw"
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          }
+          <p class="home-feedback-more">
+            <a class="home-feedback-all" href={routes.feedback}>Xem tất cả feedback</a>
+          </p>
           <aside class="home-promise" aria-labelledby="loi-cam-ket">
             <span class="home-promise-seal" aria-hidden="true">♥</span>
             <p id="loi-cam-ket" class="home-promise-title">Lời cam kết từ em</p>

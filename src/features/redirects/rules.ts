@@ -13,6 +13,7 @@ export const STATIC_PUBLIC_PATHS = new Set([
   routes.search,
   '/san-pham',
   routes.catalog,
+  routes.feedback,
   routes.cart,
   routes.checkout,
   ...POLICIES.map((policy) => routes.policy(policy.slug)),

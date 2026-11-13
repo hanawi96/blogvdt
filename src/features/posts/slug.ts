@@ -26,6 +26,7 @@ export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   'tim-kiem',
   'san-pham',
   'mau-vong-dau-tam',
+  'feedback-mua-hang',
   'gio-hang',
   'dat-hang',
   'chinh-sach',

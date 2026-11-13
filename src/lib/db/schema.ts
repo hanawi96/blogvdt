@@ -681,3 +681,35 @@ export const landings = sqliteTable(
     check('landings_robots_check', sql`${table.robots} in ('noindex', 'index')`),
   ],
 );
+
+/** Ảnh feedback mua hàng: media R2 hoặc path tĩnh /Images/feedback (seed). */
+export const feedbackPhotos = sqliteTable(
+  'feedback_photos',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    mediaId: integer('media_id').references(() => media.id, { onDelete: 'cascade' }),
+    publicPath: text('public_path'),
+    altText: text('alt_text').notNull().default(''),
+    width: integer('width'),
+    height: integer('height'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    /** 1–9 = đang ghim (thứ tự); null = không ghim. */
+    pinRank: integer('pin_rank'),
+    status: text('status').notNull().default('published'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('feedback_photos_media_uidx').on(table.mediaId),
+    uniqueIndex('feedback_photos_pin_rank_uidx').on(table.pinRank),
+    index('feedback_photos_public_list_idx').on(table.status, table.pinRank, table.id),
+    check(
+      'feedback_photos_source_check',
+      sql`(${table.mediaId} IS NOT NULL AND ${table.publicPath} IS NULL) OR (${table.mediaId} IS NULL AND ${table.publicPath} IS NOT NULL)`,
+    ),
+    check('feedback_photos_status_check', sql`${table.status} IN ('published', 'hidden')`),
+    check(
+      'feedback_photos_pin_rank_check',
+      sql`${table.pinRank} IS NULL OR (${table.pinRank} >= 1 AND ${table.pinRank} <= 9)`,
+    ),
+  ],
+);

@@ -1,0 +1,118 @@
+---
+import DataError from '../../components/public/DataError.astro';
+import NotFound from '../../components/public/NotFound.astro';
+import Pagination from '../../components/public/Pagination.astro';
+import { listPublicFeedback } from '../../features/feedback/feedback';
+import { feedbackPath, readFeedbackPage } from '../../features/feedback/query';
+import { getPublicSite } from '../../features/settings/settings';
+import PublicLayout from '../../layouts/PublicLayout.astro';
+import { createDb } from '../../lib/db/client';
+import { getDbBinding, getSiteOrigin } from '../../lib/cloudflare/env';
+import { buildMeta, canonicalUrl, documentTitle, unavailableMeta, withPageSuffix } from '../../lib/seo/meta';
+import { FRESH_PAGE_CACHE, PRIVATE_PAGE_CACHE } from '../../lib/seo/cache';
+import { routes } from '../../lib/routes';
+
+const page = readFeedbackPage(Astro.url.searchParams.get('page'));
+const loaded = await loadFeedback();
+const outOfRange = Boolean(loaded.site) && page > loaded.pageCount && (loaded.total > 0 || page > 1);
+if (outOfRange) Astro.response.status = 404;
+if (!loaded.site || loaded.failed) {
+  Astro.response.status = 503;
+  Astro.response.headers.set('X-Robots-Tag', 'noindex');
+}
+Astro.response.headers.set('Cache-Control', loaded.site && !loaded.failed && !outOfRange ? FRESH_PAGE_CACHE : PRIVATE_PAGE_CACHE);
+
+const origin = getSiteOrigin(Astro.url.origin);
+const path = feedbackPath(loaded.page);
+const meta = buildMeta(origin, {
+  title: loaded.site
+    ? documentTitle('Feedback mua hàng', loaded.site.siteName, loaded.page)
+    : unavailableMeta().title,
+  description: withPageSuffix(
+    'Ảnh phản hồi thật từ các mẹ đã mua vòng dâu tằm. Xem toàn bộ feedback mua hàng.',
+    loaded.page,
+  ),
+  path,
+  siteName: loaded.site?.siteName,
+  robots: loaded.site && !loaded.failed && !outOfRange ? 'index,follow' : 'noindex,nofollow',
+});
+const canIndex = Boolean(loaded.site) && !loaded.failed && !outOfRange;
+const prevUrl = canIndex && loaded.page > 1 ? canonicalUrl(origin, feedbackPath(loaded.page - 1)) || null : null;
+const nextUrl =
+  canIndex && loaded.page < loaded.pageCount ? canonicalUrl(origin, feedbackPath(loaded.page + 1)) || null : null;
+
+async function loadFeedback() {
+  try {
+    const db = createDb(getDbBinding());
+    const site = await getPublicSite(db);
+    if (!site) return { site: null, failed: false, photos: [], page: 1, pageCount: 1, total: 0 };
+    const list = await listPublicFeedback(db, page);
+    return { site, failed: false, ...list };
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'feedback_public_failed', name: error instanceof Error ? error.name : 'unknown' }));
+    return { site: null, failed: true, photos: [], page: 1, pageCount: 1, total: 0 };
+  }
+}
+---
+
+<PublicLayout
+  title={meta.title}
+  description={meta.description}
+  canonical={canIndex ? meta.canonical : undefined}
+  prevUrl={prevUrl}
+  nextUrl={nextUrl}
+  robots={meta.robots}
+  siteName={meta.siteName}
+  faviconUrl={loaded.site?.faviconUrl || '/favicon.svg'}
+  chrome={loaded.site}
+>
+  {
+    !loaded.site ? (
+      <DataError failed={loaded.failed} />
+    ) : outOfRange ? (
+      <NotFound />
+    ) : (
+      <main class="feedback-page">
+        <header class="feedback-page-head">
+          <p class="feedback-page-kicker">Feedback mua hàng</p>
+          <h1 class="feedback-page-title">Ảnh phản hồi từ các mẹ</h1>
+          <p class="feedback-page-lead">
+            {loaded.total === 0
+              ? 'Chưa có ảnh phản hồi công khai.'
+              : loaded.total === 1
+                ? '1 ảnh phản hồi'
+                : `${loaded.total} ảnh phản hồi`}
+          </p>
+        </header>
+
+        {
+          loaded.photos.length > 0 ? (
+            <ul class="feedback-grid">
+              {loaded.photos.map((photo, index) => (
+                <li class="feedback-cell">
+                  <img
+                    src={photo.src}
+                    alt={photo.alt}
+                    width={photo.width}
+                    height={photo.height}
+                    loading={index < 2 ? 'eager' : 'lazy'}
+                    decoding="async"
+                    fetchpriority={index === 0 ? 'high' : undefined}
+                    sizes="(min-width: 56rem) 33vw, (min-width: 40rem) 50vw, 100vw"
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p class="feedback-page-empty">Hiện chưa có ảnh feedback. Quay lại sau nhé mẹ.</p>
+          )
+        }
+
+        <Pagination page={loaded.page} pageCount={loaded.pageCount} hrefFor={feedbackPath} />
+        <p class="feedback-page-back">
+          <a href={routes.home}>← Về trang chủ</a>
+        </p>
+      </main>
+    )
+  }
+</PublicLayout>

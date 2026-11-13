@@ -1,6 +1,6 @@
 ---
-import CatalogCard from '../components/public/CatalogCard.astro';
 import DataError from '../components/public/DataError.astro';
+import HomeProductCard from '../components/public/HomeProductCard.astro';
 import Pagination from '../components/public/Pagination.astro';
 import ProductStory from '../components/public/ProductStory.astro';
 import { listSellableProductCategories } from '../features/products/categories';
@@ -88,18 +88,10 @@ async function loadCatalog() {
               {loaded.total === 0 ? (filtered ? 'Không có mẫu khớp' : 'Chưa có mẫu đang bán') : loaded.total === 1 ? '1 mẫu' : `${loaded.total} mẫu`}
             </p>
           </div>
-          <p class="catalog-lead">Vòng làm thủ công, đang nhận đặt. Giá là giá từng chiếc, chưa gồm phí giao.</p>
+          <p class="catalog-lead">Vòng làm từ cây dâu tằm Việt Nam thủ công, làm riêng theo cân nặng bé giúp bé ngủ ngoan, tránh giật mình khi ngủ và các vấn đề tâm linh xấu cho bé.</p>
           <div class="catalog-bar">
-            <form class="catalog-search" method="get" action={routes.catalog} role="search">
-              {query.category && <input type="hidden" name="danh-muc" value={query.category} />}
-              {query.sort !== 'mac-dinh' && <input type="hidden" name="sap-xep" value={query.sort} />}
-              <label class="sr-only" for="catalog-q">Tìm mẫu vòng</label>
-              <input id="catalog-q" class="field" type="search" name="q" value={query.q} placeholder="Tìm tên mẫu vòng..." maxlength="80" />
-              <button class="btn btn-primary" type="submit">Tìm</button>
-              {query.q && <a class="btn" href={catalogPath({ ...query, q: '' }, 1)}>Xóa</a>}
-            </form>
-            <div class="catalog-tools">
-              {loaded.categories.length > 0 && (
+            {
+              loaded.categories.length > 0 && (
                 <div class="catalog-group">
                   <span class="catalog-label" id="catalog-cats">Danh mục</span>
                   <nav class="catalog-chips" aria-labelledby="catalog-cats">
@@ -111,8 +103,28 @@ async function loadCatalog() {
                     ))}
                   </nav>
                 </div>
-              )}
-              <div class="catalog-group">
+              )
+            }
+            <div class="catalog-toolbar">
+              <form class="catalog-search" method="get" action={routes.catalog} role="search">
+                {query.category && <input type="hidden" name="danh-muc" value={query.category} />}
+                {query.sort !== 'mac-dinh' && <input type="hidden" name="sap-xep" value={query.sort} />}
+                <label class="sr-only" for="catalog-q">Tìm mẫu vòng</label>
+                <span class="catalog-search-field">
+                  <button class="catalog-search-submit" type="submit" aria-label="Tìm">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="20" height="20" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                    </svg>
+                  </button>
+                  <input id="catalog-q" class="field" type="search" name="q" value={query.q} placeholder="Tìm mẫu…" maxlength="80" />
+                  {
+                    query.q && (
+                      <a class="catalog-search-clear" href={catalogPath({ ...query, q: '' }, 1)} aria-label="Xóa từ khóa">×</a>
+                    )
+                  }
+                </span>
+              </form>
+              <div class="catalog-group catalog-sort">
                 <span class="catalog-label" id="catalog-sort">Sắp xếp</span>
                 <div class="catalog-segment" role="group" aria-labelledby="catalog-sort">
                   {CATALOG_SORTS.map((sort) => (
@@ -126,9 +138,11 @@ async function loadCatalog() {
           </div>
         </header>
         {loaded.products.length > 0 && (
-          <ul class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <ul class="home-shop-grid catalog-product-grid">
             {loaded.products.map((product, index) => (
-              <li><CatalogCard product={product} eager={index < 4} /></li>
+              <li>
+                <HomeProductCard product={product} eager={index < 4} />
+              </li>
             ))}
           </ul>
         )}

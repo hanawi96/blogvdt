@@ -68,6 +68,8 @@ export const routes = {
   terms: '/dieu-khoan-va-dich-vu',
   catalog: '/mau-vong-dau-tam',
   catalogApi: '/api/catalog',
+  feedback: '/feedback-mua-hang',
+  adminFeedback: '/admin/feedback',
   cart: '/gio-hang',
   product: (slug: string) => `/san-pham/${slug}`,
   checkout: '/dat-hang',

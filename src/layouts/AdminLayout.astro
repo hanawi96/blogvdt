@@ -55,6 +55,7 @@ const items: { href: string; label: string; icon: NavIcon }[] = [
       ]
     : []),
   { href: routes.adminMedia, label: 'Thư viện ảnh', icon: 'media' },
+  { href: routes.adminFeedback, label: 'Feedback', icon: 'media' },
   ...(isAdmin
     ? [
         { href: routes.adminLandings, label: 'Trang đích', icon: 'landing' as const },

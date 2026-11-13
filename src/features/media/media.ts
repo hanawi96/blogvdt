@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, inArray, isNotNull, isNull, like, notInArray
 import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
 import { optionalImagesBinding } from '../../lib/cloudflare/env';
 import type { AppDb } from '../../lib/db/client';
+import { listFeedbackMediaIds } from '../feedback/feedback';
 import { adminUsers, categories, media, posts, productCategories, productMedia, products, siteSettings } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import {
@@ -70,7 +71,7 @@ function toMediaItem(row: {
 
 /** Tập id ảnh đang được tham chiếu (cover/album/cài đặt + key nhúng trong nội dung). */
 export async function listUsedMediaIds(db: AppDb): Promise<number[]> {
-  const [postCovers, productCovers, albumRows, settings, avatars, productCategoryCovers, embedPosts, embedCategories] =
+  const [postCovers, productCovers, albumRows, settings, avatars, productCategoryCovers, embedPosts, embedCategories, feedbackIds] =
     await Promise.all([
       db.select({ id: posts.coverMediaId }).from(posts).where(isNotNull(posts.coverMediaId)),
       db.select({ id: products.coverMediaId }).from(products).where(isNotNull(products.coverMediaId)),
@@ -92,6 +93,7 @@ export async function listUsedMediaIds(db: AppDb): Promise<number[]> {
         .select({ description: categories.description })
         .from(categories)
         .where(like(categories.description, '%/media/%')),
+      listFeedbackMediaIds(db),
     ]);
 
   const used = new Set<number>();
@@ -100,6 +102,7 @@ export async function listUsedMediaIds(db: AppDb): Promise<number[]> {
   for (const row of albumRows) used.add(row.id);
   for (const row of avatars) if (row.id != null) used.add(row.id);
   for (const row of productCategoryCovers) if (row.id != null) used.add(row.id);
+  for (const id of feedbackIds) used.add(id);
   for (const row of settings) {
     const id = Number(row.value);
     if (Number.isInteger(id) && id > 0) used.add(id);
