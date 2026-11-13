@@ -11,6 +11,9 @@ interface Props {
   title: string;
   description: string;
   canonical?: string;
+  /** URL tuyệt đối của trang phân trang kề (dùng cho rel=prev/next trong head). */
+  prevUrl?: string | null;
+  nextUrl?: string | null;
   image?: string | null;
   imageAlt?: string | null;
   imageWidth?: number | null;
@@ -40,6 +43,8 @@ const {
   title,
   description,
   canonical,
+  prevUrl = null,
+  nextUrl = null,
   image = null,
   imageAlt = null,
   imageWidth = null,
@@ -119,6 +124,8 @@ async function reachableShareImage(
     {author && plainMetaText(author) && <meta name="author" content={plainMetaText(author)} />}
     <meta name="robots" content={robotsContent} />
     {share.url && <link rel="canonical" href={share.url} />}
+    {!robotsContent.includes('noindex') && prevUrl && <link rel="prev" href={prevUrl} />}
+    {!robotsContent.includes('noindex') && nextUrl && <link rel="next" href={nextUrl} />}
     <meta property="og:title" content={share.title} />
     <meta property="og:description" content={share.description} />
     <meta property="og:type" content={share.type} />

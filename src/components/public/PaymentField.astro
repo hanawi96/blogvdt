@@ -1,5 +1,6 @@
 ---
 import { DEFAULT_PAYMENT_METHOD, PAYMENT_METHODS } from '../../features/orders/payment';
+import { BANK_ACCOUNT, vietQrImageUrl } from '../../features/orders/vietqr';
 
 interface Props {
   value?: string;
@@ -9,9 +10,10 @@ interface Props {
 
 const { value = '', error = '', small = false } = Astro.props;
 const selected = PAYMENT_METHODS.some((method) => method.value === value) ? value : DEFAULT_PAYMENT_METHOD;
+const qrSrc = vietQrImageUrl();
 ---
 
-<fieldset class="mt-4">
+<fieldset class="mt-4" data-pay-field>
   <legend class:list={['mb-1 font-semibold', small && 'text-sm']}>Hình thức thanh toán</legend>
   <div class="pay-list">
     {
@@ -26,5 +28,61 @@ const selected = PAYMENT_METHODS.some((method) => method.value === value) ? valu
       ))
     }
   </div>
+  <div class="pay-bank" data-pay-bank>
+    <img class="pay-bank-qr" src={qrSrc} alt="Mã QR chuyển khoản" width="220" height="220" loading="lazy" decoding="async" data-pay-bank-qr />
+    <div class="pay-bank-acc">
+      <span data-pay-bank-number>{BANK_ACCOUNT.accountNumber}</span>
+      <button type="button" class="pay-bank-copy" data-pay-bank-copy data-copy={BANK_ACCOUNT.accountNumber} aria-label="Sao chép số tài khoản">Sao chép</button>
+    </div>
+    <p class="pay-bank-name">{BANK_ACCOUNT.accountName}</p>
+    <p class="pay-bank-bank">{BANK_ACCOUNT.bankName}</p>
+    <p class="pay-bank-note">Quét mã bằng app ngân hàng để chuyển khoản. Xưởng vẫn gọi lại xác nhận đơn.</p>
+  </div>
   {error && <span class="error-text">{error}</span>}
 </fieldset>
+<script>
+  import { vietQrImageUrl } from '../../features/orders/vietqr';
+
+  document.querySelectorAll('[data-pay-field]').forEach((field) => {
+    if (!(field instanceof HTMLElement)) return;
+    const scope = field.closest('form, dialog') ?? document;
+    const qr = field.querySelector('[data-pay-bank-qr]');
+    const amountEl = scope.querySelector('[data-payable-amount]');
+
+    // Đọc số tiền phải trả (VND nguyên) từ phần tử tổng tiền của form/modal chứa field này.
+    const readAmount = () => {
+      if (!(amountEl instanceof HTMLElement)) return 0;
+      const n = Number(amountEl.dataset.payableAmount);
+      return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+    };
+    const refreshQr = () => {
+      if (!(qr instanceof HTMLImageElement)) return;
+      const amount = readAmount();
+      const next = vietQrImageUrl(amount > 0 ? { amount } : {});
+      if (qr.getAttribute('src') !== next) qr.setAttribute('src', next);
+    };
+    // Cập nhật khi số tiền đổi (số lượng/mã giảm giá) và khi đổi hình thức thanh toán.
+    if (amountEl instanceof HTMLElement) {
+      new MutationObserver(refreshQr).observe(amountEl, { attributes: true, attributeFilter: ['data-payable-amount'] });
+    }
+    field.querySelectorAll('input[name="paymentMethod"]').forEach((input) => {
+      input.addEventListener('change', refreshQr);
+    });
+    refreshQr();
+
+    const copyBtn = field.querySelector('[data-pay-bank-copy]');
+    if (copyBtn instanceof HTMLButtonElement) {
+      copyBtn.addEventListener('click', async () => {
+        const value = copyBtn.dataset.copy ?? '';
+        try {
+          await navigator.clipboard.writeText(value);
+          const prev = copyBtn.textContent;
+          copyBtn.textContent = 'Đã sao chép';
+          window.setTimeout(() => { copyBtn.textContent = prev; }, 1500);
+        } catch {
+          /* trình duyệt chặn clipboard: khách tự chọn số để copy */
+        }
+      });
+    }
+  });
+</script>

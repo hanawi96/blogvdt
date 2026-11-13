@@ -5,6 +5,9 @@ import { parseMaterialPrice } from '../materials/costing';
 import { loadProductCosts } from '../materials/recipes';
 import type { AppDb } from '../../lib/db/client';
 import { orderCosts } from '../../lib/db/schema';
+import { isShippingOrderCost } from './shipping-name';
+
+export { isShippingOrderCost };
 
 export const ORDER_COST_NAME_MAX = 80;
 export const ORDER_COST_KINDS = ['fixed', 'percent'] as const;
@@ -61,12 +64,6 @@ export function goodsCostOf(
 export function orderProfit(order: { totalPrice: number; costGoods: number | null; costExtra: number | null; shippingCost?: number | null }): number | null {
   if (order.costGoods === null || order.costExtra === null) return null;
   return order.totalPrice - order.costGoods - order.costExtra - (order.shippingCost ?? 0);
-}
-
-// Phí ship vốn là khoản ship trên trang chi phí đơn, không phải số gõ riêng trên đơn.
-export function isShippingOrderCost(name: string): boolean {
-  const folded = name.normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/gi, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
-  return folded === 'phi van chuyen' || folded === 'phi ship' || folded === 'ship';
 }
 
 // Đơn cũ còn khoản ship nằm trong chi phí đã chụp. Đơn mới lưu riêng ở shipping_cost.

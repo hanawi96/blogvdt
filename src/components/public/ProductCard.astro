@@ -23,21 +23,44 @@ const href = product.slug ? routes.product(product.slug) : null;
 
 {layout === 'row' ? (
   <article class="pcard-row">
-    {product.coverUrl &&
-      (href ? (
-        <a class="pcard-row-media" href={href} aria-hidden={product.coverAlt ? undefined : 'true'} tabindex={product.coverAlt ? undefined : -1}>
+    {href ? (
+      <a class="pcard-row-media" href={href} aria-hidden={product.coverUrl && product.coverAlt ? undefined : 'true'} tabindex={product.coverUrl && product.coverAlt ? undefined : -1}>
+        {product.coverUrl ? (
           <img src={product.coverUrl} alt={product.coverAlt} width={product.coverWidth ?? undefined} height={product.coverHeight ?? undefined} loading="lazy" decoding="async" />
-        </a>
-      ) : (
-        <span class="pcard-row-media">
+        ) : (
+          <span class="pcard-row-media-empty" aria-hidden="true">
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="24" cy="24" r="12" />
+              <circle cx="24" cy="10" r="2.4" fill="currentColor" stroke="none" />
+              <circle cx="38" cy="24" r="2.4" fill="currentColor" stroke="none" />
+              <circle cx="24" cy="38" r="2.4" fill="currentColor" stroke="none" />
+              <circle cx="10" cy="24" r="2.4" fill="currentColor" stroke="none" />
+            </svg>
+          </span>
+        )}
+      </a>
+    ) : (
+      <span class="pcard-row-media">
+        {product.coverUrl ? (
           <img src={product.coverUrl} alt={product.coverAlt} width={product.coverWidth ?? undefined} height={product.coverHeight ?? undefined} loading="lazy" decoding="async" />
-        </span>
-      ))}
+        ) : (
+          <span class="pcard-row-media-empty" aria-hidden="true">
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="24" cy="24" r="12" />
+              <circle cx="24" cy="10" r="2.4" fill="currentColor" stroke="none" />
+              <circle cx="38" cy="24" r="2.4" fill="currentColor" stroke="none" />
+              <circle cx="24" cy="38" r="2.4" fill="currentColor" stroke="none" />
+              <circle cx="10" cy="24" r="2.4" fill="currentColor" stroke="none" />
+            </svg>
+          </span>
+        )}
+      </span>
+    )}
     <div class="pcard-row-body">
       <h3 class="pcard-row-title">{href ? <a href={href}>{product.name}</a> : product.name}</h3>
       <p class="pcard-row-price">{formatVnd(product.price)}</p>
       {product.description && <p class="pcard-row-desc">{product.description}</p>}
-      {href && <a class="pcard-row-more" href={href}>Xem sản phẩm →</a>}
+      {href && <a class="pcard-row-more" href={href}>Xem sản phẩm <span aria-hidden="true">→</span></a>}
     </div>
   </article>
 ) : (

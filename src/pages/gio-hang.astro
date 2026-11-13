@@ -10,7 +10,7 @@ import { listOrderCosts } from '../features/costs/order-costs';
 import { parseCartOrder, type CatalogProduct } from '../features/orders/order';
 import { placeCartOrder, placeOrder } from '../features/orders/orders';
 import { listOrderCatalog } from '../features/products/public';
-import { isValidWeight, requiresWeight } from '../features/products/weight';
+import { applyWeightPrice, isValidWeight, requiresWeight, weightSurchargeLabel } from '../features/products/weight';
 import { getPublicSite } from '../features/settings/settings';
 import { baseCustomerShippingFee, resolveCustomerShippingFee, shipGroupOf } from '../features/shipping/customer-fee';
 import PublicLayout from '../layouts/PublicLayout.astro';
@@ -169,16 +169,20 @@ if (Astro.request.method === 'POST') {
 const resolved = lines.flatMap((line) => {
   const product = loaded.catalog.find((item) => item.slug === line.slug);
   if (!product) return [];
+  // Đơn giá đã gồm phụ thu cân nặng (vòng to hơn cần thêm nguyên liệu).
+  const unitPrice = applyWeightPrice(product.price, line.weight);
   return [
     {
       ...line,
       name: product.name,
-      price: product.price,
+      price: unitPrice,
+      basePrice: product.price,
+      surcharge: weightSurchargeLabel(line.weight, product.price),
       coverUrl: product.coverUrl,
       coverAlt: product.coverAlt,
       categorySlug: product.categorySlug ?? '',
       shipGroup: shipGroupOf(product.categorySlug),
-      lineTotal: product.price * line.quantity,
+      lineTotal: unitPrice * line.quantity,
     },
   ];
 });
@@ -221,7 +225,7 @@ function merchandiseTotal(cartLines: CartLine[], catalog: CatalogProduct[]): num
   for (const line of cartLines) {
     const product = catalog.find((item) => item.slug === line.slug);
     if (!product || !Number.isInteger(line.quantity) || line.quantity < 1) return null;
-    total += product.price * line.quantity;
+    total += applyWeightPrice(product.price, line.weight) * line.quantity;
   }
   return total;
 }
@@ -261,7 +265,7 @@ async function loadCart() {
     !loaded.site ? (
       <DataError failed={loaded.failed} />
     ) : (
-      <main class="mx-auto max-w-5xl px-4 py-8 sm:py-10">
+      <main class="mx-auto max-w-2xl px-4 py-8 sm:py-10">
         <h1 class="text-3xl font-semibold">Giỏ hàng</h1>
         {resolved.length > 0 && (
           <p class="mt-2 text-muted">
@@ -272,19 +276,47 @@ async function loadCart() {
         {formError && <p class="error-text mt-3" role="alert">{formError}</p>}
         {errors.cart && <p class="error-text mt-3" role="alert">{errors.cart}</p>}
         {resolved.length === 0 ? (
-          <section class="cart-card cart-empty">
-            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M6 7h12l1 13H5L6 7z" />
-              <path d="M9 7a3 3 0 0 1 6 0" />
+          <section class="cart-empty">
+            <svg class="cart-empty-art" viewBox="0 0 200 150" role="img" aria-label="Giỏ hàng trống với trái tim" xmlns="http://www.w3.org/2000/svg">
+              <ellipse cx="100" cy="120" rx="78" ry="12" fill="#f6dfe3" />
+              <circle cx="100" cy="66" r="52" fill="#fbeef0" />
+              <g fill="none" stroke="#e79aa9" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M60 58h66l-7 34H67z" fill="#fdf1f3" />
+                <path d="M60 58l-5-14h-9" />
+                <path d="M72 58l6-14h30l6 14" fill="#fde7eb" />
+              </g>
+              <path d="M93 66c0-4 7-4 7 1 0-5 7-5 7-1 0 5-7 9-7 9s-7-4-7-9z" fill="#f08ea0" />
+              <g fill="none" stroke="#e79aa9" stroke-width="3.2" stroke-linecap="round">
+                <path d="M67 92l-3 10h58l-3-10" />
+              </g>
+              <circle cx="74" cy="110" r="6" fill="#fff" stroke="#e79aa9" stroke-width="3.2" />
+              <circle cx="118" cy="110" r="6" fill="#fff" stroke="#e79aa9" stroke-width="3.2" />
+              <path d="M138 40c0-3 5-3 5 1 0-4 5-4 5 0 0 4-5 7-5 7s-5-3-5-8z" fill="#f4a9b6" />
+              <path d="M44 74c6-2 10-7 10-7M48 86c5 1 10-1 10-1" stroke="#b7d8b0" stroke-width="3" stroke-linecap="round" fill="none" />
             </svg>
-            <h2 class="text-xl font-semibold">Giỏ hàng đang trống</h2>
-            <p class="text-muted">Chọn vài mẫu vòng bạn thích rồi quay lại đây để gửi đơn một lần.</p>
-            <a class="btn btn-primary" href={routes.catalog}>Xem mẫu vòng</a>
+            <h2 class="cart-empty-title">Giỏ hàng của bạn đang trống</h2>
+            <p class="cart-empty-text">Bạn chưa chọn mẫu vòng nào. Ghé xem các mẫu vòng dâu tằm thủ công, gom lại rồi gửi đơn một lần nhé.</p>
+            <div class="cart-empty-actions">
+              <a class="btn btn-accent cart-empty-btn" href={routes.catalog}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M6 7h12l1 13H5L6 7z" />
+                  <path d="M9 7a3 3 0 0 1 6 0" />
+                </svg>
+                Xem mẫu vòng
+              </a>
+              <a class="btn cart-empty-btn" href={routes.home}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M20 12l-8 8-8-8a4 4 0 0 1 8-3 4 4 0 0 1 8 3z" />
+                </svg>
+                Về trang chủ
+              </a>
+            </div>
           </section>
         ) : (
           <form class="cart-layout" method="post" action={routes.cart} data-cart-page>
             <button class="sr-only" type="submit" data-cart-noop tabindex="-1" aria-hidden="true">Giỏ hàng</button>
-            <section class="cart-card" aria-label="Sản phẩm trong giỏ">
+            <section class="cart-card" aria-labelledby="cart-items-title">
+              <h2 id="cart-items-title" class="cart-card-title text-lg font-semibold">Mẫu vòng đã chọn</h2>
               <ul class="cart-list">
                 {resolved.map((line, index) => (
                   <li class="cart-item" data-cart-item data-price={line.price} data-ship-group={line.shipGroup}>
@@ -299,10 +331,27 @@ async function loadCart() {
                       <input type="hidden" name="slug" value={line.slug} />
                       <input type="hidden" name="weight" value={line.weight} />
                       {line.weight && (
-                        <p class="cart-meta"><span class="cart-tag">Cân nặng: {line.weight}</span></p>
+                        <p class="cart-meta">
+                          <span class="cart-tag">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <path d="M12 3a2 2 0 0 0-2 2H6l-3 11a4 4 0 0 0 8 0L8 5" />
+                              <path d="M16 5h2l3 11a4 4 0 0 1-8 0l3-11h-4" />
+                            </svg>
+                            Cân nặng: {line.weight}
+                          </span>
+                          {line.surcharge && <span class="cart-surcharge">Vòng lớn {line.surcharge} nguyên liệu</span>}
+                        </p>
                       )}
                       {errors[`weight${index}`] && <p class="error-text mt-1">{errors[`weight${index}`]}</p>}
-                      <button class="cart-remove" type="submit" name="intent" value={`remove:${index}`}>Xóa</button>
+                      <button class="cart-remove" type="submit" name="intent" value={`remove:${index}`} formnovalidate>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M4 7h16" />
+                          <path d="M10 11v6M14 11v6" />
+                          <path d="M6 7l1 13h10l1-13" />
+                          <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                        </svg>
+                        Xóa
+                      </button>
                     </div>
                     <div class="cart-row">
                       <div class="qty">
@@ -331,21 +380,23 @@ async function loadCart() {
               </div>
             </section>
             <section class="cart-card cart-checkout" aria-labelledby="cart-checkout-title">
-              <h2 id="cart-checkout-title" class="text-lg font-semibold">Thông tin nhận hàng</h2>
+              <h2 id="cart-checkout-title" class="cart-card-title text-lg font-semibold">Thông tin nhận hàng</h2>
             <div class="absolute -left-[9999px]" aria-hidden="true">
               <label for="company">Công ty</label>
               <input id="company" name="company" tabindex="-1" autocomplete="off" />
             </div>
-            <label class="mt-4 block" for="customer-name">
-              <span class="mb-1 block font-semibold">Họ tên</span>
-              <input id="customer-name" class="field" name="customerName" required maxlength="80" autocomplete="name" value={values.customerName} />
-              {errors.customerName && <span class="error-text">{errors.customerName}</span>}
-            </label>
-            <label class="mt-4 block" for="phone">
-              <span class="mb-1 block font-semibold">Số điện thoại</span>
-              <input id="phone" class="field" name="phone" type="tel" required maxlength="20" autocomplete="tel" value={values.phone} />
-              {errors.phone && <span class="error-text">{errors.phone}</span>}
-            </label>
+            <div class="form-pair mt-4">
+              <label class="block" for="customer-name">
+                <span class="mb-1 block font-semibold">Họ tên</span>
+                <input id="customer-name" class="field" name="customerName" required maxlength="80" autocomplete="name" value={values.customerName} />
+                {errors.customerName && <span class="error-text">{errors.customerName}</span>}
+              </label>
+              <label class="block" for="phone">
+                <span class="mb-1 block font-semibold">Số điện thoại</span>
+                <input id="phone" class="field" name="phone" type="tel" required maxlength="20" autocomplete="tel" value={values.phone} />
+                {errors.phone && <span class="error-text">{errors.phone}</span>}
+              </label>
+            </div>
             <AddressField
               idPrefix="cart-address"
               error={errors.address}
@@ -353,6 +404,7 @@ async function loadCart() {
               provinceCode={values.provinceCode}
               wardCode={values.wardCode}
               line={values.addressLine}
+              paired
             />
             <label class="mt-4 block" for="note">
               <span class="mb-1 block font-semibold">Ghi chú</span>
@@ -378,14 +430,10 @@ async function loadCart() {
               </div>
               <div class="cart-sum">
                 <span data-cart-sum-label>Phải trả</span>
-                <strong data-cart-total>{formatVnd(payable)}</strong>
+                <strong data-cart-total data-payable-amount={payable}>{formatVnd(payable)}</strong>
               </div>
             </div>
-            <p class="cart-sum-note">
-              {shipping.free
-                ? 'Đơn đủ điều kiện miễn phí ship. Xưởng gọi lại để chốt, website không thu tiền trực tuyến.'
-                : 'Phí ship theo quy tắc cửa hàng. Xưởng gọi lại để chốt đơn, website không thu tiền trực tuyến.'}
-            </p>
+            <p class="cart-sum-note">Nhận hàng kiểm tra hàng thoải mái, ưng ý thì mới thanh toán.</p>
             <button class="btn btn-accent mt-4 w-full" type="submit" name="intent" value="order">Gửi đơn</button>
             </section>
           </form>
@@ -431,7 +479,10 @@ async function loadCart() {
       const shipFeeOut = form.querySelector('[data-cart-ship-fee]');
       if (shipFeeOut) shipFeeOut.textContent = shipping.free ? 'Miễn phí' : money.format(shipping.fee);
       const totalOut = form.querySelector('[data-cart-total]');
-      if (totalOut) totalOut.textContent = money.format(payableGoods + shipping.fee);
+      if (totalOut instanceof HTMLElement) {
+        totalOut.textContent = money.format(payableGoods + shipping.fee);
+        totalOut.dataset.payableAmount = String(payableGoods + shipping.fee);
+      }
       const countOut = document.querySelector('[data-cart-sum-count]');
       if (countOut) countOut.textContent = String(pieces);
     };
@@ -553,17 +604,13 @@ async function loadCart() {
       saveTimer = window.setTimeout(persist, 250);
     });
 
-    // Chặn bấm "Gửi đơn" hai lần; không vô hiệu hóa nút vì giá trị intent cần được gửi đi.
-    let sending = false;
-    form.addEventListener('submit', (event) => {
-      const submitter = event instanceof SubmitEvent ? event.submitter : null;
-      if (!(submitter instanceof HTMLButtonElement) || submitter.hasAttribute('data-cart-noop')) {
+    // Xử lý theo click thay vì submit: click luôn bắn, không phụ thuộc validation hay hành vi submit.
+    form.addEventListener('click', (event) => {
+      const button = event.target instanceof Element ? event.target.closest('button[name="intent"]') : null;
+      if (!(button instanceof HTMLButtonElement)) return;
+      if (button.value.startsWith('remove:')) {
         event.preventDefault();
-        return;
-      }
-      if (submitter.value.startsWith('remove:')) {
-        event.preventDefault();
-        submitter.closest('[data-cart-item]')?.remove();
+        button.closest('[data-cart-item]')?.remove();
         const linesOut = document.querySelector('[data-cart-sum-lines]');
         const remaining = form.querySelectorAll('[data-cart-item]').length;
         if (linesOut) linesOut.textContent = `${remaining} mẫu`;
@@ -573,12 +620,20 @@ async function loadCart() {
         if (remaining === 0) location.reload();
         return;
       }
-      if (submitter.value === 'apply') {
+      if (button.value === 'apply') {
         event.preventDefault();
-        void previewDiscount(submitter);
+        void previewDiscount(button);
+      }
+    });
+
+    // Chặn bấm "Gửi đơn" hai lần; không vô hiệu hóa nút vì giá trị intent cần được gửi đi.
+    let sending = false;
+    form.addEventListener('submit', (event) => {
+      const submitter = event instanceof SubmitEvent ? event.submitter : null;
+      if (!(submitter instanceof HTMLButtonElement) || submitter.value !== 'order') {
+        event.preventDefault();
         return;
       }
-      if (!(submitter instanceof HTMLButtonElement) || submitter.value !== 'order') return;
       if (sending) {
         event.preventDefault();
         return;

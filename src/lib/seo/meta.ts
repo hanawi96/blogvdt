@@ -28,6 +28,13 @@ export function documentTitle(headline: string, siteName: string, page = 1): str
   return `${head} | ${name}`;
 }
 
+/** Thêm hậu tố "— trang N" (N>1) để meta description từng trang phân trang không trùng nhau. */
+export function withPageSuffix(description: string, page = 1): string {
+  const text = plainMetaText(description);
+  if (page <= 1 || !text) return text;
+  return `${text} — trang ${page}`;
+}
+
 export function homePageMeta(site: {
   siteName: string;
   siteDescription: string;
@@ -41,7 +48,7 @@ export function homePageMeta(site: {
 }
 
 export function knowledgeListMeta(siteName: string, page = 1): { title: string; description: string } {
-  return { title: documentTitle('Kiến thức', siteName, page), description: KNOWLEDGE_LIST_DESCRIPTION };
+  return { title: documentTitle('Kiến thức', siteName, page), description: withPageSuffix(KNOWLEDGE_LIST_DESCRIPTION, page) };
 }
 
 export function postPageMeta(input: {
@@ -64,7 +71,7 @@ export function categoryPageMeta(
   const name = plainMetaText(category.name);
   const headline = plainMetaText(category.seoTitle) || name;
   const description = plainMetaText(category.metaDescription) || plainMetaText(category.description) || (name ? `Bài viết trong danh mục ${name}.` : 'Bài viết theo danh mục.');
-  return { title: documentTitle(headline, siteName, page), description };
+  return { title: documentTitle(headline, siteName, page), description: withPageSuffix(description, page) };
 }
 
 export function tagPageMeta(
@@ -76,7 +83,7 @@ export function tagPageMeta(
   const headline = plainMetaText(tag.seoTitle) || name;
   const description =
     plainMetaText(tag.metaDescription) || plainMetaText(tag.description) || (name ? `Bài viết gắn thẻ ${name}.` : 'Bài viết theo thẻ.');
-  return { title: documentTitle(headline, siteName, page), description };
+  return { title: documentTitle(headline, siteName, page), description: withPageSuffix(description, page) };
 }
 
 export function policyPageMeta(policy: { title: string; description: string }, siteName: string): { title: string; description: string } {

@@ -15,8 +15,20 @@ export const GET: APIRoute = async ({ url }) => {
     const result = await suggestPublic(createDb(getDbBinding()), q);
     return json({
       q: result.q,
-      posts: result.posts.map((post) => ({ title: post.title, href: post.href, excerpt: post.excerpt.slice(0, 120) })),
-      products: result.products.map((product) => ({ name: product.name, href: product.href, price: product.price })),
+      posts: result.posts.map((post) => ({
+        title: post.title,
+        href: post.href,
+        excerpt: post.excerpt.slice(0, 120),
+        imageUrl: post.cardUrl ?? post.coverUrl,
+        imageAlt: post.coverAlt || post.title,
+      })),
+      products: result.products.map((product) => ({
+        name: product.name,
+        href: product.href,
+        price: product.price,
+        imageUrl: product.coverUrl,
+        imageAlt: product.coverAlt || product.name,
+      })),
     });
   } catch (error) {
     console.error(JSON.stringify({ event: 'search_suggest_failed', name: error instanceof Error ? error.name : 'unknown' }));

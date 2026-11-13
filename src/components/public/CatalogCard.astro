@@ -2,7 +2,7 @@
 import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
 import { CART_MAX_QUANTITY } from '../../features/cart/cart';
-import { requiresWeight, weightOptions, type WeightScale } from '../../features/products/weight';
+import { requiresWeight, weightChips, weightExtras, weightOptionLabel, type WeightScale } from '../../features/products/weight';
 import type { ProductShipBadge } from '../../features/shipping/customer-fee';
 import FreeShipBadge from './FreeShipBadge.astro';
 import ProductSalesBadge from './ProductSalesBadge.astro';
@@ -34,7 +34,8 @@ const alt = product.coverAlt || product.name;
 const addId = `add-${product.id}`;
 const addTitleId = `add-title-${product.id}`;
 const needsWeight = requiresWeight(product.weightScale);
-const weights = needsWeight ? weightOptions(product.weightScale) : [];
+const chips = needsWeight ? weightChips(product.weightScale) : [];
+const extras = needsWeight ? weightExtras(product.weightScale) : [];
 // Dữ liệu cho modal đặt hàng dùng chung (OrderDialog); thiếu JS thì vẫn là link /dat-hang.
 const orderAttrs = {
   'data-order-open': '',
@@ -98,20 +99,32 @@ const orderAttrs = {
             <p id={addTitleId} class="font-semibold">{product.name}</p>
             <button class="add-close" type="button" data-add-close aria-label="Đóng">×</button>
           </div>
-          <p class="font-semibold text-primary-strong">{formatVnd(product.price)}</p>
+          <p class="font-semibold text-primary-strong" data-add-price>{formatVnd(product.price)}</p>
           <input type="hidden" name="intent" value="add" />
           <input type="hidden" name="slug" value={product.slug} />
           <input type="hidden" name="price" value={product.price} />
-          <fieldset class="mt-3">
+          <fieldset class="mt-3" data-weight-field data-base-price={product.price}>
             <legend class="text-sm font-semibold">Cân nặng của bé</legend>
             <div class="weight-grid mt-2" role="radiogroup">
-              {weights.map((weight, index) => (
+              {chips.map((weight, index) => (
                 <label class="weight-chip">
                   <input type="radio" name="weight" value={weight} required={index === 0} />
                   <span>{weight}</span>
                 </label>
               ))}
+              <button type="button" class="weight-chip weight-chip-more" data-weight-more aria-expanded="false" aria-label="Cân nặng khác">
+                <span aria-hidden="true">+</span>
+              </button>
             </div>
+            <div class="weight-extra mt-2" data-weight-extra hidden>
+              <select class="field" data-weight-extra-select aria-label="Chọn cân nặng lớn hơn">
+                <option value="">Chọn cân nặng (16kg – 70kg)</option>
+                {extras.map((weight) => (
+                  <option value={weight}>{weightOptionLabel(weight, product.price)}</option>
+                ))}
+              </select>
+            </div>
+            <p class="weight-surcharge-note" data-weight-note hidden></p>
           </fieldset>
           <QtyStepper max={CART_MAX_QUANTITY} />
           <p class="add-error error-text mt-2" role="alert" hidden></p>

@@ -11,7 +11,7 @@ import PublicLayout from '../../layouts/PublicLayout.astro';
 import { createDb } from '../../lib/db/client';
 import { applyCoverMeasure } from '../../features/media/media';
 import { getDbBinding, getSiteOrigin, optionalMediaBucket } from '../../lib/cloudflare/env';
-import { buildMeta, notFoundMeta, tagPageMeta, unavailableMeta } from '../../lib/seo/meta';
+import { buildMeta, canonicalUrl, notFoundMeta, tagPageMeta, unavailableMeta } from '../../lib/seo/meta';
 import { blogReadStatus, FRESH_PAGE_CACHE, PRIVATE_PAGE_CACHE } from '../../lib/seo/cache';
 import { routes } from '../../lib/routes';
 
@@ -30,17 +30,21 @@ if (status !== 200) {
 Astro.response.headers.set('Cache-Control', status === 200 ? FRESH_PAGE_CACHE : PRIVATE_PAGE_CACHE);
 
 const tagPath = routes.tag(loaded.tag?.slug || slug);
-const path = loaded.tag && page > 1 ? `${tagPath}?page=${page}` : tagPath;
+const listPath = (next: number) => (next > 1 ? `${tagPath}?page=${next}` : tagPath);
+const path = listPath(page);
 const pageMeta = !loaded.site ? unavailableMeta() : !loaded.tag || outOfRange ? notFoundMeta() : tagPageMeta(loaded.tag, loaded.site.siteName, page);
 const leadCover = loaded.posts.findIndex((post) => post.coverUrl);
 const allowIndex = Boolean(loaded.tag && !outOfRange && loaded.tag.robots === 'index');
-const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
+const origin = getSiteOrigin(Astro.url.origin);
+const meta = buildMeta(origin, {
   title: pageMeta.title,
   description: pageMeta.description,
   path,
   siteName: loaded.site?.siteName,
   robots: allowIndex ? 'index,follow' : 'noindex,follow',
 });
+const prevUrl = allowIndex && page > 1 ? canonicalUrl(origin, listPath(page - 1)) || null : null;
+const nextUrl = allowIndex && page < loaded.pageCount ? canonicalUrl(origin, listPath(page + 1)) || null : null;
 if (loaded.tag && !outOfRange && !allowIndex) {
   Astro.response.headers.set('X-Robots-Tag', 'noindex, follow');
 }
@@ -84,6 +88,8 @@ async function loadTag() {
   title={meta.title}
   description={meta.description}
   canonical={loaded.tag && !outOfRange ? meta.canonical : undefined}
+  prevUrl={prevUrl}
+  nextUrl={nextUrl}
   robots={meta.robots}
   siteName={meta.siteName}
   faviconUrl={loaded.site?.faviconUrl || '/favicon.svg'}

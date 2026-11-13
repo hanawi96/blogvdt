@@ -158,8 +158,6 @@ const {
     });
     ward.addEventListener('change', () => {
       write();
-      if (!ward.value) return;
-      line.focus({ preventScroll: false });
     });
     line.addEventListener('input', write);
     form.addEventListener(

@@ -17,7 +17,7 @@ import OrderDialog from '../components/public/OrderDialog.astro';
 import PublicLayout from '../layouts/PublicLayout.astro';
 import { createDb } from '../lib/db/client';
 import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
-import { buildMeta } from '../lib/seo/meta';
+import { buildMeta, canonicalUrl, documentTitle, withPageSuffix } from '../lib/seo/meta';
 import { routes } from '../lib/routes';
 
 const query = readCatalogQuery(Astro.url.searchParams);
@@ -31,13 +31,20 @@ if (outOfRange) Astro.response.status = 404;
 if (loaded.site && !outOfRange) Astro.response.headers.set('Cache-Control', 'public, max-age=60');
 else Astro.response.headers.set('Cache-Control', 'no-store');
 
-const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
-  title: loaded.site ? `Mẫu vòng dâu tằm | ${loaded.site.siteName}` : 'Chưa sẵn sàng',
-  description: 'Các mẫu vòng dâu tằm thủ công đang nhận đặt. Xem ảnh, giá bán và giá gốc nếu có.',
+const origin = getSiteOrigin(Astro.url.origin);
+const meta = buildMeta(origin, {
+  title: loaded.site
+    ? `${documentTitle('Mẫu vòng dâu tằm', loaded.site.siteName, page)}`
+    : 'Chưa sẵn sàng',
+  description: withPageSuffix('Các mẫu vòng dâu tằm thủ công đang nhận đặt. Xem ảnh, giá bán và giá gốc nếu có.', page),
   path: filtered || page === 1 ? routes.catalog : catalogPath(query),
   siteName: loaded.site?.siteName,
   robots: !loaded.site || outOfRange ? 'noindex,nofollow' : filtered ? 'noindex,follow' : 'index,follow',
 });
+// prev/next chỉ khi trang được index: có site, không ngoài phạm vi, không đang lọc.
+const canIndex = Boolean(loaded.site) && !outOfRange && !filtered;
+const prevUrl = canIndex && page > 1 ? canonicalUrl(origin, catalogPath(query, page - 1)) || null : null;
+const nextUrl = canIndex && page < loaded.pageCount ? canonicalUrl(origin, catalogPath(query, page + 1)) || null : null;
 
 async function loadCatalog() {
   try {
@@ -57,6 +64,8 @@ async function loadCatalog() {
   title={meta.title}
   description={meta.description}
   canonical={loaded.site && !outOfRange ? meta.canonical : undefined}
+  prevUrl={prevUrl}
+  nextUrl={nextUrl}
   robots={meta.robots}
   siteName={meta.siteName}
   faviconUrl={loaded.site?.faviconUrl || '/favicon.svg'}

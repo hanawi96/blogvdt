@@ -152,6 +152,35 @@ export async function listCatalogProducts(db: AppDb, query: CatalogQuery) {
   };
 }
 
+/** Top N mẫu bán chạy nhất (còn bán) — dùng cho sidebar blog. */
+export async function listBestSellers(db: AppDb, limit = 5): Promise<CatalogCard[]> {
+  const take = Math.min(Math.max(1, Math.floor(limit)), 12);
+  const rows = await db
+    .select({
+      id: products.id,
+      name: products.name,
+      slug: products.slug,
+      price: products.price,
+      comparePrice: products.comparePrice,
+      rating: products.rating,
+      sold: soldCount,
+      weightScale: productCategories.weightScale,
+      categorySlug: productCategories.slug,
+      coverKey: media.r2Key,
+      cardKey: media.cardR2Key,
+      coverAlt: media.altText,
+      coverWidth: media.width,
+      coverHeight: media.height,
+    })
+    .from(products)
+    .leftJoin(media, eq(products.coverMediaId, media.id))
+    .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+    .where(eq(products.status, 'active'))
+    .orderBy(...catalogOrder('ban-chay'))
+    .limit(take);
+  return rows.map(toCard);
+}
+
 // Lượt bán = tổng số lượng ở đơn một mẫu (orders) và đơn nhiều mẫu (order_items), bỏ đơn đã hủy.
 const soldCount = sql<number>`(
   coalesce((select sum(o.quantity) from orders o where o.product_id = ${products.id} and o.status <> 'cancelled'), 0)

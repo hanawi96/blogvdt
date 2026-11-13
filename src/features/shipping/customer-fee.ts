@@ -1,4 +1,5 @@
-import { isShippingOrderCost, type OrderCostKind } from '../costs/order-costs';
+import { isShippingOrderCost } from '../costs/shipping-name';
+import type { OrderCostKind } from '../costs/order-costs';
 
 /** Nhóm tính phí ship khách trả (admin + đặt hàng công khai). */
 export type ShipGroup = 'bracelet' | 'silver' | 'addon' | 'other';

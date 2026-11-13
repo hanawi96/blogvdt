@@ -1,14 +1,17 @@
 ---
+import type { CatalogCard } from '../../features/products/catalog';
 import type { PublicPostCard } from '../../features/posts/public';
 import type { PublicSite } from '../../features/settings/settings';
+import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
 
 interface Props {
   recent: PublicPostCard[];
   site: PublicSite;
+  bestsellers?: CatalogCard[];
 }
 
-const { recent, site } = Astro.props;
+const { recent, site, bestsellers = [] } = Astro.props;
 const contactHref = site.zaloUrl || site.facebookUrl || (site.phone ? `tel:${site.phone.replace(/[^\d+]/g, '')}` : '');
 ---
 
@@ -36,14 +39,44 @@ const contactHref = site.zaloUrl || site.facebookUrl || (site.phone ? `tel:${sit
     </section>
   )}
 
-  {contactHref && (
-    <section class="blog-panel blog-panel-cta">
-      <h2 class="blog-panel-title">Cần tư vấn thêm?</h2>
-      <p class="blog-cta-text">Nhắn cho xưởng để được tư vấn chọn vòng dâu tằm phù hợp cho bé.</p>
-      <a class="btn btn-primary blog-cta-btn" href={contactHref} target={contactHref.startsWith('http') ? '_blank' : undefined} rel={contactHref.startsWith('http') ? 'noopener noreferrer' : undefined}>
-        Liên hệ tư vấn
-      </a>
-      {site.phone && <p class="blog-cta-phone">Hoặc gọi {site.phone}</p>}
+  {(bestsellers.length > 0 || contactHref) && (
+    <section class="blog-panel">
+      {bestsellers.length > 0 && (
+        <>
+          <h2 class="blog-panel-title">Bán chạy nhất</h2>
+          <ul class="blog-bestsellers">
+            {bestsellers.map((product) => (
+              <li>
+                <a class="blog-bestseller-row" href={routes.product(product.slug)}>
+                  {product.coverUrl ? (
+                    <img class="blog-bestseller-thumb" src={product.coverUrl} alt="" width="64" height="64" loading="lazy" decoding="async" />
+                  ) : (
+                    <span class="blog-bestseller-thumb blog-bestseller-thumb-empty" aria-hidden="true"></span>
+                  )}
+                  <span class="blog-bestseller-copy">
+                    <span class="blog-bestseller-name">{product.name}</span>
+                    <span class="blog-bestseller-price">
+                      <span class="blog-bestseller-now">{formatVnd(product.price)}</span>
+                      {product.comparePrice != null && <span class="blog-bestseller-was">{formatVnd(product.comparePrice)}</span>}
+                    </span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {contactHref && (
+        <div class:list={['blog-cta', bestsellers.length > 0 && 'blog-cta-divided']}>
+          <h2 class="blog-panel-title">Cần tư vấn thêm?</h2>
+          <p class="blog-cta-text">Nhắn cho xưởng để được tư vấn chọn vòng dâu tằm phù hợp cho bé.</p>
+          <a class="btn btn-primary blog-cta-btn" href={contactHref} target={contactHref.startsWith('http') ? '_blank' : undefined} rel={contactHref.startsWith('http') ? 'noopener noreferrer' : undefined}>
+            Liên hệ tư vấn
+          </a>
+          {site.phone && <p class="blog-cta-phone">Hoặc gọi {site.phone}</p>}
+        </div>
+      )}
     </section>
   )}
 </aside>

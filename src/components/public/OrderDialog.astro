@@ -1,6 +1,6 @@
 ---
 import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
-import { WEIGHT_SCALES } from '../../features/products/weight';
+import { WEIGHT_SCALES, weightExtras } from '../../features/products/weight';
 import { routes } from '../../lib/routes';
 import AddressField from './AddressField.astro';
 import DiscountCodeField from './DiscountCodeField.astro';
@@ -10,6 +10,7 @@ import QtyStepper from './QtyStepper.astro';
 // Modal đặt hàng dùng chung cho cả trang. Nút [data-order-open] truyền sản phẩm vào modal;
 // khi tắt JS, nút vẫn là link tới /dat-hang nên đặt hàng không bị chặn.
 const scaleGroups = Object.entries(WEIGHT_SCALES).filter(([, labels]) => labels.length > 0);
+const babyExtras = weightExtras('baby');
 ---
 
 <dialog id="order-dialog" class="order-dialog" aria-labelledby="order-dialog-title">
@@ -41,9 +42,23 @@ const scaleGroups = Object.entries(WEIGHT_SCALES).filter(([, labels]) => labels.
                 <span>{label}</span>
               </label>
             ))}
+            {scale === 'baby' && (
+              <button type="button" class="weight-chip weight-chip-more" data-weight-more aria-expanded="false" aria-label="Cân nặng khác">
+                <span aria-hidden="true">+</span>
+              </button>
+            )}
           </div>
         ))
       }
+      <div class="weight-extra mt-2" data-weight-extra hidden>
+        <select class="field" data-weight-extra-select aria-label="Chọn cân nặng lớn hơn">
+          <option value="">Chọn cân nặng (16kg – 70kg)</option>
+          {babyExtras.map((weight) => (
+            <option value={weight} data-weight-value={weight}>{weight}</option>
+          ))}
+        </select>
+      </div>
+      <p class="weight-surcharge-note" data-weight-note hidden></p>
     </fieldset>
     <QtyStepper id="od-quantity" max={ORDER_MAX_QUANTITY} />
     <PaymentField small />
@@ -61,12 +76,14 @@ const scaleGroups = Object.entries(WEIGHT_SCALES).filter(([, labels]) => labels.
       <textarea id="od-note" class="field mt-1 min-h-16" name="note" maxlength="500"></textarea>
     </label>
     <DiscountCodeField id="od-discount" />
-    <p class="order-total">Tạm tính <strong data-od-total></strong></p>
+    <p class="order-total">Tạm tính <strong data-od-total data-payable-amount="0"></strong></p>
     <p class="mt-2 text-sm text-muted">Xưởng gọi lại để chốt đơn. Website không thu tiền trực tuyến.</p>
     <button class="btn btn-primary mt-4 w-full" type="submit">Gửi đơn</button>
   </form>
 </dialog>
 <script>
+  import { applyWeightPrice, weightOptionLabel, weightSurchargeLabel } from '../../features/products/weight';
+
   const dialog = document.getElementById('order-dialog');
   const form = dialog?.querySelector('form[data-order-dialog-form]');
   if (dialog instanceof HTMLDialogElement && form instanceof HTMLFormElement) {
@@ -77,14 +94,35 @@ const scaleGroups = Object.entries(WEIGHT_SCALES).filter(([, labels]) => labels.
     const thumb = form.querySelector('[data-od-thumb]');
     const slugField = form.querySelector('[data-od-slug]');
     const weightWrap = form.querySelector('[data-od-weight]');
+    const moreBtn = form.querySelector('[data-weight-more]');
+    const extraWrap = form.querySelector('[data-weight-extra]');
+    const extraSelect = form.querySelector('[data-weight-extra-select]');
+    const weightNote = form.querySelector('[data-weight-note]');
     const quantity = form.querySelector('#od-quantity');
     const submit = form.querySelector('button[type="submit"]:not([value="apply"])');
     let price = 0;
 
+    const selectedWeight = (): string => {
+      const checked = form.querySelector('input[name="weight"]:checked');
+      if (checked instanceof HTMLInputElement) return checked.value;
+      if (extraSelect instanceof HTMLSelectElement && extraSelect.value) return extraSelect.value;
+      return '';
+    };
+
     const paintTotal = () => {
       if (!(total instanceof HTMLElement) || !(quantity instanceof HTMLInputElement)) return;
+      const weight = selectedWeight();
+      const unit = price > 0 ? applyWeightPrice(price, weight) : 0;
       const count = Number(quantity.value);
-      total.textContent = Number.isInteger(count) && count >= 1 ? money.format(price * count) : '—';
+      const valid = Number.isInteger(count) && count >= 1;
+      total.textContent = valid ? money.format(unit * count) : '—';
+      total.dataset.payableAmount = valid ? String(unit * count) : '0';
+      if (priceText instanceof HTMLElement && unit > 0) priceText.textContent = money.format(unit);
+      const surcharge = weightSurchargeLabel(weight, price);
+      if (weightNote instanceof HTMLElement) {
+        weightNote.hidden = !(surcharge && unit > 0);
+        weightNote.textContent = surcharge && unit > 0 ? `Vòng lớn hơn, cộng ${surcharge} nguyên liệu → ${money.format(unit)}/chiếc` : '';
+      }
     };
 
     // Chỉ nhóm cân nặng đúng thang của sản phẩm được bật và gửi đi; thang 'none' thì ẩn hẳn.
@@ -100,6 +138,23 @@ const scaleGroups = Object.entries(WEIGHT_SCALES).filter(([, labels]) => labels.
           input.required = active && index === 0;
         });
       });
+      // Dropdown "cân nặng khác" chỉ dùng cho thang baby; reset mỗi lần đổi sản phẩm.
+      const showExtra = scale === 'baby';
+      if (extraWrap instanceof HTMLElement) extraWrap.hidden = true;
+      if (moreBtn instanceof HTMLElement) {
+        moreBtn.hidden = !showExtra;
+        moreBtn.setAttribute('aria-expanded', 'false');
+      }
+      if (extraSelect instanceof HTMLSelectElement) {
+        extraSelect.value = '';
+        extraSelect.name = '';
+        extraSelect.required = false;
+        extraSelect.disabled = !showExtra;
+      }
+      if (weightNote instanceof HTMLElement) {
+        weightNote.hidden = true;
+        weightNote.textContent = '';
+      }
       if (weightWrap instanceof HTMLElement) weightWrap.hidden = !found;
     };
 
@@ -115,6 +170,12 @@ const scaleGroups = Object.entries(WEIGHT_SCALES).filter(([, labels]) => labels.
         thumb.alt = trigger.dataset.name ?? '';
       }
       if (quantity instanceof HTMLInputElement) quantity.value = '1';
+      // Nhãn "(giá tăng X%)" phụ thuộc giá sản phẩm hiện tại nên cập nhật khi mở modal.
+      if (extraSelect instanceof HTMLSelectElement) {
+        extraSelect.querySelectorAll('option[data-weight-value]').forEach((opt) => {
+          if (opt instanceof HTMLOptionElement) opt.textContent = weightOptionLabel(opt.dataset.weightValue ?? '', price);
+        });
+      }
       showScale(trigger.dataset.scale ?? 'none');
       paintTotal();
     };
@@ -132,6 +193,35 @@ const scaleGroups = Object.entries(WEIGHT_SCALES).filter(([, labels]) => labels.
     });
 
     quantity?.addEventListener('input', paintTotal);
+    if (moreBtn instanceof HTMLButtonElement && extraWrap instanceof HTMLElement) {
+      moreBtn.addEventListener('click', () => {
+        extraWrap.hidden = !extraWrap.hidden;
+        moreBtn.setAttribute('aria-expanded', extraWrap.hidden ? 'false' : 'true');
+      });
+    }
+    const setRadioRequired = (on: boolean) => {
+      const first = form.querySelector('[data-scale-group]:not([hidden]) input[name="weight"]');
+      if (first instanceof HTMLInputElement) first.required = on;
+    };
+    form.addEventListener('change', (event) => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement && target.name === 'weight') {
+        if (extraSelect instanceof HTMLSelectElement) { extraSelect.value = ''; extraSelect.name = ''; extraSelect.required = false; }
+        paintTotal();
+      }
+    });
+    if (extraSelect instanceof HTMLSelectElement) {
+      extraSelect.addEventListener('change', () => {
+        const picked = Boolean(extraSelect.value);
+        form.querySelectorAll('input[name="weight"]').forEach((input) => {
+          if (input instanceof HTMLInputElement) input.checked = false;
+        });
+        extraSelect.name = picked ? 'weight' : '';
+        extraSelect.required = picked;
+        setRadioRequired(!picked);
+        paintTotal();
+      });
+    }
     dialog.addEventListener('click', (event) => {
       if (event.target === dialog || (event.target instanceof Element && event.target.closest('[data-order-close]'))) dialog.close();
     });

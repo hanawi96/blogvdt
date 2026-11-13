@@ -1,6 +1,6 @@
 import { cartSummary, type CartLine } from '../cart/cart';
 import { SLUG_PATTERN } from '../posts/slug';
-import { isValidWeight, requiresWeight, type WeightScale } from '../products/weight';
+import { applyWeightPrice, isValidWeight, requiresWeight, type WeightScale } from '../products/weight';
 import { DEFAULT_PAYMENT_METHOD, isPaymentMethod, paymentLabel, type PaymentMethod } from './payment';
 import { calendarRange } from '../../lib/datetime';
 import type { FieldErrors } from '../../lib/validation/errors';
@@ -227,13 +227,13 @@ export function parseOrderSubmission(
       note: customer.note,
       productId: product.id,
       productName: product.name,
-      unitPrice: product.price,
+      unitPrice: applyWeightPrice(product.price, weight),
       quantity,
       optionLabel: orderOptionLabel(weight),
-      subtotal: product.price * quantity,
+      subtotal: applyWeightPrice(product.price, weight) * quantity,
       discountCode: null,
       discountAmount: 0,
-      totalPrice: product.price * quantity,
+      totalPrice: applyWeightPrice(product.price, weight) * quantity,
       paymentMethod,
       landingSlug: readLandingSlug(input.landing ?? ''),
     },
@@ -272,13 +272,14 @@ export function parseCartOrder(
     if (requiresWeight(product.weightScale) && !line.weight) errors[`weight${index}`] = 'Chọn cân nặng cho bé.';
     if (!isValidWeight(product.weightScale, line.weight)) errors[`weight${index}`] = 'Cân nặng không hợp lệ.';
     if (errors[`quantity${index}`] || errors[`weight${index}`]) continue;
+    const unitPrice = applyWeightPrice(product.price, line.weight);
     built.push({
       productId: product.id,
       productName: product.name,
-      unitPrice: product.price,
+      unitPrice,
       quantity: line.quantity,
       optionLabel: orderOptionLabel(line.weight),
-      lineTotal: product.price * line.quantity,
+      lineTotal: unitPrice * line.quantity,
     });
   }
   if (Object.keys(errors).length > 0 || !customer.phone || built.length !== input.lines.length) {

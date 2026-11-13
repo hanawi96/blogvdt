@@ -14,13 +14,18 @@ const TIPTAP_DEPS = [
   '@tiptap/starter-kit',
   '@tiptap/static-renderer',
   '@tiptap/pm/state',
+  '@tiptap/pm/tables',
   '@tiptap/extension-image',
-  '@tiptap/extension-link',
   '@tiptap/extension-table',
   '@tiptap/extension-table/cell',
   '@tiptap/extension-table/header',
   '@tiptap/extension-table/row',
 ];
+
+// prosemirror-tables đăng ký CellSelection.jsonID('cell') ở cấp module. Nếu Vite tạo nhiều
+// bản (do pre-bundle từng subpath riêng), side-effect chạy 2 lần → "Duplicate use of selection
+// JSON ID cell". Ép mọi import @tiptap/pm và prosemirror dùng chung MỘT bản.
+const TIPTAP_DEDUPE = ['@tiptap/pm', 'prosemirror-tables', 'prosemirror-state', 'prosemirror-view', 'prosemirror-model'];
 
 // https://astro.build/config
 export default defineConfig({
@@ -34,6 +39,7 @@ export default defineConfig({
   integrations: [svelte()],
   vite: {
     plugins: [tailwindcss()],
+    resolve: { dedupe: TIPTAP_DEDUPE },
     // zod: exclude để tránh lỗi thiếu file sau khi Vite re-optimize.
     optimizeDeps: {
       exclude: ['zod'],

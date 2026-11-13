@@ -95,7 +95,7 @@ function current(href: string): boolean {
           </div>
           <div class="site-search-panel" data-site-search-panel hidden>
             <p class="site-search-status" data-site-search-status hidden></p>
-            <div data-site-search-groups></div>
+            <div class="site-search-groups" data-site-search-groups></div>
             <a class="site-search-all" data-site-search-all hidden href={routes.search}>Xem tất cả kết quả</a>
           </div>
         </div>
@@ -111,7 +111,10 @@ function current(href: string): boolean {
         aria-expanded="false"
         aria-label="Tìm kiếm"
       >
-        <span class="site-search-icon" aria-hidden="true"></span>
+        <svg class="site-search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="20" height="20" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"></circle>
+          <path d="m21 21-4.3-4.3"></path>
+        </svg>
       </button>
       <a
         href={routes.cart}
@@ -146,6 +149,7 @@ function current(href: string): boolean {
 </header>
 <script>
   import { CART_COOKIE, CART_MAX_AGE, addCartLine, cartCount, parseCart, serializeCart, type CartLine } from '../../features/cart/cart';
+  import { applyWeightPrice, weightSurchargeLabel } from '../../features/products/weight';
   import { routes } from '../../lib/routes';
 
   function readCookie(): CartLine[] {
@@ -287,12 +291,12 @@ function current(href: string): boolean {
   function setSearchOpen(open: boolean) {
     if (!(searchRoot instanceof HTMLElement) || !(searchToggle instanceof HTMLButtonElement)) return;
     const wide = wideQuery.matches;
-    searchRoot.hidden = wide ? false : !open;
-    header?.classList.toggle('is-search-open', open && !wide);
+    searchRoot.hidden = !open;
+    header?.classList.toggle('is-search-open', open);
     document.body.classList.toggle('site-search-lock', open && !wide);
-    searchToggle.setAttribute('aria-expanded', !wide && open ? 'true' : 'false');
-    searchToggle.setAttribute('aria-label', !wide && open ? 'Đóng tìm kiếm' : 'Tìm kiếm');
-    if (open && !wide) {
+    searchToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    searchToggle.setAttribute('aria-label', open ? 'Đóng tìm kiếm' : 'Tìm kiếm');
+    if (open) {
       setNavOpen(false);
       if (searchInput instanceof HTMLInputElement) {
         searchInput.focus();
@@ -306,7 +310,7 @@ function current(href: string): boolean {
       } else {
         renderRecent();
       }
-    } else if (!open && !wide) {
+    } else {
       clearSuggest();
       hideRecent();
       searchToggle.focus();
@@ -336,7 +340,68 @@ function current(href: string): boolean {
     if (searchAll instanceof HTMLAnchorElement) searchAll.hidden = true;
   }
 
-  function renderGroup(title: string, items: { label: string; href: string; meta?: string }[]) {
+  type SuggestItem = {
+    label: string;
+    href: string;
+    meta?: string;
+    imageUrl?: string | null;
+    imageAlt?: string;
+    kind: 'post' | 'product';
+  };
+
+  function renderThumb(item: SuggestItem): HTMLElement {
+    const wrap = document.createElement('span');
+    wrap.className = 'site-search-thumb';
+    wrap.setAttribute('aria-hidden', 'true');
+    if (item.imageUrl) {
+      const img = document.createElement('img');
+      img.src = item.imageUrl;
+      img.alt = '';
+      img.width = 40;
+      img.height = 40;
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      wrap.appendChild(img);
+      return wrap;
+    }
+    wrap.classList.add(item.kind === 'product' ? 'is-product' : 'is-post');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.6');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('width', '18');
+    svg.setAttribute('height', '18');
+    if (item.kind === 'product') {
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', '12');
+      circle.setAttribute('cy', '12');
+      circle.setAttribute('r', '7');
+      const bead = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      bead.setAttribute('cx', '12');
+      bead.setAttribute('cy', '5');
+      bead.setAttribute('r', '1.2');
+      bead.setAttribute('fill', 'currentColor');
+      bead.setAttribute('stroke', 'none');
+      svg.append(circle, bead);
+    } else {
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M7 4.5h7.2L19 9.3V19a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 19V6A1.5 1.5 0 0 1 7.5 4.5');
+      const fold = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      fold.setAttribute('d', 'M14 4.5V9h4.8');
+      const line1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      line1.setAttribute('d', 'M9 12.5h6');
+      const line2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      line2.setAttribute('d', 'M9 15.5h4');
+      svg.append(path, fold, line1, line2);
+    }
+    wrap.appendChild(svg);
+    return wrap;
+  }
+
+  function renderGroup(title: string, items: SuggestItem[]) {
     const section = document.createElement('section');
     section.className = 'site-search-group';
     const heading = document.createElement('h2');
@@ -345,17 +410,26 @@ function current(href: string): boolean {
     for (const item of items) {
       const li = document.createElement('li');
       const link = document.createElement('a');
+      link.className = `site-search-hit site-search-hit--${item.kind}`;
       link.href = item.href;
-      link.textContent = item.label;
+      link.appendChild(renderThumb(item));
+      const body = document.createElement('span');
+      body.className = 'site-search-hit-body';
+      const label = document.createElement('span');
+      label.className = 'site-search-hit-label';
+      label.textContent = item.label;
+      body.appendChild(label);
+      if (item.meta) {
+        const meta = document.createElement('span');
+        meta.className = 'site-search-hit-meta';
+        meta.textContent = item.meta;
+        body.appendChild(meta);
+      }
+      link.appendChild(body);
       link.addEventListener('click', () => {
         if (searchInput instanceof HTMLInputElement) rememberQuery(searchInput.value);
       });
       li.appendChild(link);
-      if (item.meta) {
-        const meta = document.createElement('span');
-        meta.textContent = item.meta;
-        li.appendChild(meta);
-      }
       list.appendChild(li);
     }
     section.appendChild(heading);
@@ -380,8 +454,8 @@ function current(href: string): boolean {
         return;
       }
       const data = (await res.json()) as {
-        posts?: { title: string; href: string }[];
-        products?: { name: string; href: string; price?: number }[];
+        posts?: { title: string; href: string; imageUrl?: string | null; imageAlt?: string }[];
+        products?: { name: string; href: string; price?: number; imageUrl?: string | null; imageAlt?: string }[];
       };
       if (seq !== searchSeq) return;
       const posts = data.posts ?? [];
@@ -399,9 +473,7 @@ function current(href: string): boolean {
       searchPanel.hidden = false;
       if (searchStatus instanceof HTMLElement) searchStatus.hidden = true;
       searchGroups.replaceChildren();
-      if (posts.length) {
-        searchGroups.appendChild(renderGroup('Bài viết', posts.map((post) => ({ label: post.title, href: post.href }))));
-      }
+      // Ưu tiên mẫu vòng trước để mẹ thấy sản phẩm ngay trong khung gợi ý hẹp.
       if (products.length) {
         searchGroups.appendChild(
           renderGroup(
@@ -410,6 +482,23 @@ function current(href: string): boolean {
               label: product.name,
               href: product.href,
               meta: typeof product.price === 'number' ? `${product.price.toLocaleString('vi-VN')}₫` : undefined,
+              imageUrl: product.imageUrl,
+              imageAlt: product.imageAlt,
+              kind: 'product' as const,
+            })),
+          ),
+        );
+      }
+      if (posts.length) {
+        searchGroups.appendChild(
+          renderGroup(
+            'Bài viết',
+            posts.map((post) => ({
+              label: post.title,
+              href: post.href,
+              imageUrl: post.imageUrl,
+              imageAlt: post.imageAlt,
+              kind: 'post' as const,
             })),
           ),
         );
@@ -429,6 +518,17 @@ function current(href: string): boolean {
     setSearchOpen(searchToggle.getAttribute('aria-expanded') !== 'true');
   });
   searchClose?.addEventListener('click', () => setSearchOpen(false));
+  // Desktop: bấm ra ngoài khung tìm kiếm thì đóng popover.
+  document.addEventListener('pointerdown', (event) => {
+    if (!(searchToggle instanceof HTMLButtonElement)) return;
+    if (searchToggle.getAttribute('aria-expanded') !== 'true') return;
+    if (!wideQuery.matches) return;
+    const target = event.target instanceof Node ? event.target : null;
+    if (!target) return;
+    if (searchRoot instanceof HTMLElement && searchRoot.contains(target)) return;
+    if (searchToggle.contains(target)) return;
+    setSearchOpen(false);
+  });
   recentClear?.addEventListener('click', () => {
     writeRecent([]);
     hideRecent();
@@ -464,25 +564,75 @@ function current(href: string): boolean {
       setSearchOpen(false);
     }
   });
-  wideQuery.addEventListener('change', (event) => {
-    if (event.matches) {
-      setNavOpen(false);
-      document.body.classList.remove('site-search-lock');
-      header?.classList.remove('is-search-open');
-      if (searchRoot instanceof HTMLElement) searchRoot.hidden = false;
-      if (searchToggle instanceof HTMLButtonElement) {
-        searchToggle.setAttribute('aria-expanded', 'false');
-        searchToggle.setAttribute('aria-label', 'Tìm kiếm');
-      }
-      return;
-    }
+  wideQuery.addEventListener('change', () => {
+    setNavOpen(false);
     setSearchOpen(false);
   });
-  if (wideQuery.matches) {
-    if (searchRoot instanceof HTMLElement) searchRoot.hidden = false;
-  }
 
   paint(readCookie());
+
+  // Cân nặng + phụ thu: nút "Cân nặng khác" mở dropdown 16–70kg; cập nhật giá hiển thị.
+  // Dùng chung cho mọi dialog thêm giỏ (catalog, trang chủ, trang sản phẩm).
+  const weightMoney = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
+  document.querySelectorAll('[data-weight-field][data-base-price]').forEach((field) => {
+    if (!(field instanceof HTMLElement)) return;
+    const form = field.closest('form');
+    if (!form) return;
+    const base = Number(field.dataset.basePrice) || 0;
+    const moreBtn = field.querySelector('[data-weight-more]');
+    const extraWrap = field.querySelector('[data-weight-extra]');
+    const extraSelect = field.querySelector('[data-weight-extra-select]');
+    const note = field.querySelector('[data-weight-note]');
+    const priceEl = form.querySelector('[data-add-price]');
+
+    const selectedWeight = (): string => {
+      const checked = form.querySelector('input[name="weight"]:checked');
+      if (checked instanceof HTMLInputElement) return checked.value;
+      if (extraSelect instanceof HTMLSelectElement && extraSelect.value) return extraSelect.value;
+      return '';
+    };
+    const sync = () => {
+      const weight = selectedWeight();
+      const unit = base > 0 ? applyWeightPrice(base, weight) : 0;
+      const surcharge = weightSurchargeLabel(weight, base);
+      if (priceEl instanceof HTMLElement && unit > 0) priceEl.textContent = weightMoney.format(unit);
+      if (note instanceof HTMLElement) {
+        note.hidden = !(surcharge && unit > 0);
+        note.textContent = surcharge && unit > 0 ? `Vòng lớn hơn, cộng ${surcharge} nguyên liệu → ${weightMoney.format(unit)}/chiếc` : '';
+      }
+    };
+    const setRadioRequired = (on: boolean) => {
+      const first = form.querySelector('input[name="weight"]');
+      if (first instanceof HTMLInputElement) first.required = on;
+    };
+    if (moreBtn instanceof HTMLButtonElement && extraWrap instanceof HTMLElement) {
+      moreBtn.addEventListener('click', () => {
+        const open = extraWrap.hidden;
+        extraWrap.hidden = !open;
+        moreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+    }
+    form.querySelectorAll('input[name="weight"]').forEach((input) => {
+      input.addEventListener('change', () => {
+        if (extraSelect instanceof HTMLSelectElement) { extraSelect.value = ''; extraSelect.name = ''; extraSelect.required = false; }
+        setRadioRequired(true);
+        sync();
+      });
+    });
+    if (extraSelect instanceof HTMLSelectElement) {
+      extraSelect.addEventListener('change', () => {
+        const picked = Boolean(extraSelect.value);
+        form.querySelectorAll('input[name="weight"]').forEach((input) => {
+          if (input instanceof HTMLInputElement) input.checked = false;
+        });
+        extraSelect.name = picked ? 'weight' : '';
+        extraSelect.required = picked;
+        setRadioRequired(!picked);
+        sync();
+      });
+    }
+    sync();
+  });
 
   // Delegation: form/dialog thêm giỏ trên catalog, trang chủ và thẻ load động đều dùng được.
   document.addEventListener('click', (event) => {
@@ -504,7 +654,10 @@ function current(href: string): boolean {
     }
     const open = target.closest('[data-add-open]');
     if (open) {
-      const dialog = open.closest('article')?.querySelector('dialog.add-dialog');
+      // Ưu tiên aria-controls (chính xác, dùng được cả khi nút không nằm trong <article>);
+      // fallback tìm trong <article> cho các thẻ catalog cũ.
+      const controls = open.getAttribute('aria-controls');
+      const dialog = (controls && document.getElementById(controls)) || open.closest('article')?.querySelector('dialog.add-dialog');
       if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
       return;
     }

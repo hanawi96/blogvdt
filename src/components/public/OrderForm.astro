@@ -1,7 +1,7 @@
 ---
 import AddressField from './AddressField.astro';
 import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
-import { weightOptions, type WeightScale } from '../../features/products/weight';
+import { requiresWeight, weightChips, weightExtras, weightOptionLabel, type WeightScale } from '../../features/products/weight';
 import DiscountCodeField from './DiscountCodeField.astro';
 import PaymentField from './PaymentField.astro';
 import { formatVnd } from '../../lib/money';
@@ -9,7 +9,7 @@ import { routes } from '../../lib/routes';
 import type { FieldErrors } from '../../lib/validation/errors';
 
 interface Props {
-  product: { slug: string; weightScale: WeightScale };
+  product: { slug: string; weightScale: WeightScale; price?: number };
   values?: {
     customerName: string;
     phone: string;
@@ -39,7 +39,11 @@ const {
   shipping = null,
   goodsTotal = 0,
 } = Astro.props;
-const weights = weightOptions(product.weightScale);
+const chips = weightChips(product.weightScale);
+const extras = weightExtras(product.weightScale);
+const hasWeight = requiresWeight(product.weightScale);
+// Khi khách quay lại với cân nặng đã chọn nằm ngoài chip (16kg+), mở sẵn dropdown.
+const extraSelected = extras.includes(values.weight);
 const goodsPayable = quote?.totalPrice ?? goodsTotal;
 const payable = goodsPayable + (shipping?.fee ?? 0);
 ---
@@ -47,42 +51,64 @@ const payable = goodsPayable + (shipping?.fee ?? 0);
 <form class="mt-6" method="post" action={routes.checkout} data-order-form>
   <input type="hidden" name="productSlug" value={product.slug} />
   {landing && <input type="hidden" name="landing" value={landing} />}
+  {typeof product.price === 'number' && (
+    <span hidden data-payable-amount={payable > 0 ? payable : product.price} data-unit-price={product.price}></span>
+  )}
   <div class="absolute -left-[9999px]" aria-hidden="true">
     <label for="company">Công ty</label>
     <input id="company" name="company" tabindex="-1" autocomplete="off" />
   </div>
   {
-    weights.length > 0 && (
-      <fieldset class="mt-4">
+    hasWeight && (
+      <fieldset class="mt-4" data-weight-field>
         <legend class="mb-1 font-semibold">Cân nặng của bé</legend>
         <div class="weight-grid mt-2" role="radiogroup">
-          {weights.map((weight, index) => (
+          {chips.map((weight, index) => (
             <label class="weight-chip">
               <input type="radio" name="weight" value={weight} required={index === 0} checked={values.weight === weight} />
               <span>{weight}</span>
             </label>
           ))}
+          <button type="button" class="weight-chip weight-chip-more" data-weight-more aria-expanded={extraSelected ? 'true' : 'false'} aria-label="Cân nặng khác">
+            <span aria-hidden="true">+</span>
+          </button>
         </div>
+        <div class="weight-extra mt-2" data-weight-extra hidden={!extraSelected}>
+          <label class="sr-only" for="weight-extra-select">Chọn cân nặng lớn hơn</label>
+          <select id="weight-extra-select" class="field" data-weight-extra-select>
+            <option value="">Chọn cân nặng (16kg – 70kg)</option>
+            {extras.map((weight) => (
+              <option value={weight} selected={values.weight === weight}>{weightOptionLabel(weight, product.price ?? 0)}</option>
+            ))}
+          </select>
+        </div>
+        <p class="weight-surcharge-note" data-weight-note hidden></p>
         {errors.weight && <span class="error-text">{errors.weight}</span>}
       </fieldset>
     )
   }
-  <label class="mt-4 block" for="quantity">
-    <span class="mb-1 block font-semibold">Số lượng</span>
-    <input id="quantity" class="field" name="quantity" type="number" min="1" max={ORDER_MAX_QUANTITY} required value={values.quantity} />
+  <div class="mt-4">
+    <label class="mb-1 block font-semibold" for="quantity">Số lượng</label>
+    <div class="qty-stepper-row" data-qty-stepper>
+      <button class="qty-stepper-btn" type="button" data-qty-dec aria-label="Giảm số lượng">−</button>
+      <input id="quantity" class="qty-stepper-input" name="quantity" type="number" inputmode="numeric" min="1" max={ORDER_MAX_QUANTITY} required value={values.quantity} data-qty-input aria-label="Số lượng" />
+      <button class="qty-stepper-btn" type="button" data-qty-inc aria-label="Tăng số lượng">+</button>
+    </div>
     {errors.quantity && <span class="error-text">{errors.quantity}</span>}
-  </label>
+  </div>
   <PaymentField value={values.paymentMethod} error={errors.paymentMethod} />
-  <label class="mt-4 block" for="customer-name">
-    <span class="mb-1 block font-semibold">Họ tên</span>
-    <input id="customer-name" class="field" name="customerName" required maxlength="80" autocomplete="name" value={values.customerName} />
-    {errors.customerName && <span class="error-text">{errors.customerName}</span>}
-  </label>
-  <label class="mt-4 block" for="phone">
-    <span class="mb-1 block font-semibold">Số điện thoại</span>
-    <input id="phone" class="field" name="phone" type="tel" required maxlength="20" autocomplete="tel" value={values.phone} />
-    {errors.phone && <span class="error-text">{errors.phone}</span>}
-  </label>
+  <div class="form-pair mt-4">
+    <label class="block" for="customer-name">
+      <span class="mb-1 block font-semibold">Họ tên</span>
+      <input id="customer-name" class="field" name="customerName" required maxlength="80" autocomplete="name" value={values.customerName} />
+      {errors.customerName && <span class="error-text">{errors.customerName}</span>}
+    </label>
+    <label class="block" for="phone">
+      <span class="mb-1 block font-semibold">Số điện thoại</span>
+      <input id="phone" class="field" name="phone" type="tel" required maxlength="20" autocomplete="tel" value={values.phone} />
+      {errors.phone && <span class="error-text">{errors.phone}</span>}
+    </label>
+  </div>
   <AddressField
     idPrefix="address"
     error={errors.address}
@@ -90,6 +116,7 @@ const payable = goodsPayable + (shipping?.fee ?? 0);
     provinceCode={values.provinceCode}
     wardCode={values.wardCode}
     line={values.addressLine}
+    paired
   />
   <label class="mt-4 block" for="note">
     <span class="mb-1 block font-semibold">Ghi chú</span>
@@ -124,7 +151,97 @@ const payable = goodsPayable + (shipping?.fee ?? 0);
   <button class="btn btn-primary mt-6 w-full" type="submit">Gửi đơn</button>
 </form>
 <script>
+  import { applyWeightPrice, weightSurchargeLabel } from '../../features/products/weight';
+
+  const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
+
   document.querySelectorAll('form[data-order-form]').forEach((form) => {
+    const amountEl = form.querySelector('[data-payable-amount][data-unit-price]');
+    const quantity = form.querySelector('#quantity');
+    const basePrice = amountEl instanceof HTMLElement ? Number(amountEl.dataset.unitPrice) || 0 : 0;
+
+    // ----- Cân nặng: nút "Cân nặng khác" + dropdown 16kg–70kg -----
+    const field = form.querySelector('[data-weight-field]');
+    const moreBtn = field?.querySelector('[data-weight-more]');
+    const extraWrap = field?.querySelector('[data-weight-extra]');
+    const extraSelect = field?.querySelector('[data-weight-extra-select]');
+    const note = field?.querySelector('[data-weight-note]');
+
+    const selectedWeight = (): string => {
+      const checked = form.querySelector('input[name="weight"]:checked');
+      if (checked instanceof HTMLInputElement) return checked.value;
+      if (extraSelect instanceof HTMLSelectElement && extraSelect.value) return extraSelect.value;
+      return '';
+    };
+
+    // Đồng bộ số tiền hiển thị, phụ thu và QR theo cân nặng + số lượng.
+    const sync = () => {
+      const weight = selectedWeight();
+      const unit = basePrice > 0 ? applyWeightPrice(basePrice, weight) : 0;
+      const surcharge = weightSurchargeLabel(weight, basePrice);
+      if (note instanceof HTMLElement) {
+        if (surcharge && unit > 0) {
+          note.hidden = false;
+          note.textContent = `Vòng lớn hơn, cộng ${surcharge} nguyên liệu → ${money.format(unit)}/chiếc`;
+        } else {
+          note.hidden = true;
+          note.textContent = '';
+        }
+      }
+      if (amountEl instanceof HTMLElement && quantity instanceof HTMLInputElement) {
+        const count = Number(quantity.value);
+        const amount = Number.isInteger(count) && count >= 1 ? unit * count : unit;
+        amountEl.dataset.payableAmount = String(amount > 0 ? amount : unit);
+      }
+    };
+
+    if (moreBtn instanceof HTMLButtonElement && extraWrap instanceof HTMLElement) {
+      const moreButton = moreBtn;
+      const extraBox = extraWrap;
+      moreButton.addEventListener('click', () => {
+        const open = extraBox.hidden;
+        extraBox.hidden = !open;
+        moreButton.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+      // Chọn chip cân nặng thường thì bỏ chọn dropdown lớn (và ngược lại) để chỉ một giá trị gửi đi.
+      form.querySelectorAll('input[name="weight"]').forEach((input) => {
+        input.addEventListener('change', () => {
+          if (extraSelect instanceof HTMLSelectElement) {
+            extraSelect.value = '';
+            extraSelect.name = '';
+            extraSelect.required = false;
+          }
+          sync();
+        });
+      });
+      const setRadioRequired = (on: boolean) => {
+        const first = form.querySelector('input[name="weight"]');
+        if (first instanceof HTMLInputElement) first.required = on;
+      };
+      if (extraSelect instanceof HTMLSelectElement) {
+        extraSelect.addEventListener('change', () => {
+          const picked = Boolean(extraSelect.value);
+          form.querySelectorAll('input[name="weight"]').forEach((input) => {
+            if (input instanceof HTMLInputElement) input.checked = false;
+          });
+          // Khi dùng dropdown, chính nó là trường cân nặng bắt buộc; radio thôi bắt buộc.
+          extraSelect.name = picked ? 'weight' : '';
+          extraSelect.required = picked;
+          setRadioRequired(!picked);
+          sync();
+        });
+        // Nếu quay lại với cân nặng lớn đã chọn, select đóng vai trò trường weight.
+        if (extraSelect.value) {
+          extraSelect.name = 'weight';
+          extraSelect.required = true;
+          setRadioRequired(false);
+        }
+      }
+    }
+
+    quantity?.addEventListener('input', sync);
+    sync();
+
     form.addEventListener('submit', (event) => {
       const button = event instanceof SubmitEvent ? event.submitter : null;
       if (!(button instanceof HTMLButtonElement) || button.value === 'apply') return;
