@@ -222,7 +222,10 @@ function readPage(value: string | null): number {
   return Number.isInteger(page) && page > 0 ? page : 1;
 }
 
-function toCard(row: {
+/** Lượt bán gộp đơn 1 mẫu + dòng đơn nhiều mẫu (bỏ đơn hủy). Dùng chung catalog / tìm kiếm. */
+export const productSoldCount = soldCount;
+
+export function toCatalogCard(row: {
   id: number;
   name: string;
   slug: string;
@@ -256,4 +259,8 @@ function toCard(row: {
     coverWidth: usingCard ? MEDIA_CARD_SIZE : row.coverWidth,
     coverHeight: usingCard ? MEDIA_CARD_SIZE : row.coverHeight,
   };
+}
+
+function toCard(row: Parameters<typeof toCatalogCard>[0]): CatalogCard {
+  return toCatalogCard(row);
 }

@@ -1,10 +1,18 @@
 ---
 import DataError from '../../components/public/DataError.astro';
+import HomeProductCard from '../../components/public/HomeProductCard.astro';
+import OrderDialog from '../../components/public/OrderDialog.astro';
+import Pagination from '../../components/public/Pagination.astro';
 import PostCard from '../../components/public/PostCard.astro';
-import ProductCard from '../../components/public/ProductCard.astro';
 import { applyCoverMeasure } from '../../features/media/media';
-import { normalizeSearchQuery, searchQueryReady } from '../../features/search/query';
-import { searchPublic } from '../../features/search/search';
+import {
+  normalizeSearchQuery,
+  readSearchKind,
+  readSearchPage,
+  searchPath,
+  searchQueryReady,
+} from '../../features/search/query';
+import { searchByKind, searchOverview } from '../../features/search/search';
 import { getPublicSite } from '../../features/settings/settings';
 import PublicLayout from '../../layouts/PublicLayout.astro';
 import { createDb } from '../../lib/db/client';
@@ -16,6 +24,8 @@ import { routes } from '../../lib/routes';
 const rawQ = Astro.url.searchParams.get('q');
 const q = normalizeSearchQuery(rawQ);
 const ready = searchQueryReady(q);
+const kind = readSearchKind(Astro.url.searchParams.get('loai'));
+const page = readSearchPage(Astro.url.searchParams.get('page'));
 const loaded = await loadSearch();
 if (!loaded.site || loaded.failed) {
   Astro.response.status = 503;
@@ -23,10 +33,22 @@ if (!loaded.site || loaded.failed) {
 }
 Astro.response.headers.set('Cache-Control', loaded.site && !loaded.failed ? FRESH_PAGE_CACHE : PRIVATE_PAGE_CACHE);
 
+const canonicalPath = !ready
+  ? routes.search
+  : kind
+    ? searchPath(q, { kind, page: loaded.page })
+    : searchPath(q);
+
 const pageMeta = !loaded.site
   ? unavailableMeta()
   : {
-      title: ready ? `Tìm “${q}”` : 'Tìm kiếm',
+      title: ready
+        ? kind === 'san-pham'
+          ? `Mẫu vòng cho “${q}”`
+          : kind === 'bai-viet'
+            ? `Bài viết cho “${q}”`
+            : `Tìm “${q}”`
+        : 'Tìm kiếm',
       description: ready
         ? `Kết quả tìm “${q}” trên ${loaded.site.siteName}: bài viết và mẫu vòng.`
         : `Tìm bài viết kiến thức và mẫu vòng dâu tằm trên ${loaded.site.siteName}.`,
@@ -34,29 +56,75 @@ const pageMeta = !loaded.site
 const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
   title: pageMeta.title,
   description: pageMeta.description,
-  path: ready ? `${routes.search}?q=${encodeURIComponent(q)}` : routes.search,
+  path: canonicalPath,
   siteName: loaded.site?.siteName,
   robots: 'noindex,follow',
 });
-const empty = ready && loaded.posts.length === 0 && loaded.products.length === 0;
+const empty = ready && loaded.postTotal === 0 && loaded.productTotal === 0;
+const showProducts = loaded.products.length > 0;
+const showPosts = loaded.posts.length > 0;
+const moreProducts = !kind && loaded.productTotal > loaded.products.length;
+const morePosts = !kind && loaded.postTotal > loaded.posts.length;
 
 async function loadSearch() {
+  const emptyState = {
+    site: null as Awaited<ReturnType<typeof getPublicSite>>,
+    failed: false,
+    posts: [] as Awaited<ReturnType<typeof searchOverview>>['posts'],
+    products: [] as Awaited<ReturnType<typeof searchOverview>>['products'],
+    postTotal: 0,
+    productTotal: 0,
+    page: 1,
+    pageCount: 1,
+  };
   try {
     const db = createDb(getDbBinding());
     const site = await getPublicSite(db);
-    if (!site) return { site: null, failed: false, posts: [], products: [] };
-    if (!ready) return { site, failed: false, posts: [], products: [] };
-    const found = await searchPublic(db, q);
+    if (!site) return emptyState;
+    if (!ready) return { ...emptyState, site };
     const bucket = optionalMediaBucket();
+    if (kind) {
+      const found = await searchByKind(db, q, kind, page);
+      const [posts, products] = await Promise.all([
+        applyCoverMeasure(bucket, found.posts),
+        applyCoverMeasure(bucket, found.products),
+      ]);
+      return {
+        site,
+        failed: false,
+        posts,
+        products,
+        postTotal: kind === 'bai-viet' ? found.total : 0,
+        productTotal: kind === 'san-pham' ? found.total : 0,
+        page: found.page,
+        pageCount: found.pageCount,
+      };
+    }
+    const found = await searchOverview(db, q);
     const [posts, products] = await Promise.all([
       applyCoverMeasure(bucket, found.posts),
       applyCoverMeasure(bucket, found.products),
     ]);
-    return { site, failed: false, posts, products };
+    return {
+      site,
+      failed: false,
+      posts,
+      products,
+      postTotal: found.postTotal,
+      productTotal: found.productTotal,
+      page: 1,
+      pageCount: 1,
+    };
   } catch (error) {
     console.error(JSON.stringify({ event: 'search_public_failed', name: error instanceof Error ? error.name : 'unknown' }));
-    return { site: null, failed: true, posts: [], products: [] };
+    return { ...emptyState, failed: true };
   }
+}
+
+function countLabel(total: number, one: string, many: string): string {
+  if (total === 0) return `0 ${many}`;
+  if (total === 1) return `1 ${one}`;
+  return `${total} ${many}`;
 }
 ---
 
@@ -74,17 +142,21 @@ async function loadSearch() {
     ) : (
       <main class="search-page">
         <header class="search-page-head">
-          <p class="search-page-kicker">Tìm kiếm</p>
           <h1 class="search-page-title">
-            {ready ? 'Kết quả cho' : 'Mẹ đang tìm'}
-            <span class="search-page-term">{ready ? `“${q}”` : 'điều gì?'}</span>
+            {ready ? 'Tìm' : 'Tìm kiếm'}
+            {ready && <span class="search-page-term">“{q}”</span>}
           </h1>
-          <p class="search-page-rule" aria-hidden="true"><span>♥</span></p>
-
+          {
+            kind && ready && (
+              <p class="search-page-back">
+                <a href={searchPath(q)}>← Tất cả kết quả</a>
+              </p>
+            )
+          }
           <form class="search-page-form" action={routes.search} method="get" role="search">
             <label class="sr-only" for="search-page-q">Từ khóa</label>
             <span class="search-page-field">
-              <svg class="search-page-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <svg class="search-page-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="11" cy="11" r="7" />
                 <path d="m21 21-4.3-4.3" />
               </svg>
@@ -100,9 +172,7 @@ async function loadSearch() {
                 enterkeyhint="search"
               />
             </span>
-            <button class="search-page-submit" type="submit">
-              <span>Tìm</span>
-            </button>
+            <button class="search-page-submit" type="submit">Tìm</button>
           </form>
         </header>
 
@@ -126,38 +196,77 @@ async function loadSearch() {
           ) : (
             <div class="search-page-results">
               {
-                loaded.products.length > 0 && (
+                showProducts && (
                   <section class="search-page-section" aria-labelledby="search-products">
                     <div class="search-page-section-head">
                       <h2 id="search-products">Mẫu vòng</h2>
-                      <span class="search-page-count">{loaded.products.length} mẫu</span>
+                      <span class="search-page-count">{countLabel(loaded.productTotal, 'mẫu', 'mẫu')}</span>
                     </div>
-                    <ul class="search-page-grid search-page-products">
-                      {loaded.products.map((product) => (
-                        <li><ProductCard product={product} /></li>
+                    <ul class="home-shop-grid search-page-products">
+                      {loaded.products.map((product, index) => (
+                        <li>
+                          <HomeProductCard product={product} eager={index < 2} />
+                        </li>
                       ))}
                     </ul>
+                    {
+                      moreProducts && (
+                        <p class="search-page-more">
+                          <a class="btn btn-soft" href={searchPath(q, { kind: 'san-pham' })}>
+                            Xem thêm mẫu vòng
+                          </a>
+                        </p>
+                      )
+                    }
+                    {
+                      kind === 'san-pham' && (
+                        <Pagination
+                          page={loaded.page}
+                          pageCount={loaded.pageCount}
+                          hrefFor={(next) => searchPath(q, { kind: 'san-pham', page: next })}
+                        />
+                      )
+                    }
                   </section>
                 )
               }
               {
-                loaded.posts.length > 0 && (
+                showPosts && (
                   <section class="search-page-section" aria-labelledby="search-posts">
                     <div class="search-page-section-head">
                       <h2 id="search-posts">Bài viết</h2>
-                      <span class="search-page-count">{loaded.posts.length} bài</span>
+                      <span class="search-page-count">{countLabel(loaded.postTotal, 'bài', 'bài')}</span>
                     </div>
                     <ul class="search-page-grid search-page-posts">
                       {loaded.posts.map((post) => (
                         <li><PostCard post={post} level="h3" /></li>
                       ))}
                     </ul>
+                    {
+                      morePosts && (
+                        <p class="search-page-more">
+                          <a class="btn btn-soft" href={searchPath(q, { kind: 'bai-viet' })}>
+                            Xem thêm bài viết
+                          </a>
+                        </p>
+                      )
+                    }
+                    {
+                      kind === 'bai-viet' && (
+                        <Pagination
+                          page={loaded.page}
+                          pageCount={loaded.pageCount}
+                          hrefFor={(next) => searchPath(q, { kind: 'bai-viet', page: next })}
+                        />
+                      )
+                    }
                   </section>
                 )
               }
             </div>
           )
         }
+        {showProducts && <OrderDialog />}
       </main>
     )
   }

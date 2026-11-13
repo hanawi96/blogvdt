@@ -1,6 +1,5 @@
 export const routes = {
   home: '/',
-  contact: '#lien-he',
   admin: '/admin',
   adminLogin: '/admin/login',
   adminLogout: '/admin/logout',

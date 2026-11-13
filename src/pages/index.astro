@@ -659,7 +659,7 @@ async function loadHome(query: CatalogQuery) {
           </div>
           <div class="home-faq">
             {FAQ_ITEMS.map((item) => (
-              <details class="home-faq-item">
+              <details class="home-faq-item" name="home-faq">
                 <summary>{item.q}</summary>
                 <p>{item.a}</p>
               </details>
