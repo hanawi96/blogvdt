@@ -1,0 +1,112 @@
+---
+import '../styles/global.css';
+import { routes } from '../lib/routes';
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+const session = Astro.locals.adminSession;
+---
+
+<!doctype html>
+<html lang="vi" data-pos-lookup-url={routes.adminOrderLookup}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>{title}</title>
+  </head>
+  <body class="pos-body min-h-screen bg-canvas font-sans text-ink antialiased">
+    <header class="pos-top" data-pos-top>
+      <div class="pos-top-brand">
+        <strong>Tạo đơn nhanh</strong>
+        <span class="pos-top-user">{session?.displayName?.trim() || 'Nhân viên'}</span>
+      </div>
+      <a class="pos-top-link" href={routes.adminOrders} target="_blank" rel="noreferrer">Danh sách đơn</a>
+    </header>
+    <main class="pos-main" id="noi-dung">
+      <slot />
+    </main>
+    <script is:inline>
+      // Trong iframe extension: ẩn header trang (đã có thanh Tải lại / Thu bên ngoài).
+      try {
+        if (window.top !== window) {
+          document.documentElement.classList.add('pos-embedded');
+          const topBar = document.querySelector('[data-pos-top]');
+          if (topBar instanceof HTMLElement) topBar.hidden = true;
+        }
+      } catch {
+        document.documentElement.classList.add('pos-embedded');
+        const topBar = document.querySelector('[data-pos-top]');
+        if (topBar instanceof HTMLElement) topBar.hidden = true;
+      }
+    </script>
+    <script>
+      const LOOKUP_URL = document.documentElement.dataset.posLookupUrl || '/admin/orders/lookup';
+
+      function reply(target: WindowProxy | MessageEventSource | null, payload: Record<string, unknown>) {
+        if (!target || !('postMessage' in target)) return;
+        target.postMessage({ source: 'vdt-pos', ...payload }, { targetOrigin: '*' });
+      }
+
+      function fillPhone(phone: string) {
+        const form = document.querySelector('form.staff-order-pos');
+        if (!(form instanceof HTMLFormElement)) return;
+        const lookup = form.querySelector('[data-lookup-phone]');
+        const run = form.querySelector('[data-lookup-run]');
+        if (lookup instanceof HTMLInputElement) {
+          lookup.value = phone;
+          if (run instanceof HTMLButtonElement) run.click();
+        }
+      }
+
+      async function lookupPhone(phone: string) {
+        const response = await fetch(`${LOOKUP_URL}?phone=${encodeURIComponent(phone)}`, {
+          headers: { accept: 'application/json' },
+          credentials: 'same-origin',
+        });
+        return response.json();
+      }
+
+      window.addEventListener('message', (event) => {
+        const data = event.data;
+        if (!data || data.source !== 'vdt-ext') return;
+        if (data.type === 'vdt-ping') {
+          reply(event.source, { type: 'vdt-pos-ready' });
+          return;
+        }
+        if (data.type === 'vdt-lookup-phone' && typeof data.phone === 'string' && typeof data.requestId === 'string') {
+          const requestId = data.requestId;
+          const phone = data.phone;
+          void lookupPhone(phone)
+            .then((result) => {
+              reply(event.source, { type: 'vdt-lookup-result', requestId, result });
+              if (result?.ok && result.found) fillPhone(phone);
+            })
+            .catch(() => {
+              reply(event.source, {
+                type: 'vdt-lookup-result',
+                requestId,
+                result: { ok: false, error: 'Không tra được khách.' },
+              });
+            });
+          return;
+        }
+        if (data.type === 'vdt-fill-phone' && typeof data.phone === 'string') {
+          fillPhone(data.phone);
+        }
+      });
+
+      try {
+        if (window.parent && window.parent !== window) {
+          reply(window.parent, { type: 'vdt-pos-ready' });
+        }
+      } catch {
+        /* ignore */
+      }
+    </script>
+  </body>
+</html>

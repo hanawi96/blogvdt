@@ -2,12 +2,12 @@
 import AddressField from '../public/AddressField.astro';
 import OrderLineEditor from './OrderLineEditor.astro';
 import StaffOrderMeta from './StaffOrderMeta.astro';
+import StaffProductPicker from './StaffProductPicker.astro';
 import type { StaffDiscountChoice } from '../../features/discounts/discounts';
-import { STAFF_MAX_LINES, type StaffFlagForm, type StaffLineInput, type StoredOrderLine } from '../../features/orders/staff';
+import type { StaffFlagForm, StaffLineInput, StoredOrderLine } from '../../features/orders/staff';
 import type { OrderCostKind } from '../../features/costs/order-costs';
 import type { StaffPickerCategory, StaffPickerProduct } from '../../features/products/public';
-import { requiresWeight, weightOptions, type WeightScale } from '../../features/products/weight';
-import { formatVnd } from '../../lib/money';
+import type { WeightScale } from '../../features/products/weight';
 import type { FieldErrors } from '../../lib/validation/errors';
 
 interface Props {
@@ -37,6 +37,9 @@ interface Props {
   discountChoices: StaffDiscountChoice[];
   shippingCosts: ReadonlyArray<{ name: string; kind: OrderCostKind; value: number }>;
   defaultShippingFee: string;
+  /** Layout hẹp + tra SĐT + chip bán chạy (Chrome extension / POS). */
+  pos?: boolean;
+  lookupUrl?: string;
 }
 
 const {
@@ -55,28 +58,40 @@ const {
   discountChoices,
   shippingCosts,
   defaultShippingFee,
+  pos = false,
+  lookupUrl = '',
 } = Astro.props;
 
-const uncategorized = pickerProducts.some((product) => product.categoryId == null);
-const weightPresets = weightOptions('baby').filter((label) => label.endsWith('kg'));
 ---
 
-<form class="staff-order" method="post" data-busy autocomplete="off">
+<form class:list={['staff-order', pos && 'staff-order-pos']} method="post" data-busy autocomplete="off" data-pos={pos ? '1' : undefined} data-lookup-url={pos ? lookupUrl : undefined}>
   <input type="hidden" name="csrf" value={csrfToken} />
   <section class="od-card staff-order-customer">
     <h2>Khách hàng</h2>
+    {
+      pos && (
+        <div class="pos-lookup" data-pos-lookup>
+          <label class="pos-lookup-field">
+            <span class="sr-only">Dán SĐT tra đơn</span>
+            <input class="field" type="search" inputmode="tel" maxlength="20" placeholder="Dán SĐT tra đơn..." data-lookup-phone autocomplete="off" />
+          </label>
+          <button class="btn" type="button" data-lookup-run>Tra</button>
+          <p class="pos-lookup-result od-note" data-lookup-result hidden></p>
+        </div>
+      )
+    }
     <div class="form-pair">
       <div>
         <label class="block">
           <span class="od-label">Họ tên</span>
-          <input class="field" name="customerName" required maxlength="80" autocomplete="name" value={values.customerName} />
+          <input class="field" name="customerName" required maxlength="80" autocomplete="name" value={values.customerName} data-customer-name />
         </label>
         {errors.customerName && <p class="error-text mt-2">{errors.customerName}</p>}
       </div>
       <div>
         <label class="block">
           <span class="od-label">Số điện thoại</span>
-          <input class="field" type="tel" name="phone" required maxlength="20" inputmode="tel" autocomplete="tel" value={values.phone} />
+          <input class="field" type="tel" name="phone" required maxlength="20" inputmode="tel" autocomplete="tel" value={values.phone} data-customer-phone />
         </label>
         {errors.phone && <p class="error-text mt-2">{errors.phone}</p>}
       </div>
@@ -90,17 +105,25 @@ const weightPresets = weightOptions('baby').filter((label) => label.endsWith('kg
       line={values.addressLine}
       paired
     />
-    <div class="mt-4">
-      <StaffOrderMeta value={flagForm} error={flagError} shippingCosts={shippingCosts} defaultShipFee={defaultShippingFee} />
-    </div>
-    <label class="mt-4 block">
-      <span class="od-label">Ghi chú của khách</span>
-      <input class="field" name="note" maxlength="500" placeholder="Ví dụ: đặt qua Zalo" value={values.note} />
-    </label>
-    {errors.note && <p class="error-text mt-2">{errors.note}</p>}
+    {
+      !pos && (
+        <>
+          <div class="mt-4">
+            <StaffOrderMeta value={flagForm} error={flagError} shippingCosts={shippingCosts} defaultShipFee={defaultShippingFee} />
+          </div>
+          <label class="mt-4 block">
+            <span class="od-label">Ghi chú của khách</span>
+            <input class="field" name="note" maxlength="500" placeholder="Ví dụ: đặt qua Zalo" value={values.note} />
+          </label>
+          {errors.note && <p class="error-text mt-2">{errors.note}</p>}
+        </>
+      )
+    }
   </section>
 
   <div class="staff-order-side">
+    {pos && <StaffProductPicker pickerProducts={pickerProducts} pickerCategories={pickerCategories} pos />}
+
     <section class="od-card staff-order-cart">
       {
         pickerProducts.length === 0 && editorLines.length === 0 ? (
@@ -132,99 +155,21 @@ const weightPresets = weightOptions('baby').filter((label) => label.endsWith('kg
       <button class="btn btn-primary w-full" type="submit">{submitLabel}</button>
     </div>
 
-    <aside class="od-card staff-picker">
-      <h2>Danh sách sản phẩm</h2>
-      {
-        pickerProducts.length === 0 ? (
-          <p class="od-note">Chưa có sản phẩm đang bán.</p>
-        ) : (
-          <>
-            <label class="staff-pick-search">
-              <span class="sr-only">Tìm sản phẩm</span>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-              <input class="field" type="search" placeholder="Tìm sản phẩm" aria-label="Tìm sản phẩm" data-pick-query />
-            </label>
-            <div class="category-presets mt-3" data-pick-filters>
-              <button class="category-preset" type="button" data-category="" aria-pressed="true"><span>Tất cả</span></button>
-              {pickerCategories.map((category) => (
-                <button class="category-preset" type="button" data-category={category.id} aria-pressed="false"><span>{category.name}</span></button>
-              ))}
-              {uncategorized && <button class="category-preset" type="button" data-category="none" aria-pressed="false"><span>Khác</span></button>}
-            </div>
-            <ul class="staff-pick-list" data-pick-list>
-              {pickerProducts.map((product) => (
-                <li
-                  class="staff-pick"
-                  data-pick
-                  data-category={product.categoryId ?? 'none'}
-                  data-name={product.name}
-                  data-id={product.id}
-                  data-price={product.price}
-                  data-weigh={requiresWeight(product.weightScale) ? '1' : '0'}
-                >
-                  <button class="staff-pick-toggle" type="button" data-pick-toggle aria-pressed="false">
-                    {product.coverUrl ? (
-                      <img class="staff-pick-photo" src={product.coverUrl} alt="" width="52" height="52" loading="lazy" decoding="async" />
-                    ) : (
-                      <span class="staff-pick-photo" aria-hidden="true"></span>
-                    )}
-                    <span class="staff-pick-copy">
-                      <span class="staff-pick-name">{product.name}</span>
-                      <span class="staff-pick-meta">
-                        {product.categoryName || 'Khác'} · {formatVnd(product.price)} · Đã bán {product.sold}
-                      </span>
-                    </span>
-                  </button>
-                  <div class="staff-pick-panel" data-pick-panel hidden>
-                    {requiresWeight(product.weightScale) && (
-                      <>
-                        <div class="staff-pick-weights" data-weights>
-                          {weightPresets.map((label) => (
-                            <button class="category-preset" type="button" data-weight-choice={label} aria-pressed="false"><span>{label}</span></button>
-                          ))}
-                          <div class="staff-pick-add-slot" data-weight-add-slot>
-                            <button class="category-preset staff-pick-add-weight" type="button" data-weight-add><span>Thêm cân</span></button>
-                            <label class="staff-pick-weight-edit" data-weight-custom hidden>
-                              <span class="sr-only">Cân nặng tùy chỉnh</span>
-                              <input type="text" maxlength="40" placeholder="16kg" data-weight-custom-input />
-                              <button class="staff-pick-custom-close" type="button" data-weight-custom-close aria-label="Đóng thêm cân">
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
-                              </button>
-                            </label>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                    <div class="staff-pick-compose">
-                      <div class="staff-qty">
-                        <span class="od-label">Số lượng</span>
-                        <div class="staff-qty-stepper" data-qty-stepper>
-                          <button class="staff-qty-btn" type="button" data-qty-dec aria-label="Giảm số lượng">
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
-                          </button>
-                          <input class="field staff-qty-input" type="number" min="1" max="20" value="1" inputmode="numeric" data-pick-qty aria-label="Số lượng" />
-                          <button class="staff-qty-btn" type="button" data-qty-inc aria-label="Tăng số lượng">
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-                          </button>
-                        </div>
-                      </div>
-                      <label class="staff-pick-note">
-                        <span class="od-label">Lưu ý</span>
-                        <input class="field" type="text" maxlength="160" placeholder="Không bắt buộc" data-pick-note />
-                      </label>
-                      <button class="btn btn-primary" type="button" data-pick-add disabled>Thêm vào đơn</button>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-            <p class="od-note mt-3" data-pick-empty hidden>Không có sản phẩm khớp.</p>
-            <p class="od-note" data-pick-limit hidden>Một đơn tối đa {STAFF_MAX_LINES} mẫu.</p>
-          </>
-        )
-      }
-    </aside>
+    {!pos && <StaffProductPicker pickerProducts={pickerProducts} pickerCategories={pickerCategories} />}
   </div>
+
+  {
+    pos && (
+      <section class="od-card staff-order-extra">
+        <StaffOrderMeta value={flagForm} error={flagError} shippingCosts={shippingCosts} defaultShipFee={defaultShippingFee} />
+        <label class="mt-4 block">
+          <span class="od-label">Ghi chú của khách</span>
+          <input class="field" name="note" maxlength="500" placeholder="Ví dụ: đặt qua Zalo" value={values.note} />
+        </label>
+        {errors.note && <p class="error-text mt-2">{errors.note}</p>}
+      </section>
+    )
+  }
 </form>
 
 <script>
@@ -240,8 +185,11 @@ const weightPresets = weightOptions('baby').filter((label) => label.endsWith('kg
     }));
     const empty = root.querySelector('[data-pick-empty]');
     const limit = root.querySelector('[data-pick-limit]');
+    const form = root.closest('form');
+    const posMode = form instanceof HTMLFormElement && form.dataset.pos === '1';
     const ALL_TOP = 20;
-    let category = '';
+    const HOT_TOP = 10;
+    let category = posMode ? 'hot' : '';
     let text = '';
 
     function fold(value: string) {
@@ -380,11 +328,15 @@ const weightPresets = weightOptions('baby').filter((label) => label.endsWith('kg
 
     function apply() {
       const needle = fold(text.trim());
+      const hotOnly = category === 'hot' && needle === '';
       const topOnly = category === '' && needle === '';
+      const allCats = category === '' || category === 'all' || category === 'hot';
       let shown = 0;
       for (const item of list) {
-        const match = (category === '' || item.category === category) && (needle === '' || item.name.includes(needle));
-        const visible = match && (!topOnly || shown < ALL_TOP);
+        const match = (allCats || item.category === category) && (needle === '' || item.name.includes(needle));
+        let visible = match;
+        if (visible && hotOnly) visible = shown < HOT_TOP;
+        if (visible && topOnly) visible = shown < ALL_TOP;
         item.row.hidden = !visible;
         if (visible) shown += 1;
         else if (item.row.dataset.selected === '1') collapse(item.row);
@@ -465,3 +417,96 @@ const weightPresets = weightOptions('baby').filter((label) => label.endsWith('kg
     apply();
   }
 </script>
+
+{
+  pos && (
+    <script>
+      const form = document.querySelector('form.staff-order-pos');
+      if (form instanceof HTMLFormElement) {
+        const lookupUrl = form.dataset.lookupUrl ?? '';
+        const phoneInput = form.querySelector('[data-lookup-phone]');
+        const run = form.querySelector('[data-lookup-run]');
+        const result = form.querySelector('[data-lookup-result]');
+        const customerName = form.querySelector('[data-customer-name]');
+        const customerPhone = form.querySelector('[data-customer-phone]');
+        const addressRoot = form.querySelector('[data-address]');
+
+        function money(amount: number) {
+          return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(amount);
+        }
+
+        function dayLabel(timestamp: number) {
+          return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(timestamp));
+        }
+
+        async function lookup() {
+          if (!(phoneInput instanceof HTMLInputElement) || !(result instanceof HTMLElement)) return;
+          const phone = phoneInput.value.trim();
+          if (!phone) {
+            result.hidden = false;
+            result.textContent = 'Dán hoặc nhập số điện thoại để tra.';
+            return;
+          }
+          result.hidden = false;
+          result.textContent = 'Đang tra…';
+          try {
+            const response = await fetch(`${lookupUrl}?phone=${encodeURIComponent(phone)}`, {
+              headers: { accept: 'application/json' },
+              credentials: 'same-origin',
+            });
+            const data = (await response.json()) as {
+              ok: boolean;
+              found?: boolean;
+              error?: string;
+              customer?: {
+                phone: string;
+                customerName: string;
+                address: string;
+                orderCount: number;
+                recent: {
+                  code: string;
+                  fulfillLabel: string;
+                  statusLabel: string;
+                  totalPrice: number;
+                  productName: string;
+                  createdAt: number;
+                } | null;
+              };
+            };
+            if (!response.ok || !data.ok) {
+              result.textContent = data.error || 'Không tra được khách.';
+              return;
+            }
+            if (!data.found || !data.customer) {
+              result.textContent = 'Chưa có đơn với số này.';
+              if (customerPhone instanceof HTMLInputElement) customerPhone.value = phone.replace(/\D/g, '') || phone;
+              return;
+            }
+            const customer = data.customer;
+            if (customerName instanceof HTMLInputElement) customerName.value = customer.customerName;
+            if (customerPhone instanceof HTMLInputElement) customerPhone.value = customer.phone;
+            if (addressRoot instanceof HTMLElement) {
+              addressRoot.dispatchEvent(new CustomEvent('pos-set-address', { detail: { address: customer.address } }));
+            }
+            const recent = customer.recent;
+            result.textContent = recent
+              ? `${recent.fulfillLabel || recent.statusLabel} · ${recent.code} · ${dayLabel(recent.createdAt)} · ${money(recent.totalPrice)} · ${customer.orderCount} đơn · ${recent.productName}`
+              : `Đã điền từ ${customer.orderCount} đơn trước.`;
+          } catch {
+            result.textContent = 'Không tra được khách.';
+          }
+        }
+
+        if (run instanceof HTMLButtonElement) run.addEventListener('click', () => void lookup());
+        if (phoneInput instanceof HTMLInputElement) {
+          phoneInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              void lookup();
+            }
+          });
+        }
+      }
+    </script>
+  )
+}

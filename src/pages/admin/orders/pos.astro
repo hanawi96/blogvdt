@@ -1,0 +1,230 @@
+---
+import StaffOrderForm from '../../../components/admin/StaffOrderForm.astro';
+import PosLayout from '../../../layouts/PosLayout.astro';
+import addressSelect from '../../../../public/data/address-select.json';
+import { matchComposedAddress, type AddressSelectRow } from '../../../features/address/parse';
+import { mutationError } from '../../../features/auth/session';
+import { listStaffDiscountChoices } from '../../../features/discounts/discounts';
+import { createStaffOrder, getOrder } from '../../../features/orders/orders';
+import {
+  orderLineSources,
+  parseStaffCustomer,
+  priceStaffLines,
+  readStaffFlags,
+  readStaffLineInputs,
+  staffFlagForm,
+  type StaffFlagForm,
+  type StaffLineInput,
+} from '../../../features/orders/staff';
+import { isShippingOrderCost, listOrderCosts } from '../../../features/costs/order-costs';
+import { baseCustomerShippingFee, qualifiesFreeShip, shipGroupOf } from '../../../features/shipping/customer-fee';
+import { listStaffPickerProducts, listStaffProductChoices } from '../../../features/products/public';
+import { createDb } from '../../../lib/db/client';
+import { getDbBinding } from '../../../lib/cloudflare/env';
+import { groupDigits } from '../../../lib/group-digits';
+import { formatVnd } from '../../../lib/money';
+import { routes } from '../../../lib/routes';
+import type { FieldErrors } from '../../../lib/validation/errors';
+
+export const prerender = false;
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+
+const db = createDb(getDbBinding());
+const picker = await listStaffPickerProducts(db);
+const products = picker.products;
+
+const fromId = Number(Astro.url.searchParams.get('from') ?? '');
+const sourceOrder = Number.isInteger(fromId) && fromId > 0 ? await getOrder(db, fromId) : null;
+const clonedLines = sourceOrder ? orderLineSources(sourceOrder) : [];
+const keepIds = clonedLines.flatMap((line) => (line.productId ? [line.productId] : []));
+const keptChoices = keepIds.length > 0 ? await listStaffProductChoices(db, keepIds) : [];
+const pickerIds = new Set(products.map((product) => product.id));
+const editorChoices = [...products, ...keptChoices.filter((choice) => !pickerIds.has(choice.id))];
+
+const discountChoices = await listStaffDiscountChoices(db);
+const shippingCosts = (await listOrderCosts(db)).filter((cost) => cost.active && isShippingOrderCost(cost.name));
+const defaultShippingFeeAmount = baseCustomerShippingFee(shippingCosts);
+const defaultShippingFee = defaultShippingFeeAmount > 0 ? groupDigits(String(defaultShippingFeeAmount), 8) : '';
+let formError = '';
+let lineError = '';
+let flagError = '';
+let errors: FieldErrors = {};
+let postedLines: StaffLineInput[] | null = null;
+let savedNotice: { id: number; code: string; total: string } | null = null;
+
+const savedId = Number(Astro.url.searchParams.get('saved') ?? '');
+if (Number.isInteger(savedId) && savedId > 0 && Astro.request.method === 'GET') {
+  const saved = await getOrder(db, savedId);
+  if (saved) savedNotice = { id: saved.id, code: saved.code, total: formatVnd(saved.totalPrice) };
+}
+
+const clonedAddress = sourceOrder ? matchComposedAddress(addressSelect as unknown as AddressSelectRow[], sourceOrder.address) : null;
+const values = {
+  customerName: sourceOrder?.customerName ?? '',
+  phone: sourceOrder?.phone ?? '',
+  address: sourceOrder?.address ?? '',
+  note: sourceOrder?.note ?? '',
+  provinceCode: clonedAddress?.provinceCode ?? '',
+  wardCode: clonedAddress?.wardCode ?? '',
+  addressLine: clonedAddress?.line ?? '',
+  orderTotal: '',
+  discountCode: '',
+  discountExtra: '',
+};
+const flagForm: StaffFlagForm = sourceOrder
+  ? {
+      ...staffFlagForm(sourceOrder),
+      payState: 'cod',
+      depositAmount: '',
+      priority: false,
+      compensation: false,
+      shipLater: false,
+      shipOn: '',
+      shippingFee: defaultShippingFee,
+      freeShip: false,
+    }
+  : {
+      payState: 'cod',
+      source: '',
+      priority: false,
+      compensation: false,
+      shipLater: false,
+      shipOn: '',
+      shippingFee: defaultShippingFee,
+      freeShip: false,
+      depositAmount: '',
+    };
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const blocked = mutationError(Astro.request, session, form);
+  const read = (name: string) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value : '';
+  };
+  values.customerName = read('customerName');
+  values.phone = read('phone');
+  values.address = read('address');
+  values.note = read('note');
+  values.provinceCode = read('provinceCode');
+  values.wardCode = read('wardCode');
+  values.addressLine = read('addressLine');
+  values.orderTotal = read('orderTotal');
+  values.discountCode = read('discountCode');
+  values.discountExtra = read('discountExtra');
+  flagForm.payState = read('payState') || 'cod';
+  flagForm.source = read('source');
+  flagForm.priority = read('priority') === 'on';
+  flagForm.compensation = read('compensation') === 'on';
+  flagForm.shipLater = read('shipLater') === 'on';
+  flagForm.shipOn = read('shipOn');
+  flagForm.shippingFee = read('shippingFee');
+  flagForm.freeShip = read('freeShip') === 'on';
+  flagForm.depositAmount = read('depositAmount');
+  postedLines = readStaffLineInputs(form);
+  const flags = readStaffFlags({
+    ...flagForm,
+    priority: flagForm.priority ? 'on' : '',
+    compensation: flagForm.compensation ? 'on' : '',
+    shipLater: flagForm.shipLater ? 'on' : '',
+    freeShip: flagForm.freeShip ? 'on' : '',
+    depositAmount: flagForm.depositAmount,
+  });
+  if (blocked) {
+    Astro.response.status = 403;
+    formError = blocked;
+  } else {
+    if (!flags.ok) flagError = flags.error;
+    const customer = parseStaffCustomer({ ...values, paymentMethod: flags.ok ? flags.flags.paymentMethod : 'cod' });
+    const priced = postedLines ? priceStaffLines(postedLines, editorChoices, []) : null;
+    if (!customer.ok) errors = customer.errors;
+    if (!priced || !priced.ok) {
+      lineError =
+        !postedLines && form.getAll('lineSlot').length === 0
+          ? 'Thêm ít nhất một sản phẩm.'
+          : priced && !priced.ok
+            ? priced.error
+            : 'Dòng sản phẩm không hợp lệ.';
+    }
+    let staffFlags = flags.ok ? flags.flags : null;
+    if (priced?.ok && staffFlags) {
+      const freeShip = qualifiesFreeShip(
+        priced.lines.map((line) => ({
+          group: shipGroupOf(products.find((product) => product.id === line.productId)?.categorySlug),
+          lineTotal: line.lineTotal,
+        })),
+      );
+      if (freeShip) {
+        staffFlags = { ...staffFlags, shippingFee: 0 };
+        flagForm.freeShip = true;
+        flagForm.shippingFee = '';
+      }
+    }
+    if (customer.ok && priced && priced.ok && staffFlags) {
+      const created = await createStaffOrder(
+        db,
+        {
+          ...customer.value,
+          lines: priced.lines,
+          discountCode: values.discountCode.trim() ? values.discountCode : null,
+          orderTotal: values.orderTotal,
+          discountExtra: values.discountExtra,
+          flags: staffFlags,
+        },
+        session.userId,
+      );
+      if (!created.ok) {
+        Astro.response.status = 422;
+        formError = created.error;
+      } else {
+        return Astro.redirect(`${routes.adminOrderPos}?saved=${created.id}`, 303);
+      }
+    } else {
+      Astro.response.status = 422;
+    }
+  }
+}
+
+const editorLines: StaffLineInput[] =
+  postedLines ??
+  clonedLines.map((line, index) => ({
+    slot: `clone-${index}`,
+    productId: line.productId ? String(line.productId) : '',
+    name: line.productName,
+    weight: line.optionLabel ?? '',
+    quantity: String(line.quantity),
+    note: line.note ?? '',
+  }));
+---
+
+<PosLayout title="Tạo đơn nhanh">
+  {
+    savedNotice && (
+      <p class="pos-saved" role="status">
+        Đã tạo đơn <a href={routes.adminOrder(savedNotice.id)} target="_blank" rel="noreferrer">{savedNotice.code}</a>
+        · {savedNotice.total}. Tiếp tục đơn mới bên dưới.
+      </p>
+    )
+  }
+  {formError && <p class="error-text mb-3" role="alert">{formError}</p>}
+  <StaffOrderForm
+    csrfToken={session.csrfToken}
+    submitLabel="Tạo đơn hàng"
+    values={values}
+    flagForm={flagForm}
+    flagError={flagError}
+    errors={errors}
+    lineError={lineError}
+    editorLines={editorLines}
+    editorChoices={editorChoices}
+    pickerProducts={products}
+    pickerCategories={picker.categories}
+    discountChoices={discountChoices}
+    shippingCosts={shippingCosts}
+    defaultShippingFee={defaultShippingFee}
+    pos
+    lookupUrl={routes.adminOrderLookup}
+  />
+</PosLayout>

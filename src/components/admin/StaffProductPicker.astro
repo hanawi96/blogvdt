@@ -1,0 +1,108 @@
+---
+import { STAFF_MAX_LINES } from '../../features/orders/staff';
+import type { StaffPickerCategory, StaffPickerProduct } from '../../features/products/public';
+import { requiresWeight, weightOptions } from '../../features/products/weight';
+import { formatVnd } from '../../lib/money';
+
+interface Props {
+  pickerProducts: StaffPickerProduct[];
+  pickerCategories: StaffPickerCategory[];
+  pos?: boolean;
+}
+
+const { pickerProducts, pickerCategories, pos = false } = Astro.props;
+const uncategorized = pickerProducts.some((product) => product.categoryId == null);
+const weightPresets = weightOptions('baby').filter((label) => label.endsWith('kg'));
+---
+
+<aside class="od-card staff-picker">
+  <h2>Danh sách sản phẩm</h2>
+  {
+    pickerProducts.length === 0 ? (
+      <p class="od-note">Chưa có sản phẩm đang bán.</p>
+    ) : (
+      <>
+        <label class="staff-pick-search">
+          <span class="sr-only">Tìm sản phẩm</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+          <input class="field" type="search" placeholder="Tìm sản phẩm" aria-label="Tìm sản phẩm" data-pick-query />
+        </label>
+        <div class="category-presets mt-3" data-pick-filters>
+          {pos && <button class="category-preset" type="button" data-category="hot" aria-pressed="true"><span>Bán chạy</span></button>}
+          <button class="category-preset" type="button" data-category={pos ? 'all' : ''} aria-pressed={!pos}><span>Tất cả</span></button>
+          {pickerCategories.map((category) => (
+            <button class="category-preset" type="button" data-category={category.id} aria-pressed="false"><span>{category.name}</span></button>
+          ))}
+          {uncategorized && <button class="category-preset" type="button" data-category="none" aria-pressed="false"><span>Khác</span></button>}
+        </div>
+        <ul class="staff-pick-list" data-pick-list>
+          {pickerProducts.map((product) => (
+            <li
+              class="staff-pick"
+              data-pick
+              data-category={product.categoryId ?? 'none'}
+              data-name={product.name}
+              data-id={product.id}
+              data-price={product.price}
+              data-weigh={requiresWeight(product.weightScale) ? '1' : '0'}
+            >
+              <button class="staff-pick-toggle" type="button" data-pick-toggle aria-pressed="false">
+                {product.coverUrl ? (
+                  <img class="staff-pick-photo" src={product.coverUrl} alt="" width="52" height="52" loading="lazy" decoding="async" />
+                ) : (
+                  <span class="staff-pick-photo" aria-hidden="true"></span>
+                )}
+                <span class="staff-pick-copy">
+                  <span class="staff-pick-name">{product.name}</span>
+                  <span class="staff-pick-meta">
+                    {product.categoryName || 'Khác'} · {formatVnd(product.price)} · Đã bán {product.sold}
+                  </span>
+                </span>
+              </button>
+              <div class="staff-pick-panel" data-pick-panel hidden>
+                {requiresWeight(product.weightScale) && (
+                  <div class="staff-pick-weights" data-weights>
+                    {weightPresets.map((label) => (
+                      <button class="category-preset" type="button" data-weight-choice={label} aria-pressed="false"><span>{label}</span></button>
+                    ))}
+                    <div class="staff-pick-add-slot" data-weight-add-slot>
+                      <button class="category-preset staff-pick-add-weight" type="button" data-weight-add><span>Thêm cân</span></button>
+                      <label class="staff-pick-weight-edit" data-weight-custom hidden>
+                        <span class="sr-only">Cân nặng tùy chỉnh</span>
+                        <input type="text" maxlength="40" placeholder="16kg" data-weight-custom-input />
+                        <button class="staff-pick-custom-close" type="button" data-weight-custom-close aria-label="Đóng thêm cân">
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                        </button>
+                      </label>
+                    </div>
+                  </div>
+                )}
+                <div class="staff-pick-compose">
+                  <div class="staff-qty">
+                    <span class="od-label">Số lượng</span>
+                    <div class="staff-qty-stepper" data-qty-stepper>
+                      <button class="staff-qty-btn" type="button" data-qty-dec aria-label="Giảm số lượng">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+                      </button>
+                      <input class="field staff-qty-input" type="number" min="1" max="20" value="1" inputmode="numeric" data-pick-qty aria-label="Số lượng" />
+                      <button class="staff-qty-btn" type="button" data-qty-inc aria-label="Tăng số lượng">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                      </button>
+                    </div>
+                  </div>
+                  <label class="staff-pick-note">
+                    <span class="od-label">Lưu ý</span>
+                    <input class="field" type="text" maxlength="160" placeholder="Không bắt buộc" data-pick-note />
+                  </label>
+                  <button class="btn btn-primary" type="button" data-pick-add disabled>Thêm vào đơn</button>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <p class="od-note mt-3" data-pick-empty hidden>Không có sản phẩm khớp.</p>
+        <p class="od-note" data-pick-limit hidden>Một đơn tối đa {STAFF_MAX_LINES} mẫu.</p>
+      </>
+    )
+  }
+</aside>

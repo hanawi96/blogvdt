@@ -12,7 +12,9 @@ export function sessionCookieOptions(secure: boolean) {
   return {
     httpOnly: true,
     secure,
-    sameSite: 'lax' as const,
+    // HTTPS: None để Chrome extension (Side Panel iframe) dùng được session.
+    // CSRF vẫn chặn qua Origin + token form. HTTP local giữ Lax.
+    sameSite: (secure ? 'none' : 'lax') as 'none' | 'lax',
     path: '/',
     maxAge: SESSION_MS / 1000,
   };

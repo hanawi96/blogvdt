@@ -1,0 +1,106 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #f6f3ee;
+  color: #1f2937;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid #e5e0d8;
+  background: #fffaf4;
+}
+
+.bar strong {
+  font-size: 0.9rem;
+}
+
+.bar button,
+.settings-actions button {
+  border: 1px solid #d6cfc4;
+  border-radius: 0.45rem;
+  background: #fff;
+  color: #1f2937;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 650;
+  padding: 0.35rem 0.55rem;
+  cursor: pointer;
+}
+
+.bar button:hover,
+.settings-actions button:hover {
+  background: #f3efe8;
+}
+
+.settings {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border-bottom: 1px solid #e5e0d8;
+  background: #fff;
+}
+
+.settings label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.settings input {
+  width: 100%;
+  border: 1px solid #d6cfc4;
+  border-radius: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.hint,
+.status {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.status:not(:empty) {
+  color: #0f766e;
+}
+
+#pos-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: #fff;
+}

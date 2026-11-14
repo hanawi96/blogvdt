@@ -8,6 +8,7 @@
   "exclude": [
     "dist",
     "e2e",
+    "chrome-extension",
     "playwright.config.ts",
     "vitest.config.ts"
   ]

@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "Vòng Dâu Tằm — Tạo đơn",
+  "description": "Sidebar tạo đơn nổi trên Pancake và Zalo.",
+  "version": "1.3.0",
+  "permissions": ["sidePanel", "storage", "windows", "tabs", "cookies"],
+  "host_permissions": [
+    "https://pancake.vn/*",
+    "https://*.pancake.vn/*",
+    "https://chat.zalo.me/*",
+    "https://*.yendev96.workers.dev/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "Bật/tắt tạo đơn",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://pancake.vn/*",
+        "https://*.pancake.vn/*",
+        "https://chat.zalo.me/*"
+      ],
+      "js": ["content.js"],
+      "css": ["overlay.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["sidepanel.html", "sidepanel.js", "icons/*"],
+      "matches": [
+        "https://pancake.vn/*",
+        "https://*.pancake.vn/*",
+        "https://chat.zalo.me/*"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

@@ -1,8 +1,10 @@
-import { asc, desc, inArray, like, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, like, ne, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { orders } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { normalizePhone } from './order';
 import { orderSearchTerm } from './orders';
+import { FULFILL_STATUS_LABELS, fulfillStatusOf, orderStatusLabel } from './status';
 
 const PAGE_SIZE = 20;
 export const CUSTOMER_SORTS = [
@@ -94,5 +96,75 @@ export async function listCustomers(db: AppDb, filters: { query: string; sort: C
     libraryTotal: libraryRows[0]?.value ?? 0,
     page,
     pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+  };
+}
+
+export type CustomerPhoneLookup = {
+  phone: string;
+  customerName: string;
+  address: string;
+  /** Tỉnh/TP suy từ phần cuối địa chỉ ghép (hiển thị badge extension). */
+  provinceLabel: string;
+  orderCount: number;
+  recent: {
+    id: number;
+    code: string;
+    statusLabel: string;
+    fulfillLabel: string;
+    totalPrice: number;
+    productName: string;
+    optionLabel: string | null;
+    createdAt: number;
+  } | null;
+};
+
+/** Tra khách theo SĐT cho POS / extension: đơn gần nhất + số đơn chưa hủy. */
+export async function lookupCustomerByPhone(db: AppDb, rawPhone: string): Promise<CustomerPhoneLookup | null> {
+  const phone = normalizePhone(rawPhone) ?? (/^\d{8,11}$/.test(rawPhone.replace(/\D/g, '')) ? rawPhone.replace(/\D/g, '') : null);
+  if (!phone) return null;
+  const recentRows = await db
+    .select({
+      id: orders.id,
+      code: orders.code,
+      customerName: orders.customerName,
+      phone: orders.phone,
+      address: orders.address,
+      status: orders.status,
+      fulfillStatus: orders.fulfillStatus,
+      totalPrice: orders.totalPrice,
+      productName: orders.productName,
+      optionLabel: orders.optionLabel,
+      createdAt: orders.createdAt,
+    })
+    .from(orders)
+    .where(eq(orders.phone, phone))
+    .orderBy(desc(orders.createdAt), desc(orders.id))
+    .limit(1);
+  const recent = recentRows[0];
+  if (!recent) return null;
+  const countRows = await db
+    .select({ value: sql<number>`count(*)` })
+    .from(orders)
+    .where(and(eq(orders.phone, phone), ne(orders.status, 'cancelled')));
+  const fulfill = fulfillStatusOf(recent);
+  const fulfillLabel = fulfill ? FULFILL_STATUS_LABELS[fulfill] : orderStatusLabel(recent.status);
+  const parts = recent.address.split(',').map((part) => part.trim()).filter(Boolean);
+  const provinceLabel = parts.length > 0 ? parts[parts.length - 1]! : '';
+  return {
+    phone: recent.phone,
+    customerName: recent.customerName,
+    address: recent.address,
+    provinceLabel,
+    orderCount: Number(countRows[0]?.value ?? 0),
+    recent: {
+      id: recent.id,
+      code: recent.code,
+      statusLabel: orderStatusLabel(recent.status),
+      fulfillLabel,
+      totalPrice: recent.totalPrice,
+      productName: recent.productName,
+      optionLabel: recent.optionLabel,
+      createdAt: recent.createdAt,
+    },
   };
 }

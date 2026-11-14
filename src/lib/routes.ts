@@ -18,6 +18,8 @@ export const routes = {
   adminOrdersPanel: '/admin/orders/panel',
   adminOrdersExports: '/admin/orders/exports',
   adminOrderNew: '/admin/orders/new',
+  adminOrderPos: '/admin/orders/pos',
+  adminOrderLookup: '/admin/orders/lookup',
   adminInvoices: '/admin/invoices',
   adminInvoicesExport: '/admin/invoices/export',
   adminCustomers: '/admin/customers',

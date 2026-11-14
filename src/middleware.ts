@@ -25,7 +25,12 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   const open = pathname === routes.adminLogin || pathname === routes.adminActivate;
   const session = context.locals.adminSession;
-  if (!session && !open) return finish(context, privateResponse(context.redirect(routes.adminLogin)));
+  if (!session && !open) {
+    const login = new URL(routes.adminLogin, context.url.origin);
+    const next = `${pathname}${context.url.search}`;
+    if (next !== routes.adminLogin && next.startsWith('/admin')) login.searchParams.set('next', next);
+    return finish(context, privateResponse(context.redirect(`${login.pathname}${login.search}`)));
+  }
   if (session && !open && !canAccessPath(session.role, pathname)) {
     return finish(
       context,

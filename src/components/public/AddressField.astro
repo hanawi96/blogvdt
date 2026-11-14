@@ -24,19 +24,66 @@ const {
 
 <div class:list={['address-fields', compact ? 'mt-3 text-sm' : 'mt-4']} data-address data-province={provinceCode} data-ward={wardCode}>
   <p class="mb-1 font-semibold">Địa chỉ nhận hàng</p>
-  <div class:list={[paired && 'form-pair mt-2']}>
-    <label class:list={[paired ? 'block' : 'mt-2 block']} for={`${idPrefix}-province`}>
-      <span class="mb-1 block">Tỉnh, thành phố</span>
-      <select id={`${idPrefix}-province`} class="field" data-province-select>
+  <div class:list={[paired && 'form-pair', 'mt-2']}>
+    <div class="block min-w-0">
+      <span class="mb-1 block" id={`${idPrefix}-province-label`}>Tỉnh / TP</span>
+      <div class="address-combo" data-combo="province">
+        <button
+          class="address-combo-trigger field"
+          type="button"
+          data-combo-trigger
+          aria-haspopup="listbox"
+          aria-expanded="false"
+          aria-labelledby={`${idPrefix}-province-label`}
+        >
+          <span class="address-combo-pin" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 21s7-5.3 7-11a7 7 0 1 0-14 0c0 5.7 7 11 7 11Z" /><circle cx="12" cy="10" r="2.5" /></svg>
+          </span>
+          <span class="address-combo-value" data-combo-value>Chọn tỉnh/TP</span>
+          <span class="address-combo-caret" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
+          </span>
+        </button>
+        <div class="address-combo-panel" data-combo-panel hidden>
+          <input class="address-combo-query" type="search" placeholder="Tìm tỉnh/thành phố..." autocomplete="off" data-combo-query />
+          <p class="address-combo-head">Tỉnh / Thành phố</p>
+          <ul class="address-combo-list" data-combo-list role="listbox"></ul>
+        </div>
+      </div>
+      <select id={`${idPrefix}-province`} class="address-native-select" data-province-select tabindex="-1" aria-hidden="true">
         <option value="">Đang tải danh sách...</option>
       </select>
-    </label>
-    <label class:list={[paired ? 'block' : 'mt-3 block']} for={`${idPrefix}-ward`}>
-      <span class="mb-1 block">Phường, xã</span>
-      <select id={`${idPrefix}-ward`} class="field" data-ward-select disabled>
+    </div>
+    <div class:list={[paired ? 'block min-w-0' : 'mt-3 block min-w-0']}>
+      <span class="mb-1 block" id={`${idPrefix}-ward-label`}>Phường, xã</span>
+      <div class="address-combo" data-combo="ward">
+        <button
+          class="address-combo-trigger field"
+          type="button"
+          data-combo-trigger
+          aria-haspopup="listbox"
+          aria-expanded="false"
+          aria-labelledby={`${idPrefix}-ward-label`}
+          disabled
+        >
+          <span class="address-combo-pin" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 21s7-5.3 7-11a7 7 0 1 0-14 0c0 5.7 7 11 7 11Z" /><circle cx="12" cy="10" r="2.5" /></svg>
+          </span>
+          <span class="address-combo-value" data-combo-value>Chọn tỉnh trước</span>
+          <span class="address-combo-caret" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
+          </span>
+        </button>
+        <div class="address-combo-panel" data-combo-panel hidden>
+          <input class="address-combo-query" type="search" placeholder="Tìm phường, xã..." autocomplete="off" data-combo-query />
+          <p class="address-combo-head">Phường / Xã</p>
+          <ul class="address-combo-list" data-combo-list role="listbox"></ul>
+        </div>
+      </div>
+      <select id={`${idPrefix}-ward`} class="address-native-select" data-ward-select tabindex="-1" aria-hidden="true" disabled>
         <option value="">Chọn tỉnh trước</option>
       </select>
-    </label>
+    </div>
   </div>
   <label class="mt-3 block" for={`${idPrefix}-line`}>
     <span class="mb-1 block">Số nhà, đường</span>
@@ -59,6 +106,7 @@ const {
   import { matchComposedAddress } from '../../features/address/parse';
 
   type AddressRow = [string, string, [string, string][]];
+  type ComboKind = 'province' | 'ward';
 
   let rowsPromise: Promise<AddressRow[]> | null = null;
 
@@ -92,17 +140,52 @@ const {
     select.replaceChildren(fragment);
   }
 
-  document.querySelectorAll('[data-address]').forEach((root) => {
-    if (!(root instanceof HTMLElement)) return;
+  function fold(value: string): string {
+    return value
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/\p{M}/gu, '')
+      .replace(/đ/g, 'd')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  document.querySelectorAll('[data-address]').forEach((node) => {
+    if (!(node instanceof HTMLElement)) return;
+    const root = node;
     const form = root.closest('form');
-    const province = root.querySelector('[data-province-select]');
-    const ward = root.querySelector('[data-ward-select]');
-    const line = root.querySelector('[data-line]');
-    const address = root.querySelector('[data-address-value]');
-    const provinceValue = root.querySelector('[data-province-value]');
-    const wardValue = root.querySelector('[data-ward-value]');
-    const status = root.querySelector('[data-address-status]');
-    if (!(form instanceof HTMLFormElement) || !(province instanceof HTMLSelectElement) || !(ward instanceof HTMLSelectElement) || !(line instanceof HTMLInputElement) || !(address instanceof HTMLInputElement) || !(provinceValue instanceof HTMLInputElement) || !(wardValue instanceof HTMLInputElement) || !(status instanceof HTMLElement)) return;
+    const provinceEl = root.querySelector('[data-province-select]');
+    const wardEl = root.querySelector('[data-ward-select]');
+    const lineEl = root.querySelector('[data-line]');
+    const addressEl = root.querySelector('[data-address-value]');
+    const provinceValueEl = root.querySelector('[data-province-value]');
+    const wardValueEl = root.querySelector('[data-ward-value]');
+    const statusEl = root.querySelector('[data-address-status]');
+    if (
+      !(form instanceof HTMLFormElement) ||
+      !(provinceEl instanceof HTMLSelectElement) ||
+      !(wardEl instanceof HTMLSelectElement) ||
+      !(lineEl instanceof HTMLInputElement) ||
+      !(addressEl instanceof HTMLInputElement) ||
+      !(provinceValueEl instanceof HTMLInputElement) ||
+      !(wardValueEl instanceof HTMLInputElement) ||
+      !(statusEl instanceof HTMLElement)
+    ) {
+      return;
+    }
+
+    const province = provinceEl;
+    const ward = wardEl;
+    const line = lineEl;
+    const address = addressEl;
+    const provinceValue = provinceValueEl;
+    const wardValue = wardValueEl;
+    const status = statusEl;
+    const provinceComboEl = root.querySelector('[data-combo="province"]');
+    const wardComboEl = root.querySelector('[data-combo="ward"]');
+    if (!(provinceComboEl instanceof HTMLElement) || !(wardComboEl instanceof HTMLElement)) return;
+    const provinceCombo = provinceComboEl;
+    const wardCombo = wardComboEl;
 
     let rows: AddressRow[] = [];
     let ready = false;
@@ -130,36 +213,176 @@ const {
       address.value = composed;
     };
 
-    const showWards = () => {
+    function comboParts(combo: HTMLElement) {
+      return {
+        trigger: combo.querySelector('[data-combo-trigger]'),
+        value: combo.querySelector('[data-combo-value]'),
+        panel: combo.querySelector('[data-combo-panel]'),
+        query: combo.querySelector('[data-combo-query]'),
+        list: combo.querySelector('[data-combo-list]'),
+      };
+    }
+
+    function setTriggerLabel(combo: HTMLElement, label: string, empty: boolean) {
+      const { value, trigger } = comboParts(combo);
+      if (value instanceof HTMLElement) {
+        value.textContent = label;
+        value.classList.toggle('is-placeholder', empty);
+      }
+      if (trigger instanceof HTMLButtonElement) trigger.classList.toggle('is-empty', empty);
+    }
+
+    function closeCombo(combo: HTMLElement) {
+      const { trigger, panel, query } = comboParts(combo);
+      if (panel instanceof HTMLElement) panel.hidden = true;
+      if (trigger instanceof HTMLButtonElement) trigger.setAttribute('aria-expanded', 'false');
+      combo.classList.remove('is-open');
+      if (query instanceof HTMLInputElement) query.value = '';
+    }
+
+    function closeAll(except?: HTMLElement) {
+      if (provinceCombo !== except) closeCombo(provinceCombo);
+      if (wardCombo !== except) closeCombo(wardCombo);
+    }
+
+    function entriesFor(kind: ComboKind): Array<readonly [string, string]> {
+      if (kind === 'province') return rows.map((row) => [row[0], row[1]] as const);
+      const match = rows.find((row) => row[0] === province.value);
+      return match?.[2] ?? [];
+    }
+
+    function renderComboList(combo: HTMLElement, kind: ComboKind, needleRaw: string) {
+      const { list } = comboParts(combo);
+      if (!(list instanceof HTMLElement)) return;
+      const needle = fold(needleRaw);
+      const tokens = needle.split(' ').filter(Boolean);
+      const selected = kind === 'province' ? province.value : ward.value;
+      const fragment = document.createDocumentFragment();
+      let shown = 0;
+      for (const [code, name] of entriesFor(kind)) {
+        if (tokens.length > 0 && !tokens.every((token) => fold(name).includes(token))) continue;
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'address-combo-option';
+        item.setAttribute('role', 'option');
+        item.dataset.code = code;
+        item.setAttribute('aria-selected', String(code === selected));
+        item.textContent = name;
+        item.addEventListener('mousedown', (event) => {
+          event.preventDefault();
+          pick(kind, code, name);
+        });
+        fragment.append(item);
+        shown += 1;
+        if (shown >= 80) break;
+      }
+      if (shown === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'address-combo-empty';
+        empty.textContent = 'Không có kết quả khớp.';
+        list.replaceChildren(empty);
+        return;
+      }
+      list.replaceChildren(fragment);
+    }
+
+    function openCombo(combo: HTMLElement, kind: ComboKind) {
+      const { trigger, panel, query } = comboParts(combo);
+      if (trigger instanceof HTMLButtonElement && trigger.disabled) return;
+      closeAll(combo);
+      if (panel instanceof HTMLElement) panel.hidden = false;
+      if (trigger instanceof HTMLButtonElement) trigger.setAttribute('aria-expanded', 'true');
+      combo.classList.add('is-open');
+      renderComboList(combo, kind, '');
+      requestAnimationFrame(() => {
+        if (query instanceof HTMLInputElement) {
+          query.value = '';
+          query.focus();
+          query.select();
+        }
+      });
+    }
+
+    function syncComboLabels() {
+      const provinceName = province.value ? (province.selectedOptions[0]?.textContent ?? 'Chọn tỉnh/TP') : 'Chọn tỉnh/TP';
+      setTriggerLabel(provinceCombo, provinceName, !province.value);
+      if (!province.value) {
+        setTriggerLabel(wardCombo, 'Chọn tỉnh trước', true);
+        const wardTrigger = wardCombo.querySelector('[data-combo-trigger]');
+        if (wardTrigger instanceof HTMLButtonElement) wardTrigger.disabled = true;
+        return;
+      }
+      const wardTrigger = wardCombo.querySelector('[data-combo-trigger]');
+      if (wardTrigger instanceof HTMLButtonElement) wardTrigger.disabled = false;
+      const wardName = ward.value ? (ward.selectedOptions[0]?.textContent ?? 'Chọn phường, xã') : 'Chọn phường, xã';
+      setTriggerLabel(wardCombo, wardName, !ward.value);
+    }
+
+    function showWards() {
       const match = rows.find((row) => row[0] === province.value);
       fill(ward, province.value ? 'Chọn phường, xã' : 'Chọn tỉnh trước', match?.[2] ?? [], wardValue.value);
       ward.disabled = !province.value;
       if (ward.value !== wardValue.value) wardValue.value = ward.value;
+      syncComboLabels();
       write();
-    };
+    }
 
-    const openSelect = (select: HTMLSelectElement) => {
-      if (select.disabled) return;
-      select.focus({ preventScroll: false });
-      const picker = select as HTMLSelectElement & { showPicker?: () => void };
-      if (typeof picker.showPicker !== 'function') return;
-      try {
-        picker.showPicker();
-      } catch {
-        // Một số trình duyệt chỉ mở picker trong cử chỉ người dùng; focus vẫn đủ để chọn tiếp.
+    function pick(kind: ComboKind, code: string, name: string) {
+      if (kind === 'province') {
+        fill(province, 'Chọn tỉnh, thành phố', rows.map((row) => [row[0], row[1]] as const), code);
+        provinceValue.value = code;
+        wardValue.value = '';
+        showWards();
+        closeCombo(provinceCombo);
+        requestAnimationFrame(() => openCombo(wardCombo, 'ward'));
+        return;
       }
-    };
-
-    province.addEventListener('change', () => {
-      wardValue.value = '';
-      showWards();
-      if (!province.value) return;
-      requestAnimationFrame(() => openSelect(ward));
-    });
-    ward.addEventListener('change', () => {
+      ward.value = code;
+      wardValue.value = code;
+      // Bảo đảm option tồn tại (đã fill trong showWards).
+      if (ward.selectedOptions[0]?.value !== code) {
+        const match = rows.find((row) => row[0] === province.value);
+        fill(ward, 'Chọn phường, xã', match?.[2] ?? [], code);
+      }
+      setTriggerLabel(wardCombo, name, false);
+      closeCombo(wardCombo);
       write();
+      line.focus();
+    }
+
+    function bindCombo(combo: HTMLElement, kind: ComboKind) {
+      const { trigger, query, panel } = comboParts(combo);
+      trigger?.addEventListener('click', () => {
+        if (!(panel instanceof HTMLElement)) return;
+        if (panel.hidden) openCombo(combo, kind);
+        else closeCombo(combo);
+      });
+      query?.addEventListener('input', () => {
+        if (query instanceof HTMLInputElement) renderComboList(combo, kind, query.value);
+      });
+      if (query instanceof HTMLInputElement) {
+        query.addEventListener('keydown', (event: KeyboardEvent) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            closeCombo(combo);
+            if (trigger instanceof HTMLButtonElement) trigger.focus();
+          }
+        });
+      }
+    }
+
+    bindCombo(provinceCombo, 'province');
+    bindCombo(wardCombo, 'ward');
+
+    document.addEventListener('mousedown', (event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (root.contains(target) && (provinceCombo.contains(target) || wardCombo.contains(target))) return;
+      closeAll();
     });
+
     line.addEventListener('input', write);
+
     form.addEventListener(
       'submit',
       (event) => {
@@ -181,26 +404,55 @@ const {
       true,
     );
 
+    function applyComposed(text: string) {
+      address.value = text.trim();
+      const matched = matchComposedAddress(rows, address.value);
+      if (matched) {
+        root.dataset.province = matched.provinceCode;
+        root.dataset.ward = matched.wardCode;
+        wardValue.value = matched.wardCode;
+        line.value = matched.line;
+        fill(province, 'Chọn tỉnh, thành phố', rows.map((row) => [row[0], row[1]] as const), matched.provinceCode);
+        provinceValue.value = province.value;
+        showWards();
+        write();
+        return true;
+      }
+      line.value = address.value;
+      write();
+      return false;
+    }
+
+    root.addEventListener('pos-set-address', ((event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const text = typeof event.detail?.address === 'string' ? event.detail.address : '';
+      if (!ready) {
+        address.value = text;
+        return;
+      }
+      applyComposed(text);
+    }) as EventListener);
+
     loadRows()
       .then((loaded) => {
         rows = loaded;
         ready = true;
         province.required = true;
         ward.required = true;
-        let provinceCode = root.dataset.province ?? '';
-        let wardCode = root.dataset.ward ?? '';
-        if ((!provinceCode || !wardCode || !line.value.trim()) && address.value.trim()) {
+        let nextProvince = root.dataset.province ?? '';
+        let nextWard = root.dataset.ward ?? '';
+        if ((!nextProvince || !nextWard || !line.value.trim()) && address.value.trim()) {
           const matched = matchComposedAddress(rows, address.value);
           if (matched) {
-            provinceCode = matched.provinceCode;
-            wardCode = matched.wardCode;
+            nextProvince = matched.provinceCode;
+            nextWard = matched.wardCode;
             if (!line.value.trim()) line.value = matched.line;
-            root.dataset.province = provinceCode;
-            root.dataset.ward = wardCode;
-            wardValue.value = wardCode;
+            root.dataset.province = nextProvince;
+            root.dataset.ward = nextWard;
+            wardValue.value = nextWard;
           }
         }
-        fill(province, 'Chọn tỉnh, thành phố', rows.map((row) => [row[0], row[1]]), provinceCode);
+        fill(province, 'Chọn tỉnh, thành phố', rows.map((row) => [row[0], row[1]]), nextProvince);
         provinceValue.value = province.value;
         showWards();
         write();
@@ -208,6 +460,7 @@ const {
       })
       .catch(() => {
         fill(province, 'Không tải được danh sách', [], '');
+        setTriggerLabel(provinceCombo, 'Không tải được danh sách', true);
         status.hidden = false;
         status.textContent = 'Không tải được danh sách địa chỉ. Tải lại trang.';
       });
