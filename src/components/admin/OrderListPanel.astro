@@ -214,18 +214,33 @@ const canToggleSort = status !== 'shipped';
           const source = sourceLabel(order.source);
           const fulfill = fulfillStatusOf(order);
           const tier = customerTierOf(order.customerOrderCount);
+          const firstLine = order.lines[0];
+          const extraLines = Math.max(0, order.lines.length - 1);
+          const productSummary = firstLine
+            ? extraLines > 0
+              ? `${firstLine.productName} (+${extraLines})`
+              : firstLine.productName
+            : order.productName;
+          const cardNote = [
+            order.note?.trim(),
+            ...order.lines.map((line) => line.note?.trim()).filter(Boolean),
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          const createdAgo = orderShippedAgoLabel(order.createdAt, listNow);
           return (
           <tr
+            class="order-row"
             data-priority={order.priority === 1 ? '1' : undefined}
             data-shipped={fulfill === 'shipped' ? '1' : undefined}
           >
-            <td class="product-check order-check-col" data-label="Chọn">
+            <td class="product-check order-check-col order-col-check" data-label="Chọn">
               <div class="order-check-cell">
                 <input type="checkbox" form="order-bulk" name="ids" value={order.id} aria-label={`Chọn đơn ${order.code}`} />
                 <span class="order-stt" aria-hidden="true">{stt}</span>
               </div>
             </td>
-            <td data-label="Mã đơn">
+            <td class="order-col-code" data-label="Mã đơn">
               <div class="order-code-cell">
                 <div class="order-code-row">
                   <a class="order-code-link" href={routes.adminOrder(order.id)}>{order.code}</a>
@@ -242,7 +257,7 @@ const canToggleSort = status !== 'shipped';
                   </button>
                 </div>
                 {fulfill ? (
-                  <form method="post" data-busy>
+                  <form method="post" data-busy class="order-fulfill-form">
                     <input type="hidden" name="csrf" value={csrfToken} />
                     <input type="hidden" name="intent" value="fulfill" />
                     <input type="hidden" name="id" value={order.id} />
@@ -293,19 +308,47 @@ const canToggleSort = status !== 'shipped';
                 )}
               </div>
             </td>
-            <td data-label="Khách & giao hàng">
+            <td class="order-col-customer" data-label="Khách & giao hàng">
               <div class="order-customer-cell">
-                <div class="order-customer-head">
+                <div class="order-card-top">
+                  <div class="order-card-who">
+                    <span class="order-priority-dot" data-on={order.priority === 1 ? 'true' : 'false'} aria-hidden="true"></span>
+                    <a class="order-customer-name" href={routes.adminOrder(order.id)}>{order.customerName}</a>
+                    {source && (
+                      <span class="order-chip" data-tone="source">
+                        {order.source === 'facebook' ? 'Fb' : source}
+                      </span>
+                    )}
+                    <span class="order-chip order-chip-tier" data-tone={tier}>{CUSTOMER_TIER_LABELS[tier]}</span>
+                  </div>
+                  <div class="order-card-money">
+                    <span class="order-card-total">{formatVnd(order.totalPrice)}</span>
+                    <span class="order-card-ago">{createdAgo}</span>
+                  </div>
+                </div>
+                <div class="order-customer-head order-customer-head-desktop">
                   <span class="order-customer-name">{order.customerName}</span>
                   {source && <span class="order-chip" data-tone="source">{source}</span>}
                   <span class="order-chip" data-tone={tier}>{CUSTOMER_TIER_LABELS[tier]}</span>
                 </div>
                 <div class="order-customer-line">
-                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                  <svg class="order-phone-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
                     <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M6.5 4.5h3l1.2 3.2-1.8 1.1a12 12 0 0 0 5.3 5.3l1.1-1.8 3.2 1.2v3a1.5 1.5 0 0 1-1.5 1.5A13.5 13.5 0 0 1 5 6a1.5 1.5 0 0 1 1.5-1.5z" />
                   </svg>
                   <span>{order.phone}</span>
+                  <button
+                    class="order-icon-btn order-copy-phone"
+                    type="button"
+                    data-copy-code={order.phone}
+                    aria-label={`Sao chép SĐT ${order.phone}`}
+                    title="Sao chép SĐT"
+                  >
+                    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                      <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M8 8h10v12H8zM6 16H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+                    </svg>
+                  </button>
                 </div>
+                <p class="order-card-product">{productSummary}</p>
                 <div class="order-customer-line order-customer-address">
                   <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
                     <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 21s6-5.2 6-10a6 6 0 1 0-12 0c0 4.8 6 10 6 10z" />
@@ -315,7 +358,7 @@ const canToggleSort = status !== 'shipped';
                 </div>
               </div>
             </td>
-            <td data-label="Sản phẩm">
+            <td class="order-col-products" data-label="Sản phẩm">
               <div class="order-products-wrap">
                 <ul class="order-products">
                   {order.lines.map((line) => (
@@ -351,7 +394,7 @@ const canToggleSort = status !== 'shipped';
                 )}
               </div>
             </td>
-            <td data-label="Giá trị">
+            <td class="order-col-value" data-label="Giá trị">
               <div class="order-sum">
                 <span class="order-sum-value">{formatVnd(order.totalPrice)}</span>
                         <span class="order-pay" data-pay={order.payState === 'paid' ? 'paid' : order.payState === 'deposit' ? 'deposit' : order.paymentMethod}>
@@ -363,7 +406,7 @@ const canToggleSort = status !== 'shipped';
                         {order.compensation === 1 && <span class="order-pay">Gửi bù</span>}
               </div>
             </td>
-            <td data-label="Lãi ròng">
+            <td class="order-col-profit" data-label="Lãi ròng">
               <div class="order-profit-cell">
                 {profit === null ? (
                   <span class="text-muted">—</span>
@@ -372,13 +415,13 @@ const canToggleSort = status !== 'shipped';
                 )}
               </div>
             </td>
-            <td data-label="Ngày đặt">
+            <td class="order-col-date" data-label="Ngày đặt">
               <div class="order-date-cell">
                 <span class="order-date-time">{formatTimeHms(order.createdAt)}</span>
                 <span class="order-date-day">{formatDateShort(order.createdAt)}</span>
               </div>
             </td>
-            <td data-label="Thao tác">
+            <td class="order-col-actions" data-label="Thao tác">
               <div class="order-row-actions">
                 {order.status !== 'completed' && order.status !== 'cancelled' ? (
                   <form method="post" data-busy>
@@ -450,6 +493,16 @@ const canToggleSort = status !== 'shipped';
                 ) : null}
               </div>
             </td>
+            {cardNote ? (
+              <td class="order-col-note">
+                <p class="order-card-note">
+                  <svg class="order-card-note-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.068.157 2.148.279 3.238.364.466.037.893.281 1.153.671L12 21l2.652-3.978c.26-.39.687-.634 1.153-.67 1.09-.086 2.17-.208 3.238-.365 1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
+                  </svg>
+                  <span>{cardNote}</span>
+                </p>
+              </td>
+            ) : null}
           </tr>
           );
         })}

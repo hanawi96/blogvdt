@@ -5538,6 +5538,22 @@
   .order-filter-reset[hidden] {
     display: none;
   }
+  /* Desktop: primary + panel tham gia flex toolbar như trước; nút «Bộ lọc» ẩn. */
+  .order-toolbar-primary,
+  .order-filters-panel {
+    display: contents;
+  }
+  .order-filters-toggle {
+    display: none;
+  }
+  .order-filters-dot {
+    display: none;
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    background: var(--color-primary);
+    flex: none;
+  }
   .order-sort-th {
     display: inline-flex;
     align-items: center;
@@ -6258,6 +6274,19 @@
   }
   .order-customer-name {
     font-weight: 650;
+    color: inherit;
+    text-decoration: none;
+  }
+  a.order-customer-name:hover {
+    color: var(--color-primary-strong);
+  }
+  /* Phần card mobile — ẩn trên desktop. */
+  .order-card-top,
+  .order-card-product,
+  .order-copy-phone,
+  .order-priority-dot,
+  .order-col-note {
+    display: none;
   }
   .order-chip {
     display: inline-flex;
@@ -7529,6 +7558,13 @@
   .staff-picker {
     min-width: 0;
   }
+  .staff-order-submit {
+    min-width: 0;
+  }
+  .staff-order-submit .btn {
+    min-height: 2.75rem;
+    font-weight: 700;
+  }
   .staff-meta fieldset {
     border: 0;
     margin: 0;
@@ -7833,18 +7869,34 @@
   @media (max-width: 979px) {
     .staff-order {
       gap: 0.85rem;
+      /* Chừa chỗ cho thanh Tạo đơn / Lưu đơn fixed dưới cùng. */
+      padding-bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
     }
     .staff-order-side {
       display: flex;
       flex-direction: column;
       gap: 0.85rem;
     }
-    /* Mobile: chọn mẫu trước, giỏ + nút tạo đơn nằm dưới để cuộn tự nhiên. */
+    /* Mobile: chọn mẫu trước, giỏ nằm dưới; nút submit cố định đáy màn hình. */
     .staff-picker {
       order: 1;
     }
     .staff-order-cart {
       order: 2;
+    }
+    .staff-order-submit {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 40;
+      order: 0;
+      display: grid;
+      padding: 0.65rem 0.85rem max(0.65rem, env(safe-area-inset-bottom, 0px));
+      border-top: 1px solid var(--color-line);
+      background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+      backdrop-filter: blur(8px);
+      box-shadow: 0 -8px 24px color-mix(in srgb, var(--color-ink) 10%, transparent);
     }
     .staff-order .od-card {
       padding: 0.85rem;
@@ -7868,6 +7920,9 @@
       top: 1rem;
       align-self: start;
       gap: 1rem;
+    }
+    .staff-order-submit {
+      order: 0;
     }
   }
   @media (min-width: 1280px) {
@@ -9400,7 +9455,6 @@
       transform: none;
     }
     .product-table td[data-label]::before,
-    .order-table td[data-label]::before,
     [data-post-list] td[data-label]::before,
     [data-category-list] td[data-label]::before,
     [data-customer-list] td[data-label]::before,
@@ -9412,6 +9466,270 @@
     }
     .order-stats {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    /* Đơn hàng mobile: search cố định; lọc phụ thu gọn sau «Bộ lọc». */
+    .order-toolbar {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.5rem;
+    }
+    .order-toolbar-primary {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 0.5rem;
+      align-items: center;
+      width: 100%;
+    }
+    .order-toolbar-primary > .field[name='q'],
+    .order-toolbar-primary > input[name='q'] {
+      min-width: 0;
+      width: 100%;
+      max-width: none;
+      flex: none;
+    }
+    .order-filters-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+      flex: none;
+      width: auto;
+      min-width: 5.5rem;
+      max-width: none;
+      padding-inline: 0.7rem;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .order-filters-toggle[data-active='true'] .order-filters-dot {
+      display: block;
+    }
+    .order-filters-toggle[aria-expanded='true'] {
+      border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-line));
+      color: var(--color-primary-strong);
+    }
+    .order-toolbar .order-filter-reset {
+      width: 2.75rem;
+      justify-self: end;
+    }
+    .order-filters-panel {
+      display: none;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      width: 100%;
+    }
+    .order-toolbar.is-filters-open .order-filters-panel {
+      display: grid;
+    }
+    .order-filters-panel > .field,
+    .order-filters-panel > select.field,
+    .order-filters-panel > .order-date-trigger {
+      width: 100%;
+      max-width: none;
+      min-width: 0;
+      flex: none;
+    }
+    .order-page-actions {
+      width: 100%;
+      justify-content: stretch;
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .order-pending-revenue {
+      max-width: none;
+    }
+    .order-table tr.order-row {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      grid-template-areas:
+        'check main'
+        'foot foot'
+        'note note';
+      gap: 0.35rem 0.55rem;
+      margin-bottom: 0;
+      border: 0;
+      border-bottom: 1px solid var(--color-line);
+      border-radius: 0;
+      padding: 0.85rem 0.5rem 0.85rem 0.65rem;
+      background: var(--color-surface);
+    }
+    /* Ưu tiên: tô cả card + vạch trái (không chỉ cột checkbox). */
+    .order-table tr.order-row[data-priority='1'] {
+      background: #fff8e7;
+      box-shadow: inset 3px 0 0 #eab308;
+    }
+    .order-table tr.order-row[data-priority='1'][data-shipped='1'] {
+      background: var(--color-surface);
+      box-shadow: none;
+    }
+    .order-table tr.order-row[data-priority='1'] > td:first-child {
+      box-shadow: none;
+    }
+    .order-table tr.order-row[data-priority='1']:has(input[name='ids']:checked) {
+      background: #fff3d6;
+    }
+    .order-table tr.order-row[data-priority='1'][data-shipped='1']:has(input[name='ids']:checked) {
+      background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+    }
+    .order-table td[data-label]::before {
+      content: none;
+      display: none;
+    }
+    .order-table .order-col-check {
+      grid-area: check;
+      align-self: start;
+      padding-top: 0.15rem;
+      width: auto;
+    }
+    .order-table .order-col-check .order-stt {
+      display: none;
+    }
+    .order-table .order-col-customer {
+      grid-area: main;
+      min-width: 0;
+    }
+    .order-table .order-col-code {
+      grid-area: foot;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem;
+      padding-top: 0.25rem;
+    }
+    .order-table .order-col-actions {
+      grid-area: foot;
+      justify-self: end;
+      align-self: center;
+      width: auto;
+      padding: 0;
+    }
+    .order-table .order-col-products,
+    .order-table .order-col-value,
+    .order-table .order-col-profit,
+    .order-table .order-col-date {
+      display: none;
+    }
+    .order-table .order-code-row,
+    .order-table .order-customer-head-desktop,
+    .order-table .order-phone-icon,
+    .order-table .order-chip-tier,
+    .order-table .order-row-actions .is-view {
+      display: none;
+    }
+    .order-table .order-card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.65rem;
+      margin-bottom: 0.25rem;
+    }
+    .order-table .order-card-who {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.3rem;
+      min-width: 0;
+    }
+    .order-table .order-priority-dot {
+      display: inline-block;
+      width: 0.45rem;
+      height: 0.45rem;
+      flex: none;
+      border-radius: 999px;
+      background: transparent;
+    }
+    .order-table .order-priority-dot[data-on='true'] {
+      background: #d97706;
+    }
+    .order-table .order-card-money {
+      display: grid;
+      justify-items: end;
+      gap: 0.1rem;
+      flex: none;
+      text-align: right;
+    }
+    .order-table .order-card-total {
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .order-table .order-card-ago {
+      color: var(--color-muted);
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+    .order-table .order-customer-line {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      color: var(--color-muted);
+      font-size: 0.875rem;
+    }
+    .order-table .order-customer-line.order-customer-address {
+      display: none;
+    }
+    .order-table .order-copy-phone {
+      display: inline-flex;
+      color: var(--color-muted);
+    }
+    .order-table .order-card-product {
+      display: block;
+      margin: 0.15rem 0 0;
+      color: var(--color-muted);
+      font-size: 0.8125rem;
+      line-height: 1.35;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .order-table .order-code-cell {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem;
+      min-width: 0;
+    }
+    .order-table .order-col-note {
+      grid-area: note;
+      display: block;
+      width: auto;
+      margin: 0.1rem 0 0;
+      border: 0;
+      border-radius: var(--radius-md);
+      background: color-mix(in oklab, var(--color-accent) 9%, var(--color-surface));
+      padding: 0.35rem 0.55rem;
+    }
+    .order-table .order-card-note {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.35rem;
+      margin: 0;
+      color: color-mix(in oklab, var(--color-ink) 88%, var(--color-accent));
+      font-size: 0.75rem;
+      line-height: 1.35;
+    }
+    .order-table .order-card-note-icon {
+      flex: none;
+      width: 0.95rem;
+      height: 0.95rem;
+      margin-top: 0.1rem;
+      opacity: 0.85;
+    }
+    .order-table .order-card-note > span {
+      min-width: 0;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+    }
+    .order-table .order-col-code {
+      padding-right: 7.25rem;
+    }
+    .order-table .order-col-actions .order-row-actions {
+      gap: 0.1rem;
+    }
+    .order-day-select {
+      margin-bottom: 0.35rem;
     }
   }
   .settings-lead {

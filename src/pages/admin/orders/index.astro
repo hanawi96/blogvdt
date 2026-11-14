@@ -176,6 +176,9 @@ function pageHref(nextPage: number): string {
 const listFilters = { query, status, source, payment, from, to, tag, sort };
 // Mặc định: không tìm, trạng thái «Chưa gửi hàng» (unshipped), không nguồn/thanh toán/ngày/thẻ.
 const filtersActive = Boolean(query || source || payment || from || to || tag) || (status !== '' && status !== 'unshipped') || status === '';
+// Lọc phụ (không kể ô tìm) — dùng cho badge / mở sẵn panel trên mobile.
+const advancedFiltersActive =
+  Boolean(source || payment || from || to || tag) || status !== 'unshipped';
 const nextPanelHref =
   result && result.page < result.pageCount
     ? orderPanelQuery({ ...listFilters, page: result.page + 1 })
@@ -243,66 +246,85 @@ const shippedPanelHref =
       </section>
     ) : result ? (
       <>
-        <form class="post-toolbar product-toolbar order-toolbar" method="get" data-order-search>
-          <label class="sr-only" for="order-query">Tìm đơn</label>
-          <input id="order-query" class="field" name="q" value={query} placeholder="Mã, tên hoặc số điện thoại" maxlength="80" />
-          <label class="sr-only" for="order-status">Trạng thái</label>
-          <select id="order-status" class="field" name="status">
-            <option value="all" selected={status === ''}>Tất cả trạng thái</option>
-            {ORDER_LIST_FILTERS.map((item) => (
-              <option value={item.value} selected={status === item.value}>{item.label}</option>
-            ))}
-          </select>
-          <label class="sr-only" for="order-source">Nguồn khách</label>
-          <select id="order-source" class="field" name="source">
-            <option value="" selected={source === ''}>Tất cả nguồn</option>
-            {ORDER_SOURCES.map((item) => (
-              <option value={item.value} selected={source === item.value}>{item.label}</option>
-            ))}
-          </select>
-          <label class="sr-only" for="order-payment">Thanh toán</label>
-          <select id="order-payment" class="field" name="payment">
-            <option value="" selected={payment === ''}>Tất cả thanh toán</option>
-            {ORDER_PAYMENT_FILTERS.map((item) => (
-              <option value={item.value} selected={payment === item.value}>{item.label}</option>
-            ))}
-          </select>
-          <input type="hidden" name="from" value={from} data-order-from />
-          <input type="hidden" name="to" value={to} data-order-to />
-          <input type="hidden" name="tag" value={tag} data-order-tag />
-          <input type="hidden" name="sort" value={sort === 'newest' ? 'newest' : ''} data-order-sort />
-          <button
-            class="field order-date-trigger"
-            type="button"
-            data-order-date-open
-            aria-haspopup="dialog"
-            aria-expanded="false"
-            aria-controls="order-date-dialog"
-            data-active={from || to ? 'true' : undefined}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v2M17 3v2M4 8h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" /></svg>
-            <span data-order-date-label>{dateFilterLabel}</span>
-          </button>
-          <button
-            class="field order-date-trigger"
-            type="button"
-            data-order-tag-toggle
-            aria-pressed={tag === ORDER_TAG_THE_TEN ? 'true' : 'false'}
-            data-active={tag === ORDER_TAG_THE_TEN ? 'true' : undefined}
-            title="Lọc đơn có sản phẩm thẻ tên hoặc lưu ý chứa «thẻ»"
-          >
-            Thẻ tên
-          </button>
-          <button
-            class="order-filter-reset"
-            type="button"
-            data-order-reset
-            title="Đặt lại bộ lọc về mặc định"
-            aria-label="Đặt lại bộ lọc về mặc định"
-            hidden={!filtersActive}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.64-6.36L3 8M3 3v5h5" /></svg>
-          </button>
+        <form
+          class:list={['post-toolbar', 'product-toolbar', 'order-toolbar', advancedFiltersActive && 'is-filters-open']}
+          method="get"
+          data-order-search
+        >
+          <div class="order-toolbar-primary">
+            <label class="sr-only" for="order-query">Tìm đơn</label>
+            <input id="order-query" class="field" name="q" value={query} placeholder="Mã, tên hoặc số điện thoại" maxlength="80" />
+            <button
+              class="field order-filters-toggle"
+              type="button"
+              data-order-filters-toggle
+              aria-expanded={advancedFiltersActive ? 'true' : 'false'}
+              aria-controls="order-filters-panel"
+              data-active={advancedFiltersActive ? 'true' : undefined}
+            >
+              Bộ lọc
+              <span class="order-filters-dot" aria-hidden="true"></span>
+            </button>
+            <button
+              class="order-filter-reset"
+              type="button"
+              data-order-reset
+              title="Đặt lại bộ lọc về mặc định"
+              aria-label="Đặt lại bộ lọc về mặc định"
+              hidden={!filtersActive}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.64-6.36L3 8M3 3v5h5" /></svg>
+            </button>
+          </div>
+          <div class="order-filters-panel" id="order-filters-panel" data-order-filters-panel>
+            <label class="sr-only" for="order-status">Trạng thái</label>
+            <select id="order-status" class="field" name="status">
+              <option value="all" selected={status === ''}>Tất cả trạng thái</option>
+              {ORDER_LIST_FILTERS.map((item) => (
+                <option value={item.value} selected={status === item.value}>{item.label}</option>
+              ))}
+            </select>
+            <label class="sr-only" for="order-source">Nguồn khách</label>
+            <select id="order-source" class="field" name="source">
+              <option value="" selected={source === ''}>Tất cả nguồn</option>
+              {ORDER_SOURCES.map((item) => (
+                <option value={item.value} selected={source === item.value}>{item.label}</option>
+              ))}
+            </select>
+            <label class="sr-only" for="order-payment">Thanh toán</label>
+            <select id="order-payment" class="field" name="payment">
+              <option value="" selected={payment === ''}>Tất cả thanh toán</option>
+              {ORDER_PAYMENT_FILTERS.map((item) => (
+                <option value={item.value} selected={payment === item.value}>{item.label}</option>
+              ))}
+            </select>
+            <input type="hidden" name="from" value={from} data-order-from />
+            <input type="hidden" name="to" value={to} data-order-to />
+            <input type="hidden" name="tag" value={tag} data-order-tag />
+            <input type="hidden" name="sort" value={sort === 'newest' ? 'newest' : ''} data-order-sort />
+            <button
+              class="field order-date-trigger"
+              type="button"
+              data-order-date-open
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              aria-controls="order-date-dialog"
+              data-active={from || to ? 'true' : undefined}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v2M17 3v2M4 8h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" /></svg>
+              <span data-order-date-label>{dateFilterLabel}</span>
+            </button>
+            <button
+              class="field order-date-trigger"
+              type="button"
+              data-order-tag-toggle
+              aria-pressed={tag === ORDER_TAG_THE_TEN ? 'true' : 'false'}
+              data-active={tag === ORDER_TAG_THE_TEN ? 'true' : undefined}
+              title="Lọc đơn có sản phẩm thẻ tên hoặc lưu ý chứa «thẻ»"
+            >
+              Thẻ tên
+            </button>
+          </div>
         </form>
         <dialog id="order-date-dialog" class="order-date-dialog" aria-labelledby="order-date-dialog-title" data-order-date-dialog>
           <div class="order-date-dialog-card">
@@ -594,12 +616,19 @@ const shippedPanelHref =
       } else label.textContent = 'Chọn ngày';
     }
     const reset = form.querySelector('[data-order-reset]');
-    if (reset instanceof HTMLElement) {
-      const statusVal = params.get('status') ?? '';
-      const active =
-        Boolean(params.get('q') || params.get('source') || params.get('payment') || fromVal || toVal || tagVal) ||
-        (statusVal !== '' && statusVal !== 'unshipped');
-      reset.hidden = !active;
+    const statusRaw = params.get('status');
+    const filtersOn =
+      Boolean(params.get('q') || params.get('source') || params.get('payment') || fromVal || toVal || tagVal) ||
+      (statusRaw != null && statusRaw !== '' && statusRaw !== 'unshipped');
+    // URL thiếu status = mặc định unshipped; status=all (hoặc khác unshipped) = đang lọc phụ.
+    const advancedOn =
+      Boolean(params.get('source') || params.get('payment') || fromVal || toVal || tagVal) ||
+      (statusRaw != null && statusRaw !== 'unshipped');
+    if (reset instanceof HTMLElement) reset.hidden = !filtersOn;
+    const filtersToggle = form.querySelector('[data-order-filters-toggle]');
+    if (filtersToggle instanceof HTMLElement) {
+      if (advancedOn) filtersToggle.dataset.active = 'true';
+      else delete filtersToggle.dataset.active;
     }
   }
 
@@ -680,6 +709,12 @@ const shippedPanelHref =
       cache.clear();
       clearSelection?.();
       void softNavigate(LIST, { push: true, params: new URLSearchParams() });
+    });
+
+    form.querySelector('[data-order-filters-toggle]')?.addEventListener('click', () => {
+      const open = form.classList.toggle('is-filters-open');
+      const toggleBtn = form.querySelector('[data-order-filters-toggle]');
+      if (toggleBtn instanceof HTMLElement) toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
 
     // Nút đảo thứ tự ở header cột «Ngày đặt» (panel re-render nên dùng delegation trên board).
