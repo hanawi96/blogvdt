@@ -136,21 +136,38 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
     result && (
       <>
         {!(result.counts.all === 0 && result.counts.trash === 0 && !query) && (
-          <div class="post-controls">
-            <form class="post-toolbar" method="get" data-post-search>
+          <form
+            class:list={['post-controls', 'post-toolbar', 'order-toolbar', status !== '' && 'is-filters-open']}
+            method="get"
+            data-post-search
+          >
+            <div class="order-toolbar-primary">
               {status && <input type="hidden" name="status" value={status} />}
               {sort === 'oldest' && <input type="hidden" name="sort" value="oldest" />}
               <label class="sr-only" for="post-query">Tìm bài viết</label>
               <input id="post-query" class="field" name="q" value={query} placeholder="Tìm bài viết..." maxlength="180" />
-            </form>
-            <div class="post-filters" role="group" aria-label="Lọc trạng thái">
-              {filters.map((filter) => (
-                <a href={pageHref({ status: filter.id, page: 1 })} aria-current={status === filter.id ? 'page' : undefined}>
-                  {filter.label} ({filter.count})
-                </a>
-              ))}
+              <button
+                class="field order-filters-toggle"
+                type="button"
+                data-post-filters-toggle
+                aria-expanded={status !== '' ? 'true' : 'false'}
+                aria-controls="post-filters-panel"
+                data-active={status !== '' ? 'true' : undefined}
+              >
+                Bộ lọc
+                <span class="order-filters-dot" aria-hidden="true"></span>
+              </button>
             </div>
-          </div>
+            <div class="order-filters-panel" id="post-filters-panel" data-post-filters-panel>
+              <div class="post-filters" role="group" aria-label="Lọc trạng thái">
+                {filters.map((filter) => (
+                  <a href={pageHref({ status: filter.id, page: 1 })} aria-current={status === filter.id ? 'page' : undefined}>
+                    {filter.label} ({filter.count})
+                  </a>
+                ))}
+              </div>
+            </div>
+          </form>
         )}
         <div data-post-results>
           {trashed && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã chuyển bài vào thùng rác.</p>}
@@ -219,7 +236,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
               {status === 'trash' && !query ? 'Thùng rác trống.' : 'Không có bài khớp bộ lọc.'}
             </p>
           ) : status === 'trash' ? (
-            <table class="post-table">
+            <table class="post-table post-trash-table">
               <thead>
                 <tr>
                   <th class="product-check"><input type="checkbox" aria-label="Chọn tất cả bài trong thùng rác" data-bulk-all /></th>
@@ -238,15 +255,15 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                       <td class="product-check">
                         <input type="checkbox" form="post-bulk" name="ids" value={post.id} aria-label={`Chọn ${post.title}`} />
                       </td>
-                      <td><span class="post-title">{post.title}</span></td>
-                      <td>{actor}</td>
-                      <td>
+                      <td class="post-list-title"><span class="post-title">{post.title}</span></td>
+                      <td class="post-list-actor">{actor}</td>
+                      <td class="post-list-status">
                         <span class="post-status" data-status={post.status === 'published' ? 'published' : 'draft'}>
                           {isPostStatus(post.status) ? POST_STATUS_LABELS[post.status] : post.status}
                         </span>
                       </td>
-                      <td>{post.deletedAt ? formatDateTime(post.deletedAt) : '—'}</td>
-                      <td>
+                      <td class="post-list-updated">{post.deletedAt ? formatDateTime(post.deletedAt) : '—'}</td>
+                      <td class="post-list-ops">
                         <div class="post-actions">
                           <form
                             method="post"
@@ -257,7 +274,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                             data-confirm-ok="Khôi phục"
                           >
                             <input type="hidden" name="csrf" value={session.csrfToken} />
-                            <button class="btn" type="submit">Khôi phục</button>
+                            <button class="btn btn-compact" type="submit">Khôi phục</button>
                           </form>
                           {canPurge && (
                             <form
@@ -270,7 +287,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                               data-confirm-tone="danger"
                             >
                               <input type="hidden" name="csrf" value={session.csrfToken} />
-                              <button class="btn btn-accent" type="submit">Xóa vĩnh viễn</button>
+                              <button class="btn btn-accent btn-compact" type="submit">Xóa vĩnh viễn</button>
                             </form>
                           )}
                         </div>
@@ -281,7 +298,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
               </tbody>
             </table>
           ) : (
-            <table class="post-table">
+            <table class="post-table post-library-table">
               <thead>
                 <tr>
                   <th class="product-check"><input type="checkbox" aria-label="Chọn tất cả bài đang hiện" data-bulk-all /></th>
@@ -313,11 +330,11 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                           data-public={wasPublic ? '1' : undefined}
                         />
                       </td>
-                      <td>
+                      <td class="post-list-title">
                         <a class="post-title" href={routes.adminPost(post.id)}>{post.title}</a>
                       </td>
-                      <td data-label="Tác giả">{post.authorName?.trim() || post.authorUsername || '—'}</td>
-                      <td data-label="Danh mục">
+                      <td class="post-list-author" data-label="Tác giả">{post.authorName?.trim() || post.authorUsername || '—'}</td>
+                      <td class="post-list-category" data-label="Danh mục">
                         <select
                           class="post-category"
                           data-post-category={routes.adminPostCategory(post.id)}
@@ -330,22 +347,22 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                           ))}
                         </select>
                       </td>
-                      <td>
+                      <td class="post-list-status">
                         <span class="post-status" data-status={published ? 'published' : 'draft'}>
                           {isPostStatus(post.status) ? POST_STATUS_LABELS[post.status] : post.status}
                         </span>
                       </td>
-                      <td data-label="Link vào" data-link-in={post.id}>…</td>
-                      <td data-label="Link ra" data-link-out={post.id}>…</td>
-                      <td>{formatDateTime(post.updatedAt)}</td>
-                      <td>
+                      <td class="post-list-in" data-label="Link vào" data-link-in={post.id}>…</td>
+                      <td class="post-list-out" data-label="Link ra" data-link-out={post.id}>…</td>
+                      <td class="post-list-updated">{formatDateTime(post.updatedAt)}</td>
+                      <td class="post-list-ops">
                         <div class="post-actions">
-                          <a href={routes.adminPost(post.id)}>Sửa</a>
+                          <a class="category-list-edit" href={routes.adminPost(post.id)}>Sửa</a>
                           <span class="post-actions-sep" aria-hidden="true">|</span>
                           {published ? (
-                            <a href={routes.knowledge(post.slug)} target="_blank" rel="noopener">Xem bài</a>
+                            <a class="post-list-view" href={routes.knowledge(post.slug)} target="_blank" rel="noopener">Xem bài</a>
                           ) : (
-                            <a href={`${routes.adminPostPreview}?id=${post.id}`} target="_blank" rel="noopener">Xem trước</a>
+                            <a class="post-list-view" href={`${routes.adminPostPreview}?id=${post.id}`} target="_blank" rel="noopener">Xem trước</a>
                           )}
                           <details class="row-menu">
                             <summary aria-label={`Thao tác khác: ${post.title}`}>⋯</summary>
@@ -670,6 +687,11 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
       event.preventDefault();
       window.clearTimeout(timer);
       go();
+    });
+    searchForm.querySelector('[data-post-filters-toggle]')?.addEventListener('click', () => {
+      const open = searchForm.classList.toggle('is-filters-open');
+      const toggleBtn = searchForm.querySelector('[data-post-filters-toggle]');
+      if (toggleBtn instanceof HTMLElement) toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
   }
 

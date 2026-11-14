@@ -665,32 +665,6 @@ export const seoHealthIssues = sqliteTable(
   ],
 );
 
-// Trang đích (landing) chạy quảng cáo. Nội dung là các khối cố định lưu JSON trong blocks_json.
-// Mặc định noindex để không ảnh hưởng SEO của site chính; có thể bật index từng trang.
-export const landings = sqliteTable(
-  'landings',
-  {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    slug: text('slug').notNull().unique(),
-    title: text('title').notNull(),
-    blocksJson: text('blocks_json').notNull().default('[]'),
-    status: text('status').notNull().default('draft'),
-    robots: text('robots').notNull().default('noindex'),
-    seoTitle: text('seo_title'),
-    metaDescription: text('meta_description'),
-    ogMediaId: integer('og_media_id').references(() => media.id, { onDelete: 'set null' }),
-    views: integer('views').notNull().default(0),
-    trackingJson: text('tracking_json').notNull().default('{}'),
-    createdAt: integer('created_at').notNull(),
-    updatedAt: integer('updated_at').notNull(),
-  },
-  (table) => [
-    index('landings_status_idx').on(table.status),
-    check('landings_status_check', sql`${table.status} in ('draft', 'published')`),
-    check('landings_robots_check', sql`${table.robots} in ('noindex', 'index')`),
-  ],
-);
-
 /** Ảnh feedback mua hàng: media R2 hoặc path tĩnh /Images/feedback (seed). */
 export const feedbackPhotos = sqliteTable(
   'feedback_photos',

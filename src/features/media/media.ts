@@ -565,7 +565,7 @@ export async function replaceMedia(
 
 export type MediaRef = { url: string; alt: string; width: number | null; height: number | null };
 
-/** Lấy nhanh url/alt/kích thước cho một nhóm media id (ví dụ ảnh hero/OG của landing). */
+/** Lấy nhanh url/alt/kích thước cho một nhóm media id. */
 export async function mediaMapByIds(db: AppDb, ids: number[]): Promise<Map<number, MediaRef>> {
   const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
   const map = new Map<number, MediaRef>();

@@ -51,12 +51,18 @@ function tabHref(value: InvoiceTab, pageNum = 1) {
 }
 
 const canExport = tab === 'ready' || tab === 'done';
-const emptyCopy =
+const emptyTitle =
   tab === 'ready'
-    ? 'Chưa có đơn đủ 10 ngày kể từ ngày gửi để xuất HĐĐT.'
+    ? 'Chưa có đơn cần xuất HĐĐT'
     : tab === 'waiting'
-      ? 'Không có đơn đang chờ đủ ngày.'
-      : 'Chưa xuất hóa đơn nào.';
+      ? 'Không có đơn đang chờ đủ ngày'
+      : 'Chưa xuất hóa đơn nào';
+const emptyText =
+  tab === 'ready'
+    ? 'Đơn đã gửi đủ 10 ngày (không gửi bù, chưa xuất) sẽ hiện ở đây để tạo file Excel HĐĐT.'
+    : tab === 'waiting'
+      ? 'Các đơn đã gửi nhưng chưa đủ 10 ngày sẽ nằm ở tab này cho đến khi đủ điều kiện xuất.'
+      : 'Sau khi tải file xuất trong lịch sử, đơn sẽ được đánh dấu đã xuất và hiện ở đây.';
 ---
 
 <AdminLayout title="Xuất hóa đơn điện tử">
@@ -99,9 +105,20 @@ const emptyCopy =
 
   {result && result.total === 0 ? (
     <section class="cms-empty">
-      <h2 class="cms-empty-title">{emptyCopy}</h2>
-      <p class="cms-empty-text">Đơn đã gửi đủ 10 ngày (không gửi bù, chưa xuất) sẽ hiện ở tab Cần xuất. Tải file trong lịch sử mới đánh dấu đã xuất.</p>
-      <a class="btn" href={routes.adminOrders}>Về đơn hàng</a>
+      <span class="cms-empty-icon" aria-hidden="true">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7 3h8l4 4v14H7V3z" />
+          <path d="M15 3v5h5M9 12h6M9 16h4" />
+        </svg>
+      </span>
+      <h2 class="cms-empty-title">{emptyTitle}</h2>
+      <p class="cms-empty-text">{emptyText}</p>
+      <ul class="cms-empty-points">
+        <li>Chỉ lấy đơn đã gửi hàng, không gồm đơn gửi bù.</li>
+        <li>Đủ 10 ngày kể từ ngày gửi mới vào tab Cần xuất.</li>
+        <li>Tải file trong lịch sử HĐĐT mới đánh dấu đơn đã xuất.</li>
+      </ul>
+      <a class="btn btn-primary" href={routes.adminOrders}>Về đơn hàng</a>
     </section>
   ) : result ? (
     <>
@@ -118,7 +135,8 @@ const emptyCopy =
             <span class="sr-only">Chọn tất cả</span>
             <input type="checkbox" data-invoice-select-all />
           </label>
-          <div class="invoice-col-head">Mã đơn hàng</div>
+          <div class="invoice-col-head invoice-bulk-label">Mã đơn hàng</div>
+          <span class="invoice-bulk-pick-label" aria-hidden="true">Chọn tất cả</span>
           <div class="invoice-col-head">Khách hàng</div>
           <div class="invoice-col-head">Tổng tiền</div>
           <div class="invoice-col-head">SP</div>
@@ -717,31 +735,68 @@ const emptyCopy =
     background: color-mix(in oklab, #16a34a 14%, white);
     color: #15803d;
   }
+  .invoice-bulk-pick-label {
+    display: none;
+  }
   @media (max-width: 960px) {
+    .invoice-tabs {
+      flex-wrap: nowrap;
+      gap: 0.5rem;
+      margin-bottom: 0.85rem;
+      overflow-x: auto;
+      /* overflow-x tạo scrollport và cắt trục dọc — chừa chỗ cho badge top/right âm. */
+      padding: 0.5rem 0.4rem 0.25rem 0.1rem;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+    .invoice-tab {
+      flex: none;
+      padding: 0.45rem 0.95rem 0.45rem 0.75rem;
+      font-size: 0.875rem;
+      white-space: nowrap;
+    }
     .invoice-row {
-      grid-template-columns: auto 1fr auto;
+      grid-template-columns: auto minmax(0, 1fr) auto;
       grid-template-areas:
         'check code badge'
         'check customer customer'
         'check total items'
         'check shipped shipped';
+      gap: 0.35rem 0.75rem;
+      padding: 0.85rem 0.9rem;
     }
     .invoice-bulk-bar.invoice-row {
-      grid-template-areas: 'check code code';
+      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-areas: 'check pick';
+      align-items: center;
+      margin-bottom: 0.65rem;
+      padding: 0.65rem 0.85rem;
+    }
+    .invoice-bulk-bar.invoice-row[aria-hidden='true'] {
+      display: none;
     }
     .invoice-bulk-bar .invoice-col-head {
       display: none;
     }
-    .invoice-bulk-bar > .invoice-col-head:nth-child(2) {
+    .invoice-bulk-pick-label {
       display: block;
-      grid-area: code;
+      grid-area: pick;
+      font-size: 0.875rem;
+      font-weight: 650;
     }
     .invoice-check,
     .invoice-check-spacer {
       grid-area: check;
+      align-self: start;
+      padding-top: 0.15rem;
+    }
+    .invoice-bulk-bar .invoice-check {
+      align-self: center;
+      padding-top: 0;
     }
     .invoice-code {
       grid-area: code;
+      min-width: 0;
     }
     .invoice-badge {
       grid-area: badge;
@@ -752,13 +807,27 @@ const emptyCopy =
     }
     .invoice-total {
       grid-area: total;
+      font-size: 0.9375rem;
     }
     .invoice-items {
       grid-area: items;
       justify-self: end;
+      padding-inline: 0;
+      font-size: 0.8125rem;
     }
     .invoice-shipped {
       grid-area: shipped;
+      font-size: 0.8125rem;
+      padding-inline-start: 0;
+    }
+    .invoice-pill {
+      font-size: 0.75rem;
+      padding: 0.18rem 0.5rem;
+    }
+    .invoice-bulk-error {
+      position: static;
+      grid-column: 1 / -1;
+      margin-top: 0.15rem;
     }
   }
 </style>

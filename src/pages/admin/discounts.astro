@@ -216,7 +216,7 @@ function windowText(row: DiscountCode): string {
         rows.length === 0 ? (
           <p class="text-muted">{query ? 'Không có mã khớp.' : 'Chưa có mã giảm giá.'}</p>
         ) : (
-          <table class="post-table">
+          <table class="post-table discount-table" data-discount-list>
             <thead>
               <tr>
                 <th>Mã</th>
@@ -231,27 +231,27 @@ function windowText(row: DiscountCode): string {
             <tbody>
               {rows.map((row) => (
                 <tr class:list={[values.id === row.id && 'is-current']}>
-                  <td>
+                  <td class="discount-list-code">
                     <a class="post-title" href={`${routes.adminDiscounts}?edit=${row.id}${query ? `&q=${encodeURIComponent(query)}` : ''}`}>{row.code}</a>
-                    {row.note && <p class="text-sm text-muted">{row.note}</p>}
+                    {row.note && <p class="discount-list-note">{row.note}</p>}
                   </td>
-                  <td data-label="Mức">{valueText(row)}</td>
-                  <td data-label="Đơn tối thiểu">{row.minSubtotal > 0 ? formatVnd(row.minSubtotal) : '—'}</td>
-                  <td data-label="Đã dùng">{row.usedCount} / {row.usageLimit ?? '∞'}</td>
-                  <td data-label="Thời hạn">{windowText(row)}</td>
-                  <td data-label="Trạng thái">
+                  <td class="discount-list-value" data-label="Mức">{valueText(row)}</td>
+                  <td class="discount-list-min" data-label="Đơn tối thiểu">{row.minSubtotal > 0 ? formatVnd(row.minSubtotal) : '—'}</td>
+                  <td class="discount-list-used" data-label="Đã dùng">{row.usedCount} / {row.usageLimit ?? '∞'}</td>
+                  <td class="discount-list-window" data-label="Thời hạn">{windowText(row)}</td>
+                  <td class="discount-list-status" data-label="Trạng thái">
                     <span class="post-status" data-status={row.active ? 'active' : 'inactive'}>{row.active ? 'Đang bật' : 'Đang tắt'}</span>
                   </td>
-                  <td data-label="Thao tác">
+                  <td class="discount-list-ops" data-label="Thao tác">
                     <div class="post-actions">
-                      <a href={`${routes.adminDiscounts}?edit=${row.id}${query ? `&q=${encodeURIComponent(query)}` : ''}`}>Sửa</a>
+                      <a class="category-list-edit" href={`${routes.adminDiscounts}?edit=${row.id}${query ? `&q=${encodeURIComponent(query)}` : ''}`}>Sửa</a>
                       <span class="post-actions-sep" aria-hidden="true">|</span>
                       <form method="post" data-busy>
                         <input type="hidden" name="csrf" value={session.csrfToken} />
                         <input type="hidden" name="intent" value="toggle" />
                         <input type="hidden" name="id" value={row.id} />
                         <input type="hidden" name="active" value={row.active ? '0' : '1'} />
-                        <button type="submit">{row.active ? 'Tắt' : 'Bật'}</button>
+                        <button class="category-list-toggle" type="submit">{row.active ? 'Tắt' : 'Bật'}</button>
                       </form>
                       {row.usedCount === 0 && (
                         <>

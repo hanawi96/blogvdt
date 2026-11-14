@@ -5,6 +5,7 @@ import { profitOf } from '../../../features/materials/costing';
 import { loadProductCosts } from '../../../features/materials/recipes';
 import { CORD_TYPES, ratingFormValue } from '../../../features/products/form';
 import {
+  DEFAULT_PRODUCT_LIST_SORT,
   listProducts,
   PRODUCT_BULK_MAX,
   productAdminQuery,
@@ -94,6 +95,8 @@ const sorts: { id: ProductListSort; label: string }[] = [
 const activeCategory = result?.categories.some((category) => category.id === categoryId) ? categoryId : null;
 const isRowShown = (rowCategory: number | null) => !clientFilter || activeCategory === null || rowCategory === activeCategory;
 const shownCount = result?.rows.filter((product) => isRowShown(product.categoryId)).length ?? 0;
+// Lọc phụ (không kể ô tìm) — badge / mở sẵn panel trên mobile.
+const advancedFiltersActive = Boolean(status || cord) || sort !== DEFAULT_PRODUCT_LIST_SORT;
 
 function pageHref(next: { page?: number }): string {
   return productAdminQuery({ query, status, category: categoryId, cord, sort, page: next.page ?? 1 });
@@ -105,29 +108,48 @@ function pageHref(next: { page?: number }): string {
   <a slot="action" class="btn btn-primary" href={routes.adminProductNew}>Thêm sản phẩm</a>
   {
     result && result.libraryTotal > 0 && (
-      <form class="post-toolbar product-toolbar" method="get" data-product-search>
-        <label class="sr-only" for="product-query">Tìm sản phẩm</label>
-        <input type="hidden" name="category" value={activeCategory ?? ''} />
-        <input id="product-query" class="field" name="q" value={query} placeholder="Tìm sản phẩm..." maxlength="160" />
-        <label class="sr-only" for="product-status">Trạng thái</label>
-        <select id="product-status" class="field" name="status">
-          <option value="" selected={status === ''}>Tất cả trạng thái</option>
-          <option value="active" selected={status === 'active'}>Đang bán</option>
-          <option value="inactive" selected={status === 'inactive'}>Ngừng bán</option>
-        </select>
-        <label class="sr-only" for="product-cord">Kiểu dây</label>
-        <select id="product-cord" class="field" name="cord">
-          <option value="" selected={cord === ''}>Tất cả kiểu dây</option>
-          {CORD_TYPES.map((item) => (
-            <option value={item} selected={cord === item}>{item}</option>
-          ))}
-        </select>
-        <label class="sr-only" for="product-sort">Sắp xếp</label>
-        <select id="product-sort" class="field" name="sort">
-          {sorts.map((item) => (
-            <option value={item.id} selected={sort === item.id}>{item.label}</option>
-          ))}
-        </select>
+      <form
+        class:list={['post-toolbar', 'product-toolbar', 'order-toolbar', advancedFiltersActive && 'is-filters-open']}
+        method="get"
+        data-product-search
+      >
+        <div class="order-toolbar-primary">
+          <label class="sr-only" for="product-query">Tìm sản phẩm</label>
+          <input type="hidden" name="category" value={activeCategory ?? ''} />
+          <input id="product-query" class="field" name="q" value={query} placeholder="Tìm sản phẩm..." maxlength="160" />
+          <button
+            class="field order-filters-toggle"
+            type="button"
+            data-product-filters-toggle
+            aria-expanded={advancedFiltersActive ? 'true' : 'false'}
+            aria-controls="product-filters-panel"
+            data-active={advancedFiltersActive ? 'true' : undefined}
+          >
+            Bộ lọc
+            <span class="order-filters-dot" aria-hidden="true"></span>
+          </button>
+        </div>
+        <div class="order-filters-panel" id="product-filters-panel" data-product-filters-panel>
+          <label class="sr-only" for="product-status">Trạng thái</label>
+          <select id="product-status" class="field" name="status">
+            <option value="" selected={status === ''}>Tất cả trạng thái</option>
+            <option value="active" selected={status === 'active'}>Đang bán</option>
+            <option value="inactive" selected={status === 'inactive'}>Ngừng bán</option>
+          </select>
+          <label class="sr-only" for="product-cord">Kiểu dây</label>
+          <select id="product-cord" class="field" name="cord">
+            <option value="" selected={cord === ''}>Tất cả kiểu dây</option>
+            {CORD_TYPES.map((item) => (
+              <option value={item} selected={cord === item}>{item}</option>
+            ))}
+          </select>
+          <label class="sr-only" for="product-sort">Sắp xếp</label>
+          <select id="product-sort" class="field" name="sort">
+            {sorts.map((item) => (
+              <option value={item.id} selected={sort === item.id}>{item.label}</option>
+            ))}
+          </select>
+        </div>
       </form>
     )
   }
@@ -237,7 +259,7 @@ function pageHref(next: { page?: number }): string {
                               data-featured={product.isFeatured ? '1' : undefined}
                             />
                           </td>
-                          <td>
+                          <td class="product-list-main">
                             <div class="product-main">
                               {product.coverUrl ? (
                                 <img class="product-thumb" src={product.coverUrl} alt={product.coverAlt} width="44" height="44" loading="lazy" />
@@ -247,41 +269,41 @@ function pageHref(next: { page?: number }): string {
                               <a class="post-title" href={routes.adminProduct(product.id)}>{product.name}</a>
                             </div>
                           </td>
-                          <td data-label="Giá">
+                          <td class="product-list-price" data-label="Giá">
                             {formatVnd(product.price)}
                             {product.comparePrice != null && <span class="product-compare">{formatVnd(product.comparePrice)}</span>}
                           </td>
-                          <td data-label="Tồn">
+                          <td class="product-list-stock" data-label="Tồn">
                             <span class:list={['product-figure', product.stockQty <= 0 && 'is-empty']}>{product.stockQty}</span>
                           </td>
-                          <td data-label="Điểm">
+                          <td class="product-list-rating" data-label="Điểm">
                             {product.rating > 0 ? (
                               <span class="product-figure product-rating">{ratingFormValue(product.rating)}</span>
                             ) : (
                               <span class="product-figure is-empty">—</span>
                             )}
                           </td>
-                          <td data-label="Giá vốn">
+                          <td class="product-list-cost" data-label="Giá vốn">
                             {cost === undefined ? <span class="product-figure is-empty">Chưa có</span> : <span class="product-figure">{formatVnd(cost)}</span>}
                           </td>
-                          <td data-label="Biên">
+                          <td class="product-list-margin" data-label="Biên">
                             {margin === null ? (
                               <span class="product-figure is-empty">—</span>
                             ) : (
                               <span class="product-figure" data-margin={margin < 15 ? 'low' : margin <= 35 ? 'mid' : 'high'}>{margin}%</span>
                             )}
                           </td>
-                          <td data-label="Danh mục">{product.categoryName || '—'}</td>
-                          <td data-label="Kiểu dây">{product.cordType || '—'}</td>
-                          <td data-label="Trạng thái">
+                          <td class="product-list-category" data-label="Danh mục">{product.categoryName || '—'}</td>
+                          <td class="product-list-cord" data-label="Kiểu dây">{product.cordType || '—'}</td>
+                          <td class="product-list-status" data-label="Trạng thái">
                             <span class="post-status" data-status={active ? 'active' : 'inactive'}>
                               {isProductStatus(product.status) ? PRODUCT_STATUS_LABELS[product.status] : product.status}
                             </span>
                           </td>
-                          <td data-label="Cập nhật">{formatDateTime(product.updatedAt)}</td>
-                          <td data-label="Thao tác">
+                          <td class="product-list-updated" data-label="Cập nhật">{formatDateTime(product.updatedAt)}</td>
+                          <td class="product-list-ops" data-label="Thao tác">
                             <div class="post-actions product-row-actions">
-                              <a href={routes.adminProduct(product.id)}>Sửa</a>
+                              <a class="category-list-edit" href={routes.adminProduct(product.id)}>Sửa</a>
                               <span class="post-actions-sep" aria-hidden="true">|</span>
                               <form
                                 method="post"
@@ -302,7 +324,7 @@ function pageHref(next: { page?: number }): string {
                                 <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
                               </form>
                               <span class="post-actions-sep" aria-hidden="true">|</span>
-                              <a href={routes.product(product.slug)} target="_blank" rel="noopener">Xem</a>
+                              <a class="product-list-view" href={routes.product(product.slug)} target="_blank" rel="noopener">Xem</a>
                               <span class="post-actions-sep" aria-hidden="true">|</span>
                               {active ? (
                                 <form method="post" action={routes.adminProductFeature(product.id)} data-busy>
@@ -690,6 +712,11 @@ function pageHref(next: { page?: number }): string {
       event.preventDefault();
       window.clearTimeout(timer);
       go();
+    });
+    searchForm.querySelector('[data-product-filters-toggle]')?.addEventListener('click', () => {
+      const open = searchForm.classList.toggle('is-filters-open');
+      const toggleBtn = searchForm.querySelector('[data-product-filters-toggle]');
+      if (toggleBtn instanceof HTMLElement) toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
   }
 

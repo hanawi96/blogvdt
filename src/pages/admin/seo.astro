@@ -103,7 +103,7 @@ function codeLabel(code: string): string {
 
 <AdminLayout title="Kiểm tra SEO">
   <p slot="lead">{note}</p>
-  <form slot="action" method="post" class="flex flex-wrap gap-2">
+  <form slot="action" method="post" class="order-page-actions seo-run-actions">
     <input type="hidden" name="csrf" value={session.csrfToken} />
     {
       inProgress ? (
@@ -178,7 +178,7 @@ function codeLabel(code: string): string {
   }
   {
     snapshot?.run && (
-      <form class="post-toolbar mt-6" method="get">
+      <form class="post-toolbar seo-filter-toolbar mt-6" method="get">
         <label class="sr-only" for="seo-severity">Mức độ</label>
         <select id="seo-severity" class="field" name="severity">
           <option value="" selected={filters.severity === ''}>Mọi mức</option>
@@ -202,8 +202,10 @@ function codeLabel(code: string): string {
             <option value={filters.postId} selected>Bài {filters.postId}</option>
           )}
         </select>
-        <button class="btn" type="submit">Lọc</button>
-        {filtered && <a class="btn" href={routes.adminSeo}>Bỏ lọc</a>}
+        <div class="seo-filter-actions">
+          <button class="btn" type="submit">Lọc</button>
+          {filtered && <a class="btn" href={routes.adminSeo}>Bỏ lọc</a>}
+        </div>
       </form>
     )
   }
@@ -287,13 +289,15 @@ function codeLabel(code: string): string {
         <tbody>
           {snapshot.issues.map((issue) => (
             <tr>
-              <td data-label="Bài viết">
+              <td class="health-list-post" data-label="Bài viết">
                 {issue.postId ? <a class="font-semibold underline" href={routes.adminPost(issue.postId)}>{issue.postTitle}</a> : issue.postTitle}
               </td>
-              <td data-label="Mức">{issue.severity === 'error' ? 'Lỗi' : 'Cảnh báo'}</td>
-              <td data-label="Loại">{codeLabel(issue.code)}</td>
-              <td data-label="Nguyên nhân">{issue.detail}</td>
-              <td data-label="Sửa">{issue.postId ? <a class="underline" href={routes.adminPost(issue.postId)}>Sửa</a> : '—'}</td>
+              <td class="health-list-level" data-label="Mức" data-kind={issue.severity}>{issue.severity === 'error' ? 'Lỗi' : 'Cảnh báo'}</td>
+              <td class="health-list-code" data-label="Loại">{codeLabel(issue.code)}</td>
+              <td class="health-list-detail" data-label="Nguyên nhân">{issue.detail}</td>
+              <td class="health-list-fix" data-label="Sửa">
+                {issue.postId ? <a class="category-list-edit" href={routes.adminPost(issue.postId)}>Sửa</a> : '—'}
+              </td>
             </tr>
           ))}
         </tbody>

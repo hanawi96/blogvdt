@@ -16,6 +16,7 @@ if (session.role !== 'admin') return new Response('Bạn không có quyền vào
 const query = Astro.url.searchParams.get('q') ?? '';
 const sort = customerSort(Astro.url.searchParams.get('sort'));
 const page = Number(Astro.url.searchParams.get('page') ?? '1');
+const advancedFiltersActive = sort !== 'recent';
 let loadError = '';
 let result: Awaited<ReturnType<typeof listCustomers>> | null = null;
 try {
@@ -49,19 +50,38 @@ try {
       </section>
     ) : result ? (
       <>
-        <form class="post-toolbar" method="get" data-customer-search>
-          <label class="sr-only" for="customer-query">Tìm khách hàng</label>
-          <input id="customer-query" class="field" name="q" value={query} placeholder="Tên hoặc số điện thoại" maxlength="80" />
-          <label class="sr-only" for="customer-sort">Sắp xếp</label>
-          <select id="customer-sort" class="field" name="sort">
-            {CUSTOMER_SORTS.map((item) => <option value={item.value} selected={sort === item.value}>{item.label}</option>)}
-          </select>
+        <form
+          class:list={['post-toolbar', 'product-toolbar', 'order-toolbar', advancedFiltersActive && 'is-filters-open']}
+          method="get"
+          data-customer-search
+        >
+          <div class="order-toolbar-primary">
+            <label class="sr-only" for="customer-query">Tìm khách hàng</label>
+            <input id="customer-query" class="field" name="q" value={query} placeholder="Tên hoặc số điện thoại" maxlength="80" />
+            <button
+              class="field order-filters-toggle"
+              type="button"
+              data-customer-filters-toggle
+              aria-expanded={advancedFiltersActive ? 'true' : 'false'}
+              aria-controls="customer-filters-panel"
+              data-active={advancedFiltersActive ? 'true' : undefined}
+            >
+              Bộ lọc
+              <span class="order-filters-dot" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div class="order-filters-panel" id="customer-filters-panel" data-customer-filters-panel>
+            <label class="sr-only" for="customer-sort">Sắp xếp</label>
+            <select id="customer-sort" class="field" name="sort">
+              {CUSTOMER_SORTS.map((item) => <option value={item.value} selected={sort === item.value}>{item.label}</option>)}
+            </select>
+          </div>
         </form>
         <div data-customer-list>
           {result.rows.length === 0 ? (
             <p class="post-empty">Không có khách khớp tìm kiếm.</p>
           ) : (
-            <table class="post-table">
+            <table class="post-table customer-table">
               <thead>
                 <tr>
                   <th>Khách hàng</th>
@@ -75,24 +95,24 @@ try {
               <tbody>
                 {result.rows.map((customer) => (
                   <tr>
-                    <td data-label="Khách hàng">
+                    <td class="customer-list-who" data-label="Khách hàng">
                       <div class="user-cell">
                         <span class="user-avatar" aria-hidden="true">{userInitials(customer.customerName)}</span>
-                        <div class="min-w-0">
+                        <div class="customer-list-main">
                           <p class="post-title truncate">
                             {customer.customerName}
                             <span class="order-chip ml-1 align-middle" data-tone={customer.tier}>{CUSTOMER_TIER_LABELS[customer.tier]}</span>
                           </p>
-                          <a class="text-sm text-muted" href={`tel:${customer.phone}`}>{customer.phone}</a>
+                          <a class="customer-list-phone" href={`tel:${customer.phone}`}>{customer.phone}</a>
                         </div>
                       </div>
                     </td>
-                    <td data-label="Địa chỉ"><span class="line-clamp-2 max-w-xs">{customer.address}</span></td>
-                    <td data-label="Số đơn">{customer.orderCount}</td>
-                    <td data-label="Tổng chi tiêu">{formatVnd(customer.spent)}</td>
-                    <td data-label="Đơn gần nhất">{formatDateTime(customer.lastOrderAt)}</td>
-                    <td data-label="Thao tác">
-                      <a class="font-semibold underline" href={orderAdminQuery({ query: customer.phone, status: 'all' })}>Xem đơn</a>
+                    <td class="customer-list-address" data-label="Địa chỉ"><span class="line-clamp-2 max-w-xs">{customer.address}</span></td>
+                    <td class="customer-list-orders" data-label="Số đơn">{customer.orderCount} đơn</td>
+                    <td class="customer-list-spent" data-label="Tổng chi tiêu">{formatVnd(customer.spent)}</td>
+                    <td class="customer-list-last" data-label="Đơn gần nhất">{formatDateTime(customer.lastOrderAt)}</td>
+                    <td class="customer-list-ops" data-label="Thao tác">
+                      <a class="category-list-edit" href={orderAdminQuery({ query: customer.phone, status: 'all' })}>Xem đơn</a>
                     </td>
                   </tr>
                 ))}
@@ -146,6 +166,11 @@ try {
       event.preventDefault();
       window.clearTimeout(timer);
       go();
+    });
+    form.querySelector('[data-customer-filters-toggle]')?.addEventListener('click', () => {
+      const open = form.classList.toggle('is-filters-open');
+      const toggleBtn = form.querySelector('[data-customer-filters-toggle]');
+      if (toggleBtn instanceof HTMLElement) toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
   }
 </script>

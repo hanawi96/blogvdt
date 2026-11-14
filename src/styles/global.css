@@ -2353,6 +2353,52 @@
   @media (max-width: 36rem) {
     .feedback-admin-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.55rem;
+    }
+    .feedback-admin-head {
+      flex-direction: column;
+      gap: 0.35rem;
+      margin-bottom: 0.85rem;
+    }
+    .feedback-admin-title {
+      font-size: 1.2rem;
+    }
+    .feedback-admin-pin-meta {
+      margin: 0;
+      font-size: 0.8125rem;
+    }
+    .feedback-admin-drop {
+      margin-bottom: 0.9rem;
+      padding: 1rem 0.85rem;
+    }
+    .feedback-admin-card {
+      gap: 0.35rem;
+      padding: 0.35rem;
+    }
+    .feedback-admin-card-bar {
+      gap: 0.25rem;
+      min-height: 2.25rem;
+    }
+    .feedback-admin-card-bar.has-move {
+      grid-template-columns: 2.25rem minmax(0, 1fr) 2.25rem;
+    }
+    .feedback-admin-icon-btn,
+    .feedback-admin-icon-slot {
+      width: 2.25rem;
+      height: 2.25rem;
+    }
+    .feedback-admin-actions {
+      gap: 0.25rem;
+    }
+    .feedback-admin-actions .btn {
+      min-height: 2.25rem;
+      padding-inline: 0.35rem;
+      font-size: 0.75rem;
+    }
+    .feedback-admin-badge {
+      top: 0.3rem;
+      left: 0.3rem;
+      font-size: 0.68rem;
     }
   }
   .feedback-admin-card {
@@ -3167,6 +3213,69 @@
     flex-wrap: wrap;
     gap: 0.5rem;
   }
+  @media (max-width: 760px) {
+    .media-dropbar {
+      gap: 0.5rem;
+      padding: 0.85rem 0.9rem;
+    }
+    .media-dropbar-title {
+      font-size: 0.9375rem;
+      text-align: center;
+    }
+    .media-library-bar {
+      gap: 0.5rem;
+    }
+    .media-search {
+      flex: 1 1 100%;
+      min-width: 0;
+    }
+    .media-library-bar select.field {
+      flex: 1 1 calc(50% - 0.25rem);
+      min-width: 0;
+    }
+    .media-view-toggle {
+      flex: none;
+      margin-left: auto;
+    }
+    .media-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.5rem;
+    }
+    .media-tile {
+      padding: 0.3rem;
+    }
+    .media-tile img {
+      height: 7.5rem;
+    }
+    .media-tile .media-tile-name {
+      font-size: 0.75rem;
+    }
+    .media-pages {
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: center;
+    }
+    .media-pages-count {
+      flex: 1 1 100%;
+      text-align: center;
+      font-size: 0.75rem;
+    }
+    .media-page-num,
+    .media-page-arrow {
+      min-width: 2.25rem;
+      min-height: 2.25rem;
+    }
+    .media-page .media-preview {
+      padding: 0.75rem;
+    }
+    .media-page .media-preview img {
+      max-height: 11rem;
+    }
+    .media-delete-actions .btn {
+      flex: 1 1 auto;
+      min-height: 2.25rem;
+    }
+  }
   @media (min-width: 800px) {
     .media-shell {
       grid-template-columns: minmax(0, 1fr) minmax(20rem, 22.5rem);
@@ -3480,6 +3589,30 @@
     color: var(--color-muted);
     opacity: 0.6;
     cursor: not-allowed;
+  }
+  .category-list-main {
+    min-width: 0;
+  }
+  .category-list-slug {
+    margin: 0.15rem 0 0;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .category-list-edit {
+    font-weight: 600;
+  }
+  .category-list-toggle {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
   }
   .catalog-slug {
     display: flex;
@@ -6352,13 +6485,18 @@
     font-size: 0.8125rem;
     line-height: 1.4;
   }
-  .order-note-tag {
-    margin-right: 0.35rem;
-    color: var(--color-muted);
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
+  .order-line-note[data-tone='customer'] p {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+  .order-line-note .order-card-note-icon {
+    flex: none;
+    width: 0.95rem;
+    height: 0.95rem;
+    margin-top: 0.1rem;
+    color: color-mix(in oklab, var(--color-ink) 88%, var(--color-accent));
+    opacity: 0.85;
   }
   .order-profit-cell {
     display: grid;
@@ -6390,8 +6528,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.55rem;
-    height: 1.85rem;
+    width: 1.85rem;
+    height: 2.05rem;
     border: 0;
     border-radius: var(--radius-md);
     background: transparent;
@@ -6399,6 +6537,10 @@
     color: #fff;
     line-height: 0;
     cursor: pointer;
+  }
+  .order-priority-star svg {
+    width: 1.15rem;
+    height: 1.15rem;
   }
   .order-priority-star svg path {
     fill: #fff;
@@ -6427,14 +6569,18 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.55rem;
-    height: 1.85rem;
+    width: 1.85rem;
+    height: 2.05rem;
     border: 1px solid transparent;
     border-radius: var(--radius-md);
     background: transparent;
     color: var(--color-muted);
     cursor: pointer;
     text-decoration: none;
+  }
+  .order-icon-btn svg {
+    width: 1.1rem;
+    height: 1.1rem;
   }
   .order-icon-btn:hover {
     border-color: var(--color-line);
@@ -8716,10 +8862,14 @@
     gap: 0.75rem;
     margin-bottom: 1rem;
   }
-  .post-controls .post-toolbar {
+  .post-controls.post-toolbar {
+    max-width: none;
+  }
+  .post-controls .order-toolbar-primary > .field[name='q'],
+  .post-controls .order-toolbar-primary > input[name='q'] {
     flex: 1 1 16rem;
+    min-width: min(100%, 11rem);
     max-width: 28rem;
-    margin-bottom: 0;
   }
   .post-filters {
     display: flex;
@@ -8955,6 +9105,16 @@
   [data-order-results]:has(.bulk-bar:not([hidden])) {
     padding-bottom: 5rem;
   }
+  /* Thẻ tên: tone hồng (ưu tiên vàng thắng khi cùng lúc). */
+  .order-table tr[data-the-ten='1'] {
+    background: #fdf0f5;
+  }
+  .order-table tr[data-the-ten='1'] > td:first-child {
+    box-shadow: inset 3px 0 0 #e09ab8;
+  }
+  .order-table tr[data-the-ten='1']:has(input[name='ids']:checked) {
+    background: #f7dce8;
+  }
   .order-table tr[data-priority='1'] {
     background: #fff8e7;
   }
@@ -9031,6 +9191,11 @@
     background: #fbe3ee;
     color: #9d3762;
     font-weight: 600;
+  }
+  .order-tag-note-icon {
+    flex: none;
+    width: 0.85rem;
+    height: 0.85rem;
   }
   .order-day-chip.order-tag-note-chip:hover {
     border-color: #cf6693;
@@ -9380,6 +9545,7 @@
   [data-order-list][aria-busy='true'],
   [data-user-list][aria-busy='true'],
   [data-category-list][aria-busy='true'],
+  [data-product-category-list][aria-busy='true'],
   [data-customer-list][aria-busy='true'],
   [data-activity-list][aria-busy='true'] {
     opacity: 0.55;
@@ -9411,6 +9577,35 @@
     white-space: nowrap;
   }
   @media (max-width: 760px) {
+    /* Bài viết mobile: search + «Bộ lọc»; chip trạng thái thu gọn trong panel. */
+    .post-controls.order-toolbar {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.5rem;
+      margin-bottom: 0.85rem;
+    }
+    .post-controls .order-toolbar-primary {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .post-controls .order-toolbar-primary > .field[name='q'],
+    .post-controls .order-toolbar-primary > input[name='q'] {
+      max-width: none;
+      width: 100%;
+    }
+    .post-controls .order-filters-panel {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .post-controls .post-filters {
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      width: 100%;
+    }
+    .post-controls .post-filters a {
+      flex: none;
+      white-space: nowrap;
+      padding: 0.3rem 0.7rem;
+      font-size: 0.8125rem;
+    }
     .post-table thead {
       display: none;
     }
@@ -9431,21 +9626,6 @@
       border: 0;
       padding: 0.15rem 0;
     }
-    .product-table tr,
-    [data-post-list] .post-table tr {
-      position: relative;
-    }
-    .product-table td.product-check,
-    [data-post-list] .post-table td.product-check {
-      position: absolute;
-      top: 0.75rem;
-      right: 0.75rem;
-      width: auto;
-      padding: 0;
-    }
-    .product-table .product-main {
-      padding-right: 2rem;
-    }
     .bulk-bar {
       right: 0.75rem;
       bottom: 0.75rem;
@@ -9454,15 +9634,1283 @@
       max-width: none;
       transform: none;
     }
-    .product-table td[data-label]::before,
-    [data-post-list] td[data-label]::before,
-    [data-category-list] td[data-label]::before,
-    [data-customer-list] td[data-label]::before,
-    [data-tag-list] td[data-label]::before {
-      content: attr(data-label);
-      display: block;
+    /* Bài viết: card — tiêu đề, trạng thái+ngày, danh mục, meta, thao tác. */
+    [data-post-list] .post-library-table tr {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        'title title'
+        'status updated'
+        'category category'
+        'meta meta'
+        'ops ops';
+      gap: 0.45rem 0.65rem;
+      align-items: center;
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 2.5rem 0.85rem 0.9rem;
+    }
+    [data-post-list] .post-library-table td {
+      width: auto;
+      padding: 0;
+    }
+    [data-post-list] .post-library-table td.product-check {
+      position: absolute;
+      top: 0.85rem;
+      right: 0.75rem;
+      width: auto;
+      padding: 0;
+    }
+    [data-post-list] .post-library-table td[data-label]::before {
+      content: none;
+      display: none;
+    }
+    [data-post-list] .post-library-table .post-list-title {
+      grid-area: title;
+      min-width: 0;
+      padding-right: 0.25rem;
+    }
+    [data-post-list] .post-library-table .post-list-title .post-title {
+      display: -webkit-box;
+      overflow: hidden;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      font-size: 0.9375rem;
+      line-height: 1.35;
+    }
+    [data-post-list] .post-library-table .post-list-status {
+      grid-area: status;
+    }
+    [data-post-list] .post-library-table .post-list-status .post-status {
+      font-size: 0.8125rem;
+    }
+    [data-post-list] .post-library-table .post-list-updated {
+      grid-area: updated;
+      justify-self: end;
       color: var(--color-muted);
       font-size: 0.75rem;
+      white-space: nowrap;
+    }
+    [data-post-list] .post-library-table .post-list-category {
+      grid-area: category;
+      min-width: 0;
+    }
+    [data-post-list] .post-library-table .post-category {
+      width: 100%;
+      max-width: none;
+      min-height: 2.25rem;
+      font-size: 0.8125rem;
+    }
+    [data-post-list] .post-library-table .post-list-author {
+      grid-area: meta;
+      min-width: 0;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+      line-height: 1.4;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    [data-post-list] .post-library-table .post-list-author::before {
+      content: 'Tác giả ';
+      font-weight: 500;
+    }
+    [data-post-list] .post-library-table .post-list-in,
+    [data-post-list] .post-library-table .post-list-out {
+      display: none;
+    }
+    [data-post-list] .post-library-table .post-list-ops {
+      grid-area: ops;
+      padding-top: 0.35rem;
+      border-top: 1px solid var(--color-line);
+      margin-top: 0.1rem;
+    }
+    [data-post-list] .post-library-table .post-actions {
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      padding-top: 0.35rem;
+    }
+    [data-post-list] .post-library-table .post-actions-sep {
+      display: none;
+    }
+    [data-post-list] .post-library-table .category-list-edit,
+    [data-post-list] .post-library-table .post-list-view {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.25rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      padding: 0.3rem 0.7rem;
+      color: var(--color-ink);
+      font-size: 0.8125rem;
+      font-weight: 650;
+      line-height: 1;
+      text-decoration: none;
+    }
+    [data-post-list] .post-library-table .row-menu summary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 2.25rem;
+      min-height: 2.25rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      font-size: 1rem;
+      line-height: 1;
+    }
+    /* Thùng rác: tiêu đề, trạng thái+ngày xóa, người xóa, thao tác. */
+    [data-post-list] .post-trash-table tr {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        'title title'
+        'status updated'
+        'actor actor'
+        'ops ops';
+      gap: 0.45rem 0.65rem;
+      align-items: center;
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 2.5rem 0.85rem 0.9rem;
+    }
+    [data-post-list] .post-trash-table td {
+      width: auto;
+      padding: 0;
+    }
+    [data-post-list] .post-trash-table td.product-check {
+      position: absolute;
+      top: 0.85rem;
+      right: 0.75rem;
+      width: auto;
+      padding: 0;
+    }
+    [data-post-list] .post-trash-table .post-list-title {
+      grid-area: title;
+      min-width: 0;
+      padding-right: 0.25rem;
+    }
+    [data-post-list] .post-trash-table .post-list-title .post-title {
+      display: -webkit-box;
+      overflow: hidden;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      font-size: 0.9375rem;
+      line-height: 1.35;
+    }
+    [data-post-list] .post-trash-table .post-list-status {
+      grid-area: status;
+    }
+    [data-post-list] .post-trash-table .post-list-status .post-status {
+      font-size: 0.8125rem;
+    }
+    [data-post-list] .post-trash-table .post-list-updated {
+      grid-area: updated;
+      justify-self: end;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+    [data-post-list] .post-trash-table .post-list-actor {
+      grid-area: actor;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+    }
+    [data-post-list] .post-trash-table .post-list-actor::before {
+      content: 'Xóa bởi ';
+    }
+    [data-post-list] .post-trash-table .post-list-ops {
+      grid-area: ops;
+      padding-top: 0.35rem;
+      border-top: 1px solid var(--color-line);
+      margin-top: 0.1rem;
+    }
+    [data-post-list] .post-trash-table .post-actions {
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      padding-top: 0.35rem;
+    }
+    /* Sản phẩm: search cố định; lọc phụ thu gọn. */
+    .product-toolbar.order-toolbar .order-toolbar-primary {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .product-toolbar .order-filters-panel > .field[name='sort'],
+    .product-toolbar .order-filters-panel > select[name='sort'] {
+      grid-column: 1 / -1;
+    }
+    .product-presets {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 0.35rem;
+      margin-bottom: 0.65rem;
+      overflow-x: auto;
+      padding-bottom: 0.15rem;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+    .product-presets a {
+      flex: none;
+      white-space: nowrap;
+    }
+    /* Card sản phẩm gọn: ảnh+tên, giá/tồn/TT, danh mục+dây, thao tác. */
+    .product-table tr {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) auto auto;
+      grid-template-areas:
+        'main main main'
+        'price stock status'
+        'cat cord cord'
+        'ops ops ops';
+      gap: 0.4rem 0.65rem;
+      align-items: center;
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 0.9rem;
+    }
+    .product-table td {
+      width: auto;
+      padding: 0;
+    }
+    .product-table td[data-label]::before {
+      content: none;
+      display: none;
+    }
+    .product-table td.product-check {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      z-index: 1;
+      width: auto;
+      padding: 0;
+    }
+    .product-table .product-list-main {
+      grid-area: main;
+      min-width: 0;
+      padding-right: 1.75rem;
+    }
+    .product-table .product-main {
+      gap: 0.65rem;
+      padding-right: 0;
+    }
+    .product-table .product-thumb {
+      width: 3rem;
+      height: 3rem;
+    }
+    .product-table .product-main .post-title {
+      font-size: 0.9375rem;
+      line-height: 1.3;
+    }
+    .product-table .product-list-price {
+      grid-area: price;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      font-size: 0.875rem;
+      line-height: 1.3;
+    }
+    .product-table .product-list-price .product-compare {
+      display: inline;
+      margin-left: 0.35rem;
+    }
+    .product-table .product-list-stock {
+      grid-area: stock;
+      color: var(--color-muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .product-table .product-list-stock::before {
+      content: 'Tồn ';
+      font-weight: 500;
+    }
+    .product-table .product-list-status {
+      grid-area: status;
+      justify-self: end;
+    }
+    .product-table .product-list-status .post-status {
+      font-size: 0.8125rem;
+    }
+    .product-table .product-list-category {
+      grid-area: cat;
+      min-width: 0;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+      line-height: 1.35;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .product-table .product-list-cord {
+      grid-area: cord;
+      justify-self: end;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+    .product-table .product-list-ops {
+      grid-area: ops;
+      padding-top: 0.15rem;
+      border-top: 1px solid var(--color-line);
+      margin-top: 0.1rem;
+    }
+    .product-table .product-list-rating,
+    .product-table .product-list-cost,
+    .product-table .product-list-margin,
+    .product-table .product-list-updated {
+      display: none;
+    }
+    .product-table .product-row-actions {
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      padding-top: 0.45rem;
+    }
+    .product-table .post-actions-sep {
+      display: none;
+    }
+    .product-table .category-list-edit,
+    .product-table .product-list-view,
+    .product-table .category-delete {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.25rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      padding: 0.3rem 0.7rem;
+      font-size: 0.8125rem;
+      font-weight: 650;
+      line-height: 1;
+      text-decoration: none;
+    }
+    .product-table .category-list-edit,
+    .product-table .product-list-view {
+      color: var(--color-ink);
+    }
+    .product-table .category-delete {
+      color: var(--color-accent);
+    }
+    .product-table .product-feature-star {
+      width: 2.25rem;
+      height: 2.25rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+    }
+    /* Danh mục / thẻ: card gọn — tên/slug, meta + thao tác một hàng. */
+    [data-category-list] .post-table tr,
+    [data-tag-list] .post-table tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        'name name'
+        'count ops';
+      gap: 0.55rem 0.75rem;
+      align-items: center;
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 0.9rem;
+    }
+    [data-tag-list] .post-table tr {
+      grid-template-columns: auto auto minmax(0, 1fr) auto;
+      grid-template-areas:
+        'name name name name'
+        'count seo . ops';
+    }
+    [data-category-list] .post-table td,
+    [data-tag-list] .post-table td {
+      width: auto;
+      padding: 0;
+    }
+    [data-category-list] td[data-label]::before,
+    [data-tag-list] td[data-label]::before {
+      content: none;
+      display: none;
+    }
+    [data-category-list] .category-list-name,
+    [data-tag-list] .category-list-name {
+      grid-area: name;
+      min-width: 0;
+    }
+    [data-category-list] .category-list-main,
+    [data-tag-list] .category-list-main {
+      display: grid;
+      gap: 0.2rem;
+    }
+    [data-category-list] .category-list-main .post-title,
+    [data-tag-list] .category-list-main .post-title {
+      font-size: 0.9375rem;
+      line-height: 1.3;
+    }
+    [data-category-list] .category-list-slug,
+    [data-tag-list] .category-list-slug {
+      margin: 0;
+      font-size: 0.75rem;
+    }
+    [data-category-list] .category-list-count,
+    [data-tag-list] .category-list-count {
+      grid-area: count;
+      color: var(--color-muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    [data-tag-list] .category-list-seo {
+      grid-area: seo;
+    }
+    [data-category-list] .category-list-ops,
+    [data-tag-list] .category-list-ops {
+      grid-area: ops;
+      justify-self: end;
+    }
+    [data-category-list] .post-actions,
+    [data-tag-list] .post-actions {
+      gap: 0.4rem;
+    }
+    [data-category-list] .post-actions-sep,
+    [data-tag-list] .post-actions-sep {
+      display: none;
+    }
+    [data-category-list] .category-list-edit,
+    [data-category-list] .category-delete,
+    [data-tag-list] .category-list-edit,
+    [data-tag-list] .category-delete {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.25rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      padding: 0.3rem 0.75rem;
+      font-size: 0.8125rem;
+      font-weight: 650;
+      line-height: 1;
+      text-decoration: none;
+    }
+    [data-category-list] .category-list-edit,
+    [data-tag-list] .category-list-edit {
+      color: var(--color-ink);
+    }
+    [data-category-list] .category-delete,
+    [data-tag-list] .category-delete {
+      color: var(--color-accent);
+    }
+    /* Danh mục sản phẩm: ảnh+tên, số SP/trạng thái/thứ tự, thao tác. */
+    [data-product-category-list] .post-table tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-areas:
+        'name name order'
+        'count status status'
+        'ops ops ops';
+      gap: 0.45rem 0.65rem;
+      align-items: center;
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 0.9rem;
+    }
+    [data-product-category-list] .post-table td {
+      width: auto;
+      padding: 0;
+    }
+    [data-product-category-list] td[data-label]::before {
+      content: none;
+      display: none;
+    }
+    [data-product-category-list] .category-list-name {
+      grid-area: name;
+      min-width: 0;
+    }
+    [data-product-category-list] .user-cell {
+      gap: 0.65rem;
+    }
+    [data-product-category-list] .category-list-main {
+      display: grid;
+      gap: 0.15rem;
+      min-width: 0;
+    }
+    [data-product-category-list] .category-list-main .post-title {
+      font-size: 0.9375rem;
+      line-height: 1.3;
+    }
+    [data-product-category-list] .category-list-slug {
+      margin: 0;
+      font-size: 0.75rem;
+    }
+    [data-product-category-list] .category-cover {
+      width: 2.75rem;
+      height: 2.75rem;
+    }
+    [data-product-category-list] .category-list-count {
+      grid-area: count;
+      min-width: 0;
+    }
+    [data-product-category-list] .category-list-count .catalog-count {
+      font-size: 0.8125rem;
+    }
+    [data-product-category-list] .category-list-status {
+      grid-area: status;
+      justify-self: end;
+    }
+    [data-product-category-list] .category-list-status .post-status {
+      font-size: 0.8125rem;
+    }
+    [data-product-category-list] .category-list-order {
+      grid-area: order;
+      justify-self: end;
+      align-self: start;
+    }
+    [data-product-category-list] .category-order button {
+      width: 1.75rem;
+      height: 1.75rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+    }
+    [data-product-category-list] .category-list-ops {
+      grid-area: ops;
+      padding-top: 0.45rem;
+      border-top: 1px solid var(--color-line);
+    }
+    [data-product-category-list] .post-actions {
+      gap: 0.35rem;
+    }
+    [data-product-category-list] .post-actions-sep {
+      display: none;
+    }
+    [data-product-category-list] .category-list-toggle,
+    [data-product-category-list] .category-list-edit,
+    [data-product-category-list] .category-delete {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.25rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      padding: 0.3rem 0.7rem;
+      font-size: 0.8125rem;
+      font-weight: 650;
+      line-height: 1;
+      text-decoration: none;
+      color: var(--color-ink);
+      cursor: pointer;
+    }
+    [data-product-category-list] .category-delete {
+      color: var(--color-accent);
+    }
+    [data-product-category-list] .category-delete:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    /* Nguyên liệu: chip cuộn ngang; card tên/giá/số SP/thao tác. */
+    .material-chips {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 0.35rem;
+      margin: 0.5rem 0 0.85rem;
+      overflow-x: auto;
+      padding-bottom: 0.15rem;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+    .material-chips .chip {
+      flex: none;
+      white-space: nowrap;
+    }
+    .material-group + .material-group {
+      margin-top: 1.15rem;
+    }
+    .material-group-title {
+      font-size: 0.9375rem;
+      padding: 0.45rem 0.7rem;
+    }
+    .material-table {
+      table-layout: auto;
+    }
+    .material-table colgroup {
+      display: none;
+    }
+    .material-table tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        'name name'
+        'price used'
+        'ops ops';
+      gap: 0.4rem 0.65rem;
+      align-items: center;
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 0.9rem;
+    }
+    .material-table td {
+      width: auto;
+      padding: 0;
+      white-space: normal;
+    }
+    .material-table td[data-label]::before {
+      content: none;
+      display: none;
+    }
+    .material-table .material-list-name {
+      grid-area: name;
+      min-width: 0;
+    }
+    .material-table .material-list-name .post-title {
+      font-size: 0.9375rem;
+      line-height: 1.3;
+    }
+    .material-table .material-list-code {
+      margin: 0.2rem 0 0;
+      font-size: 0.75rem;
+    }
+    .material-table .material-off {
+      display: inline-block;
+      margin: 0.25rem 0 0;
+      vertical-align: middle;
+    }
+    .material-table .material-list-price {
+      grid-area: price;
+    }
+    .material-table .material-list-used {
+      grid-area: used;
+      justify-self: end;
+    }
+    .material-table .material-list-used .catalog-count {
+      font-size: 0.8125rem;
+    }
+    .material-table .material-list-updated {
+      display: none;
+    }
+    .material-table .material-list-ops {
+      grid-area: ops;
+      padding-top: 0.45rem;
+      border-top: 1px solid var(--color-line);
+    }
+    .material-table .post-actions {
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    .material-table .post-actions-sep {
+      display: none;
+    }
+    .material-table .category-list-edit,
+    .material-table .category-delete {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.25rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      padding: 0.3rem 0.7rem;
+      font-size: 0.8125rem;
+      font-weight: 650;
+      line-height: 1;
+      text-decoration: none;
+      color: var(--color-ink);
+    }
+    .material-table .category-delete {
+      color: var(--color-accent);
+    }
+    .material-table .category-delete:disabled {
+      opacity: 0.45;
+    }
+    .material-table .material-price-edit {
+      min-height: 2rem;
+      margin: 0;
+      padding: 0.25rem 0.45rem;
+    }
+    /* Chi phí đơn + quảng cáo: card gọn. */
+    .costs-table tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        'name name'
+        'kind status'
+        'amount ops';
+      gap: 0.35rem 0.65rem;
+      align-items: center;
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 0.9rem;
+    }
+    .costs-table td {
+      width: auto;
+      padding: 0;
+    }
+    .costs-table td[data-label]::before {
+      content: none;
+      display: none;
+    }
+    .costs-table .cost-list-name {
+      grid-area: name;
+      min-width: 0;
+    }
+    .costs-table .cost-list-name .post-title {
+      font-size: 0.9375rem;
+      line-height: 1.3;
+    }
+    .costs-table .cost-list-kind {
+      grid-area: kind;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+      line-height: 1.35;
+    }
+    .costs-table .cost-list-status {
+      grid-area: status;
+      justify-self: end;
+      font-size: 0.8125rem;
+      font-weight: 600;
+    }
+    .costs-table .cost-list-amount {
+      grid-area: amount;
+    }
+    .costs-table .cost-list-ops {
+      grid-area: ops;
+      justify-self: end;
+    }
+    .costs-table .post-actions {
+      gap: 0.35rem;
+    }
+    .costs-table .post-actions-sep {
+      display: none;
+    }
+    .costs-table .category-list-edit,
+    .costs-table .category-delete,
+    .ads-table .category-delete {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.25rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      padding: 0.3rem 0.7rem;
+      font-size: 0.8125rem;
+      font-weight: 650;
+      line-height: 1;
+      color: var(--color-ink);
+      cursor: pointer;
+    }
+    .costs-table .category-delete,
+    .ads-table .category-delete {
+      color: var(--color-accent);
+    }
+    .ads-table tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        'day amount'
+        'kind ops';
+      gap: 0.35rem 0.65rem;
+      align-items: center;
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 0.9rem;
+    }
+    .ads-table td {
+      width: auto;
+      padding: 0;
+    }
+    .ads-table td[data-label]::before {
+      content: none;
+      display: none;
+    }
+    .ads-table .ad-list-day {
+      grid-area: day;
+      font-weight: 650;
+      font-variant-numeric: tabular-nums;
+    }
+    .ads-table .ad-list-kind {
+      grid-area: kind;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+      line-height: 1.35;
+    }
+    .ads-table .ad-list-amount {
+      grid-area: amount;
+      justify-self: end;
+    }
+    .ads-table .ad-list-ops {
+      grid-area: ops;
+      justify-self: end;
+    }
+    .ads-spend-form {
+      display: grid !important;
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+      align-items: stretch;
+    }
+    .ads-spend-form > label,
+    .ads-spend-form > .btn {
+      width: 100%;
+    }
+    .ads-spend-form .field {
+      width: 100%;
+      max-width: none;
+    }
+    /* Mã giảm giá: card mã/mức/dùng/TT/thời hạn/thao tác. */
+    .discount-window {
+      grid-template-columns: 1fr;
+    }
+    [data-discount-list] .post-table tr,
+    .discount-table tr {
+      display: grid;
+      grid-template-columns: auto auto minmax(0, 1fr);
+      grid-template-areas:
+        'code code code'
+        'value used status'
+        'window window window'
+        'ops ops ops';
+      gap: 0.35rem 0.55rem;
+      align-items: center;
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 0.9rem;
+    }
+    .discount-table td {
+      width: auto;
+      padding: 0;
+    }
+    .discount-table td[data-label]::before {
+      content: none;
+      display: none;
+    }
+    .discount-table .discount-list-code {
+      grid-area: code;
+      min-width: 0;
+    }
+    .discount-table .discount-list-code .post-title {
+      font-size: 0.9375rem;
+      letter-spacing: 0.02em;
+      line-height: 1.3;
+    }
+    .discount-table .discount-list-note {
+      margin: 0.2rem 0 0;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+      line-height: 1.35;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .discount-table .discount-list-value {
+      grid-area: value;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      font-size: 0.875rem;
+    }
+    .discount-table .discount-list-used {
+      grid-area: used;
+      color: var(--color-muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .discount-table .discount-list-status {
+      grid-area: status;
+      justify-self: end;
+    }
+    .discount-table .discount-list-status .post-status {
+      font-size: 0.8125rem;
+    }
+    .discount-table .discount-list-window {
+      grid-area: window;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+      line-height: 1.35;
+    }
+    .discount-table .discount-list-min {
+      display: none;
+    }
+    .discount-table .discount-list-ops {
+      grid-area: ops;
+      padding-top: 0.45rem;
+      border-top: 1px solid var(--color-line);
+    }
+    .discount-table .post-actions {
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    .discount-table .post-actions-sep {
+      display: none;
+    }
+    .discount-table .category-list-edit,
+    .discount-table .category-list-toggle,
+    .discount-table .category-delete {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.25rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      padding: 0.3rem 0.7rem;
+      font-size: 0.8125rem;
+      font-weight: 650;
+      line-height: 1;
+      text-decoration: none;
+      color: var(--color-ink);
+      cursor: pointer;
+    }
+    .discount-table .category-delete {
+      color: var(--color-accent);
+    }
+    /* Khách hàng: card tên/SĐT · địa chỉ · đơn/chi tiêu · xem đơn. */
+    [data-customer-search].product-toolbar .order-toolbar-primary {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    [data-customer-search] .order-filters-panel > .field,
+    [data-customer-search] .order-filters-panel > select.field {
+      grid-column: 1 / -1;
+    }
+    .customer-table tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        'who who'
+        'address address'
+        'orders spent'
+        'last ops';
+      gap: 0.35rem 0.65rem;
+      align-items: center;
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 0.9rem;
+    }
+    .customer-table td {
+      width: auto;
+      padding: 0;
+    }
+    .customer-table td[data-label]::before {
+      content: none;
+      display: none;
+    }
+    .customer-table .customer-list-who {
+      grid-area: who;
+      min-width: 0;
+    }
+    .customer-table .customer-list-main {
+      min-width: 0;
+    }
+    .customer-table .customer-list-main .post-title {
+      margin: 0;
+      font-size: 0.9375rem;
+      line-height: 1.3;
+    }
+    .customer-table .customer-list-phone {
+      display: inline-block;
+      margin-top: 0.15rem;
+      color: var(--color-muted);
+      font-size: 0.8125rem;
+      text-decoration: none;
+    }
+    .customer-table .customer-list-address {
+      grid-area: address;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+      line-height: 1.35;
+    }
+    .customer-table .customer-list-address .line-clamp-2 {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 1;
+      overflow: hidden;
+      max-width: none;
+    }
+    .customer-table .customer-list-orders {
+      grid-area: orders;
+      color: var(--color-muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+    }
+    .customer-table .customer-list-spent {
+      grid-area: spent;
+      justify-self: end;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      font-size: 0.875rem;
+    }
+    .customer-table .customer-list-last {
+      grid-area: last;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+    }
+    .customer-table .customer-list-ops {
+      grid-area: ops;
+      justify-self: end;
+    }
+    .customer-table .category-list-edit {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.25rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      padding: 0.3rem 0.7rem;
+      font-size: 0.8125rem;
+      font-weight: 650;
+      line-height: 1;
+      text-decoration: none;
+      color: var(--color-ink);
+    }
+    /* Người dùng: search cố định; vai trò/TT thu gọn; card gọn. */
+    [data-user-search].product-toolbar .order-toolbar-primary {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .user-table tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        'who who'
+        'role status'
+        'login ops';
+      gap: 0.35rem 0.65rem;
+      align-items: center;
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 0.9rem;
+    }
+    .user-table td {
+      width: auto;
+      padding: 0;
+    }
+    .user-table td[data-label]::before {
+      content: none;
+      display: none;
+    }
+    .user-table .user-list-who {
+      grid-area: who;
+      min-width: 0;
+    }
+    .user-table .user-list-main {
+      min-width: 0;
+    }
+    .user-table .user-list-main .post-title {
+      font-size: 0.9375rem;
+      line-height: 1.3;
+    }
+    .user-table .user-list-email {
+      margin: 0.15rem 0 0;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+      line-height: 1.35;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .user-table .user-list-role {
+      grid-area: role;
+      font-size: 0.8125rem;
+    }
+    .user-table .user-list-status {
+      grid-area: status;
+      justify-self: end;
+    }
+    .user-table .user-list-status .post-status {
+      font-size: 0.8125rem;
+    }
+    .user-table .user-list-login {
+      grid-area: login;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+    }
+    .user-table .user-list-ops {
+      grid-area: ops;
+      justify-self: end;
+    }
+    .user-table .category-list-edit {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.25rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      padding: 0.3rem 0.7rem;
+      font-size: 0.8125rem;
+      font-weight: 650;
+      line-height: 1;
+      text-decoration: none;
+      color: var(--color-ink);
+    }
+    /* Redirect: card URL · trạng thái · thao tác. */
+    [data-redirect-list] .redirect-table tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        'url url'
+        'status ops';
+      gap: 0.4rem 0.65rem;
+      align-items: center;
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 0.9rem;
+    }
+    [data-redirect-list] .redirect-table td {
+      width: auto;
+      padding: 0;
+    }
+    [data-redirect-list] .redirect-table td[data-label]::before {
+      content: none;
+      display: none;
+    }
+    [data-redirect-list] .redirect-list-url {
+      grid-area: url;
+      min-width: 0;
+    }
+    [data-redirect-list] .redirect-list-from {
+      margin: 0;
+      font-size: 0.875rem;
+      font-weight: 650;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    [data-redirect-list] .redirect-list-to {
+      margin: 0.2rem 0 0;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    [data-redirect-list] .redirect-list-status {
+      grid-area: status;
+    }
+    [data-redirect-list] .redirect-list-status .post-status {
+      font-size: 0.8125rem;
+    }
+    [data-redirect-list] .redirect-list-ops {
+      grid-area: ops;
+      justify-self: end;
+    }
+    [data-redirect-list] .redirect-list-actions {
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    [data-redirect-list] .category-list-edit,
+    [data-redirect-list] .category-list-toggle,
+    [data-redirect-list] .category-delete {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.25rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      padding: 0.3rem 0.7rem;
+      font-size: 0.8125rem;
+      font-weight: 650;
+      line-height: 1;
+      text-decoration: none;
+      color: var(--color-ink);
+      cursor: pointer;
+    }
+    [data-redirect-list] .category-delete {
+      color: var(--color-accent);
+    }
+    /* SEO health: lọc xếp dọc; card lỗi; code chip 1 cột. */
+    .health-code-grid {
+      grid-template-columns: 1fr;
+    }
+    .seo-filter-toolbar {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+    }
+    .seo-filter-toolbar .field,
+    .seo-filter-toolbar select.field {
+      width: 100%;
+      max-width: none;
+      min-width: 0;
+      flex: none;
+    }
+    .seo-filter-toolbar .field[name='post'],
+    .seo-filter-toolbar select[name='post'] {
+      grid-column: 1 / -1;
+    }
+    .seo-filter-toolbar .btn {
+      min-height: 2.25rem;
+    }
+    .seo-filter-actions {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .seo-filter-actions .btn {
+      flex: 1 1 auto;
+    }
+    .health-table tr {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-areas:
+        'post post'
+        'level code'
+        'detail detail'
+        'fix fix';
+      gap: 0.35rem 0.55rem;
+      align-items: start;
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 0.9rem;
+    }
+    .health-table td {
+      width: auto;
+      padding: 0;
+    }
+    .health-table td[data-label]::before {
+      content: none;
+      display: none;
+    }
+    .health-table .health-list-post {
+      grid-area: post;
+      min-width: 0;
+      font-size: 0.9375rem;
+      line-height: 1.3;
+    }
+    .health-table .health-list-level {
+      grid-area: level;
+      font-size: 0.8125rem;
+      font-weight: 700;
+    }
+    .health-table .health-list-level[data-kind='error'] {
+      color: var(--color-accent);
+    }
+    .health-table .health-list-level[data-kind='warning'] {
+      color: color-mix(in oklab, var(--color-accent) 70%, var(--color-ink));
+    }
+    .seo-run-actions {
+      width: 100%;
+    }
+    .seo-run-actions .btn {
+      width: 100%;
+      justify-content: center;
+    }
+    .health-table .health-list-code {
+      grid-area: code;
+      justify-self: end;
+      color: var(--color-muted);
+      font-size: 0.75rem;
+      text-align: right;
+    }
+    .health-table .health-list-detail {
+      grid-area: detail;
+      color: var(--color-muted);
+      font-size: 0.8125rem;
+      line-height: 1.4;
+    }
+    .health-table .health-list-fix {
+      grid-area: fix;
+      justify-self: end;
+    }
+    .health-table .health-list-fix .category-list-edit {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.25rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      padding: 0.3rem 0.7rem;
+      font-size: 0.8125rem;
+      font-weight: 650;
+      text-decoration: none;
+      color: var(--color-ink);
     }
     .order-stats {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -9540,20 +10988,27 @@
     }
     .order-table tr.order-row {
       display: grid;
-      grid-template-columns: auto 1fr;
+      grid-template-columns: minmax(0, 1fr);
       grid-template-areas:
-        'check main'
-        'foot foot'
-        'note note';
+        'main'
+        'foot'
+        'note';
       gap: 0.35rem 0.55rem;
       margin-bottom: 0;
       border: 0;
       border-bottom: 1px solid var(--color-line);
       border-radius: 0;
-      padding: 0.85rem 0.5rem 0.85rem 0.65rem;
+      padding: 0.85rem 0.65rem;
       background: var(--color-surface);
     }
-    /* Ưu tiên: tô cả card + vạch trái (không chỉ cột checkbox). */
+    /* Thẻ tên / ưu tiên: tô cả card + vạch trái. */
+    .order-table tr.order-row[data-the-ten='1'] {
+      background: #fdf0f5;
+      box-shadow: inset 3px 0 0 #e09ab8;
+    }
+    .order-table tr.order-row[data-the-ten='1']:has(input[name='ids']:checked) {
+      background: #f7dce8;
+    }
     .order-table tr.order-row[data-priority='1'] {
       background: #fff8e7;
       box-shadow: inset 3px 0 0 #eab308;
@@ -9562,7 +11017,8 @@
       background: var(--color-surface);
       box-shadow: none;
     }
-    .order-table tr.order-row[data-priority='1'] > td:first-child {
+    .order-table tr.order-row[data-priority='1'] > td:first-child,
+    .order-table tr.order-row[data-the-ten='1'] > td:first-child {
       box-shadow: none;
     }
     .order-table tr.order-row[data-priority='1']:has(input[name='ids']:checked) {
@@ -9575,14 +11031,12 @@
       content: none;
       display: none;
     }
+    /* Mobile: ẩn checkbox chọn đơn — thao tác hàng loạt dùng trên desktop. */
     .order-table .order-col-check {
-      grid-area: check;
-      align-self: start;
-      padding-top: 0.15rem;
-      width: auto;
-    }
-    .order-table .order-col-check .order-stt {
       display: none;
+    }
+    .order-bulk-bar {
+      display: none !important;
     }
     .order-table .order-col-customer {
       grid-area: main;
@@ -9616,12 +11070,21 @@
     .order-table .order-row-actions .is-view {
       display: none;
     }
+    .order-table .order-customer-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.2rem;
+      max-width: none;
+      min-width: 0;
+    }
     .order-table .order-card-top {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
       gap: 0.65rem;
-      margin-bottom: 0.25rem;
+      margin: 0;
+      width: 100%;
     }
     .order-table .order-card-who {
       display: flex;
@@ -9630,16 +11093,9 @@
       gap: 0.3rem;
       min-width: 0;
     }
+    /* Ưu tiên đã tô card — ẩn chấm để tên/SĐT/SP cùng mép trái. */
     .order-table .order-priority-dot {
-      display: inline-block;
-      width: 0.45rem;
-      height: 0.45rem;
-      flex: none;
-      border-radius: 999px;
-      background: transparent;
-    }
-    .order-table .order-priority-dot[data-on='true'] {
-      background: #d97706;
+      display: none;
     }
     .order-table .order-card-money {
       display: grid;
@@ -9659,9 +11115,12 @@
       white-space: nowrap;
     }
     .order-table .order-customer-line {
-      display: inline-flex;
+      display: flex;
       align-items: center;
       gap: 0.25rem;
+      margin: 0;
+      padding: 0;
+      width: 100%;
       color: var(--color-muted);
       font-size: 0.875rem;
     }
@@ -9674,7 +11133,9 @@
     }
     .order-table .order-card-product {
       display: block;
-      margin: 0.15rem 0 0;
+      margin: 0;
+      padding: 0;
+      width: 100%;
       color: var(--color-muted);
       font-size: 0.8125rem;
       line-height: 1.35;
@@ -9768,6 +11229,47 @@
   }
   .settings-status:empty {
     display: none;
+  }
+  @media (max-width: 760px) {
+    .settings-lead {
+      margin-bottom: 0.75rem;
+      font-size: 0.875rem;
+    }
+    .settings-tabs {
+      flex-wrap: nowrap;
+      gap: 0.4rem;
+      margin-bottom: 0.85rem;
+      overflow-x: auto;
+      padding-bottom: 0.2rem;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+    .settings-tabs button {
+      flex: none;
+      min-height: 2.25rem;
+      padding: 0.35rem 0.75rem;
+      font-size: 0.8125rem;
+      white-space: nowrap;
+    }
+    .settings-panel {
+      max-width: none;
+    }
+    .settings-save {
+      position: sticky;
+      bottom: 0;
+      z-index: 5;
+      margin-top: 1rem;
+      margin-inline: -0.15rem;
+      border-top: 1px solid var(--color-line);
+      background: color-mix(in oklab, var(--color-surface) 92%, transparent);
+      padding: 0.75rem 0.15rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+      backdrop-filter: blur(8px);
+    }
+    .settings-save .btn {
+      flex: 1 1 auto;
+      min-height: 2.5rem;
+      justify-content: center;
+    }
   }
   @media (min-width: 960px) {
     .post-columns {
@@ -10879,7 +12381,9 @@ body.site-nav-lock {
   .site-search-all {
     margin-top: 0.55rem;
   }
-  .health-overview {
+}
+/* health + cms-empty: dùng mọi kích thước (trước đây lỡ nằm trong media desktop). */
+.health-overview {
     display: grid;
     gap: 0.75rem;
     grid-template-columns: 1fr;
@@ -11059,140 +12563,6 @@ body.site-nav-lock {
       grid-template-columns: repeat(4, minmax(0, 1fr));
     }
   }
-  .landing-field-label {
-    display: block;
-    margin-bottom: 0.25rem;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--color-muted);
-  }
-  .landing-hint {
-    color: var(--color-muted);
-    font-size: 0.8125rem;
-  }
-  .landing-form-grid {
-    display: grid;
-    gap: 1.25rem;
-    grid-template-columns: 1fr;
-  }
-  .landing-form-main {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    min-width: 0;
-  }
-  .landing-form-side {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  .landing-side-card {
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-md);
-    background: var(--color-surface);
-    padding: 1rem;
-  }
-  .landing-tracking > summary {
-    cursor: pointer;
-    list-style: revert;
-  }
-  .landing-blocks-wrap {
-    margin-top: 0.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .landing-editor {
-    display: flex;
-    flex-direction: column;
-    gap: 0.85rem;
-  }
-  .landing-block {
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-md);
-    background: var(--color-surface);
-    padding: 0.9rem 1rem;
-  }
-  .landing-block-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-  }
-  .landing-block-kind {
-    font-weight: 700;
-    color: var(--color-primary-strong);
-  }
-  .landing-block-tools {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-  }
-  .landing-block-tools .btn {
-    min-height: 2rem;
-    padding: 0.2rem 0.6rem;
-  }
-  .landing-cta-row {
-    display: grid;
-    gap: 0.6rem;
-    grid-template-columns: 1fr;
-  }
-  .landing-hero-image img {
-    max-height: 9rem;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--color-line);
-  }
-  .landing-hero-image {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .landing-benefit {
-    display: grid;
-    gap: 0.4rem;
-    grid-template-columns: 1fr;
-    align-items: start;
-    border-left: 3px solid color-mix(in oklab, var(--color-primary) 40%, var(--color-line));
-    padding-left: 0.65rem;
-  }
-  .landing-product-pick {
-    display: grid;
-    gap: 0.4rem;
-    grid-template-columns: 1fr;
-    max-height: 16rem;
-    overflow: auto;
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-md);
-    padding: 0.6rem;
-  }
-  .landing-product-option {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .landing-product-price {
-    margin-left: auto;
-    color: var(--color-muted);
-    font-size: 0.8125rem;
-  }
-  .landing-add {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-    border: 1px dashed var(--color-line);
-    border-radius: var(--radius-md);
-    padding: 0.75rem;
-  }
-  .landing-form-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    margin-top: 1.25rem;
-  }
   .cms-empty {
     display: flex;
     flex-direction: column;
@@ -11255,196 +12625,41 @@ body.site-nav-lock {
     border-radius: 999px;
     background: var(--color-primary);
   }
-  .cms-empty .btn {
-    margin-top: 1.5rem;
-  }
-  .landing-page {
-    margin: 0 auto;
-    max-width: 48rem;
-    padding: 0 1rem 3rem;
-  }
-  .landing-preview-flag {
-    margin: 1rem 0 0;
-    border-radius: var(--radius-md);
-    background: color-mix(in oklab, var(--color-accent) 12%, var(--color-surface));
-    padding: 0.5rem 0.85rem;
-    color: color-mix(in oklab, var(--color-accent) 75%, var(--color-ink));
-    font-size: 0.875rem;
-    font-weight: 600;
-  }
-  .lp-section {
-    margin-top: 2.5rem;
-  }
-  .lp-section-title {
-    font-size: 1.6rem;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-  }
-  .lp-hero {
-    position: relative;
-    margin-top: 1.5rem;
-    border-radius: var(--radius-lg);
-    background: color-mix(in oklab, var(--color-primary) 10%, var(--color-surface));
-    padding: 2.5rem 1.5rem;
-    text-align: center;
-    overflow: hidden;
-  }
-  .lp-hero-bg {
-    position: absolute;
-    inset: 0;
+.cms-empty .btn {
+  margin-top: 1.5rem;
+}
+@media (max-width: 760px) {
+  .cms-empty {
     width: 100%;
-    height: 100%;
-    object-fit: cover;
-    opacity: 0.22;
-  }
-  .lp-hero-inner {
-    position: relative;
-    display: flex;
-    flex-direction: column;
+    max-width: 22.5rem;
+    margin: 1.25rem auto 0.5rem;
+    padding: 1.5rem 0.75rem 1.75rem;
     align-items: center;
-    gap: 0.75rem;
-  }
-  .lp-eyebrow {
-    font-size: 0.8125rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--color-primary-strong);
-  }
-  .lp-hero-title {
-    font-size: 2.1rem;
-    font-weight: 800;
-    line-height: 1.15;
-    letter-spacing: -0.02em;
-    text-wrap: balance;
-  }
-  .lp-hero-subtitle {
-    max-width: 34rem;
-    color: var(--color-muted);
-    font-size: 1.05rem;
-  }
-  .lp-hero-cta {
-    margin-top: 0.5rem;
-  }
-  .lp-text-body {
-    margin-top: 0.75rem;
-    white-space: pre-line;
-    line-height: 1.7;
-  }
-  .lp-image {
-    margin: 2.5rem 0 0;
-  }
-  .lp-image img {
-    width: 100%;
-    height: auto;
-    border-radius: var(--radius-lg);
-  }
-  .lp-image-caption {
-    margin-top: 0.5rem;
     text-align: center;
-    color: var(--color-muted);
-    font-size: 0.875rem;
   }
-  .lp-benefits {
-    display: grid;
-    gap: 0.85rem;
-    grid-template-columns: 1fr;
-    margin-top: 1rem;
-    padding: 0;
-    list-style: none;
+  .cms-empty-icon {
+    width: 4rem;
+    height: 4rem;
   }
-  .lp-benefit {
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-md);
-    background: var(--color-surface);
-    padding: 1rem 1.1rem;
+  .cms-empty-title {
+    margin-top: 0.9rem;
+    font-size: 1.2rem;
+    line-height: 1.3;
   }
-  .lp-benefit-title {
-    font-weight: 700;
-  }
-  .lp-benefit-desc {
-    margin-top: 0.25rem;
-    color: var(--color-muted);
+  .cms-empty-text {
+    margin-top: 0.5rem;
     font-size: 0.9375rem;
   }
-  .lp-products {
-    display: grid;
-    gap: 1rem;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin-top: 1rem;
-    padding: 0;
-    list-style: none;
+  .cms-empty-points {
+    margin-top: 0.95rem;
+    margin-inline: auto;
+    max-width: 20rem;
   }
-  .lp-product-card {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-md);
-    background: var(--color-surface);
-    padding: 0.75rem;
+  .cms-empty-points li {
+    font-size: 0.875rem;
   }
-  .lp-product-img {
-    width: 100%;
-    aspect-ratio: 1 / 1;
-    object-fit: cover;
-    border-radius: var(--radius-sm);
-  }
-  .lp-product-img-empty {
-    background: color-mix(in oklab, var(--color-line) 60%, var(--color-surface));
-  }
-  .lp-product-name {
-    font-weight: 600;
-  }
-  .lp-product-price {
-    color: var(--color-primary-strong);
-    font-weight: 700;
-  }
-  .lp-product-pick {
-    margin-top: 0.35rem;
-  }
-  .lp-cta {
-    border-radius: var(--radius-lg);
-    background: color-mix(in oklab, var(--color-accent) 10%, var(--color-surface));
-    padding: 2rem 1.5rem;
-    text-align: center;
-  }
-  .lp-cta-subtitle {
-    margin: 0.5rem 0 1rem;
-    color: var(--color-muted);
-  }
-  .lp-order {
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-lg);
-    background: var(--color-surface);
-    padding: 1.25rem;
-  }
-  .lp-order-form {
-    margin-top: 1rem;
-  }
-  @media (min-width: 640px) {
-    .lp-hero-title {
-      font-size: 2.6rem;
-    }
-    .lp-benefits {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .lp-products {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-  }
-  @media (min-width: 768px) {
-    .landing-form-grid {
-      grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
-      align-items: start;
-    }
-    .landing-cta-row {
-      grid-template-columns: 1fr 1fr;
-    }
-    .landing-benefit {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
-      align-items: center;
-    }
+  .cms-empty .btn {
+    margin-top: 1.25rem;
   }
 }
 @media (min-width: 64rem) {

@@ -169,48 +169,57 @@ function codeLabel(code: number): string {
         rows.length === 0 ? (
           <p class="text-muted">{query ? 'Không có chuyển hướng khớp.' : 'Chưa có chuyển hướng.'}</p>
         ) : (
-          <table class="post-table redirect-table">
-            <thead>
-              <tr>
-                <th>URL</th>
-                <th>Trạng thái</th>
-                <th>Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr class:list={[editingId === String(row.id) && 'is-current']}>
-                  <td>
-                    <p class="font-semibold">{row.fromPath}</p>
-                    <p class="text-sm text-muted">{row.statusCode === 410 ? '410, không có đích' : `${codeLabel(row.statusCode)} → ${row.toPath}`}</p>
-                  </td>
-                  <td data-label="Trạng thái">
-                    <span class="post-status" data-status={row.enabled === 1 ? 'active' : 'inactive'}>
-                      {row.enabled === 1 ? 'Đang bật' : 'Đang tắt'}
-                    </span>
-                  </td>
-                  <td data-label="Thao tác">
-                    <div class="flex flex-wrap gap-2">
-                      <a class="btn" href={`${routes.adminRedirects}?edit=${row.id}${query ? `&q=${encodeURIComponent(query)}` : ''}`}>Sửa</a>
-                      <form method="post" data-busy>
-                        <input type="hidden" name="csrf" value={session.csrfToken} />
-                        <input type="hidden" name="intent" value="toggle" />
-                        <input type="hidden" name="id" value={row.id} />
-                        <input type="hidden" name="enabled" value={row.enabled === 1 ? '0' : '1'} />
-                        <button class="btn" type="submit">{row.enabled === 1 ? 'Tắt' : 'Bật'}</button>
-                      </form>
-                      <form method="post" data-busy onsubmit="return confirm('Xóa chuyển hướng này?')">
-                        <input type="hidden" name="csrf" value={session.csrfToken} />
-                        <input type="hidden" name="intent" value="delete" />
-                        <input type="hidden" name="id" value={row.id} />
-                        <button class="btn btn-accent" type="submit">Xóa</button>
-                      </form>
-                    </div>
-                  </td>
+          <div data-redirect-list>
+            <table class="post-table redirect-table">
+              <thead>
+                <tr>
+                  <th>URL</th>
+                  <th>Trạng thái</th>
+                  <th>Thao tác</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr class:list={[editingId === String(row.id) && 'is-current']}>
+                    <td class="redirect-list-url">
+                      <p class="redirect-list-from">{row.fromPath}</p>
+                      <p class="redirect-list-to">{row.statusCode === 410 ? '410, không có đích' : `${codeLabel(row.statusCode)} → ${row.toPath}`}</p>
+                    </td>
+                    <td class="redirect-list-status" data-label="Trạng thái">
+                      <span class="post-status" data-status={row.enabled === 1 ? 'active' : 'inactive'}>
+                        {row.enabled === 1 ? 'Đang bật' : 'Đang tắt'}
+                      </span>
+                    </td>
+                    <td class="redirect-list-ops" data-label="Thao tác">
+                      <div class="post-actions redirect-list-actions">
+                        <a class="category-list-edit" href={`${routes.adminRedirects}?edit=${row.id}${query ? `&q=${encodeURIComponent(query)}` : ''}`}>Sửa</a>
+                        <form method="post" data-busy>
+                          <input type="hidden" name="csrf" value={session.csrfToken} />
+                          <input type="hidden" name="intent" value="toggle" />
+                          <input type="hidden" name="id" value={row.id} />
+                          <input type="hidden" name="enabled" value={row.enabled === 1 ? '0' : '1'} />
+                          <button class="category-list-toggle" type="submit">{row.enabled === 1 ? 'Tắt' : 'Bật'}</button>
+                        </form>
+                        <form
+                          method="post"
+                          data-busy
+                          data-confirm-title="Xóa chuyển hướng này?"
+                          data-confirm="URL nguồn sẽ không còn chuyển hướng. Thao tác không hoàn tác."
+                          data-confirm-ok="Xóa"
+                          data-confirm-tone="danger"
+                        >
+                          <input type="hidden" name="csrf" value={session.csrfToken} />
+                          <input type="hidden" name="intent" value="delete" />
+                          <input type="hidden" name="id" value={row.id} />
+                          <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )
       }
     </section>

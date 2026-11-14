@@ -31,7 +31,7 @@ interface Props {
   preloadImage?: string | null;
   /** Bỏ header/footer — dùng trong iframe xem trước CMS. */
   embed?: boolean;
-  /** Cấu hình theo dõi quảng cáo (đã hợp nhất landing + site). Mặc định rỗng = không nhúng gì. */
+  /** Cấu hình theo dõi quảng cáo (đã hợp nhất trang + site). Mặc định rỗng = không nhúng gì. */
   tracking?: Tracking;
   /** Sự kiện cần bắn ngay khi tải: 'view' (xem trang), 'lead' hoặc 'purchase' (gửi đơn thành công). */
   trackEvent?: TrackingEvent | null;
@@ -66,7 +66,7 @@ const {
 } = Astro.props;
 const showChrome = Boolean(chrome) && !embed;
 // Mặc định dùng mã theo dõi chung của site (chrome.tracking) để mọi trang công khai tự có PageView;
-// trang nào cần ghi đè (ví dụ landing) thì truyền prop tracking riêng.
+// trang nào cần ghi đè thì truyền prop tracking riêng.
 const activeTracking = tracking ?? chrome?.tracking ?? EMPTY_TRACKING;
 // Không bắn mã theo dõi khi xem trước trong CMS (embed).
 const trackingSnippets = buildTrackingSnippets(embed ? EMPTY_TRACKING : activeTracking, embed ? null : trackEvent, embed ? null : trackPayload);

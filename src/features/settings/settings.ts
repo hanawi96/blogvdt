@@ -130,7 +130,7 @@ const settingsFields = z.object({
   og_media_id: z.string().trim().max(20),
   default_seo_title: z.string().trim().max(180, 'SEO title quá dài.'),
   default_seo_description: z.string().trim().max(300, 'Mô tả SEO quá dài.'),
-  // Định dạng chi tiết do trackingErrors kiểm (một nguồn chung với landing); zod chỉ chặn độ dài.
+  // Định dạng chi tiết do trackingErrors kiểm; zod chỉ chặn độ dài.
   meta_pixel_id: z.string().trim().max(40),
   ga_measurement_id: z.string().trim().max(40),
   google_ads_id: z.string().trim().max(40),

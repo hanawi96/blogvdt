@@ -1,6 +1,6 @@
 // Hình thức thanh toán khách chọn khi đặt hàng. Website không thu tiền; đây chỉ là thông tin cho xưởng.
 export const PAYMENT_METHODS = [
-  { value: 'cod', label: 'Thanh toán khi nhận hàng', hint: '' },
+  { value: 'cod', label: 'COD', hint: '' },
   { value: 'bank', label: 'Chuyển khoản ngân hàng', hint: 'Xưởng sẽ gửi thông tin tài khoản khi gọi xác nhận đơn.' },
 ] as const;
 

@@ -153,16 +153,18 @@ const bannerError = slugError || nameError ? '' : formError;
               <tbody>
                 {categories.map((category) => (
                   <tr class:list={[editingId === String(category.id) && 'is-current']}>
-                    <td data-label="Danh mục">
-                      <div class="min-w-0">
+                    <td class="category-list-name" data-label="Danh mục">
+                      <div class="category-list-main">
                         <a class="post-title" href={`${routes.adminCategories}?edit=${category.id}`}>{category.name}</a>
-                        <p class="truncate text-sm text-muted">{routes.knowledgeCategory(category.slug)}</p>
+                        <p class="category-list-slug">{routes.knowledgeCategory(category.slug)}</p>
                       </div>
                     </td>
-                    <td data-label="Số bài">{category.postCount === 0 ? 'Chưa có bài' : category.postCount === 1 ? '1 bài' : `${category.postCount} bài`}</td>
-                    <td data-label="Thao tác">
+                    <td class="category-list-count" data-label="Số bài">
+                      {category.postCount === 0 ? 'Chưa có bài' : category.postCount === 1 ? '1 bài' : `${category.postCount} bài`}
+                    </td>
+                    <td class="category-list-ops" data-label="Thao tác">
                       <div class="post-actions">
-                        <a href={`${routes.adminCategories}?edit=${category.id}`}>Sửa</a>
+                        <a class="category-list-edit" href={`${routes.adminCategories}?edit=${category.id}`}>Sửa</a>
                         <span class="post-actions-sep" aria-hidden="true">|</span>
                         <form
                           method="post"

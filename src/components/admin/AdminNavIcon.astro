@@ -17,7 +17,6 @@ interface Props {
     | 'media'
     | 'seo'
     | 'redirects'
-    | 'landing'
     | 'users'
     | 'activity'
     | 'settings';
@@ -201,15 +200,6 @@ const { name } = Astro.props;
         stroke-linecap="round"
         stroke-linejoin="round"
       ></path>
-    )
-  }
-  {
-    name === 'landing' && (
-      <>
-        <rect x="4.5" y="4" width="15" height="16" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.7"></rect>
-        <path d="M7.5 8h9M7.5 11h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"></path>
-        <rect x="7.5" y="14" width="6" height="3" rx="1" fill="none" stroke="currentColor" stroke-width="1.7"></rect>
-      </>
     )
   }
   {

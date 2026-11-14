@@ -202,21 +202,23 @@ const bannerError = slugError || nameError ? '' : formError;
               <tbody>
                 {tagRows.map((tag) => (
                   <tr class:list={[editingId === String(tag.id) && 'is-current']}>
-                    <td data-label="Thẻ">
-                      <div class="min-w-0">
+                    <td class="category-list-name" data-label="Thẻ">
+                      <div class="category-list-main">
                         <a class="post-title" href={`${routes.adminTags}?edit=${tag.id}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}`}>{tag.name}</a>
-                        <p class="truncate text-sm text-muted">{routes.tag(tag.slug)}</p>
+                        <p class="category-list-slug">{routes.tag(tag.slug)}</p>
                       </div>
                     </td>
-                    <td data-label="Số bài">{tag.postCount === 0 ? 'Chưa có bài' : tag.postCount === 1 ? '1 bài' : `${tag.postCount} bài`}</td>
-                    <td data-label="SEO">
+                    <td class="category-list-count" data-label="Số bài">
+                      {tag.postCount === 0 ? 'Chưa có bài' : tag.postCount === 1 ? '1 bài' : `${tag.postCount} bài`}
+                    </td>
+                    <td class="category-list-seo" data-label="SEO">
                       <span class:list={['tag-seo', tag.robots === 'index' ? 'is-index' : 'is-noindex']}>
                         {tag.robots === 'index' ? 'Index' : 'Noindex'}
                       </span>
                     </td>
-                    <td data-label="Thao tác">
+                    <td class="category-list-ops" data-label="Thao tác">
                       <div class="post-actions">
-                        <a href={`${routes.adminTags}?edit=${tag.id}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}`}>Sửa</a>
+                        <a class="category-list-edit" href={`${routes.adminTags}?edit=${tag.id}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}`}>Sửa</a>
                         <span class="post-actions-sep" aria-hidden="true">|</span>
                         <form
                           method="post"

@@ -99,7 +99,7 @@ export function hasTracking(tracking: Tracking): boolean {
   return TRACKING_KEYS.some((key) => tracking[key] !== '');
 }
 
-/** Hợp nhất: ưu tiên cấu hình riêng (landing), trống thì lấy cấu hình chung (site). */
+/** Hợp nhất: ưu tiên cấu hình riêng trang, trống thì lấy cấu hình chung (site). */
 export function mergeTracking(primary: Tracking, fallback: Tracking): Tracking {
   const merged: Tracking = { ...EMPTY_TRACKING };
   for (const key of TRACKING_KEYS) merged[key] = primary[key] || fallback[key];

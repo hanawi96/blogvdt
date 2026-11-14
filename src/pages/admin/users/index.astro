@@ -66,6 +66,7 @@ const filters: UserListFilters = {
   status: isAdminStatus(statusParam) ? statusParam : '',
   page: Number(Astro.url.searchParams.get('page') ?? '1'),
 };
+const advancedFiltersActive = Boolean(filters.role || filters.status);
 let loadError = '';
 let result: Awaited<ReturnType<typeof listUsers>> | null = null;
 try {
@@ -102,22 +103,41 @@ function pageHref(page: number): string {
   {
     result && (
       <>
-        <form class="post-toolbar" method="get" data-user-search>
-          <label class="sr-only" for="user-query">Tìm người dùng</label>
-          <input id="user-query" class="field" name="q" value={filters.query} placeholder="Tên hoặc email" maxlength="80" />
-          <label class="sr-only" for="user-role">Vai trò</label>
-          <select id="user-role" class="field" name="role">
-            <option value="" selected={filters.role === ''}>Mọi vai trò</option>
-            <option value="admin" selected={filters.role === 'admin'}>Quản trị</option>
-            <option value="editor" selected={filters.role === 'editor'}>Biên tập</option>
-          </select>
-          <label class="sr-only" for="user-status">Trạng thái</label>
-          <select id="user-status" class="field" name="status">
-            <option value="" selected={filters.status === ''}>Mọi trạng thái</option>
-            <option value="active" selected={filters.status === 'active'}>Đang hoạt động</option>
-            <option value="invited" selected={filters.status === 'invited'}>Chưa đặt mật khẩu</option>
-            <option value="disabled" selected={filters.status === 'disabled'}>Đã khóa</option>
-          </select>
+        <form
+          class:list={['post-toolbar', 'product-toolbar', 'order-toolbar', advancedFiltersActive && 'is-filters-open']}
+          method="get"
+          data-user-search
+        >
+          <div class="order-toolbar-primary">
+            <label class="sr-only" for="user-query">Tìm người dùng</label>
+            <input id="user-query" class="field" name="q" value={filters.query} placeholder="Tên hoặc email" maxlength="80" />
+            <button
+              class="field order-filters-toggle"
+              type="button"
+              data-user-filters-toggle
+              aria-expanded={advancedFiltersActive ? 'true' : 'false'}
+              aria-controls="user-filters-panel"
+              data-active={advancedFiltersActive ? 'true' : undefined}
+            >
+              Bộ lọc
+              <span class="order-filters-dot" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div class="order-filters-panel" id="user-filters-panel" data-user-filters-panel>
+            <label class="sr-only" for="user-role">Vai trò</label>
+            <select id="user-role" class="field" name="role">
+              <option value="" selected={filters.role === ''}>Mọi vai trò</option>
+              <option value="admin" selected={filters.role === 'admin'}>Quản trị</option>
+              <option value="editor" selected={filters.role === 'editor'}>Biên tập</option>
+            </select>
+            <label class="sr-only" for="user-status">Trạng thái</label>
+            <select id="user-status" class="field" name="status">
+              <option value="" selected={filters.status === ''}>Mọi trạng thái</option>
+              <option value="active" selected={filters.status === 'active'}>Đang hoạt động</option>
+              <option value="invited" selected={filters.status === 'invited'}>Chưa đặt mật khẩu</option>
+              <option value="disabled" selected={filters.status === 'disabled'}>Đã khóa</option>
+            </select>
+          </div>
         </form>
         <div data-user-list>
           {result.rows.length === 0 ? (
@@ -125,7 +145,7 @@ function pageHref(page: number): string {
               {result.libraryTotal === 0 ? 'Chưa có tài khoản.' : 'Không có tài khoản khớp bộ lọc.'}
             </p>
           ) : (
-            <table class="post-table">
+            <table class="post-table user-table">
               <thead>
                 <tr>
                   <th>Người dùng</th>
@@ -138,25 +158,27 @@ function pageHref(page: number): string {
               <tbody>
                 {result.rows.map((user) => (
                   <tr>
-                    <td data-label="Người dùng">
+                    <td class="user-list-who" data-label="Người dùng">
                       <div class="user-cell">
                         {user.avatarUrl ? (
                           <img class="user-avatar" src={user.avatarUrl} alt="" width="40" height="40" />
                         ) : (
                           <span class="user-avatar" aria-hidden="true">{userInitials(user.displayName || user.username)}</span>
                         )}
-                        <div class="min-w-0">
+                        <div class="user-list-main">
                           <a class="post-title" href={routes.adminUser(user.id)}>{user.displayName || user.username}</a>
-                          <p class="truncate text-sm text-muted">{user.email || user.username}</p>
+                          <p class="user-list-email">{user.email || user.username}</p>
                         </div>
                       </div>
                     </td>
-                    <td data-label="Vai trò"><span class="user-role" data-role={user.role}>{ROLE_LABELS[user.role]}</span></td>
-                    <td data-label="Trạng thái">
+                    <td class="user-list-role" data-label="Vai trò"><span class="user-role" data-role={user.role}>{ROLE_LABELS[user.role]}</span></td>
+                    <td class="user-list-status" data-label="Trạng thái">
                       <span class="post-status" data-status={user.status}>{STATUS_LABELS[user.status]}</span>
                     </td>
-                    <td data-label="Đăng nhập cuối">{user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'Chưa đăng nhập'}</td>
-                    <td data-label="Thao tác"><a class="font-semibold underline" href={routes.adminUser(user.id)}>Sửa</a></td>
+                    <td class="user-list-login" data-label="Đăng nhập cuối">{user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'Chưa đăng nhập'}</td>
+                    <td class="user-list-ops" data-label="Thao tác">
+                      <a class="category-list-edit" href={routes.adminUser(user.id)}>Sửa</a>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -263,6 +285,11 @@ function pageHref(page: number): string {
       event.preventDefault();
       window.clearTimeout(timer);
       go();
+    });
+    form.querySelector('[data-user-filters-toggle]')?.addEventListener('click', () => {
+      const open = form.classList.toggle('is-filters-open');
+      const toggleBtn = form.querySelector('[data-user-filters-toggle]');
+      if (toggleBtn instanceof HTMLElement) toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
   }
 

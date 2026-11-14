@@ -7,8 +7,6 @@ export const routes = {
   adminPostsBulk: '/admin/posts/bulk',
   adminPostNew: '/admin/posts/new',
   adminPostPreview: '/admin/posts/preview',
-  adminLandings: '/admin/landings',
-  adminLandingNew: '/admin/landings/new',
   adminCategories: '/admin/categories',
   adminTags: '/admin/tags',
   adminProductCategories: '/admin/product-categories',
@@ -38,8 +36,6 @@ export const routes = {
   adminActivate: '/admin/activate',
   adminPost: (id: number) => `/admin/posts/${id}`,
   adminPostDelete: (id: number) => `/admin/posts/${id}/delete`,
-  adminLanding: (id: number) => `/admin/landings/${id}`,
-  adminLandingDelete: (id: number) => `/admin/landings/${id}/delete`,
   adminPostRestore: (id: number) => `/admin/posts/${id}/restore`,
   adminPostPurge: (id: number) => `/admin/posts/${id}/purge`,
   adminPostCopy: (id: number) => `/admin/posts/${id}/copy`,
@@ -74,5 +70,4 @@ export const routes = {
   product: (slug: string) => `/san-pham/${slug}`,
   checkout: '/dat-hang',
   checkoutSuccess: '/dat-hang/thanh-cong',
-  landing: (slug: string) => `/lp/${slug}`,
 };

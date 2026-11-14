@@ -107,7 +107,7 @@ export type OrderDraft = {
   landingSlug: string | null;
 };
 
-// Nguồn landing đi kèm đơn để đo chuyển đổi. Chỉ nhận slug hợp lệ, không bắt buộc còn tồn tại.
+// Nguồn chiến dịch (query ?landing=) đi kèm đơn để đo chuyển đổi. Chỉ nhận slug hợp lệ.
 export function readLandingSlug(value: string): string | null {
   const slug = value.trim().slice(0, 180);
   return slug && SLUG_PATTERN.test(slug) ? slug : null;
@@ -208,7 +208,7 @@ export function parseOrderSubmission(
     errors.quantity = `Số lượng là số nguyên từ 1 đến ${ORDER_MAX_QUANTITY}.`;
   }
   if (!product) errors.productSlug = 'Chọn sản phẩm đang bán.';
-  // Form không gửi hình thức (landing...) thì mặc định thanh toán khi nhận hàng; giá trị lạ bị từ chối.
+  // Form không gửi hình thức thì mặc định thanh toán khi nhận hàng; giá trị lạ bị từ chối.
   const paymentRaw = (input.paymentMethod ?? '').trim();
   if (paymentRaw && !isPaymentMethod(paymentRaw)) errors.paymentMethod = 'Chọn hình thức thanh toán.';
   const paymentMethod = isPaymentMethod(paymentRaw) ? paymentRaw : DEFAULT_PAYMENT_METHOD;

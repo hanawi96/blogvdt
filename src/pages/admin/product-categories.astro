@@ -181,12 +181,12 @@ function productCountLabel(count: number): string {
     <label class="sr-only" for="category-query">Tìm danh mục</label>
     <input id="category-query" class="field" name="q" value={query} placeholder="Tên hoặc slug" maxlength="80" />
   </form>
-  <div data-category-list>
+  <div data-product-category-list>
     {
       categories.length === 0 ? (
         searching ? <p class="post-empty">Không có danh mục khớp.</p> : null
       ) : (
-        <table class="post-table">
+        <table class="post-table product-category-table">
           <thead>
             <tr>
               <th>Danh mục</th>
@@ -202,14 +202,14 @@ function productCountLabel(count: number): string {
               const nextStatus = active ? 'inactive' : 'active';
               return (
               <tr>
-                <td data-label="Danh mục">
+                <td class="category-list-name" data-label="Danh mục">
                   <div class="user-cell">
                     <span class="category-cover">
                       {category.coverKey && <img src={routes.media(category.coverKey)} alt="" width="40" height="40" loading="lazy" />}
                     </span>
-                    <div class="min-w-0">
+                    <div class="category-list-main">
                       <a class="post-title" href={listHref(undefined, category.id)} data-category-edit={category.id}>{category.name}</a>
-                      <p class="catalog-slug">
+                      <p class="catalog-slug category-list-slug">
                         <span class="truncate">{category.slug}</span>
                         <button type="button" class="catalog-copy" data-copy-slug={category.slug} aria-label={`Sao chép slug ${category.slug}`}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -221,17 +221,17 @@ function productCountLabel(count: number): string {
                     </div>
                   </div>
                 </td>
-                <td data-label="Sản phẩm">
+                <td class="category-list-count" data-label="Sản phẩm">
                   <a class:list={['catalog-count', category.productCount === 0 && 'is-empty']} href={productAdminQuery({ category: category.id })}>
                     {productCountLabel(category.productCount)}
                   </a>
                 </td>
-                <td data-label="Trạng thái">
+                <td class="category-list-status" data-label="Trạng thái">
                   <span class="post-status" data-status={active ? 'active' : 'inactive'}>
                     {PRODUCT_CATEGORY_STATUS_LABELS[active ? 'active' : 'inactive']}
                   </span>
                 </td>
-                <td data-label="Thứ tự">
+                <td class="category-list-order" data-label="Thứ tự">
                   <div class="category-order">
                     <form method="post" data-busy>
                       <input type="hidden" name="csrf" value={session.csrfToken} />
@@ -254,7 +254,7 @@ function productCountLabel(count: number): string {
                     </form>
                   </div>
                 </td>
-                <td data-label="Thao tác">
+                <td class="category-list-ops" data-label="Thao tác">
                   <div class="post-actions">
                     <form
                       method="post"
@@ -272,10 +272,10 @@ function productCountLabel(count: number): string {
                       <input type="hidden" name="intent" value="status" />
                       <input type="hidden" name="status" value={nextStatus} />
                       <input type="hidden" name="id" value={category.id} />
-                      <button type="submit" data-keep-label="true">{active ? 'Tắt' : 'Bật'}</button>
+                      <button class="category-list-toggle" type="submit" data-keep-label="true">{active ? 'Tắt' : 'Bật'}</button>
                     </form>
                     <span class="post-actions-sep" aria-hidden="true">|</span>
-                    <a href={listHref(undefined, category.id)} data-category-edit={category.id}>Sửa</a>
+                    <a class="category-list-edit" href={listHref(undefined, category.id)} data-category-edit={category.id}>Sửa</a>
                     <span class="post-actions-sep" aria-hidden="true">|</span>
                     {category.productCount > 0 ? (
                       <button class="category-delete" type="button" disabled title="Danh mục đang có sản phẩm, chưa xóa được.">Xóa</button>
@@ -368,7 +368,7 @@ function productCountLabel(count: number): string {
   }
 
   const form = document.querySelector('[data-category-search]');
-  const list = document.querySelector('[data-category-list]');
+  const list = document.querySelector('[data-product-category-list]');
   if (form instanceof HTMLFormElement) {
     const input = form.querySelector('input[name="q"]');
     let timer = 0;

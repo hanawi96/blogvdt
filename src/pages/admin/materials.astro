@@ -414,12 +414,12 @@ function pageHref(next: number): string {
                   <tbody>
                     {section.rows.map((row) => (
                       <tr data-material-row={row.id}>
-                        <td>
+                        <td class="material-list-name">
                           <a class="post-title" href={`${routes.adminMaterials}?edit=${row.id}`} data-material-edit={row.id}>{row.name}</a>
                           {!row.active && <span class="material-off">Ngừng dùng</span>}
-                          <p class="catalog-slug"><span class="truncate">{row.code}</span></p>
+                          <p class="catalog-slug material-list-code"><span class="truncate">{row.code}</span></p>
                         </td>
-                        <td data-label="Đơn giá">
+                        <td class="material-list-price" data-label="Đơn giá">
                           <button
                             type="button"
                             class="material-price material-price-edit"
@@ -430,13 +430,13 @@ function pageHref(next: number): string {
                             {formatVnd(row.unitCost)}
                           </button>
                         </td>
-                        <td data-label="Số sản phẩm">
+                        <td class="material-list-used" data-label="Số sản phẩm">
                           <span class="catalog-count" class:list={[{ 'is-empty': row.usedBy === 0 }]}>{row.usedBy} sản phẩm</span>
                         </td>
-                        <td data-label="Cập nhật">{formatDateTime(row.updatedAt)}</td>
-                        <td data-label="Thao tác">
+                        <td class="material-list-updated" data-label="Cập nhật">{formatDateTime(row.updatedAt)}</td>
+                        <td class="material-list-ops" data-label="Thao tác">
                           <div class="post-actions">
-                            <a href={`${routes.adminMaterials}?edit=${row.id}`} data-material-edit={row.id}>Sửa</a>
+                            <a class="category-list-edit" href={`${routes.adminMaterials}?edit=${row.id}`} data-material-edit={row.id}>Sửa</a>
                             <span class="post-actions-sep" aria-hidden="true">|</span>
                             {row.usedBy > 0 ? (
                               <button class="category-delete" type="button" disabled title="Đang có sản phẩm dùng, chưa xóa được.">Xóa</button>
@@ -914,6 +914,7 @@ function pageHref(next: number): string {
       const tr = document.createElement('tr');
       tr.dataset.materialRow = String(material.id);
       const nameTd = document.createElement('td');
+      nameTd.className = 'material-list-name';
       const link = document.createElement('a');
       link.className = 'post-title';
       link.href = `${location.pathname}?edit=${material.id}`;
@@ -927,7 +928,7 @@ function pageHref(next: number): string {
         nameTd.append(off);
       }
       const slug = document.createElement('p');
-      slug.className = 'catalog-slug';
+      slug.className = 'catalog-slug material-list-code';
       const code = document.createElement('span');
       code.className = 'truncate';
       code.textContent = material.code;
@@ -935,10 +936,12 @@ function pageHref(next: number): string {
       nameTd.append(slug);
 
       const priceTd = document.createElement('td');
+      priceTd.className = 'material-list-price';
       priceTd.dataset.label = 'Đơn giá';
       priceTd.append(priceEditButton(material.unitCost));
 
       const usedTd = document.createElement('td');
+      usedTd.className = 'material-list-used';
       usedTd.dataset.label = 'Số sản phẩm';
       const usedBadge = document.createElement('span');
       usedBadge.className = material.usedBy === 0 ? 'catalog-count is-empty' : 'catalog-count';
@@ -946,14 +949,17 @@ function pageHref(next: number): string {
       usedTd.append(usedBadge);
 
       const timeTd = document.createElement('td');
+      timeTd.className = 'material-list-updated';
       timeTd.dataset.label = 'Cập nhật';
       timeTd.textContent = when.format(new Date(material.updatedAt));
 
       const actionsTd = document.createElement('td');
+      actionsTd.className = 'material-list-ops';
       actionsTd.dataset.label = 'Thao tác';
       const actions = document.createElement('div');
       actions.className = 'post-actions';
       const edit = document.createElement('a');
+      edit.className = 'category-list-edit';
       edit.href = `${location.pathname}?edit=${material.id}`;
       edit.dataset.materialEdit = String(material.id);
       edit.textContent = 'Sửa';

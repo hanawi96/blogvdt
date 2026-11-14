@@ -37,9 +37,6 @@ export const ACTIVITY_ACTIONS = [
   'redirect.create',
   'redirect.update',
   'redirect.delete',
-  'landing.create',
-  'landing.update',
-  'landing.delete',
   'order.delete',
   'order.export_spx',
   'order.export_download',
@@ -95,9 +92,6 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'redirect.create': 'Tạo chuyển hướng',
   'redirect.update': 'Sửa chuyển hướng',
   'redirect.delete': 'Xóa chuyển hướng',
-  'landing.create': 'Tạo trang đích',
-  'landing.update': 'Sửa trang đích',
-  'landing.delete': 'Xóa trang đích',
   'order.delete': 'Xóa đơn hàng',
   'order.export_spx': 'Export đơn SPX',
   'order.export_download': 'Tải file export SPX',
@@ -122,7 +116,7 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'ad_spend.delete': 'Xóa chi phí quảng cáo',
 };
 
-export type ActivityObject = 'post' | 'category' | 'tag' | 'product_category' | 'user' | 'media' | 'settings' | 'redirect' | 'landing' | 'order' | 'material' | 'material_group' | 'order_cost' | 'ad_spend' | 'product' | 'discount';
+export type ActivityObject = 'post' | 'category' | 'tag' | 'product_category' | 'user' | 'media' | 'settings' | 'redirect' | 'order' | 'material' | 'material_group' | 'order_cost' | 'ad_spend' | 'product' | 'discount';
 
 export type ActivityActor = { id: number; name: string };
 

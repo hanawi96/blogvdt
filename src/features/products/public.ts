@@ -6,53 +6,6 @@ import { listingMediaKey } from '../media/files';
 import { isPubliclySellable, sellableProductWhere } from './status';
 import { readWeightScale } from './weight';
 
-export type LandingProduct = {
-  id: number;
-  slug: string;
-  name: string;
-  price: number;
-  coverUrl: string | null;
-  coverAlt: string;
-};
-
-// Sản phẩm cho lưới landing: nếu ids rỗng -> toàn bộ sản phẩm đang bán theo thứ tự sắp xếp;
-// nếu có ids -> giữ đúng thứ tự người bán đã chọn. Kèm ảnh cover và lựa chọn để đặt hàng ngay.
-export async function listLandingProducts(db: AppDb, ids: number[]): Promise<LandingProduct[]> {
-  const rows = await db
-    .select({
-      id: products.id,
-      slug: products.slug,
-      name: products.name,
-      price: products.price,
-      sortOrder: products.sortOrder,
-      coverKey: media.r2Key,
-      cardKey: media.cardR2Key,
-      coverAlt: media.altText,
-    })
-    .from(products)
-    .leftJoin(media, eq(products.coverMediaId, media.id))
-    .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
-    .where(ids.length > 0 ? and(sellableProductWhere(), inArray(products.id, ids)) : sellableProductWhere())
-    .orderBy(asc(products.sortOrder), asc(products.id));
-  const mapped = rows.map((row) => {
-    const listKey = listingMediaKey(row.coverKey, row.cardKey);
-    return {
-      id: row.id,
-      slug: row.slug,
-      name: row.name,
-      price: row.price,
-      coverUrl: listKey ? routes.media(listKey) : null,
-      coverAlt: row.coverAlt ?? '',
-    };
-  });
-  if (ids.length === 0) return mapped;
-  const byId = new Map(mapped.map((item) => [item.id, item]));
-  return ids.flatMap((id) => {
-    const item = byId.get(id);
-    return item ? [item] : [];
-  });
-}
-
 export async function getPublicProduct(db: AppDb, slug: string) {
   const rows = await db
     .select({

@@ -56,18 +56,18 @@ describe('trackingErrors', () => {
 });
 
 describe('mergeTracking', () => {
-  it('landing ghi đè site theo từng field', () => {
+  it('cấu hình trang ghi đè site theo từng field', () => {
     const site = make({ metaPixelId: '111111111', gaMeasurementId: 'G-SITE11' });
-    const landing = make({ metaPixelId: '222222222' });
-    const merged = mergeTracking(landing, site);
-    expect(merged.metaPixelId).toBe('222222222'); // landing thắng
+    const page = make({ metaPixelId: '222222222' });
+    const merged = mergeTracking(page, site);
+    expect(merged.metaPixelId).toBe('222222222'); // trang thắng
     expect(merged.gaMeasurementId).toBe('G-SITE11'); // trống thì lấy site
   });
 
   it('cặp Google Ads ID + label đi cùng nguồn', () => {
     const site = make({ googleAdsId: 'AW-111111', googleAdsLabel: 'siteLabel' });
-    const landing = make({ googleAdsId: 'AW-222222', googleAdsLabel: 'landLabel' });
-    expect(mergeTracking(landing, site).googleAdsLabel).toBe('landLabel');
+    const page = make({ googleAdsId: 'AW-222222', googleAdsLabel: 'pageLabel' });
+    expect(mergeTracking(page, site).googleAdsLabel).toBe('pageLabel');
     expect(mergeTracking(make(), site).googleAdsLabel).toBe('siteLabel');
   });
 });
