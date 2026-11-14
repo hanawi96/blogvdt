@@ -7,9 +7,11 @@ import ProductStory from '../../components/public/ProductStory.astro';
 import QtyStepper from '../../components/public/QtyStepper.astro';
 import { CART_MAX_QUANTITY } from '../../features/cart/cart';
 import { getPublicProduct } from '../../features/products/public';
+import { isPubliclySellable } from '../../features/products/status';
 import { requiresWeight, weightChips, weightExtras, weightOptionLabel } from '../../features/products/weight';
 import { getPublicSite } from '../../features/settings/settings';
 import { productShipBadge } from '../../features/shipping/customer-fee';
+import { productViewPayload } from '../../features/tracking/tracking';
 import PublicLayout from '../../layouts/PublicLayout.astro';
 import { redirectHttpResponse } from '../../features/redirects/http';
 import { resolvePublicRedirect } from '../../features/redirects/lookup';
@@ -22,7 +24,7 @@ import { routes } from '../../lib/routes';
 const slug = Astro.params.slug ?? '';
 const loaded = await loadProduct();
 if (loaded.http) return loaded.http;
-const visible = loaded.product?.status === 'active' ? loaded.product : null;
+const visible = loaded.product && isPubliclySellable(loaded.product) ? loaded.product : null;
 if (!visible) {
   Astro.response.status = loaded.site ? 404 : 503;
   Astro.response.headers.set('Cache-Control', 'no-store');
@@ -81,7 +83,7 @@ async function loadProduct() {
     const site = await getPublicSite(db);
     if (!site) return { site: null, failed: false, product: null, http: null };
     const product = await getPublicProduct(db, slug);
-    if (product?.status !== 'active') {
+    if (product && !isPubliclySellable(product)) {
       const outcome = await resolvePublicRedirect(db, routes.product(slug));
       if (outcome) return { site, failed: false, product: null, http: redirectHttpResponse(outcome) };
     }
@@ -106,6 +108,8 @@ async function loadProduct() {
   jsonLd={jsonLdBlocks}
   faviconUrl={loaded.site?.faviconUrl || '/favicon.svg'}
   chrome={loaded.site}
+  trackEvent={visible ? 'view' : null}
+  trackPayload={visible ? productViewPayload({ slug: visible.slug, name: visible.name, price: visible.price }) : null}
 >
   {
     !loaded.site ? (
@@ -162,6 +166,7 @@ async function loadProduct() {
           <form id="cart-add-form" method="post" action={routes.cart} data-cart-form data-cart-from="order">
             <input type="hidden" name="intent" value="add" />
             <input type="hidden" name="slug" value={visible.slug} />
+            <input type="hidden" name="product_name" value={visible.name} />
             <input type="hidden" name="weight" value="" />
             <input type="hidden" name="quantity" value="1" />
             <input type="hidden" name="price" value={visible.price} />
@@ -187,6 +192,7 @@ async function loadProduct() {
               <p class="font-semibold text-primary-strong" data-add-price>{formatVnd(visible.price)}</p>
               <input type="hidden" name="intent" value="add" />
               <input type="hidden" name="slug" value={visible.slug} />
+              <input type="hidden" name="product_name" value={visible.name} />
               <input type="hidden" name="price" value={visible.price} />
               <fieldset class="mt-3" data-weight-field data-base-price={visible.price}>
                 <legend class="text-sm font-semibold">Cân nặng của bé</legend>

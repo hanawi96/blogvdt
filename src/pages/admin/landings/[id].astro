@@ -6,7 +6,7 @@ import { activityActor } from '../../../features/activity/log';
 import { mutationError } from '../../../features/auth/session';
 import { getLanding, parseLandingForm, updateLanding } from '../../../features/landings/landings';
 import { parseTrackingJson } from '../../../features/tracking/tracking';
-import { listMedia } from '../../../features/media/media';
+import { listMediaByIds } from '../../../features/media/media';
 import { listOrderCatalog } from '../../../features/products/public';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
@@ -51,7 +51,7 @@ if (current && Astro.request.method === 'POST') {
   }
 }
 
-const [media, catalog] = current ? await Promise.all([listMedia(db), listOrderCatalog(db)]) : [[], []];
+const catalog = current ? await listOrderCatalog(db) : [];
 const products = catalog.map((item) => ({ id: item.id, name: item.name, price: item.price }));
 
 const values = current
@@ -67,6 +67,7 @@ const values = current
       tracking: parseTrackingJson(current.trackingJson),
     }
   : null;
+const media = values ? await listMediaByIds(db, [values.ogMediaId]) : [];
 const publicUrl = current ? routes.landing(current.slug) : '';
 ---
 

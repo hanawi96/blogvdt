@@ -4,6 +4,7 @@ import type { AppDb } from '../../lib/db/client';
 import { media, productCategories, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { SLUG_PATTERN, slugify } from '../posts/slug';
+import { isProductStatus, PRODUCT_CATEGORY_STATUS_LABELS, type ProductStatus } from './status';
 import { isWeightScale, type WeightScale } from './weight';
 
 export type CategoryOrderRow = { id: number; sortOrder: number };
@@ -78,6 +79,7 @@ export async function listProductCategories(db: AppDb, query = '') {
       coverAlt: media.altText,
       sortOrder: productCategories.sortOrder,
       weightScale: productCategories.weightScale,
+      status: productCategories.status,
       productCount: count(products.id),
     })
     .from(productCategories)
@@ -94,6 +96,7 @@ export async function listProductCategories(db: AppDb, query = '') {
       media.altText,
       productCategories.sortOrder,
       productCategories.weightScale,
+      productCategories.status,
     )
     .orderBy(asc(productCategories.sortOrder), asc(productCategories.name), asc(productCategories.id));
 }
@@ -107,7 +110,10 @@ export async function listSellableProductCategories(db: AppDb) {
       sortOrder: productCategories.sortOrder,
     })
     .from(productCategories)
-    .innerJoin(products, and(eq(products.categoryId, productCategories.id), eq(products.status, 'active')))
+    .innerJoin(
+      products,
+      and(eq(products.categoryId, productCategories.id), eq(products.status, 'active'), eq(productCategories.status, 'active')),
+    )
     .groupBy(productCategories.id, productCategories.name, productCategories.slug, productCategories.sortOrder)
     .orderBy(asc(productCategories.sortOrder), asc(productCategories.name), asc(productCategories.id));
 }
@@ -125,7 +131,10 @@ export async function listHomeCatalogCategories(db: AppDb) {
       coverAlt: media.altText,
     })
     .from(productCategories)
-    .innerJoin(products, and(eq(products.categoryId, productCategories.id), eq(products.status, 'active')))
+    .innerJoin(
+      products,
+      and(eq(products.categoryId, productCategories.id), eq(products.status, 'active'), eq(productCategories.status, 'active')),
+    )
     .leftJoin(media, eq(productCategories.coverMediaId, media.id))
     .groupBy(
       productCategories.id,
@@ -200,6 +209,46 @@ async function coverAvailable(db: AppDb, coverMediaId: number | null): Promise<s
   if (!coverMediaId) return null;
   const rows = await db.select({ id: media.id }).from(media).where(eq(media.id, coverMediaId)).limit(1);
   return rows[0] ? null : 'Ảnh đã chọn không còn trong thư viện.';
+}
+
+export async function setProductCategoryStatus(
+  db: AppDb,
+  id: number,
+  status: string,
+  now = Date.now(),
+  actor?: ActivityActor,
+): Promise<{ ok: true; status: ProductStatus } | { ok: false; error: string }> {
+  if (!isProductStatus(status)) return { ok: false, error: 'Trạng thái danh mục không hợp lệ.' };
+  const current = await db
+    .select({ name: productCategories.name, status: productCategories.status })
+    .from(productCategories)
+    .where(eq(productCategories.id, id))
+    .limit(1);
+  const row = current[0];
+  if (!row) return { ok: false, error: 'Không tìm thấy danh mục.' };
+  if (row.status === status) return { ok: true, status };
+  const verb = status === 'active' ? 'Đã bật lại danh mục sản phẩm' : 'Đã tạm tắt danh mục sản phẩm';
+  await commitWrites(db, [
+    db.update(productCategories).set({ status, updatedAt: now }).where(eq(productCategories.id, id)),
+    ...(actor
+      ? [
+          activityWrite(
+            db,
+            {
+              actorId: actor.id,
+              actorName: actor.name,
+              action: 'product_category.update',
+              objectType: 'product_category',
+              objectId: String(id),
+              summary: `${verb} “${quotedLabel(row.name, 'Không tên')}” (${PRODUCT_CATEGORY_STATUS_LABELS[status]}).`,
+              createdAt: now,
+            },
+            true,
+          ),
+        ]
+      : []),
+  ]);
+  return { ok: true, status };
 }
 
 export async function moveProductCategory(

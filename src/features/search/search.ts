@@ -3,6 +3,7 @@ import type { AppDb } from '../../lib/db/client';
 import { categories, media, posts, productCategories, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { productSoldCount, toCatalogCard, type CatalogCard } from '../products/catalog';
+import { sellableProductWhere } from '../products/status';
 import type { PublicPostCard } from '../posts/public';
 import { livePublished } from '../posts/visibility';
 import { normalizeSearchQuery, searchQueryReady, type SearchKind } from './query';
@@ -110,10 +111,7 @@ function postWhere(pattern: string): SQL {
 }
 
 function productWhere(pattern: string): SQL {
-  return and(
-    eq(products.status, 'active'),
-    or(like(products.name, pattern), like(products.description, pattern)),
-  )!;
+  return and(sellableProductWhere(), or(like(products.name, pattern), like(products.description, pattern)))!;
 }
 
 async function countPosts(db: AppDb, pattern: string): Promise<number> {
@@ -122,7 +120,11 @@ async function countPosts(db: AppDb, pattern: string): Promise<number> {
 }
 
 async function countProducts(db: AppDb, pattern: string): Promise<number> {
-  const rows = await db.select({ value: count() }).from(products).where(productWhere(pattern));
+  const rows = await db
+    .select({ value: count() })
+    .from(products)
+    .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+    .where(productWhere(pattern));
   return rows[0]?.value ?? 0;
 }
 

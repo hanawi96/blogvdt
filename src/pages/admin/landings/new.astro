@@ -5,7 +5,7 @@ import { activityActor } from '../../../features/activity/log';
 import { mutationError } from '../../../features/auth/session';
 import { createLanding, parseLandingForm } from '../../../features/landings/landings';
 import { EMPTY_TRACKING, TRACKING_KEYS, cleanTracking } from '../../../features/tracking/tracking';
-import { listMedia } from '../../../features/media/media';
+import { listMediaByIds } from '../../../features/media/media';
 import { listOrderCatalog } from '../../../features/products/public';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
@@ -17,7 +17,7 @@ if (!session) return Astro.redirect(routes.adminLogin);
 if (session.role !== 'admin') return new Response('Bạn không có quyền vào trang này.', { status: 403 });
 
 const db = createDb(getDbBinding());
-const [media, catalog] = await Promise.all([listMedia(db), listOrderCatalog(db)]);
+const catalog = await listOrderCatalog(db);
 const products = catalog.map((item) => ({ id: item.id, name: item.name, price: item.price }));
 
 const empty = { title: '', slug: '', blocksJson: '[]', status: 'draft', robots: 'noindex', seoTitle: '', metaDescription: '', ogMediaId: '', tracking: EMPTY_TRACKING };
@@ -66,6 +66,8 @@ function valuesFrom(form: FormData) {
     tracking: cleanTracking(Object.fromEntries(TRACKING_KEYS.map((key) => [key, read(`tracking_${key}`)]))),
   };
 }
+
+const media = await listMediaByIds(db, [values.ogMediaId]);
 ---
 
 <AdminLayout title="Tạo trang đích">

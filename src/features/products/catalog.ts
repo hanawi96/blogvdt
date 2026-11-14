@@ -5,6 +5,7 @@ import { routes } from '../../lib/routes';
 import { listingMediaKey, MEDIA_CARD_SIZE } from '../media/files';
 import { ratingFormValue } from './form';
 import { productShipBadge, type ProductShipBadge } from '../shipping/customer-fee';
+import { sellableProductWhere } from './status';
 import { readWeightScale, type WeightScale } from './weight';
 
 export const CATALOG_PAGE_SIZE = 12;
@@ -109,7 +110,7 @@ export function visibleComparePrice(price: number, comparePrice: number | null):
 }
 
 export async function listCatalogProducts(db: AppDb, query: CatalogQuery) {
-  const filters: SQL[] = [eq(products.status, 'active')];
+  const filters: SQL[] = [sellableProductWhere()];
   if (query.q) filters.push(like(products.name, `%${query.q}%`));
   if (query.category) filters.push(eq(productCategories.slug, query.category));
   const where = and(...filters);
@@ -175,7 +176,7 @@ export async function listBestSellers(db: AppDb, limit = 5): Promise<CatalogCard
     .from(products)
     .leftJoin(media, eq(products.coverMediaId, media.id))
     .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
-    .where(eq(products.status, 'active'))
+    .where(sellableProductWhere())
     .orderBy(...catalogOrder('ban-chay'))
     .limit(take);
   return rows.map(toCard);

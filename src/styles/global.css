@@ -2270,6 +2270,13 @@
     display: grid;
     gap: 0.75rem;
   }
+  .media-search-field:focus,
+  .media-search-field:focus-visible {
+    outline: none !important;
+    outline-offset: 0 !important;
+    box-shadow: none !important;
+    border-color: var(--color-line) !important;
+  }
   .media-drop {
     display: grid;
     justify-items: center;
@@ -2727,12 +2734,14 @@
   .media-dialog {
     position: fixed;
     inset: 0;
+    /* Không set display ở đây — ghi đè UA display:none làm dialog luôn hiện dù chưa mở. */
+    flex-direction: column;
     width: min(56rem, calc(100% - 2rem));
     height: fit-content;
     max-height: calc(100vh - 2rem);
     max-height: min(42rem, calc(100dvh - 2rem));
     margin: auto;
-    overflow: auto;
+    overflow: hidden;
     overscroll-behavior: contain;
     border: 0;
     border-radius: var(--radius-lg);
@@ -2740,12 +2749,16 @@
     color: var(--color-ink);
     padding: 1rem;
   }
+  .media-dialog[open] {
+    display: flex;
+  }
   .media-dialog::backdrop {
     background: color-mix(in srgb, var(--color-ink) 45%, transparent);
   }
   .media-dialog-head,
   .media-dialog-foot {
     justify-content: space-between;
+    flex: 0 0 auto;
   }
   .media-dialog-head {
     margin-bottom: 0.85rem;
@@ -2753,9 +2766,20 @@
   .media-dialog-head h2 {
     font-size: 1.125rem;
   }
+  .media-dialog-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    /* Chừa chỗ cho border/outline của ô tìm — tránh bị overflow cắt mép trên. */
+    padding-top: 2px;
+  }
   .media-dialog-foot {
     justify-content: flex-end;
-    margin-top: 1rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--color-line);
+    background: var(--color-surface);
   }
   .media-library-bar {
     display: flex;
@@ -3034,7 +3058,6 @@
     min-width: 2rem;
     height: 2rem;
     padding: 0 0.4rem;
-    border: 1px solid var(--color-line);
     border-radius: var(--radius-sm);
     background: var(--color-surface);
     color: var(--color-ink);
@@ -3070,6 +3093,19 @@
     justify-content: space-between;
     gap: 0.75rem;
     margin-top: 0.25rem;
+  }
+  .media-pages-picker {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--color-line);
+  }
+  .media-pages-label {
+    min-width: 5.5rem;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
   }
   .media-shell {
     display: grid;
@@ -3139,9 +3175,12 @@
       position: sticky;
       top: 1rem;
     }
-    .media-dialog .media-layout {
+    .media-dialog .media-layout:not(.media-layout-picker) {
       grid-template-columns: 16rem minmax(0, 1fr);
       align-items: start;
+    }
+    .media-dialog .media-layout-picker {
+      grid-template-columns: minmax(0, 1fr);
     }
   }
   .post-meta {
@@ -4277,7 +4316,6 @@
     justify-items: center;
     gap: 0.75rem;
     padding: 2rem 1.25rem;
-    border: 1px solid var(--color-line);
     border-radius: var(--radius-lg);
     text-align: center;
   }
@@ -7097,7 +7135,6 @@
   }
   .dash-card {
     padding: 1rem;
-    border: 1px solid var(--color-line);
     border-radius: var(--radius-md);
     background: var(--color-surface);
   }
@@ -11621,20 +11658,18 @@ body.site-nav-lock {
   display: flex;
   align-items: center;
 }
-.home-hero-avatars img,
-.home-hero-avatar-fallback {
+.home-hero-avatar {
+  display: grid;
+  place-items: center;
   width: 2.35rem;
   height: 2.35rem;
   border: 2px solid var(--color-surface);
   border-radius: 999px;
-  object-fit: cover;
+  color: var(--color-accent);
   background: var(--color-sand);
   box-shadow: 0 4px 10px -6px color-mix(in oklab, var(--color-heading) 35%, transparent);
 }
-.home-hero-avatars img + img,
-.home-hero-avatars img + .home-hero-avatar-fallback,
-.home-hero-avatars .home-hero-avatar-fallback + img,
-.home-hero-avatars .home-hero-avatar-fallback + .home-hero-avatar-fallback {
+.home-hero-avatar + .home-hero-avatar {
   margin-left: -0.55rem;
 }
 .home-hero-rating {

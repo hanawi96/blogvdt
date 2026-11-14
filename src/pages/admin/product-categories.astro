@@ -9,8 +9,10 @@ import {
   moveProductCategory,
   productCategoryDeleteWarning,
   saveProductCategory,
+  setProductCategoryStatus,
 } from '../../features/products/categories';
-import { listMedia } from '../../features/media/media';
+import { PRODUCT_CATEGORY_STATUS_LABELS, isProductStatus } from '../../features/products/status';
+import { listMediaByIds } from '../../features/media/media';
 import { productAdminQuery } from '../../features/products/products';
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { createDb } from '../../lib/db/client';
@@ -55,24 +57,35 @@ if (Astro.request.method === 'POST') {
       const moved = await moveProductCategory(db, id, direction);
       return Astro.redirect(listHref(moved.moved ? 'moved' : undefined), 303);
     }
-    name = String(form.get('name') ?? '');
-    slug = String(form.get('slug') ?? '');
-    description = String(form.get('description') ?? '');
-    coverMediaId = String(form.get('coverMediaId') ?? '');
-    weightScale = String(form.get('weightScale') ?? 'baby');
-    editingId = id ? String(id) : '';
-    const saved = await saveProductCategory(db, { id, name, slug, description, coverMediaId, weightScale }, Date.now(), actor);
-    if (!saved.ok) {
-      Astro.response.status = 422;
-      formError = saved.error;
-      saveFailed = true;
-    } else {
-      return Astro.redirect(listHref('saved'), 303);
+    if (intent === 'status' && id) {
+      const next = String(form.get('status') ?? '');
+      const updated = await setProductCategoryStatus(db, id, next, Date.now(), actor);
+      if (!updated.ok) {
+        Astro.response.status = 422;
+        formError = updated.error;
+      } else {
+        return Astro.redirect(listHref(updated.status === 'active' ? 'enabled' : 'disabled'), 303);
+      }
+    } else if (intent === 'save' || intent === 'create' || !['delete', 'move', 'status'].includes(intent)) {
+      name = String(form.get('name') ?? '');
+      slug = String(form.get('slug') ?? '');
+      description = String(form.get('description') ?? '');
+      coverMediaId = String(form.get('coverMediaId') ?? '');
+      weightScale = String(form.get('weightScale') ?? 'baby');
+      editingId = id ? String(id) : '';
+      const saved = await saveProductCategory(db, { id, name, slug, description, coverMediaId, weightScale }, Date.now(), actor);
+      if (!saved.ok) {
+        Astro.response.status = 422;
+        formError = saved.error;
+        saveFailed = true;
+      } else {
+        return Astro.redirect(listHref('saved'), 303);
+      }
     }
   }
 }
 
-const [categories, mediaItems] = await Promise.all([listProductCategories(db, query), listMedia(db)]);
+const categories = await listProductCategories(db, query);
 const notice = Astro.url.searchParams.get('notice') ?? '';
 const editId = Number(Astro.url.searchParams.get('edit') ?? '');
 let editing = categories.find((category) => category.id === editId);
@@ -85,6 +98,10 @@ if (Astro.request.method !== 'POST' && editing) {
   coverMediaId = editing.coverMediaId ? String(editing.coverMediaId) : '';
   weightScale = editing.weightScale;
 }
+const mediaItems = await listMediaByIds(db, [
+  coverMediaId,
+  ...categories.map((category) => category.coverMediaId),
+]);
 const dialogOpen = saveFailed || (Astro.request.method !== 'POST' && Boolean(editing));
 const slugError = formError.startsWith('Slug') ? formError : '';
 const nameError = formError.startsWith('Nhập tên') || formError.startsWith('Tên') ? formError : '';
@@ -107,10 +124,20 @@ const drafts = categories.map((category) => ({
   weightScale: category.weightScale,
 }));
 const noticeText =
-  notice === 'saved' ? 'Đã lưu danh mục.' : notice === 'deleted' ? 'Đã xóa danh mục.' : notice === 'moved' ? 'Đã đổi thứ tự.' : '';
+  notice === 'saved'
+    ? 'Đã lưu danh mục.'
+    : notice === 'deleted'
+      ? 'Đã xóa danh mục.'
+      : notice === 'moved'
+        ? 'Đã đổi thứ tự.'
+        : notice === 'enabled'
+          ? 'Đã bật lại danh mục. Sản phẩm trong danh mục sẽ hiện lại nếu đang bán.'
+          : notice === 'disabled'
+            ? 'Đã tạm tắt danh mục. Sản phẩm trong danh mục không còn hiện ngoài cửa hàng.'
+            : '';
 const searching = query.length > 0;
 
-function listHref(noticeName?: 'saved' | 'deleted' | 'moved' | 'used', edit?: number): string {
+function listHref(noticeName?: 'saved' | 'deleted' | 'moved' | 'used' | 'enabled' | 'disabled', edit?: number): string {
   const params = new URLSearchParams();
   if (query) params.set('q', query);
   if (edit && edit > 0) params.set('edit', String(edit));
@@ -164,12 +191,16 @@ function productCountLabel(count: number): string {
             <tr>
               <th>Danh mục</th>
               <th>Sản phẩm</th>
+              <th>Trạng thái</th>
               <th>Thứ tự</th>
               <th>Thao tác</th>
             </tr>
           </thead>
           <tbody>
-            {categories.map((category, index) => (
+            {categories.map((category, index) => {
+              const active = isProductStatus(category.status) ? category.status === 'active' : true;
+              const nextStatus = active ? 'inactive' : 'active';
+              return (
               <tr>
                 <td data-label="Danh mục">
                   <div class="user-cell">
@@ -194,6 +225,11 @@ function productCountLabel(count: number): string {
                   <a class:list={['catalog-count', category.productCount === 0 && 'is-empty']} href={productAdminQuery({ category: category.id })}>
                     {productCountLabel(category.productCount)}
                   </a>
+                </td>
+                <td data-label="Trạng thái">
+                  <span class="post-status" data-status={active ? 'active' : 'inactive'}>
+                    {PRODUCT_CATEGORY_STATUS_LABELS[active ? 'active' : 'inactive']}
+                  </span>
                 </td>
                 <td data-label="Thứ tự">
                   <div class="category-order">
@@ -220,6 +256,25 @@ function productCountLabel(count: number): string {
                 </td>
                 <td data-label="Thao tác">
                   <div class="post-actions">
+                    <form
+                      method="post"
+                      data-busy
+                      data-confirm-title={active ? 'Tạm tắt danh mục?' : 'Bật lại danh mục?'}
+                      data-confirm={
+                        active
+                          ? `“${category.name}” sẽ ẩn khỏi cửa hàng. Tất cả sản phẩm trong danh mục này không còn hiện để khách đặt mua.`
+                          : `“${category.name}” sẽ hiện lại trên cửa hàng. Sản phẩm đang bán trong danh mục sẽ hiện lại.`
+                      }
+                      data-confirm-ok={active ? 'Tạm tắt' : 'Bật lại'}
+                      data-confirm-tone={active ? 'danger' : undefined}
+                    >
+                      <input type="hidden" name="csrf" value={session.csrfToken} />
+                      <input type="hidden" name="intent" value="status" />
+                      <input type="hidden" name="status" value={nextStatus} />
+                      <input type="hidden" name="id" value={category.id} />
+                      <button type="submit" data-keep-label="true">{active ? 'Tắt' : 'Bật'}</button>
+                    </form>
+                    <span class="post-actions-sep" aria-hidden="true">|</span>
                     <a href={listHref(undefined, category.id)} data-category-edit={category.id}>Sửa</a>
                     <span class="post-actions-sep" aria-hidden="true">|</span>
                     {category.productCount > 0 ? (
@@ -242,7 +297,8 @@ function productCountLabel(count: number): string {
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       )

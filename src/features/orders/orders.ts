@@ -591,12 +591,78 @@ export async function getOrder(db: AppDb, id: number) {
   return { ...order, items };
 }
 
-/** Giá trị đơn (VND) theo mã, dùng cho sự kiện Purchase ở trang cảm ơn. Không trả PII. */
+/** Snapshot đơn cho sự kiện Purchase (value + content_ids = slug SP). Không trả PII. */
+export type OrderTrackingSnapshot = {
+  amount: number;
+  currency: 'VND';
+  contentName: string | null;
+  contentType: 'product' | 'product_group';
+  contents: Array<{ id: string; quantity: number }>;
+};
+
+/** Giá trị đơn (VND) theo mã — giữ cho chỗ chỉ cần số tiền. */
 export async function orderValueByCode(db: AppDb, code: string): Promise<number | null> {
+  const snap = await orderTrackingByCode(db, code);
+  return snap?.amount ?? null;
+}
+
+/** Đơn theo mã + dòng SP (slug) để bắn Purchase khớp ViewContent / AddToCart. */
+export async function orderTrackingByCode(db: AppDb, code: string): Promise<OrderTrackingSnapshot | null> {
   if (!/^VD\d{8}-\d{4}$/.test(code)) return null;
-  const rows = await db.select({ totalPrice: orders.totalPrice }).from(orders).where(eq(orders.code, code)).limit(1);
-  const total = rows[0]?.totalPrice;
-  return typeof total === 'number' && total >= 0 ? total : null;
+  const rows = await db
+    .select({
+      id: orders.id,
+      totalPrice: orders.totalPrice,
+      productId: orders.productId,
+      productName: orders.productName,
+      quantity: orders.quantity,
+    })
+    .from(orders)
+    .where(eq(orders.code, code))
+    .limit(1);
+  const order = rows[0];
+  if (!order || typeof order.totalPrice !== 'number' || order.totalPrice < 0) return null;
+
+  const itemRows = await db
+    .select({
+      slug: products.slug,
+      productName: orderItems.productName,
+      quantity: orderItems.quantity,
+    })
+    .from(orderItems)
+    .leftJoin(products, eq(orderItems.productId, products.id))
+    .where(eq(orderItems.orderId, order.id))
+    .orderBy(asc(orderItems.sortOrder), asc(orderItems.id));
+
+  const contents: Array<{ id: string; quantity: number }> = [];
+  const names: string[] = [];
+  for (const item of itemRows) {
+    if (!item.slug || item.quantity < 1) continue;
+    contents.push({ id: item.slug, quantity: item.quantity });
+    if (item.productName) names.push(item.productName);
+  }
+
+  // Đơn 1 SP cũ / không có order_items: lấy slug từ product_id trên header.
+  if (contents.length === 0 && order.productId) {
+    const productRows = await db
+      .select({ slug: products.slug, name: products.name })
+      .from(products)
+      .where(eq(products.id, order.productId))
+      .limit(1);
+    const product = productRows[0];
+    if (product?.slug) {
+      contents.push({ id: product.slug, quantity: order.quantity > 0 ? order.quantity : 1 });
+      names.push(product.name || order.productName);
+    }
+  }
+
+  return {
+    amount: order.totalPrice,
+    currency: 'VND',
+    contentName: names[0] ?? order.productName ?? null,
+    contentType: contents.length > 1 ? 'product_group' : 'product',
+    contents,
+  };
 }
 
 export async function updateOrderStatus(

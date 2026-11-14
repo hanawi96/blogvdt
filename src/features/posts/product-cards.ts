@@ -2,10 +2,11 @@ import { mergeAttributes, Node } from '@tiptap/core';
 import { escapeHTMLAttribute } from '@tiptap/static-renderer';
 import { and, asc, desc, eq, inArray, like, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
-import { media, orderItems, orders, products } from '../../lib/db/schema';
+import { media, orderItems, orders, productCategories, products } from '../../lib/db/schema';
 import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
 import { listingMediaKey, MEDIA_CARD_SIZE } from '../media/files';
+import { sellableProductWhere } from '../products/status';
 import { blockMoveState, moveBlock } from './image-move';
 
 export const PRODUCT_CARDS_NODE = 'productCards';
@@ -116,7 +117,8 @@ export async function searchActiveProducts(db: AppDb, query: string): Promise<Pr
     })
     .from(products)
     .leftJoin(media, eq(products.coverMediaId, media.id))
-    .where(and(eq(products.status, 'active'), like(products.name, `%${term}%`)))
+    .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+    .where(and(sellableProductWhere(), like(products.name, `%${term}%`)))
     .orderBy(asc(products.sortOrder), asc(products.name))
     .limit(8);
   return toHits(rows);
@@ -137,9 +139,10 @@ export async function listTopSellingProducts(db: AppDb, limit = 5): Promise<Prod
     })
     .from(products)
     .leftJoin(media, eq(products.coverMediaId, media.id))
+    .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
     .leftJoin(orderItems, eq(orderItems.productId, products.id))
     .leftJoin(orders, eq(orders.id, orderItems.orderId))
-    .where(eq(products.status, 'active'))
+    .where(sellableProductWhere())
     .groupBy(products.id)
     .orderBy(desc(sold), asc(products.sortOrder), asc(products.id))
     .limit(Math.max(1, Math.min(limit, 12)));
@@ -164,7 +167,8 @@ export async function listActiveProductCardsByIds(db: AppDb, ids: number[]): Pro
     })
     .from(products)
     .leftJoin(media, eq(products.coverMediaId, media.id))
-    .where(and(inArray(products.id, unique), eq(products.status, 'active')));
+    .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+    .where(and(inArray(products.id, unique), sellableProductWhere()));
   for (const row of rows) {
     const listKey = listingMediaKey(row.coverKey, row.cardKey);
     const usingCard = Boolean(row.cardKey);

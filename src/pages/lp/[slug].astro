@@ -7,7 +7,7 @@ import PublicLayout from '../../layouts/PublicLayout.astro';
 import { bumpLandingView, getLandingPreview, getPublicLanding } from '../../features/landings/landings';
 import { referencedMediaIds, referencedProductIds, hasProductsBlock, type LandingBlock } from '../../features/landings/blocks';
 import { mediaMapByIds } from '../../features/media/media';
-import { EMPTY_TRACKING, mergeTracking, type Tracking } from '../../features/tracking/tracking';
+import { EMPTY_TRACKING, mergeTracking, type Tracking, type TrackingPayload } from '../../features/tracking/tracking';
 import { listLandingProducts, type LandingProduct } from '../../features/products/public';
 import { getPublicSite } from '../../features/settings/settings';
 import { createDb } from '../../lib/db/client';
@@ -85,6 +85,35 @@ const orderableProducts = products.map((product) => ({
   price: product.price,
 }));
 
+// ViewContent: có SP thì dùng slug SP (khớp catalog); không thì dùng slug landing + tên trang.
+const landingViewPayload = ((): TrackingPayload | null => {
+  if (!landing) return null;
+  if (orderableProducts.length === 1) {
+    const product = orderableProducts[0];
+    return {
+      amount: product.price,
+      currency: 'VND',
+      contentName: product.name,
+      contentType: 'product',
+      contents: [{ id: product.slug, quantity: 1 }],
+    };
+  }
+  if (orderableProducts.length > 1) {
+    const lowest = Math.min(...orderableProducts.map((product) => product.price));
+    return {
+      amount: Number.isFinite(lowest) ? lowest : undefined,
+      currency: 'VND',
+      contentName: landing.title,
+      contentType: 'product_group',
+      contents: orderableProducts.map((product) => ({ id: product.slug, quantity: 1 })),
+    };
+  }
+  return {
+    contentName: landing.title,
+    contents: [{ id: landing.slug, quantity: 1 }],
+  };
+})();
+
 // Mã theo dõi của trang ưu tiên hơn mã chung ở Cài đặt; tắt hoàn toàn khi admin xem thử.
 const pageTracking = preview || !landing ? EMPTY_TRACKING : mergeTracking(landing.tracking, site?.tracking ?? EMPTY_TRACKING);
 ---
@@ -100,6 +129,7 @@ const pageTracking = preview || !landing ? EMPTY_TRACKING : mergeTracking(landin
   chrome={null}
   tracking={pageTracking}
   trackEvent="view"
+  trackPayload={landingViewPayload}
 >
   {
     !landing ? (

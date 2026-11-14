@@ -134,8 +134,10 @@ function boot() {
       : `<form class="home-shop-cart-form" method="post" action="${cartPath}" data-cart-form>
           <input type="hidden" name="intent" value="add" />
           <input type="hidden" name="slug" value="${escapeHtml(product.slug)}" />
+          <input type="hidden" name="product_name" value="${name}" />
           <input type="hidden" name="weight" value="" />
           <input type="hidden" name="quantity" value="1" />
+          <input type="hidden" name="price" value="${product.price}" />
           <button class="btn home-shop-cart" type="submit">${plusIcon} Thêm giỏ</button>
         </form>`;
     const dialog = needsWeight
@@ -145,10 +147,12 @@ function boot() {
               <p id="${addTitleId}" class="font-semibold">${name}</p>
               <button class="add-close" type="button" data-add-close aria-label="Đóng">×</button>
             </div>
-            <p class="font-semibold text-primary-strong">${formatVnd(product.price)}</p>
+            <p class="font-semibold text-primary-strong" data-add-price>${formatVnd(product.price)}</p>
             <input type="hidden" name="intent" value="add" />
             <input type="hidden" name="slug" value="${escapeHtml(product.slug)}" />
-            <fieldset class="mt-3">
+            <input type="hidden" name="product_name" value="${name}" />
+            <input type="hidden" name="price" value="${product.price}" />
+            <fieldset class="mt-3" data-weight-field data-base-price="${product.price}">
               <legend class="text-sm font-semibold">Cân nặng của bé</legend>
               <div class="weight-grid mt-2" role="radiogroup">
                 ${weights

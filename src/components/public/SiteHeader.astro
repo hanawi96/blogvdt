@@ -704,18 +704,34 @@ function current(href: string): boolean {
       return;
     }
     store(result.lines);
-    // Bắn AddToCart cho Meta Pixel. fbq chỉ tồn tại khi admin đã dán Pixel ID (tự bật/tắt theo cấu hình).
+    // Bắn AddToCart cho Meta Pixel. content_ids = slug SP (khớp ViewContent / Purchase).
+    // fbq chỉ tồn tại khi admin đã dán Pixel ID.
     try {
       const fbq = (window as unknown as { fbq?: (...args: unknown[]) => void }).fbq;
       if (typeof fbq === 'function') {
-        const price = Number(data.get('price') ?? '');
+        const slug = String(data.get('slug') ?? '').trim();
         const qty = Number.isInteger(quantity) ? quantity : 1;
-        const payload: Record<string, unknown> = { content_type: 'product', contents: [{ id: String(data.get('slug') ?? ''), quantity: qty }] };
-        if (Number.isFinite(price) && price > 0) {
-          payload.value = price * qty;
-          payload.currency = 'VND';
+        if (slug) {
+          const basePrice = Number(data.get('price') ?? '');
+          const unit =
+            Number.isFinite(basePrice) && basePrice > 0
+              ? weight
+                ? applyWeightPrice(basePrice, weight)
+                : basePrice
+              : NaN;
+          const payload: Record<string, unknown> = {
+            content_type: 'product',
+            content_ids: [slug],
+            contents: [{ id: slug, quantity: qty }],
+          };
+          const productName = String(data.get('product_name') ?? '').trim();
+          if (productName) payload.content_name = productName.slice(0, 200);
+          if (Number.isFinite(unit) && unit > 0) {
+            payload.value = unit * qty;
+            payload.currency = 'VND';
+          }
+          fbq('track', 'AddToCart', payload);
         }
-        fbq('track', 'AddToCart', payload);
       }
     } catch {
       /* không để lỗi tracking ảnh hưởng thao tác thêm giỏ */

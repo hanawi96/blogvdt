@@ -7,7 +7,7 @@ import { autosaveResponse, firstFieldError, isAutosave, parsePostForm } from '..
 import { activityActor } from '../../../features/activity/log';
 import { createPost, listMetaCorpus } from '../../../features/posts/posts';
 import { listTagOptions } from '../../../features/posts/tags';
-import { listMedia } from '../../../features/media/media';
+import { listMediaByIds } from '../../../features/media/media';
 import { getPublicSite } from '../../../features/settings/settings';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
@@ -26,7 +26,6 @@ const seoSite = {
   host: Astro.url.hostname,
   markUrl: site?.faviconUrl || site?.logoUrl || '',
 };
-const media = await listMedia(db);
 const corpus = mergeMetaCorpus(
   await listMetaCorpus(db, null),
   collectMetaCorpus(categories),
@@ -82,6 +81,8 @@ if (Astro.request.method === 'POST') {
     }
   }
 }
+
+const media = await listMediaByIds(db, [values.coverMediaId]);
 
 function valuesFrom(form: FormData) {
   const read = (name: string) => {

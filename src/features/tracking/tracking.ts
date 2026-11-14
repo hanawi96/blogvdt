@@ -2,6 +2,8 @@
 // Nguyên tắc an toàn: chỉ nhận ID đúng định dạng của từng nền tảng rồi TỰ sinh mã chuẩn,
 // không bao giờ nhận HTML/script thô từ người dùng (tránh XSS).
 
+import { SLUG_PATTERN } from '../posts/slug';
+
 export type Tracking = {
   metaPixelId: string;
   gaMeasurementId: string;
@@ -109,8 +111,26 @@ export function mergeTracking(primary: Tracking, fallback: Tracking): Tracking {
 
 export type TrackingEvent = 'view' | 'lead' | 'purchase';
 
-// Giá trị đơn hàng (VND) gửi kèm sự kiện Purchase. Chỉ dùng khi event === 'purchase'.
-export type TrackingValue = { amount: number; currency: string };
+/** Một dòng sản phẩm trong contents — id luôn là slug sản phẩm (khớp ViewContent / AddToCart / Purchase). */
+export type TrackingContentLine = {
+  id: string;
+  quantity: number;
+};
+
+/**
+ * Payload sự kiện ViewContent / Purchase.
+ * amount+currency bắt buộc với Purchase; contents dùng slug sản phẩm làm content_ids.
+ */
+export type TrackingPayload = {
+  amount?: number;
+  currency?: string;
+  contentName?: string;
+  contentType?: 'product' | 'product_group';
+  contents?: TrackingContentLine[];
+};
+
+/** @deprecated Dùng TrackingPayload — giữ alias để tương thích import cũ. */
+export type TrackingValue = TrackingPayload;
 
 export type TrackingSnippets = {
   // Chèn trong <head>: nạp thư viện + khởi tạo + bắn sự kiện trang.
@@ -121,26 +141,116 @@ export type TrackingSnippets = {
   bodyNoscript: string[];
 };
 
-// Chuẩn hóa giá trị Purchase: số nguyên không âm + mã tiền tệ chữ (ISO 4217). Sai -> bỏ (an toàn khi nội suy).
-function safePurchaseValue(value: TrackingValue | null | undefined): { amount: number; currency: string } | null {
-  if (!value) return null;
-  const amount = Math.round(value.amount);
-  if (!Number.isFinite(amount) || amount < 0) return null;
-  const currency = /^[A-Z]{3}$/.test(value.currency) ? value.currency : '';
-  if (!currency) return null;
-  return { amount, currency };
+type SafePayload = {
+  amount: number | null;
+  currency: string | null;
+  contentName: string | null;
+  contentType: 'product' | 'product_group' | null;
+  contents: Array<{ id: string; quantity: number }>;
+};
+
+function safeContentId(id: string): string | null {
+  const text = id.trim();
+  if (!SLUG_PATTERN.test(text) || text.length > 180) return null;
+  return text;
 }
 
-// Sinh toàn bộ mã nhúng. ID đã qua cleanTracking nên an toàn để nội suy vào chuỗi script.
+function safeContentName(name: string): string | null {
+  const text = name.trim().replace(/\s+/g, ' ').slice(0, 200);
+  return text || null;
+}
+
+function safeQuantity(value: number): number | null {
+  const qty = Math.round(value);
+  if (!Number.isFinite(qty) || qty < 1 || qty > 999) return null;
+  return qty;
+}
+
+function safeMoney(amount: unknown, currency: unknown): { amount: number; currency: string } | null {
+  if (typeof amount !== 'number' || typeof currency !== 'string') return null;
+  const rounded = Math.round(amount);
+  if (!Number.isFinite(rounded) || rounded < 0) return null;
+  const code = currency.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(code)) return null;
+  return { amount: rounded, currency: code };
+}
+
+/** Chuẩn hóa payload trước khi nội suy vào script (bỏ field sai / nguy hiểm). */
+export function sanitizeTrackingPayload(raw: TrackingPayload | null | undefined): SafePayload {
+  const empty: SafePayload = { amount: null, currency: null, contentName: null, contentType: null, contents: [] };
+  if (!raw || typeof raw !== 'object') return empty;
+  const money = safeMoney(raw.amount, raw.currency);
+  const contentName = typeof raw.contentName === 'string' ? safeContentName(raw.contentName) : null;
+  const contentType = raw.contentType === 'product' || raw.contentType === 'product_group' ? raw.contentType : null;
+  const contents: Array<{ id: string; quantity: number }> = [];
+  if (Array.isArray(raw.contents)) {
+    for (const line of raw.contents) {
+      if (!line || typeof line !== 'object') continue;
+      const id = typeof line.id === 'string' ? safeContentId(line.id) : null;
+      const quantity = typeof line.quantity === 'number' ? safeQuantity(line.quantity) : null;
+      if (!id || quantity === null) continue;
+      contents.push({ id, quantity });
+    }
+  }
+  return {
+    amount: money?.amount ?? null,
+    currency: money?.currency ?? null,
+    contentName,
+    contentType: contents.length > 0 ? contentType : null,
+    contents,
+  };
+}
+
+/** ViewContent chuẩn cho trang chi tiết sản phẩm — cùng slug với AddToCart / Purchase. */
+export function productViewPayload(product: { slug: string; name: string; price: number }): TrackingPayload {
+  return {
+    amount: product.price,
+    currency: 'VND',
+    contentName: product.name,
+    contentType: 'product',
+    contents: [{ id: product.slug, quantity: 1 }],
+  };
+}
+
+/** Object params Meta/TikTok — JSON.stringify an toàn khi nhúng vào JS. */
+function eventParamsObject(payload: SafePayload, requireMoney: boolean): Record<string, unknown> | null {
+  if (requireMoney && (payload.amount === null || !payload.currency)) return null;
+  const obj: Record<string, unknown> = {};
+  if (payload.contents.length > 0) {
+    obj.content_ids = payload.contents.map((line) => line.id);
+    obj.contents = payload.contents.map((line) => ({ id: line.id, quantity: line.quantity }));
+  }
+  if (payload.contentType) obj.content_type = payload.contentType;
+  if (payload.contentName) obj.content_name = payload.contentName;
+  if (payload.amount !== null && payload.currency) {
+    obj.value = payload.amount;
+    obj.currency = payload.currency;
+  }
+  return Object.keys(obj).length > 0 ? obj : null;
+}
+
+function metaTrackCall(eventName: string, params: Record<string, unknown> | null): string {
+  return params ? `fbq('track','${eventName}',${JSON.stringify(params)});` : `fbq('track','${eventName}');`;
+}
+
+function tiktokTrackCall(eventName: string, params: Record<string, unknown> | null): string {
+  return params ? `ttq.track('${eventName}',${JSON.stringify(params)});` : `ttq.track('${eventName}');`;
+}
+
+// Sinh toàn bộ mã nhúng. ID đã qua cleanTracking; payload đã sanitize rồi JSON.stringify.
 export function buildTrackingSnippets(
   tracking: Tracking,
   event: TrackingEvent | null,
-  purchaseValue: TrackingValue | null = null,
+  trackPayload: TrackingPayload | null = null,
 ): TrackingSnippets {
   const headScripts: string[] = [];
   const headSrc: string[] = [];
   const bodyNoscript: string[] = [];
-  const purchase = event === 'purchase' ? safePurchaseValue(purchaseValue) : null;
+  const payload = sanitizeTrackingPayload(trackPayload);
+  const purchaseMoney =
+    event === 'purchase' && payload.amount !== null && payload.currency
+      ? { amount: payload.amount, currency: payload.currency }
+      : null;
 
   // Google Tag Manager — "cửa" để đối tác tự quản mọi thẻ khác.
   if (tracking.gtmId) {
@@ -161,16 +271,16 @@ export function buildTrackingSnippets(
     ];
     if (tracking.gaMeasurementId) lines.push(`gtag('config','${tracking.gaMeasurementId}');`);
     if (tracking.googleAdsId) lines.push(`gtag('config','${tracking.googleAdsId}');`);
-    if (event === 'lead' || event === 'purchase') {
+    if (event === 'lead' || (event === 'purchase' && purchaseMoney)) {
       if (tracking.gaMeasurementId) {
         lines.push(
-          event === 'purchase' && purchase
-            ? `gtag('event','purchase',{value:${purchase.amount},currency:'${purchase.currency}'});`
+          event === 'purchase' && purchaseMoney
+            ? `gtag('event','purchase',{value:${purchaseMoney.amount},currency:'${purchaseMoney.currency}'});`
             : `gtag('event','generate_lead');`,
         );
       }
       if (tracking.googleAdsId && tracking.googleAdsLabel) {
-        const extra = event === 'purchase' && purchase ? `,'value':${purchase.amount},'currency':'${purchase.currency}'` : '';
+        const extra = event === 'purchase' && purchaseMoney ? `,'value':${purchaseMoney.amount},'currency':'${purchaseMoney.currency}'` : '';
         lines.push(`gtag('event','conversion',{'send_to':'${tracking.googleAdsId}/${tracking.googleAdsLabel}'${extra}});`);
       }
     }
@@ -179,16 +289,15 @@ export function buildTrackingSnippets(
 
   // Meta (Facebook) Pixel.
   if (tracking.metaPixelId) {
-    const extra =
-      event === 'view'
-        ? `fbq('track','ViewContent');`
-        : event === 'purchase'
-          ? purchase
-            ? `fbq('track','Purchase',{value:${purchase.amount},currency:'${purchase.currency}'});`
-            : `fbq('track','Purchase');`
-          : event === 'lead'
-            ? `fbq('track','Lead');`
-            : '';
+    let extra = '';
+    if (event === 'view') {
+      extra = metaTrackCall('ViewContent', eventParamsObject(payload, false));
+    } else if (event === 'purchase' && purchaseMoney) {
+      // Chỉ bắn Purchase khi có value hợp lệ (đơn thật) — tránh đếm thừa trang cảm ơn không mã đơn.
+      extra = metaTrackCall('Purchase', eventParamsObject(payload, true));
+    } else if (event === 'lead') {
+      extra = metaTrackCall('Lead', null);
+    }
     headScripts.push(
       `!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${tracking.metaPixelId}');fbq('track','PageView');${extra}`,
     );
@@ -199,16 +308,14 @@ export function buildTrackingSnippets(
 
   // TikTok Pixel.
   if (tracking.tiktokPixelId) {
-    const extra =
-      event === 'view'
-        ? `ttq.track('ViewContent');`
-        : event === 'purchase'
-          ? purchase
-            ? `ttq.track('CompletePayment',{value:${purchase.amount},currency:'${purchase.currency}'});`
-            : `ttq.track('CompletePayment');`
-          : event === 'lead'
-            ? `ttq.track('SubmitForm');`
-            : '';
+    let extra = '';
+    if (event === 'view') {
+      extra = tiktokTrackCall('ViewContent', eventParamsObject(payload, false));
+    } else if (event === 'purchase' && purchaseMoney) {
+      extra = tiktokTrackCall('CompletePayment', eventParamsObject(payload, true));
+    } else if (event === 'lead') {
+      extra = tiktokTrackCall('SubmitForm', null);
+    }
     headScripts.push(
       `!function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie"];ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e};ttq.load=function(e,n){var i="https://analytics.tiktok.com/i18n/pixel/events.js";ttq._i=ttq._i||{};ttq._i[e]=[];ttq._i[e]._u=i;ttq._t=ttq._t||{};ttq._t[e]=+new Date;ttq._o=ttq._o||{};ttq._o[e]=n||{};var o=d.createElement("script");o.type="text/javascript";o.async=!0;o.src=i+"?sdkid="+e+"&lib="+t;var a=d.getElementsByTagName("script")[0];a.parentNode.insertBefore(o,a)};ttq.load('${tracking.tiktokPixelId}');ttq.page();${extra}}(window,document,'ttq');`,
     );

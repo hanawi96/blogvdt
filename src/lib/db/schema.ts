@@ -171,18 +171,24 @@ export const postTags = sqliteTable(
   (table) => [primaryKey({ columns: [table.postId, table.tagId] }), index('post_tags_tag_idx').on(table.tagId)],
 );
 
-export const productCategories = sqliteTable('product_categories', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  name: text('name').notNull(),
-  slug: text('slug').notNull().unique(),
-  description: text('description').notNull().default(''),
-  coverMediaId: integer('cover_media_id').references(() => media.id, { onDelete: 'set null' }),
-  sortOrder: integer('sort_order').notNull().default(0),
-  // Thang cân nặng của danh mục: 'none' (không cần chọn), 'baby', ... (xem features/products/weight.ts).
-  weightScale: text('weight_scale').notNull().default('baby'),
-  createdAt: integer('created_at').notNull(),
-  updatedAt: integer('updated_at').notNull(),
-});
+export const productCategories = sqliteTable(
+  'product_categories',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull(),
+    slug: text('slug').notNull().unique(),
+    description: text('description').notNull().default(''),
+    coverMediaId: integer('cover_media_id').references(() => media.id, { onDelete: 'set null' }),
+    sortOrder: integer('sort_order').notNull().default(0),
+    // Thang cân nặng của danh mục: 'none' (không cần chọn), 'baby', ... (xem features/products/weight.ts).
+    weightScale: text('weight_scale').notNull().default('baby'),
+    // active = hiện SP thuộc DM ra ngoài; inactive = tạm ẩn toàn bộ SP trong DM (không đổi status từng SP).
+    status: text('status').notNull().default('active'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [check('product_categories_status_check', sql`${table.status} in ('active', 'inactive')`)],
+);
 
 export const products = sqliteTable(
   'products',

@@ -1,8 +1,8 @@
 ---
 import DataError from '../../components/public/DataError.astro';
 import { getPublicSite } from '../../features/settings/settings';
-import { EMPTY_TRACKING } from '../../features/tracking/tracking';
-import { orderValueByCode } from '../../features/orders/orders';
+import { EMPTY_TRACKING, type TrackingPayload } from '../../features/tracking/tracking';
+import { orderTrackingByCode } from '../../features/orders/orders';
 import PublicLayout from '../../layouts/PublicLayout.astro';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
@@ -12,12 +12,23 @@ const code = Astro.url.searchParams.get('ma') ?? '';
 const shown = /^VD\d{8}-\d{4}$/.test(code) ? code : '';
 
 let site: Awaited<ReturnType<typeof getPublicSite>> = null;
-let orderValue: number | null = null;
+let purchasePayload: TrackingPayload | null = null;
 let failed = false;
 try {
   const db = createDb(getDbBinding());
   site = await getPublicSite(db);
-  if (shown) orderValue = await orderValueByCode(db, shown);
+  if (shown) {
+    const snap = await orderTrackingByCode(db, shown);
+    if (snap) {
+      purchasePayload = {
+        amount: snap.amount,
+        currency: snap.currency,
+        contentName: snap.contentName ?? undefined,
+        contentType: snap.contents.length > 0 ? snap.contentType : undefined,
+        contents: snap.contents.length > 0 ? snap.contents : undefined,
+      };
+    }
+  }
 } catch (error) {
   failed = true;
   console.error(JSON.stringify({ event: 'order_success_failed', name: error instanceof Error ? error.name : 'unknown' }));
@@ -35,8 +46,8 @@ Astro.response.headers.set('X-Robots-Tag', 'noindex');
   faviconUrl={site?.faviconUrl || '/favicon.svg'}
   chrome={site}
   tracking={site?.tracking ?? EMPTY_TRACKING}
-  trackEvent="purchase"
-  purchaseValue={orderValue !== null ? { amount: orderValue, currency: 'VND' } : null}
+  trackEvent={purchasePayload ? 'purchase' : null}
+  trackPayload={purchasePayload}
 >
   {
     !site ? (

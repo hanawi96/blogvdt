@@ -41,6 +41,42 @@ export async function listMedia(db: AppDb): Promise<MediaItem[]> {
   return rows.map(toMediaItem);
 }
 
+/** Ảnh theo id (cover/avatar đã chọn) — seed MediaPicker, không dump cả thư viện. */
+export async function listMediaByIds(
+  db: AppDb,
+  ids: ReadonlyArray<number | string | null | undefined>,
+): Promise<MediaItem[]> {
+  const unique = [
+    ...new Set(
+      ids
+        .map((value) => Number(value))
+        .filter((id) => Number.isInteger(id) && id > 0),
+    ),
+  ];
+  if (unique.length === 0) return [];
+  const rows = await db
+    .select({
+      id: media.id,
+      r2Key: media.r2Key,
+      cardR2Key: media.cardR2Key,
+      thumbR2Key: media.thumbR2Key,
+      filename: media.filename,
+      altText: media.altText,
+      mimeType: media.mimeType,
+      width: media.width,
+      height: media.height,
+      sizeBytes: media.sizeBytes,
+      createdAt: media.createdAt,
+    })
+    .from(media)
+    .where(inArray(media.id, unique));
+  const byId = new Map(rows.map((row) => [row.id, toMediaItem(row)]));
+  return unique.flatMap((id) => {
+    const item = byId.get(id);
+    return item ? [item] : [];
+  });
+}
+
 function toMediaItem(row: {
   id: number;
   r2Key: string;

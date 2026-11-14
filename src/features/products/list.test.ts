@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseProductForm, ratingFormValue } from './form';
 import { DEFAULT_PRODUCT_LIST_SORT, productAdminQuery, productListCord, productListSort, readProductBulk } from './products';
-import { canFeatureProduct } from './status';
+import { canFeatureProduct, isPubliclySellable } from './status';
 
 describe('danh sách sản phẩm', () => {
   it('chỉ nhận các kiểu sắp xếp đã định', () => {
@@ -55,6 +55,13 @@ describe('danh sách sản phẩm', () => {
       '/admin/products?status=active&bulk=delete&n=2',
     );
     expect(productAdminQuery({ bulk: 'error' })).toBe('/admin/products?error=bulk');
+  });
+
+  it('ẩn sản phẩm khi danh mục tạm tắt', () => {
+    expect(isPubliclySellable({ status: 'active', categoryStatus: null })).toBe(true);
+    expect(isPubliclySellable({ status: 'active', categoryStatus: 'active' })).toBe(true);
+    expect(isPubliclySellable({ status: 'active', categoryStatus: 'inactive' })).toBe(false);
+    expect(isPubliclySellable({ status: 'inactive', categoryStatus: 'active' })).toBe(false);
   });
 
   it('không cho sản phẩm ngừng bán được đánh dấu nổi bật', () => {

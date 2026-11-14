@@ -163,6 +163,11 @@ async function loadPost() {
   faviconUrl={loaded.site?.faviconUrl || '/favicon.svg'}
   chrome={loaded.site}
   trackEvent={loaded.post ? 'view' : null}
+  trackPayload={
+    loaded.post
+      ? { contentName: loaded.post.title, contents: [{ id: loaded.post.slug, quantity: 1 }] }
+      : null
+  }
 >
   {
     !loaded.site ? (

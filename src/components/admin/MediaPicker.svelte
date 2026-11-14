@@ -57,10 +57,11 @@
   const initialItems = untrack(() => items.map(normalizeItem));
   const initialPreview = untrack(() => (manage ? initialItems[0] ?? null : null));
 
-  let library = $state<MediaItem[]>(initialItems);
+  // Picker: không hydrate cả thư viện — lưới chỉ sau loadPage (24/trang). Manage: SSR đã phân trang.
+  let library = $state<MediaItem[]>(untrack(() => (manage ? initialItems : [])));
   let useMap = $state<Record<string, MediaUse[]>>(untrack(() => ({ ...uses })));
-  let libraryTotal = $state(untrack(() => total));
-  let libraryPage = $state(untrack(() => page));
+  let libraryTotal = $state(untrack(() => (manage ? total : 0)));
+  let libraryPage = $state(untrack(() => (manage ? page : 1)));
   let listQuery = $state(untrack(() => libraryQuery));
   let listUsage = $state(untrack(() => libraryUsage));
   let listSort = $state(untrack(() => librarySort));
@@ -102,28 +103,46 @@
   let replaceInput = $state<HTMLInputElement | null>(null);
 
   const dialogOpen = $derived(manage ? false : hideTrigger ? open : showing);
-  const preview = $derived(library.find((item) => item.id === previewId) ?? null);
-  const visible = $derived.by(() => {
-    if (manage) return library;
-    const needle = query.trim().toLowerCase();
-    if (!needle) return library;
-    return library.filter((item) => `${item.filename} ${item.alt}`.toLowerCase().includes(needle));
-  });
+  /** Ảnh SSR ban đầu — giữ để preview ảnh đã chọn khi trang hiện tại không chứa chúng. */
+  const seedById = new Map(initialItems.map((item) => [item.id, item]));
+  const preview = $derived(
+    library.find((item) => item.id === previewId) ?? (previewId != null ? (seedById.get(previewId) ?? null) : null),
+  );
+  /** Lưới luôn lấy từ trang server (24 ảnh), không lọc cả thư viện trên client. */
+  const visible = $derived(library);
   const pageCount = $derived(Math.max(1, Math.ceil(libraryTotal / Math.max(1, pageSize))));
   const rangeFrom = $derived(libraryTotal === 0 ? 0 : (libraryPage - 1) * pageSize + 1);
   const rangeTo = $derived(Math.min(libraryTotal, libraryPage * pageSize));
-  const pageList = $derived(Array.from({ length: pageCount }, (_, index) => index + 1));
+  /** Cửa sổ số trang hẹp — tránh render hàng trăm nút khi thư viện lớn. */
+  const pageWindow = $derived.by(() => {
+    if (pageCount <= 9) return Array.from({ length: pageCount }, (_, index) => index + 1);
+    const start = Math.max(1, Math.min(libraryPage - 3, pageCount - 6));
+    const end = Math.min(pageCount, start + 6);
+    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  });
   // Trống thật sự: không có item trên client (tránh ẩn lưới khi chỉ total hydrate sai).
   const manageEmpty = $derived(
     manage && library.length === 0 && libraryTotal === 0 && listQuery.trim() === '' && listUsage === 'all' && listSort === 'newest',
   );
-  const chosenItems = $derived(chosen.map((id) => library.find((item) => String(item.id) === id)).filter((item): item is MediaItem => !!item));
+  const chosenItems = $derived(
+    chosen
+      .map((id) => library.find((item) => String(item.id) === id) ?? seedById.get(Number(id)) ?? null)
+      .filter((item): item is MediaItem => !!item),
+  );
 
   onMount(() => {
     const onAdd = (event: Event) => {
       const item = (event as CustomEvent<MediaItem>).detail;
-      if (!item || library.some((entry) => entry.id === item.id)) return;
-      library = [normalizeItem(item), ...library];
+      if (!item) return;
+      const next = normalizeItem(item);
+      seedById.set(next.id, next);
+      if (!manage) {
+        // Picker: tải lại trang 1 để không vượt 24; đóng modal thì chỉ cần seed cho chip/preview.
+        if (dialogOpen) void loadPage(1);
+        return;
+      }
+      if (library.some((entry) => entry.id === next.id)) return;
+      library = [next, ...library];
       libraryTotal += 1;
     };
     const onAlt = (event: Event) => {
@@ -147,10 +166,21 @@
     };
   });
 
+  function resetPickerLibrary() {
+    listQuery = '';
+    query = '';
+    library = [];
+    libraryTotal = 0;
+    libraryPage = 1;
+    void loadPage(1);
+  }
+
   $effect(() => {
     if (!dialogEl || manage) return;
     if (dialogOpen && !dialogEl.open) {
       dialogEl.showModal();
+      // hideTrigger: parent bật open (PostEditor…) — không qua openDialog.
+      if (hideTrigger) resetPickerLibrary();
       void tick().then(() => searchEl?.focus());
     }
     if (!dialogOpen && dialogEl.open) dialogEl.close();
@@ -188,11 +218,13 @@
       if (!response.ok) throw new Error('Không tải được thư viện.');
       const payload = (await response.json()) as { items: MediaItem[]; uses: Record<string, MediaUse[]>; total: number; page: number };
       library = (payload.items ?? []).map(normalizeItem);
+      for (const item of library) seedById.set(item.id, item);
       useMap = payload.uses ?? {};
       libraryTotal = payload.total;
       libraryPage = payload.page;
       rememberPreview(library);
-      window.history.replaceState(null, '', `${url.pathname}${url.search}`);
+      // Chỉ đổi URL trên trang quản lý media — picker mở từ bài/SP không được đẩy sang /admin/media.
+      if (manage) window.history.replaceState(null, '', `${url.pathname}${url.search}`);
     } catch (error) {
       loadError = error instanceof Error ? error.message : 'Không tải được thư viện.';
     } finally {
@@ -207,10 +239,14 @@
   function openDialog() {
     draft = [...chosen];
     previewId = chosen[0] ? Number(chosen[0]) : null;
-    query = '';
     message = '';
-    if (hideTrigger) open = true;
-    else showing = true;
+    loadError = '';
+    if (hideTrigger) {
+      open = true;
+      return;
+    }
+    resetPickerLibrary();
+    showing = true;
   }
 
   function close() {
@@ -651,7 +687,7 @@
               <button class="media-page-arrow" type="button" aria-label="Trang trước" disabled={libraryPage <= 1 || loading} onclick={() => void loadPage(libraryPage - 1)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
               </button>
-              {#each pageList as pageNumber (pageNumber)}
+              {#each pageWindow as pageNumber (pageNumber)}
                 <button class="media-page-num" type="button" aria-current={pageNumber === libraryPage ? 'page' : undefined} aria-pressed={pageNumber === libraryPage} disabled={loading} onclick={() => void loadPage(pageNumber)}>{pageNumber}</button>
               {/each}
               <button class="media-page-arrow" type="button" aria-label="Trang sau" disabled={libraryPage >= pageCount || loading} onclick={() => void loadPage(libraryPage + 1)}>
@@ -731,11 +767,14 @@
         <h2>Chọn ảnh</h2>
         <button class="btn" type="button" onclick={close}>Đóng</button>
       </div>
-      {@render toolbar()}
-      {#if message}<p class="error-text" role="alert">{message}</p>{/if}
-      <div class="media-layout">
-        {@render previewPane()}
-        {@render grid(false)}
+      <div class="media-dialog-body">
+        {@render toolbar()}
+        {#if message}<p class="error-text" role="alert">{message}</p>{/if}
+        {#if loadError}<p class="error-text" role="alert">{loadError}</p>{/if}
+        <div class="media-layout media-layout-picker">
+          {@render grid(false)}
+        </div>
+        {@render pickerPager()}
       </div>
       <div class="media-dialog-foot">
         <button class="btn btn-primary" type="button" disabled={!preview} onclick={confirm}>
@@ -748,9 +787,38 @@
 
 {#snippet toolbar()}
   <div class="media-toolbar">
-    <input class="field" type="search" placeholder="Tìm theo tên hoặc mô tả" bind:this={searchEl} bind:value={query} onkeydown={(event) => event.key === 'Enter' && event.preventDefault()} />
+    <input
+      class="field media-search-field"
+      type="search"
+      placeholder="Tìm theo tên hoặc mô tả"
+      bind:this={searchEl}
+      bind:value={listQuery}
+      oninput={() => scheduleLibrary()}
+      onkeydown={(event) => event.key === 'Enter' && event.preventDefault()}
+    />
     {@render dropzone()}
   </div>
+{/snippet}
+
+{#snippet pickerPager()}
+  {#if libraryTotal > 0}
+    <div class="media-pages media-pages-picker">
+      <span class="media-pages-count">
+        {loading ? 'Đang tải…' : `Hiển thị ${rangeFrom}–${rangeTo} / ${libraryTotal} ảnh`}
+      </span>
+      {#if pageCount > 1}
+        <div class="media-pages-nav">
+          <button class="media-page-arrow" type="button" aria-label="Trang trước" disabled={libraryPage <= 1 || loading} onclick={() => void loadPage(libraryPage - 1)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+          </button>
+          <span class="media-pages-label">Trang {libraryPage}/{pageCount}</span>
+          <button class="media-page-arrow" type="button" aria-label="Trang sau" disabled={libraryPage >= pageCount || loading} onclick={() => void loadPage(libraryPage + 1)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+          </button>
+        </div>
+      {/if}
+    </div>
+  {/if}
 {/snippet}
 
 {#snippet dropzone(after: (() => void) | undefined = undefined)}

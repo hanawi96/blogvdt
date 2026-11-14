@@ -11,7 +11,7 @@ import { getPost, listMetaCorpus, saveDraftPost, updatePost } from '../../../fea
 import { listTagOptions } from '../../../features/posts/tags';
 import { listRedirectPostTargets } from '../../../features/redirects/manage';
 import { readRetirement } from '../../../features/redirects/rules';
-import { listMedia } from '../../../features/media/media';
+import { listMediaByIds } from '../../../features/media/media';
 import { getPublicSite } from '../../../features/settings/settings';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
@@ -42,7 +42,6 @@ const seoSite = {
   host: Astro.url.hostname,
   markUrl: site?.faviconUrl || site?.logoUrl || '',
 };
-const media = inTrash ? [] : await listMedia(db);
 const targets = inTrash ? [] : await listRedirectPostTargets(db, post.slug);
 const [savedCategoryIds, tags, selectedTags] = inTrash
   ? [[], [] as { id: number; name: string }[], [] as { id: number; name: string; slug: string }[]]
@@ -123,6 +122,8 @@ function valuesFrom(form: FormData, fallbackContent: string) {
     status: read('status') || 'draft',
   };
 }
+
+const media = inTrash ? [] : await listMediaByIds(db, [values.coverMediaId]);
 ---
 
 {

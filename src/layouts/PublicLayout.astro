@@ -4,7 +4,7 @@ import SiteHeader from '../components/public/SiteHeader.astro';
 import { shareImageType } from '../features/media/files';
 import type { PublicSite } from '../features/settings/settings';
 import { plainMetaText, shareImageUrl, shareMetadata, shareOriginFrom, type ShareTags } from '../lib/seo/meta';
-import { EMPTY_TRACKING, buildTrackingSnippets, type Tracking, type TrackingEvent, type TrackingValue } from '../features/tracking/tracking';
+import { EMPTY_TRACKING, buildTrackingSnippets, type Tracking, type TrackingEvent, type TrackingPayload } from '../features/tracking/tracking';
 import '../styles/global.css';
 
 interface Props {
@@ -35,8 +35,8 @@ interface Props {
   tracking?: Tracking;
   /** Sự kiện cần bắn ngay khi tải: 'view' (xem trang), 'lead' hoặc 'purchase' (gửi đơn thành công). */
   trackEvent?: TrackingEvent | null;
-  /** Giá trị đơn hàng gửi kèm sự kiện 'purchase' (ví dụ { amount, currency: 'VND' }). */
-  purchaseValue?: TrackingValue | null;
+  /** Payload ViewContent / Purchase (content_ids = slug SP, value, currency…). */
+  trackPayload?: TrackingPayload | null;
 }
 
 const {
@@ -62,14 +62,14 @@ const {
   embed = false,
   tracking,
   trackEvent = null,
-  purchaseValue = null,
+  trackPayload = null,
 } = Astro.props;
 const showChrome = Boolean(chrome) && !embed;
 // Mặc định dùng mã theo dõi chung của site (chrome.tracking) để mọi trang công khai tự có PageView;
 // trang nào cần ghi đè (ví dụ landing) thì truyền prop tracking riêng.
 const activeTracking = tracking ?? chrome?.tracking ?? EMPTY_TRACKING;
 // Không bắn mã theo dõi khi xem trước trong CMS (embed).
-const trackingSnippets = buildTrackingSnippets(embed ? EMPTY_TRACKING : activeTracking, embed ? null : trackEvent, embed ? null : purchaseValue);
+const trackingSnippets = buildTrackingSnippets(embed ? EMPTY_TRACKING : activeTracking, embed ? null : trackEvent, embed ? null : trackPayload);
 const robotsContent = Astro.locals.allowIndex === false ? 'noindex,nofollow' : robots;
 const shareOrigin = shareOriginFrom(canonical, Astro.url.origin);
 const share = shareMetadata({

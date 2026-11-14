@@ -5,7 +5,7 @@ import { isAdminRole, isAdminStatus, STATUS_LABELS } from '../../../features/aut
 import { activityActor } from '../../../features/activity/log';
 import { mutationError, SESSION_COOKIE } from '../../../features/auth/session';
 import { getUser, issuePasswordReset, PROFILE_LINKS, readUserProfile, revokeUserSessions, updateUser, type UserProfile } from '../../../features/auth/users';
-import { listMedia } from '../../../features/media/media';
+import { listMediaByIds } from '../../../features/media/media';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
 import { formatDateTime } from '../../../lib/datetime';
@@ -95,7 +95,7 @@ if (Astro.request.method === 'POST') {
 }
 
 const current = (await getUser(db, id)) ?? user;
-const library = await listMedia(db);
+const library = await listMediaByIds(db, [profile.avatarMediaId]);
 const statusChoices = current.status === 'invited' ? (['invited', 'disabled'] as const) : (['active', 'disabled'] as const);
 ---
 

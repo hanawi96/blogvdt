@@ -3,6 +3,7 @@ import type { AppDb } from '../../lib/db/client';
 import { media, orderItems, orders, productCategories, productMedia, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { listingMediaKey } from '../media/files';
+import { isPubliclySellable, sellableProductWhere } from './status';
 import { readWeightScale } from './weight';
 
 export type LandingProduct = {
@@ -30,7 +31,8 @@ export async function listLandingProducts(db: AppDb, ids: number[]): Promise<Lan
     })
     .from(products)
     .leftJoin(media, eq(products.coverMediaId, media.id))
-    .where(ids.length > 0 ? and(eq(products.status, 'active'), inArray(products.id, ids)) : eq(products.status, 'active'))
+    .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+    .where(ids.length > 0 ? and(sellableProductWhere(), inArray(products.id, ids)) : sellableProductWhere())
     .orderBy(asc(products.sortOrder), asc(products.id));
   const mapped = rows.map((row) => {
     const listKey = listingMediaKey(row.coverKey, row.cardKey);
@@ -65,6 +67,7 @@ export async function getPublicProduct(db: AppDb, slug: string) {
       metaDescription: products.metaDescription,
       updatedAt: products.updatedAt,
       categorySlug: productCategories.slug,
+      categoryStatus: productCategories.status,
       coverId: products.coverMediaId,
       coverKey: media.r2Key,
       coverAlt: media.altText,
@@ -111,6 +114,7 @@ export async function getPublicProduct(db: AppDb, slug: string) {
   return {
     ...product,
     categorySlug: product.categorySlug ?? '',
+    categoryStatus: product.categoryStatus ?? null,
     weightScale: readWeightScale(product.weightScale),
     images,
   };
@@ -132,7 +136,7 @@ export async function listOrderCatalog(db: AppDb) {
     .from(products)
     .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
     .leftJoin(media, eq(products.coverMediaId, media.id))
-    .where(eq(products.status, 'active'))
+    .where(sellableProductWhere())
     .orderBy(asc(products.sortOrder), asc(products.id));
   return rows.map(({ weightScale, coverKey, cardKey, coverAlt, categorySlug, ...row }) => {
     const listKey = listingMediaKey(coverKey, cardKey);
@@ -155,18 +159,19 @@ export async function listStaffProductChoices(db: AppDb, extraIds: number[]) {
       name: products.name,
       price: products.price,
       status: products.status,
+      categoryStatus: productCategories.status,
       weightScale: productCategories.weightScale,
     })
     .from(products)
     .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
-    .where(extras.length > 0 ? or(eq(products.status, 'active'), inArray(products.id, extras)) : eq(products.status, 'active'))
+    .where(extras.length > 0 ? or(sellableProductWhere(), inArray(products.id, extras)) : sellableProductWhere())
     .orderBy(asc(products.status), asc(products.sortOrder), asc(products.id));
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
     price: row.price,
     weightScale: readWeightScale(row.weightScale),
-    active: row.status === 'active',
+    active: isPubliclySellable({ status: row.status, categoryStatus: row.categoryStatus }),
   }));
 }
 
@@ -233,7 +238,7 @@ export async function listStaffPickerProducts(db: AppDb): Promise<{ products: St
       .from(products)
       .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
       .leftJoin(media, eq(products.coverMediaId, media.id))
-      .where(eq(products.status, 'active')),
+      .where(sellableProductWhere()),
     db
       .select({
         productId: orderItems.productId,
@@ -296,6 +301,7 @@ export async function listSitemapProducts(db: AppDb) {
   return db
     .select({ slug: products.slug, updatedAt: products.updatedAt })
     .from(products)
-    .where(eq(products.status, 'active'))
+    .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+    .where(sellableProductWhere())
     .orderBy(asc(products.sortOrder), asc(products.id));
 }

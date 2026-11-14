@@ -1,8 +1,9 @@
 import { and, asc, eq } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
-import { media, products } from '../../lib/db/schema';
+import { media, productCategories, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { listingMediaKey, MEDIA_CARD_SIZE } from '../media/files';
+import { sellableProductWhere } from './status';
 
 export async function listFeaturedProducts(db: AppDb, limit = 4) {
   const rows = await db
@@ -20,7 +21,8 @@ export async function listFeaturedProducts(db: AppDb, limit = 4) {
     })
     .from(products)
     .leftJoin(media, eq(products.coverMediaId, media.id))
-    .where(and(eq(products.status, 'active'), eq(products.isFeatured, true)))
+    .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+    .where(and(sellableProductWhere(), eq(products.isFeatured, true)))
     .orderBy(asc(products.sortOrder), asc(products.id))
     .limit(limit);
   return rows.map((row) => {
