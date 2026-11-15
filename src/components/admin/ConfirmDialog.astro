@@ -55,7 +55,9 @@
       modal.close();
       if (!current) return;
       current.form.dataset.confirmed = '1';
-      current.form.requestSubmit(current.submitter ?? undefined);
+      // Submitter có thể đã rời DOM (soft-nav); form vẫn gửi nhờ hidden fields.
+      const submitter = current.submitter?.isConnected ? current.submitter : undefined;
+      current.form.requestSubmit(submitter);
     });
 
     cancelButton.addEventListener('click', () => modal.close());

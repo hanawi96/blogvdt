@@ -9,6 +9,8 @@ import { createDb } from '../../../lib/db/client';
 import { getDbBinding, getMediaBucket } from '../../../lib/cloudflare/env';
 import { routes } from '../../../lib/routes';
 
+export const prerender = false;
+
 const ADDRESS_ROWS = addressSelect as unknown as AddressSelectRow[];
 
 export const GET: APIRoute = () => new Response(null, { status: 405 });

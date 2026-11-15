@@ -610,6 +610,8 @@ const {
                   fulfillLabel: string;
                   statusLabel: string;
                   totalPrice: number;
+                  quantity: number;
+                  weightLabel: string;
                   productName: string;
                   createdAt: number;
                 } | null;
@@ -635,7 +637,7 @@ const {
             }
             const recent = customer.recent;
             result.textContent = recent
-              ? `${recent.fulfillLabel || recent.statusLabel} · ${recent.code} · ${dayLabel(recent.createdAt)} · ${money(recent.totalPrice)} · ${customer.orderCount} đơn · ${recent.productName}`
+              ? `${recent.fulfillLabel || recent.statusLabel} · ${recent.code} · ${dayLabel(recent.createdAt)} · ${money(recent.totalPrice)} · ×${recent.quantity}${recent.weightLabel ? ` · ${recent.weightLabel}` : ''} · ${customer.orderCount} đơn · ${recent.productName}`
               : `Đã điền từ ${customer.orderCount} đơn trước.`;
           } catch {
             result.textContent = 'Không tra được khách.';

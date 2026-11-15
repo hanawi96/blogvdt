@@ -41,13 +41,14 @@ export default defineConfig({
     plugins: [tailwindcss()],
     resolve: { dedupe: TIPTAP_DEDUPE },
     // zod: exclude để tránh lỗi thiếu file sau khi Vite re-optimize.
+    // xlsx: exclude — Vite SSR optimizer thiếu file deps_ssr/xlsx.js, làm rớt endpoint orders/bulk + exports.
     optimizeDeps: {
-      exclude: ['zod'],
+      exclude: ['zod', 'xlsx'],
       include: TIPTAP_DEPS,
     },
     ssr: {
       optimizeDeps: {
-        exclude: ['zod'],
+        exclude: ['zod', 'xlsx'],
         include: TIPTAP_DEPS,
       },
     },

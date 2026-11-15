@@ -3,13 +3,7 @@ import type { AppDb } from '../../lib/db/client';
 import { orderExportItems, orderExports, orderItems, orders } from '../../lib/db/schema';
 import type { AddressSelectRow } from '../address/parse';
 import { activityWrite, commitWrites, type ActivityActor } from '../activity/log';
-import {
-  buildSpxWorkbookBytes,
-  mapOrdersToSpxRows,
-  spxExportFilename,
-  spxExportObjectKey,
-  type SpxExportOrder,
-} from './spx-export';
+import type { SpxExportOrder } from './spx-export';
 
 export type OrderExportListItem = {
   id: number;
@@ -109,6 +103,8 @@ export async function createSpxOrderExport(
   const loaded = await loadOrdersForSpxExport(db, input.ids);
   if (loaded.length === 0) return { ok: false, error: 'Không tìm thấy đơn đã chọn.' };
 
+  // Dynamic: xlsx trong spx-export làm Vite bỏ endpoint nếu import tĩnh từ pages.
+  const { mapOrdersToSpxRows, spxExportFilename, spxExportObjectKey, buildSpxWorkbookBytes } = await import('./spx-export');
   const mapped = mapOrdersToSpxRows(loaded, input.addressRows);
   if (mapped.rows.length === 0) {
     return {

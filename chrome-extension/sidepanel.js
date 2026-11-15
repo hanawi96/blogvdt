@@ -17,9 +17,14 @@ function normalizePosUrl(value) {
   }
 }
 
-(async () => {
-  const frame = document.getElementById('pos-frame');
-  if (!(frame instanceof HTMLIFrameElement)) return;
-  const stored = await chrome.storage.sync.get(['posUrl']);
-  frame.src = normalizePosUrl(stored.posUrl);
-})();
+const frame = document.getElementById('pos-frame');
+if (frame instanceof HTMLIFrameElement) {
+  // Gán URL mặc định ngay — không chờ storage (tránh khung trống).
+  frame.loading = 'eager';
+  frame.src = DEFAULT_POS_URL;
+
+  void chrome.storage.sync.get(['posUrl']).then((stored) => {
+    const next = normalizePosUrl(stored.posUrl);
+    if (next !== DEFAULT_POS_URL && frame.src !== next) frame.src = next;
+  });
+}

@@ -145,9 +145,16 @@
 
 #vdt-pos-overlay-root .vdt-customer {
   flex: none;
-  padding: 0.55rem 0.65rem 0.65rem;
+  padding: 0.45rem 0.55rem 0.55rem;
   border-bottom: 1px solid #e5e0d8;
-  background: #fff;
+  background: #f4faf7;
+}
+
+#vdt-pos-overlay-root .vdt-customer-card {
+  padding: 0.45rem 0.5rem;
+  border: 1px solid #d8ebe3;
+  border-radius: 0.55rem;
+  background: #eef8f3;
 }
 
 #vdt-pos-overlay-root .vdt-customer-status {
@@ -162,11 +169,11 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem 0.45rem;
+  gap: 0.3rem 0.4rem;
 }
 
 #vdt-pos-overlay-root .vdt-customer-meta {
-  margin-top: 0.4rem;
+  margin-top: 0.35rem;
 }
 
 #vdt-pos-overlay-root .vdt-pill {
@@ -174,7 +181,7 @@
   align-items: center;
   max-width: 100%;
   padding: 0.15rem 0.45rem;
-  border-radius: 999px;
+  border-radius: 0.35rem;
   border: 1px solid #dbeafe;
   background: #eff6ff;
   color: #1d4ed8;
@@ -182,6 +189,12 @@
   font-weight: 700;
   line-height: 1.2;
   white-space: nowrap;
+}
+
+#vdt-pos-overlay-root .vdt-pill-status {
+  border-color: #fde68a;
+  background: #fff7ed;
+  color: #c2410c;
 }
 
 #vdt-pos-overlay-root .vdt-pill-phone {
@@ -192,13 +205,25 @@
 }
 
 #vdt-pos-overlay-root .vdt-pill-place {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
+  border-color: #86efac;
+  background: #fff;
   color: #15803d;
 }
 
+#vdt-pos-overlay-root .vdt-pill-weight {
+  border-color: #ddd6fe;
+  background: #fff;
+  color: #6d28d9;
+}
+
+#vdt-pos-overlay-root .vdt-pill-qty {
+  border-color: #bfdbfe;
+  background: #fff;
+  color: #1d4ed8;
+}
+
 #vdt-pos-overlay-root .vdt-date {
-  color: #1e3a8a;
+  color: #c2410c;
   font-size: 0.8rem;
   font-weight: 750;
 }
@@ -214,7 +239,7 @@
   font-size: 0.75rem;
   line-height: 1.3;
   min-width: 0;
-  flex: 1 1 8rem;
+  flex: 1 1 7rem;
 }
 
 #vdt-pos-overlay-root .vdt-copy {
@@ -223,9 +248,9 @@
   width: 1.55rem;
   height: 1.55rem;
   margin-left: auto;
-  border: 0;
+  border: 1px solid #fed7aa;
   border-radius: 0.35rem;
-  background: #fff7ed;
+  background: #fff;
   color: #c2410c;
   cursor: pointer;
   padding: 0;

@@ -112,11 +112,22 @@ export type CustomerPhoneLookup = {
     statusLabel: string;
     fulfillLabel: string;
     totalPrice: number;
+    quantity: number;
+    /** Cân nặng suy từ option (vd «3kg»), rỗng nếu không có. */
+    weightLabel: string;
     productName: string;
     optionLabel: string | null;
     createdAt: number;
   } | null;
 };
+
+/** Lấy «3kg» từ nhãn option nếu có. */
+function weightLabelFromOption(optionLabel: string | null | undefined): string {
+  const raw = String(optionLabel || '');
+  const match = raw.match(/(\d+(?:[.,]\d+)?)\s*kg\b/i);
+  if (!match?.[1]) return '';
+  return `${match[1].replace(',', '.')}kg`;
+}
 
 /** Tra khách theo SĐT cho POS / extension: đơn gần nhất + số đơn chưa hủy. */
 export async function lookupCustomerByPhone(db: AppDb, rawPhone: string): Promise<CustomerPhoneLookup | null> {
@@ -132,6 +143,7 @@ export async function lookupCustomerByPhone(db: AppDb, rawPhone: string): Promis
       status: orders.status,
       fulfillStatus: orders.fulfillStatus,
       totalPrice: orders.totalPrice,
+      quantity: orders.quantity,
       productName: orders.productName,
       optionLabel: orders.optionLabel,
       createdAt: orders.createdAt,
@@ -162,6 +174,8 @@ export async function lookupCustomerByPhone(db: AppDb, rawPhone: string): Promis
       statusLabel: orderStatusLabel(recent.status),
       fulfillLabel,
       totalPrice: recent.totalPrice,
+      quantity: Number(recent.quantity) || 1,
+      weightLabel: weightLabelFromOption(recent.optionLabel),
       productName: recent.productName,
       optionLabel: recent.optionLabel,
       createdAt: recent.createdAt,

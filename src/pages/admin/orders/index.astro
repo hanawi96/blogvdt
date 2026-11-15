@@ -1236,6 +1236,10 @@ const shippedPanelHref =
       const pageChecked = pageBoxes.filter((box) => box.checked).length;
       countText.textContent = `${selectedIds.size} đơn`;
       bar.hidden = selectedIds.size === 0;
+      if (selectedIds.size === 0) {
+        const action = bar.querySelector('[data-bulk-action]');
+        if (action instanceof HTMLInputElement) action.value = '';
+      }
       if (all instanceof HTMLInputElement) {
         all.checked = pageBoxes.length > 0 && pageChecked === pageBoxes.length;
         all.indeterminate = pageChecked > 0 && pageChecked < pageBoxes.length;
@@ -1246,10 +1250,9 @@ const shippedPanelHref =
       paintDayChips();
     }
     function syncBulkHidden(bar: HTMLFormElement) {
+      // Luôn ghi ids từ selectedIds (nguồn đúng), không phụ thuộc checkbox / form= association.
       for (const node of bar.querySelectorAll('[data-bulk-extra]')) node.remove();
-      const onPage = new Set(boxes().map((box) => box.value));
       for (const id of selectedIds) {
-        if (onPage.has(id)) continue;
         const input = document.createElement('input');
         input.type = 'hidden';
         input.name = 'ids';
@@ -1340,11 +1343,30 @@ const shippedPanelHref =
       const bar = root.querySelector('[data-order-bulk]');
       if (target.hasAttribute('data-bulk-delete') && bar instanceof HTMLFormElement) {
         const n = selectedIds.size;
+        if (n === 0) return;
+        const action = bar.querySelector('[data-bulk-action]');
+        if (action instanceof HTMLInputElement) action.value = 'delete';
         bar.dataset.confirmTitle = `Xóa ${n} đơn đã chọn?`;
         bar.dataset.confirm = `${n} đơn sẽ bị xóa vĩnh viễn cùng dòng sản phẩm và không khôi phục được.`;
         bar.dataset.confirmOk = `Xóa ${n} đơn`;
         syncBulkHidden(bar);
       }
+    });
+
+    // ConfirmDialog chặn lần 1; lần submit đã xác nhận — chốt lại bulk + ids trước khi gửi.
+    root.addEventListener('submit', (event) => {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement) || !form.hasAttribute('data-order-bulk') || event.defaultPrevented) return;
+      const action = form.querySelector('[data-bulk-action]');
+      if (!(action instanceof HTMLInputElement) || action.value !== 'delete') {
+        event.preventDefault();
+        return;
+      }
+      if (selectedIds.size === 0) {
+        event.preventDefault();
+        return;
+      }
+      syncBulkHidden(form);
     });
 
     document.addEventListener('keydown', (event) => {

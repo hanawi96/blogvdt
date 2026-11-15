@@ -23,6 +23,39 @@ let loginUrl = '';
 let hookPhone = null;
 /** @type {object[]} */
 let pendingPosMessages = [];
+/** URL POS đã biết — tránh chờ storage mỗi lần gắn iframe. */
+let cachedPosUrl = '';
+/** @type {Promise<{ ok?: boolean, posUrl?: string, loginUrl?: string }> | null} */
+let syncInflight = null;
+
+/** Bắt đầu sync session + lấy URL ngay khi script chạy (song song với dựng UI). */
+function prefetchPosUrl() {
+  return chrome.runtime
+    .sendMessage({ type: 'vdt-get-pos-url' })
+    .then((message) => {
+      const url = typeof message?.posUrl === 'string' ? message.posUrl : '';
+      if (url) cachedPosUrl = url;
+      return cachedPosUrl;
+    })
+    .catch(() => cachedPosUrl);
+}
+
+function syncSession(force = false) {
+  if (force) syncInflight = null;
+  if (!syncInflight) {
+    syncInflight = chrome.runtime
+      .sendMessage({ type: 'vdt-sync-session', pageUrl: location.href })
+      .then((message) => {
+        if (message?.posUrl) cachedPosUrl = message.posUrl;
+        return message || { ok: false };
+      })
+      .catch(() => ({ ok: false }));
+  }
+  return syncInflight;
+}
+
+void prefetchPosUrl();
+void syncSession();
 
 function clampWidth(value) {
   const max = Math.min(MAX_WIDTH, Math.floor(window.innerWidth * 0.85));
@@ -280,6 +313,13 @@ function setCustomerStatus(root, text) {
   box.innerHTML = `<p class="vdt-customer-status">${text}</p>`;
 }
 
+function shortProvince(label) {
+  return String(label || '')
+    .replace(/^(thành phố|tinh|tỉnh)\s+/i, '')
+    .replace(/^tp\.?\s*/i, '')
+    .trim();
+}
+
 function renderCustomer(root, customer) {
   const box = customerBox(root);
   if (!(box instanceof HTMLElement)) return;
@@ -288,22 +328,32 @@ function renderCustomer(root, customer) {
     setCustomerStatus(root, `Có ${customer.orderCount} đơn · chưa đọc được đơn gần nhất`);
     return;
   }
-  const product = recent.optionLabel ? `${recent.productName} · ${recent.optionLabel}` : recent.productName;
+  const status = recent.fulfillLabel || recent.statusLabel || '';
+  const place = shortProvince(customer.provinceLabel);
+  const weight = typeof recent.weightLabel === 'string' ? recent.weightLabel : '';
+  const qty = Number(recent.quantity) > 0 ? Number(recent.quantity) : 1;
+  const product = recent.productName || '';
+  const option = recent.optionLabel && !weight ? recent.optionLabel : '';
+  const productLine = option ? `${product} · ${option}` : product;
   box.hidden = false;
   box.dataset.state = 'order';
   box.innerHTML = `
-    <div class="vdt-customer-row">
-      <span class="vdt-pill vdt-pill-status">${escapeHtml(recent.fulfillLabel || recent.statusLabel)}</span>
-      <span class="vdt-pill vdt-pill-phone">${escapeHtml(customer.phone)}</span>
-      <span class="vdt-date">${escapeHtml(dayLabel(recent.createdAt))}</span>
-      <button type="button" class="vdt-copy" data-vdt-copy="${escapeAttr(customer.phone)}" title="Sao chép SĐT" aria-label="Sao chép SĐT">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/></svg>
-      </button>
-    </div>
-    <div class="vdt-customer-meta">
-      ${customer.provinceLabel ? `<span class="vdt-pill vdt-pill-place">${escapeHtml(customer.provinceLabel)}</span>` : ''}
-      <strong class="vdt-price">${escapeHtml(money(recent.totalPrice))}</strong>
-      <span class="vdt-product">${escapeHtml(product)}</span>
+    <div class="vdt-customer-card">
+      <div class="vdt-customer-row">
+        <span class="vdt-pill vdt-pill-status">${escapeHtml(status)}</span>
+        <span class="vdt-pill vdt-pill-phone">${escapeHtml(customer.phone)}</span>
+        <span class="vdt-date">${escapeHtml(dayLabel(recent.createdAt))}</span>
+        <button type="button" class="vdt-copy" data-vdt-copy="${escapeAttr(customer.phone)}" title="Sao chép SĐT" aria-label="Sao chép SĐT">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/></svg>
+        </button>
+      </div>
+      <div class="vdt-customer-meta">
+        ${place ? `<span class="vdt-pill vdt-pill-place">${escapeHtml(place)}</span>` : ''}
+        <strong class="vdt-price">${escapeHtml(money(recent.totalPrice))}</strong>
+        <span class="vdt-product">${escapeHtml(productLine)}</span>
+        ${weight ? `<span class="vdt-pill vdt-pill-weight">${escapeHtml(weight)}</span>` : ''}
+        <span class="vdt-pill vdt-pill-qty">×${escapeHtml(String(qty))}</span>
+      </div>
     </div>
   `;
 }
@@ -613,8 +663,14 @@ function watchChatPages() {
 }
 
 async function preparePosFrame(frame, { forceReload = false } = {}) {
-  const sync = await chrome.runtime.sendMessage({ type: 'vdt-sync-session', pageUrl: location.href });
   const root = ensureRoot();
+  if (!(frame instanceof HTMLIFrameElement)) return;
+
+  // URL + sync chạy song song (thường đã warm từ lúc script load).
+  const urlPromise = cachedPosUrl ? Promise.resolve(cachedPosUrl) : prefetchPosUrl();
+  const syncPromise = syncSession(forceReload);
+  const [urlFromCache, sync] = await Promise.all([urlPromise, syncPromise]);
+
   if (!sync?.ok) {
     loginUrl = sync?.loginUrl || loginUrl;
     setAuthBanner(root, true);
@@ -622,15 +678,19 @@ async function preparePosFrame(frame, { forceReload = false } = {}) {
     setAuthBanner(root, false);
   }
 
-  const url = sync?.posUrl || (await chrome.runtime.sendMessage({ type: 'vdt-get-pos-url' }))?.posUrl;
-  if (!url || !(frame instanceof HTMLIFrameElement)) return;
+  const url = sync?.posUrl || urlFromCache || cachedPosUrl;
+  if (!url) return;
+  cachedPosUrl = url;
   posOrigin = new URL(url).origin;
   const frameUrl = legacyFrameUrl(url);
-  if (!frame.src || forceReload || frame.src !== frameUrl) {
-    posReady = false;
-    pendingPosMessages = [];
-    frame.src = frameUrl;
-  }
+
+  // Giữ iframe ấm: cùng URL thì không reload (trừ khi buộc tải lại).
+  if (!forceReload && frame.src === frameUrl) return;
+
+  posReady = false;
+  pendingPosMessages = [];
+  frame.loading = 'eager';
+  frame.src = frameUrl;
 }
 
 /** Đổi query để iframe tải lại sau khi thêm trả kết quả địa chỉ cũ. */
@@ -668,7 +728,7 @@ function ensureRoot() {
         </div>
       </div>
       <div class="vdt-customer" data-vdt-customer hidden></div>
-      <iframe class="vdt-frame" title="Tạo đơn POS" allow="clipboard-read; clipboard-write"></iframe>
+      <iframe class="vdt-frame" title="Tạo đơn POS" loading="eager" allow="clipboard-read; clipboard-write"></iframe>
     </div>
     <button type="button" class="vdt-tab" data-vdt-expand title="Mở tạo đơn">Tạo đơn</button>
   `;
@@ -707,12 +767,17 @@ async function setOpen(open) {
 async function mount() {
   const root = ensureRoot();
   const frame = root.querySelector('.vdt-frame');
-  const stored = await chrome.storage.sync.get([STORAGE_OPEN, STORAGE_WIDTH]);
+
+  // Prefs UI + gắn iframe chạy song song (session đã warm từ đầu file).
+  const storedPromise = chrome.storage.sync.get([STORAGE_OPEN, STORAGE_WIDTH]);
+  const preparePromise = preparePosFrame(frame);
+
+  const stored = await storedPromise;
   applyWidth(root, stored[STORAGE_WIDTH] ?? DEFAULT_WIDTH);
   const open = stored[STORAGE_OPEN] !== false;
   root.classList.toggle('is-collapsed', !open);
 
-  await preparePosFrame(frame);
+  await preparePromise;
 
   window.addEventListener('message', (event) => {
     const data = event.data;
