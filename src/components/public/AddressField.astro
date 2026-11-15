@@ -103,12 +103,14 @@ const {
 </noscript>
 
 <script>
-  import { matchComposedAddress } from '../../features/address/parse';
+  import { searchLegacyAddress } from '../../features/address/legacy';
+  import { matchComposedAddress, parseChatAddress, parseQuickRecipient } from '../../features/address/parse';
 
   type AddressRow = [string, string, [string, string][]];
   type ComboKind = 'province' | 'ward';
 
   let rowsPromise: Promise<AddressRow[]> | null = null;
+  let mappingPromise: Promise<Record<string, string>> | null = null;
 
   function loadRows(): Promise<AddressRow[]> {
     if (!rowsPromise) {
@@ -123,6 +125,21 @@ const {
         });
     }
     return rowsPromise;
+  }
+
+  function loadMapping(): Promise<Record<string, string>> {
+    if (!mappingPromise) {
+      mappingPromise = fetch('/data/ward_mapping_2025.json')
+        .then((response) => {
+          if (!response.ok) throw new Error('mapping');
+          return response.json() as Promise<Record<string, string>>;
+        })
+        .catch((error) => {
+          mappingPromise = null;
+          throw error;
+        });
+    }
+    return mappingPromise;
   }
 
   function option(value: string, label: string, selected = false): HTMLOptionElement {
@@ -189,6 +206,10 @@ const {
 
     let rows: AddressRow[] = [];
     let ready = false;
+    /** Địa chỉ gửi từ extension trước khi address-select.json tải xong. */
+    let pendingAddress = '';
+    let pendingChat = false;
+    let pendingFill: { provinceCode: string; wardCode: string | null; line: string; keepLine?: boolean } | null = null;
     address.name = 'address';
     line.required = true;
 
@@ -404,33 +425,150 @@ const {
       true,
     );
 
+    function applyParsed(input: {
+      provinceCode: string;
+      wardCode: string | null;
+      line: string;
+    }) {
+      const nextProvince = input.provinceCode;
+      const nextWard = input.wardCode ?? '';
+      root.dataset.province = nextProvince;
+      root.dataset.ward = nextWard;
+      wardValue.value = nextWard;
+      line.value = input.line;
+      fill(province, 'Chọn tỉnh, thành phố', rows.map((row) => [row[0], row[1]] as const), nextProvince);
+      provinceValue.value = province.value;
+      showWards();
+      write();
+    }
+
     function applyComposed(text: string) {
-      address.value = text.trim();
-      const matched = matchComposedAddress(rows, address.value);
+      const trimmed = text.trim();
+      address.value = trimmed;
+      const matched = matchComposedAddress(rows, trimmed);
       if (matched) {
-        root.dataset.province = matched.provinceCode;
-        root.dataset.ward = matched.wardCode;
-        wardValue.value = matched.wardCode;
-        line.value = matched.line;
-        fill(province, 'Chọn tỉnh, thành phố', rows.map((row) => [row[0], row[1]] as const), matched.provinceCode);
-        provinceValue.value = province.value;
-        showWards();
-        write();
+        applyParsed(matched);
         return true;
       }
-      line.value = address.value;
+      const chat = parseChatAddress(rows, trimmed);
+      if (chat && chat.confidence !== 'low' && chat.provinceCode) {
+        applyParsed({
+          provinceCode: chat.provinceCode,
+          wardCode: chat.wardCode,
+          line: chat.line || trimmed,
+        });
+        return chat.confidence === 'high';
+      }
+      line.value = trimmed;
       write();
       return false;
     }
 
+    function emitChatParsed(phone: string | null, name: string | null) {
+      root.dispatchEvent(
+        new CustomEvent('pos-chat-parsed', {
+          bubbles: true,
+          detail: { phone, name },
+        }),
+      );
+    }
+
+    function applyChatMessage(text: string) {
+      const quick = parseQuickRecipient(rows, text);
+      const match = quick.match;
+      // Đủ tỉnh+xã mới 2 cấp → điền thẳng.
+      if (match && match.confidence === 'high' && match.provinceCode && match.wardCode) {
+        applyParsed({
+          provinceCode: match.provinceCode,
+          wardCode: match.wardCode,
+          line: match.line || text,
+        });
+        emitChatParsed(quick.phone, quick.name);
+        return;
+      }
+      // Địa chỉ 3 cấp cũ (vd Bình Dương) không còn trong danh sách 2 cấp → tra bảng ánh xạ.
+      void loadMapping()
+        .then((mapping) => {
+          const legacy = searchLegacyAddress(rows, mapping, text);
+          const first = legacy.items[0];
+          const samePlace =
+            first &&
+            legacy.items.every((item) => item.provinceCode === first.provinceCode && item.wardCode === first.wardCode);
+          const hit = first && (legacy.items.length === 1 || samePlace) ? first : null;
+          if (hit) {
+            applyFill({
+              provinceCode: hit.provinceCode,
+              wardCode: hit.wardCode,
+              line: hit.line,
+              keepLine: hit.line.length === 0,
+            });
+          } else if (match && match.confidence !== 'low' && match.provinceCode) {
+            applyParsed({
+              provinceCode: match.provinceCode,
+              wardCode: match.wardCode,
+              line: match.line || text,
+            });
+          } else {
+            applyComposed(text.replace(/\n+/g, ', '));
+          }
+          emitChatParsed(quick.phone, quick.name);
+        })
+        .catch(() => {
+          if (match && match.confidence !== 'low' && match.provinceCode) {
+            applyParsed({
+              provinceCode: match.provinceCode,
+              wardCode: match.wardCode,
+              line: match.line || text,
+            });
+          } else {
+            applyComposed(text.replace(/\n+/g, ', '));
+          }
+          emitChatParsed(quick.phone, quick.name);
+        });
+    }
+
+    function applyFill(input: { provinceCode: string; wardCode: string | null; line: string; keepLine?: boolean }) {
+      if (!input.provinceCode) {
+        if (input.line) line.value = input.line;
+        write();
+        return;
+      }
+      const house = input.line || (input.keepLine ? line.value : '');
+      applyParsed({ provinceCode: input.provinceCode, wardCode: input.wardCode, line: house });
+    }
+
+    root.addEventListener('staff-fill-address', ((event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const detail = event.detail as { provinceCode?: unknown; wardCode?: unknown; line?: unknown; keepLine?: unknown } | null;
+      if (!detail || typeof detail !== 'object') return;
+      const next = {
+        provinceCode: typeof detail.provinceCode === 'string' ? detail.provinceCode : '',
+        wardCode: typeof detail.wardCode === 'string' ? detail.wardCode : null,
+        line: typeof detail.line === 'string' ? detail.line : '',
+        keepLine: detail.keepLine === true,
+      };
+      if (!ready) {
+        pendingFill = next;
+        return;
+      }
+      pendingFill = null;
+      applyFill(next);
+    }) as EventListener);
+
     root.addEventListener('pos-set-address', ((event: Event) => {
       if (!(event instanceof CustomEvent)) return;
       const text = typeof event.detail?.address === 'string' ? event.detail.address : '';
+      const chat = event.detail?.chat === true;
       if (!ready) {
+        pendingAddress = text;
+        pendingChat = chat;
         address.value = text;
         return;
       }
-      applyComposed(text);
+      pendingAddress = '';
+      pendingChat = false;
+      if (chat) applyChatMessage(text);
+      else applyComposed(text);
     }) as EventListener);
 
     loadRows()
@@ -439,21 +577,35 @@ const {
         ready = true;
         province.required = true;
         ward.required = true;
+        const queuedFill = pendingFill;
+        pendingFill = null;
+        if (queuedFill) {
+          applyFill(queuedFill);
+          status.hidden = true;
+          return;
+        }
+        const queued = pendingAddress.trim() || address.value.trim();
+        const queuedChat = pendingChat;
+        pendingAddress = '';
+        pendingChat = false;
+        if (queued && queuedChat) {
+          applyChatMessage(queued);
+          status.hidden = true;
+          return;
+        }
+        if (queued) {
+          applyComposed(queued);
+          status.hidden = true;
+          return;
+        }
         let nextProvince = root.dataset.province ?? '';
         let nextWard = root.dataset.ward ?? '';
-        if ((!nextProvince || !nextWard || !line.value.trim()) && address.value.trim()) {
-          const matched = matchComposedAddress(rows, address.value);
-          if (matched) {
-            nextProvince = matched.provinceCode;
-            nextWard = matched.wardCode;
-            if (!line.value.trim()) line.value = matched.line;
-            root.dataset.province = nextProvince;
-            root.dataset.ward = nextWard;
-            wardValue.value = nextWard;
-          }
-        }
         fill(province, 'Chọn tỉnh, thành phố', rows.map((row) => [row[0], row[1]]), nextProvince);
         provinceValue.value = province.value;
+        if (nextWard) {
+          root.dataset.ward = nextWard;
+          wardValue.value = nextWard;
+        }
         showWards();
         write();
         status.hidden = true;

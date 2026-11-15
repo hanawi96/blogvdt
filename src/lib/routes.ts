@@ -20,6 +20,7 @@ export const routes = {
   adminOrderNew: '/admin/orders/new',
   adminOrderPos: '/admin/orders/pos',
   adminOrderLookup: '/admin/orders/lookup',
+  adminOrderChatPhone: '/admin/orders/chat-phone',
   adminInvoices: '/admin/invoices',
   adminInvoicesExport: '/admin/invoices/export',
   adminCustomers: '/admin/customers',

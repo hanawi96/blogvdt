@@ -11,7 +11,12 @@ const session = Astro.locals.adminSession;
 ---
 
 <!doctype html>
-<html lang="vi" data-pos-lookup-url={routes.adminOrderLookup}>
+<html
+  lang="vi"
+  data-pos-lookup-url={routes.adminOrderLookup}
+  data-pos-chat-phone-url={routes.adminOrderChatPhone}
+  data-pos-csrf={session?.csrfToken ?? ''}
+>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -45,21 +50,35 @@ const session = Astro.locals.adminSession;
       }
     </script>
     <script>
+      import { searchLegacyAddress } from '../features/address/legacy';
+      import type { AddressSelectRow } from '../features/address/parse';
+
       const LOOKUP_URL = document.documentElement.dataset.posLookupUrl || '/admin/orders/lookup';
+      const CHAT_PHONE_URL = document.documentElement.dataset.posChatPhoneUrl || '/admin/orders/chat-phone';
+      const CSRF = document.documentElement.dataset.posCsrf || '';
 
       function reply(target: WindowProxy | MessageEventSource | null, payload: Record<string, unknown>) {
         if (!target || !('postMessage' in target)) return;
         target.postMessage({ source: 'vdt-pos', ...payload }, { targetOrigin: '*' });
       }
 
-      function fillPhone(phone: string) {
+      function fillCustomer(input: { phone?: string; name?: string }) {
         const form = document.querySelector('form.staff-order-pos');
         if (!(form instanceof HTMLFormElement)) return;
+        const nameInput = form.querySelector('[data-customer-name]');
         const lookup = form.querySelector('[data-lookup-phone]');
         const run = form.querySelector('[data-lookup-run]');
-        if (lookup instanceof HTMLInputElement) {
-          lookup.value = phone;
+        const nick = typeof input.name === 'string' ? input.name.replace(/\s+/g, ' ').trim().slice(0, 80) : '';
+        if (nick && nameInput instanceof HTMLInputElement) nameInput.value = nick;
+        if (input.phone && lookup instanceof HTMLInputElement) {
+          lookup.value = input.phone;
           if (run instanceof HTMLButtonElement) run.click();
+          // Tra đơn có thể ghi đè tên từ DB — giữ nick chat nếu có.
+          if (nick && nameInput instanceof HTMLInputElement) {
+            window.setTimeout(() => {
+              if (nameInput.value.trim() !== nick) nameInput.value = nick;
+            }, 50);
+          }
         }
       }
 
@@ -69,6 +88,61 @@ const session = Astro.locals.adminSession;
           credentials: 'same-origin',
         });
         return response.json();
+      }
+
+      /** Lưu map chat→SĐT cùng origin (có CSRF); bỏ qua nếu thiếu dữ liệu. */
+      function saveChatPhone(input: { channel?: string; chatId?: string; phone?: string }) {
+        const channel = typeof input.channel === 'string' ? input.channel : '';
+        const chatId = typeof input.chatId === 'string' ? input.chatId.trim() : '';
+        const phone = typeof input.phone === 'string' ? input.phone.trim() : '';
+        if (!CSRF || !chatId || !phone || (channel !== 'pancake' && channel !== 'zalo')) return;
+        void fetch(CHAT_PHONE_URL, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify({ channel, chatId, phone, csrf: CSRF }),
+        }).catch(() => {
+          /* ignore — không chặn tạo đơn */
+        });
+      }
+
+      let legacyReady: Promise<{ rows: AddressSelectRow[]; mapping: Record<string, string> }> | null = null;
+
+      function loadLegacy() {
+        if (!legacyReady) {
+          legacyReady = Promise.all([
+            fetch('/data/address-select.json').then((response) => {
+              if (!response.ok) throw new Error('address');
+              return response.json() as Promise<AddressSelectRow[]>;
+            }),
+            fetch('/data/ward_mapping_2025.json').then((response) => {
+              if (!response.ok) throw new Error('mapping');
+              return response.json() as Promise<Record<string, string>>;
+            }),
+          ])
+            .then(([rows, mapping]) => ({ rows, mapping }))
+            .catch((error) => {
+              legacyReady = null;
+              throw error;
+            });
+        }
+        return legacyReady;
+      }
+
+      function applyLegacy(input: { provinceCode: string; wardCode: string; line: string }) {
+        const form = document.querySelector('form.staff-order-pos');
+        const addressRoot = form?.querySelector('[data-address]');
+        if (!(addressRoot instanceof HTMLElement)) return;
+        addressRoot.dispatchEvent(
+          new CustomEvent('staff-fill-address', {
+            detail: {
+              provinceCode: input.provinceCode,
+              wardCode: input.wardCode,
+              line: input.line,
+              keepLine: input.line.length === 0,
+            },
+          }),
+        );
       }
 
       window.addEventListener('message', (event) => {
@@ -81,10 +155,11 @@ const session = Astro.locals.adminSession;
         if (data.type === 'vdt-lookup-phone' && typeof data.phone === 'string' && typeof data.requestId === 'string') {
           const requestId = data.requestId;
           const phone = data.phone;
+          const name = typeof data.name === 'string' ? data.name : '';
           void lookupPhone(phone)
             .then((result) => {
               reply(event.source, { type: 'vdt-lookup-result', requestId, result });
-              if (result?.ok && result.found) fillPhone(phone);
+              if (result?.ok && result.found) fillCustomer({ phone, name });
             })
             .catch(() => {
               reply(event.source, {
@@ -95,8 +170,93 @@ const session = Astro.locals.adminSession;
             });
           return;
         }
+        if (data.type === 'vdt-fill-customer') {
+          const phone = typeof data.phone === 'string' ? data.phone : undefined;
+          const name = typeof data.name === 'string' ? data.name : undefined;
+          fillCustomer({ phone, name });
+          if (phone) {
+            saveChatPhone({
+              channel: typeof data.channel === 'string' ? data.channel : undefined,
+              chatId: typeof data.chatId === 'string' ? data.chatId : undefined,
+              phone,
+            });
+          }
+          return;
+        }
         if (data.type === 'vdt-fill-phone' && typeof data.phone === 'string') {
-          fillPhone(data.phone);
+          fillCustomer({ phone: data.phone, name: typeof data.name === 'string' ? data.name : undefined });
+          saveChatPhone({
+            channel: typeof data.channel === 'string' ? data.channel : undefined,
+            chatId: typeof data.chatId === 'string' ? data.chatId : undefined,
+            phone: data.phone,
+          });
+          return;
+        }
+        if (
+          data.type === 'vdt-fill-address' &&
+          typeof data.provinceCode === 'string' &&
+          typeof data.wardCode === 'string'
+        ) {
+          applyLegacy({
+            provinceCode: data.provinceCode,
+            wardCode: data.wardCode,
+            line: typeof data.line === 'string' ? data.line : '',
+          });
+          return;
+        }
+        if (data.type === 'vdt-fill-address' && typeof data.address === 'string') {
+          const form = document.querySelector('form.staff-order-pos');
+          const addressRoot = form?.querySelector('[data-address]');
+          if (!(form instanceof HTMLFormElement) || !(addressRoot instanceof HTMLElement)) return;
+          const channel = typeof data.channel === 'string' ? data.channel : undefined;
+          const chatId = typeof data.chatId === 'string' ? data.chatId : undefined;
+          const asChat = data.chat !== false;
+          if (asChat) {
+            addressRoot.addEventListener(
+              'pos-chat-parsed',
+              ((event: Event) => {
+                if (!(event instanceof CustomEvent)) return;
+                const phone = typeof event.detail?.phone === 'string' ? event.detail.phone : '';
+                const name = typeof event.detail?.name === 'string' ? event.detail.name : '';
+                const phoneInput = form.querySelector('[data-customer-phone]');
+                const nameInput = form.querySelector('[data-customer-name]');
+                if (phone && phoneInput instanceof HTMLInputElement) phoneInput.value = phone;
+                if (name && nameInput instanceof HTMLInputElement && !nameInput.value.trim()) nameInput.value = name;
+                if (phone) saveChatPhone({ channel, chatId, phone });
+              }) as EventListener,
+              { once: true },
+            );
+          }
+          addressRoot.dispatchEvent(
+            new CustomEvent('pos-set-address', { detail: { address: data.address, chat: asChat } }),
+          );
+          return;
+        }
+        if (data.type === 'vdt-legacy-search' && typeof data.query === 'string' && typeof data.requestId === 'string') {
+          const requestId = data.requestId;
+          const query = data.query;
+          // Tin từ content script không có event.source. Trả về cửa sổ cha, giống vdt-pos-ready.
+          const parent = window.parent && window.parent !== window ? window.parent : null;
+          void loadLegacy()
+            .then(({ rows, mapping }) => {
+              const result = searchLegacyAddress(rows, mapping, query);
+              reply(parent, { type: 'vdt-legacy-results', requestId, items: result.items, more: result.more });
+            })
+            .catch(() => {
+              reply(parent, { type: 'vdt-legacy-results', requestId, items: [], more: false });
+            });
+          return;
+        }
+        if (
+          data.type === 'vdt-legacy-apply' &&
+          typeof data.provinceCode === 'string' &&
+          typeof data.wardCode === 'string'
+        ) {
+          applyLegacy({
+            provinceCode: data.provinceCode,
+            wardCode: data.wardCode,
+            line: typeof data.line === 'string' ? data.line : '',
+          });
         }
       });
 

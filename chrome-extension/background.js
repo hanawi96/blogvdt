@@ -1,3 +1,5 @@
+importScripts('legacy-search.js');
+
 const DEFAULT_POS_URL = 'https://vong-dau-tam.yendev96.workers.dev/admin/orders/pos';
 const SESSION_COOKIE = 'admin_session';
 
@@ -65,7 +67,7 @@ async function syncSessionToPage(pageUrl) {
   return { ok: true, posUrl, topLevelSite };
 }
 
-async function lookupPhone(phone) {
+async function adminFetchJson(pathWithQuery) {
   const posUrl = await getPosUrl();
   const origin = new URL(posUrl).origin;
   const cookie = await readAdminSessionCookie(posUrl);
@@ -76,8 +78,7 @@ async function lookupPhone(phone) {
       loginUrl: `${origin}/admin/login?next=${encodeURIComponent('/admin/orders/pos')}`,
     };
   }
-  // Fetch từ extension + host_permissions tự kèm cookie first-party admin_session.
-  const response = await fetch(`${origin}/admin/orders/lookup?phone=${encodeURIComponent(phone)}`, {
+  const response = await fetch(`${origin}${pathWithQuery}`, {
     credentials: 'include',
     headers: { accept: 'application/json' },
     redirect: 'manual',
@@ -89,10 +90,54 @@ async function lookupPhone(phone) {
     try {
       return await response.json();
     } catch {
-      return { ok: false, error: 'Không tra được khách.' };
+      return { ok: false, error: 'Không tra được dữ liệu.' };
     }
   }
   return response.json();
+}
+
+async function lookupPhone(phone) {
+  return adminFetchJson(`/admin/orders/lookup?phone=${encodeURIComponent(phone)}`);
+}
+
+let legacySearcherPromise = null;
+let legacySearcherReady = null;
+
+async function loadExtensionJson(path) {
+  const response = await fetch(chrome.runtime.getURL(path));
+  if (!response.ok) throw new Error(path);
+  return response.json();
+}
+
+/** Cùng cách file cũ: đọc bảng từ package extension, không phụ thuộc server POS. */
+async function legacySearcher() {
+  if (legacySearcherReady) return legacySearcherReady;
+  if (!legacySearcherPromise) {
+    legacySearcherPromise = (async () => {
+      const [mapping, rows] = await Promise.all([
+        loadExtensionJson('data/ward_mapping_2025.json'),
+        loadExtensionJson('data/address-select.json'),
+      ]);
+      legacySearcherReady = createLegacySearcher(mapping, rows);
+      return legacySearcherReady;
+    })().catch((error) => {
+      legacySearcherPromise = null;
+      legacySearcherReady = null;
+      throw error;
+    });
+  }
+  return legacySearcherPromise;
+}
+
+function warmLegacySearcher() {
+  return legacySearcher()
+    .then((searcher) => ({ ok: true, ready: true, size: searcher.size }))
+    .catch(() => ({ ok: false, ready: false, size: 0 }));
+}
+
+async function lookupChatPhone(channel, chatId) {
+  const params = new URLSearchParams({ channel, chatId });
+  return adminFetchJson(`/admin/orders/chat-phone?${params.toString()}`);
 }
 
 async function ensureDefaults() {
@@ -123,10 +168,12 @@ async function notifySessionTabs() {
 
 chrome.runtime.onInstalled.addListener(() => {
   void ensureDefaults();
+  void warmLegacySearcher();
 });
 
 chrome.runtime.onStartup?.addListener(() => {
   void ensureDefaults();
+  void warmLegacySearcher();
 });
 
 chrome.cookies.onChanged.addListener((change) => {
@@ -150,8 +197,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     syncSessionToPage(pageUrl).then(sendResponse);
     return true;
   }
+  if (message?.type === 'vdt-legacy-warmup') {
+    warmLegacySearcher().then(sendResponse);
+    return true;
+  }
+  if (message?.type === 'vdt-legacy-search' && typeof message.query === 'string') {
+    legacySearcher()
+      .then((searcher) => sendResponse({ ok: true, ready: true, ...searcher.search(message.query) }))
+      .catch(() => sendResponse({ ok: false, ready: false, items: [], more: false }));
+    return true;
+  }
   if (message?.type === 'vdt-lookup-phone' && typeof message.phone === 'string') {
     lookupPhone(message.phone).then(sendResponse);
+    return true;
+  }
+  if (
+    message?.type === 'vdt-lookup-chat-phone' &&
+    typeof message.channel === 'string' &&
+    typeof message.chatId === 'string'
+  ) {
+    lookupChatPhone(message.channel, message.chatId).then(sendResponse);
     return true;
   }
   if (message?.type === 'vdt-open-login') {

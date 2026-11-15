@@ -8,12 +8,21 @@ const PHONE_RE = /(?:\+?84|0)\d{8,10}/;
 
 /** @type {Map<string, object>} */
 const lookupCache = new Map();
+/** @type {Map<string, string>} channel:chatId → phone (cache phiên) */
+const chatPhoneCache = new Map();
+/** @type {Set<string>} */
+const chatLookupPending = new Set();
 let lastConvId = '';
 let lastPhone = '';
+let lastName = '';
 let debounceTimer = 0;
 let posOrigin = '';
 let posReady = false;
 let loginUrl = '';
+/** @type {string | null} */
+let hookPhone = null;
+/** @type {object[]} */
+let pendingPosMessages = [];
 
 function clampWidth(value) {
   const max = Math.min(MAX_WIDTH, Math.floor(window.innerWidth * 0.85));
@@ -45,14 +54,89 @@ function dayLabel(timestamp) {
   return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' }).format(new Date(timestamp));
 }
 
+function isPancake() {
+  return location.hostname.includes('pancake.vn');
+}
+
+function isZalo() {
+  return location.hostname.includes('zalo.me');
+}
+
+function cleanName(raw) {
+  const text = String(raw || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text ? text.slice(0, 80) : null;
+}
+
+function chatChannel() {
+  if (isPancake()) return 'pancake';
+  if (isZalo()) return 'zalo';
+  return '';
+}
+
+function chatCacheKey(channel, chatId) {
+  return `${channel}:${chatId}`;
+}
+
 function selectedConversationId() {
-  const item = document.querySelector('.conversation-list-item.selected');
-  if (!(item instanceof HTMLElement)) return '';
-  const wrap = item.closest('[id]');
-  return wrap?.id || item.id || '';
+  if (isPancake()) {
+    const item = document.querySelector('.conversation-list-item.selected');
+    if (item instanceof HTMLElement) {
+      const wrap = item.closest('[id]');
+      const fromDom =
+        wrap?.id ||
+        item.id ||
+        item.getAttribute('data-id') ||
+        item.getAttribute('data-conversation-id') ||
+        item.getAttribute('data-cid');
+      if (fromDom) return String(fromDom).slice(0, 191);
+    }
+    const fromPath = location.pathname.match(/\/(?:conversation|conversations|inbox)\/([^/?#]+)/i);
+    if (fromPath?.[1]) return decodeURIComponent(fromPath[1]).slice(0, 191);
+    const fromQuery = location.href.match(/[?&#](?:c|cid|conversation_id|conversationId)=([^&#]+)/i);
+    if (fromQuery?.[1]) return decodeURIComponent(fromQuery[1]).slice(0, 191);
+    return '';
+  }
+  if (isZalo()) {
+    const thread =
+      document.querySelector('.threadChat[id]') ||
+      document.querySelector('[data-id].threadChat') ||
+      document.querySelector('.main-chat-container [id]');
+    if (thread instanceof HTMLElement) {
+      const id = thread.id || thread.getAttribute('data-id');
+      if (id) return String(id).slice(0, 191);
+    }
+    const title =
+      document.querySelector('.threadChat__title .header-title') ||
+      document.querySelector('.threadChat .header-title') ||
+      document.querySelector('.threadChat__title');
+    const name = cleanName(title?.textContent);
+    return name ? `zalo:${name}` : '';
+  }
+  return '';
+}
+
+function readChatName() {
+  if (isPancake()) {
+    const el =
+      document.querySelector('#pageCustomer .customer-name') ||
+      document.querySelector('.customer-info-wrapper .customer-name') ||
+      document.querySelector('span.copyable-text.customer-name');
+    return cleanName(el?.textContent);
+  }
+  if (isZalo()) {
+    const el =
+      document.querySelector('.threadChat__title .header-title') ||
+      document.querySelector('.threadChat .header-title');
+    return cleanName(el?.textContent);
+  }
+  return null;
 }
 
 function readPancakePhone() {
+  if (!isPancake()) return null;
   const copy =
     document.querySelector('.cross-channel-phone__number copy') ||
     document.querySelector('.cross-channel-phone.phone-tag copy') ||
@@ -72,6 +156,51 @@ function readPancakePhone() {
     if (phone) return phone;
   }
   return null;
+}
+
+/** Ưu tiên: DOM tag Pancake → SĐT bắt từ API (page-hook) → cache map đã biết. */
+function readVisibleOrHookPhone() {
+  return readPancakePhone() || hookPhone;
+}
+
+function rememberChatPhone(channel, chatId, phone) {
+  if (!channel || !chatId || !phone) return;
+  chatPhoneCache.set(chatCacheKey(channel, chatId), phone);
+}
+
+function postCustomerFill({ phone, name, channel, chatId }) {
+  postToPos({
+    type: 'vdt-fill-customer',
+    phone: phone || undefined,
+    name: name || undefined,
+    channel: channel || undefined,
+    chatId: chatId || undefined,
+  });
+}
+
+function requestChatPhoneMap(channel, chatId, name) {
+  const key = chatCacheKey(channel, chatId);
+  if (chatPhoneCache.has(key) || chatLookupPending.has(key)) return;
+  chatLookupPending.add(key);
+  chrome.runtime.sendMessage({ type: 'vdt-lookup-chat-phone', channel, chatId }, (result) => {
+    chatLookupPending.delete(key);
+    if (chrome.runtime.lastError) return;
+    if (selectedConversationId() !== chatId) return;
+    if (result?.error === 'auth') {
+      const root = ensureRoot();
+      loginUrl = result.loginUrl || loginUrl;
+      setAuthBanner(root, true);
+      return;
+    }
+    if (!result?.ok || !result.found || !result.phone) return;
+    const phone = normalizePhone(result.phone);
+    if (!phone) return;
+    rememberChatPhone(channel, chatId, phone);
+    if (phone === lastPhone && chatId === lastConvId) return;
+    lastPhone = phone;
+    lastConvId = chatId;
+    requestLookup(phone, chatId, name || '');
+  });
 }
 
 function bindResize(root) {
@@ -191,19 +320,51 @@ function escapeAttr(value) {
   return escapeHtml(value).replace(/'/g, '&#39;');
 }
 
-function postToPos(payload) {
-  const root = document.getElementById(ROOT_ID);
-  const frame = root?.querySelector('.vdt-frame');
-  if (!(frame instanceof HTMLIFrameElement) || !frame.contentWindow) return;
-  frame.contentWindow.postMessage({ source: 'vdt-ext', ...payload }, posOrigin || '*');
+function enqueuePosMessage(payload) {
+  if (
+    payload.type === 'vdt-fill-customer' ||
+    payload.type === 'vdt-fill-address' ||
+    payload.type === 'vdt-fill-phone'
+  ) {
+    pendingPosMessages = pendingPosMessages.filter((item) => item.type !== payload.type);
+  }
+  pendingPosMessages.push(payload);
 }
 
-function requestLookup(phone, convId) {
+function flushPendingPosMessages() {
+  if (!posReady || !pendingPosMessages.length) return;
+  const queue = pendingPosMessages;
+  pendingPosMessages = [];
+  for (const payload of queue) postToPos(payload, true);
+}
+
+function postToPos(payload, force = false) {
+  const root = document.getElementById(ROOT_ID);
+  const frame = root?.querySelector('.vdt-frame');
+  if (!(frame instanceof HTMLIFrameElement) || !frame.contentWindow) {
+    enqueuePosMessage(payload);
+    return;
+  }
+  // Iframe mới tạo là about:blank (origin = pancake). postMessage với target
+  // workers.dev sẽ ném lỗi — luôn dùng '*' ; POS chỉ nhận source=vdt-ext.
+  if (!force && !posReady) {
+    enqueuePosMessage(payload);
+    return;
+  }
+  try {
+    frame.contentWindow.postMessage({ source: 'vdt-ext', ...payload }, '*');
+  } catch {
+    enqueuePosMessage(payload);
+  }
+}
+
+function requestLookup(phone, convId, name) {
   const root = ensureRoot();
+  const channel = chatChannel();
   const cached = lookupCache.get(phone);
   if (cached) {
     renderCustomer(root, cached);
-    postToPos({ type: 'vdt-fill-phone', phone });
+    postCustomerFill({ phone, name: name || '', channel, chatId: convId });
     return;
   }
   setCustomerStatus(root, `Đang tra ${phone}…`);
@@ -226,28 +387,48 @@ function requestLookup(phone, convId) {
     setAuthBanner(root, false);
     if (!result.found || !result.customer) {
       setCustomerStatus(root, `Chưa có đơn với ${phone}`);
-      postToPos({ type: 'vdt-fill-phone', phone });
+      postCustomerFill({ phone, name: name || '', channel, chatId: convId });
       return;
     }
     lookupCache.set(phone, result.customer);
     renderCustomer(root, result.customer);
-    postToPos({ type: 'vdt-fill-phone', phone });
+    postCustomerFill({ phone, name: name || '', channel, chatId: convId });
   });
 }
 
 function syncFromPage() {
   const root = ensureRoot();
+  const channel = chatChannel();
   const convId = selectedConversationId();
-  const phone = readPancakePhone();
+  const name = readChatName();
+  const cachedPhone = channel && convId ? chatPhoneCache.get(chatCacheKey(channel, convId)) || null : null;
+  const phone = readVisibleOrHookPhone() || cachedPhone;
+
+  if (name && (name !== lastName || convId !== lastConvId)) {
+    postCustomerFill({ name, phone: phone || undefined, channel, chatId: convId });
+    lastName = name;
+  }
+
+  if (phone && channel && convId) rememberChatPhone(channel, convId, phone);
 
   if (!phone) {
-    if (convId && convId !== lastConvId) {
-      lastConvId = convId;
-      lastPhone = '';
-      setCustomerStatus(root, 'Chưa thấy SĐT trên Pancake');
+    if (convId && channel) {
+      requestChatPhoneMap(channel, convId, name || '');
+      if (convId !== lastConvId) {
+        lastConvId = convId;
+        lastPhone = '';
+        hookPhone = null;
+        if (isPancake()) setCustomerStatus(root, name ? `Nick: ${name} · đang tìm SĐT…` : 'Đang tìm SĐT…');
+        else if (isZalo() && name) {
+          const box = customerBox(root);
+          if (box instanceof HTMLElement) box.hidden = true;
+        }
+      }
     } else if (!convId) {
       lastConvId = '';
       lastPhone = '';
+      lastName = '';
+      hookPhone = null;
       const box = customerBox(root);
       if (box instanceof HTMLElement) box.hidden = true;
     }
@@ -257,7 +438,7 @@ function syncFromPage() {
   if (phone === lastPhone && convId === lastConvId) return;
   lastPhone = phone;
   lastConvId = convId;
-  requestLookup(phone, convId);
+  requestLookup(phone, convId, name || '');
 }
 
 function scheduleSync() {
@@ -265,8 +446,78 @@ function scheduleSync() {
   debounceTimer = window.setTimeout(syncFromPage, 280);
 }
 
-function watchPancake() {
-  if (!location.hostname.includes('pancake.vn')) return;
+function showToast(text) {
+  const root = ensureRoot();
+  let toast = root.querySelector('[data-vdt-toast]');
+  if (!(toast instanceof HTMLElement)) {
+    toast = document.createElement('div');
+    toast.className = 'vdt-toast';
+    toast.dataset.vdtToast = '1';
+    root.appendChild(toast);
+  }
+  toast.textContent = text;
+  toast.hidden = false;
+  window.clearTimeout(Number(toast.dataset.timer || 0));
+  toast.dataset.timer = String(
+    window.setTimeout(() => {
+      toast.hidden = true;
+    }, 2200),
+  );
+}
+
+function messageBubbleFrom(target) {
+  if (!(target instanceof Element)) return null;
+  const bubble = target.closest(
+    [
+      '[class*="message-content"]',
+      '[class*="msg-content"]',
+      '[class*="message-text"]',
+      '[class*="msg-text"]',
+      '[class*="bubble-text"]',
+      '[class*="chat-content"]',
+      '.text-message',
+      '.message-body',
+      '[data-contents]',
+    ].join(', '),
+  );
+  if (bubble instanceof HTMLElement) return bubble;
+  const loose = target.closest('[class*="message"], [class*="msg-item"], [class*="bubble"]');
+  return loose instanceof HTMLElement ? loose : null;
+}
+
+function readMessageAddressText(node) {
+  const raw = String(node.innerText || node.textContent || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  const flat = raw.replace(/\s+/g, ' ');
+  if (flat.length < 8 || flat.length > 600) return null;
+  const hasPlace =
+    /(xã|xa\b|phường|phuong|p\.|p\/|tỉnh|tinh|thành phố|tp\.|tphcm|\bhcm\b|quận|quan|huyện|đường|ngõ|hẻm|ấp)/i.test(flat);
+  const hasDashedPlace = /\p{L}{2,}(?:\s+\p{L}+){0,3}\s*[-–—]\s*\p{L}{2,}(?:\s+\p{L}+){0,3}\s*[-–—]\s*\p{L}{2,}/u.test(flat);
+  const hasPhone = /(?:\+?84|0)[\d.\s-]{8,16}/.test(flat);
+  const hasNumber = /\d/.test(flat);
+  if (
+    !(
+      hasPlace ||
+      hasDashedPlace ||
+      (hasNumber && /[,\n]/.test(raw)) ||
+      (hasPhone && hasNumber && flat.split(/\s+/).length >= 4)
+    )
+  ) {
+    return null;
+  }
+  return raw;
+}
+
+function readPhoneFromText(text) {
+  const match = String(text || '').match(PHONE_RE);
+  return match ? normalizePhone(match[0]) : null;
+}
+
+function watchChatPages() {
+  if (!isPancake() && !isZalo()) return;
   const observer = new MutationObserver(scheduleSync);
   observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
   document.addEventListener(
@@ -274,10 +525,88 @@ function watchPancake() {
     (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
-      if (target.closest('.conversation-list-item, .body-conver-item, .name-module')) scheduleSync();
+      if (
+        target.closest(
+          '.conversation-list-item, .body-conver-item, .name-module, .threadChat, .msg-item, .conv-item, [class*="conversation"]',
+        )
+      ) {
+        scheduleSync();
+      }
     },
     true,
   );
+  document.addEventListener(
+    'dblclick',
+    (event) => {
+      const bubble = messageBubbleFrom(event.target);
+      if (!bubble) return;
+      const address = readMessageAddressText(bubble);
+      if (!address) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void setOpen(true);
+      const channel = chatChannel();
+      const chatId = selectedConversationId();
+      const phone = readPhoneFromText(address);
+      if (phone && channel && chatId) rememberChatPhone(channel, chatId, phone);
+      // Địa chỉ 3 cấp cũ (vd Bình Dương) → tra bảng ánh xạ trước khi gửi form.
+      try {
+        chrome.runtime.sendMessage({ type: 'vdt-legacy-search', query: address }, (data) => {
+          if (!chrome.runtime.lastError && data?.ok && Array.isArray(data.items) && data.items.length > 0) {
+            const hit = data.items[0];
+            const samePlace = data.items.every(
+              (item) => item.provinceCode === hit.provinceCode && item.wardCode === hit.wardCode,
+            );
+            if (data.items.length === 1 || samePlace) {
+              const line = typeof hit.line === 'string' ? hit.line : '';
+              const composed = [line, hit.wardName, hit.provinceName].filter(Boolean).join(', ');
+              postToPos({
+                type: 'vdt-fill-address',
+                address: composed || address,
+                provinceCode: hit.provinceCode,
+                wardCode: hit.wardCode,
+                line,
+                chat: false,
+                channel: channel || undefined,
+                chatId: chatId || undefined,
+              });
+              showToast(posReady ? `Đã đổi sang ${hit.newText}` : 'Đã gửi địa chỉ — đợi form tải xong');
+              return;
+            }
+          }
+          postToPos({
+            type: 'vdt-fill-address',
+            address,
+            channel: channel || undefined,
+            chatId: chatId || undefined,
+          });
+          showToast(posReady ? 'Đã nhận địa chỉ từ tin nhắn' : 'Đã gửi địa chỉ — đợi form tải xong');
+        });
+      } catch {
+        postToPos({
+          type: 'vdt-fill-address',
+          address,
+          channel: channel || undefined,
+          chatId: chatId || undefined,
+        });
+        showToast(posReady ? 'Đã nhận địa chỉ từ tin nhắn' : 'Đã gửi địa chỉ — đợi form tải xong');
+      }
+    },
+    true,
+  );
+  window.addEventListener('message', (event) => {
+    const data = event.data;
+    if (!data || data.source !== 'vdt-page' || data.type !== 'vdt-phones-found') return;
+    if (!Array.isArray(data.phones)) return;
+    let best = null;
+    for (const raw of data.phones) {
+      const phone = normalizePhone(raw);
+      if (phone) best = phone;
+    }
+    if (!best || best === hookPhone) return;
+    hookPhone = best;
+    scheduleSync();
+  });
   scheduleSync();
 }
 
@@ -294,12 +623,22 @@ async function preparePosFrame(frame, { forceReload = false } = {}) {
   const url = sync?.posUrl || (await chrome.runtime.sendMessage({ type: 'vdt-get-pos-url' }))?.posUrl;
   if (!url || !(frame instanceof HTMLIFrameElement)) return;
   posOrigin = new URL(url).origin;
-  if (!frame.src || forceReload || frame.src !== url) {
+  const frameUrl = legacyFrameUrl(url);
+  if (!frame.src || forceReload || frame.src !== frameUrl) {
     posReady = false;
-    frame.src = url;
-  } else if (forceReload) {
-    posReady = false;
-    frame.src = url;
+    pendingPosMessages = [];
+    frame.src = frameUrl;
+  }
+}
+
+/** Đổi query để iframe tải lại sau khi thêm trả kết quả địa chỉ cũ. */
+function legacyFrameUrl(url) {
+  try {
+    const next = new URL(url);
+    next.searchParams.set('vdt', '4');
+    return next.toString();
+  } catch {
+    return url;
   }
 }
 
@@ -379,11 +718,12 @@ async function mount() {
     if (posOrigin && event.origin !== posOrigin) return;
     if (data.type === 'vdt-pos-ready') {
       posReady = true;
+      flushPendingPosMessages();
       scheduleSync();
     }
   });
 
-  watchPancake();
+  watchChatPages();
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -402,7 +742,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const frame = root.querySelector('.vdt-frame');
     void preparePosFrame(frame, { forceReload: true }).then(() => {
       lookupCache.clear();
+      chatPhoneCache.clear();
+      chatLookupPending.clear();
       lastPhone = '';
+      lastName = '';
+      hookPhone = null;
       scheduleSync();
       sendResponse({ ok: true });
     });

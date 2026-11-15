@@ -696,3 +696,22 @@ export const feedbackPhotos = sqliteTable(
     ),
   ],
 );
+
+/**
+ * Map hội thoại Pancake/Zalo → SĐT.
+ * Tra cứu luôn theo PRIMARY KEY (channel, chat_id) — O(log n), ổn với hàng trăm nghìn dòng.
+ */
+export const chatPhoneMaps = sqliteTable(
+  'chat_phone_maps',
+  {
+    channel: text('channel').notNull(),
+    chatId: text('chat_id').notNull(),
+    phone: text('phone').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.channel, table.chatId] }),
+    check('chat_phone_maps_channel_check', sql`${table.channel} in ('pancake', 'zalo')`),
+  ],
+);
