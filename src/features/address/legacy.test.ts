@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import rowsText from '../../../public/data/address-select.json?raw';
 import mappingText from '../../../public/data/ward_mapping_2025.json?raw';
 import { foldAddressText, type AddressSelectRow } from './parse';
-import { legacyCoverage, searchLegacyAddress } from './legacy';
+import {
+  buildLegacySelectTree,
+  legacyCoverage,
+  resolveLegacyManual,
+  searchLegacyAddress,
+} from './legacy';
 
 const rows = JSON.parse(rowsText) as AddressSelectRow[];
 const mapping = JSON.parse(mappingText) as Record<string, string>;
@@ -56,6 +61,82 @@ describe('đổi địa chỉ 3 cấp sang 2 cấp', () => {
     for (const item of result.items) {
       expect(foldAddressText(`${item.oldText} ${item.newText}`)).toContain('tan thanh');
     }
+  });
+
+  it('p5 Q8 và biến thể viết tắt mở thành phường 5 quận 8 HCM', () => {
+    const target = wardNamed('Thành phố Hồ Chí Minh', 'Phường Chánh Hưng');
+    expect(target).toBeTruthy();
+    for (const raw of [
+      '128/12A Bùi Minh Trực p5 Q8',
+      '128/12A Bùi Minh Trực P.5 q.8',
+      '128/12A Bùi Minh Trực ph 5, quận 8',
+      'Bùi Minh Trực, phường 5, Q8',
+    ]) {
+      const result = searchLegacyAddress(rows, mapping, raw);
+      expect(result.items, raw).toHaveLength(1);
+      expect(result.items[0], raw).toMatchObject({
+        provinceCode: target?.provinceCode,
+        wardCode: target?.wardCode,
+        newText: 'Phường Chánh Hưng · Thành phố Hồ Chí Minh',
+      });
+      if (/^\d/.test(raw.trim())) {
+        expect(result.items[0]?.line.toLowerCase(), raw).toContain('bùi minh trực');
+      }
+    }
+  });
+
+  it('chỉ p5 không có quận thì không tự gắn HCM', () => {
+    const result = searchLegacyAddress(rows, mapping, '12 Lê Lợi p5');
+    expect(result.items.every((item) => !/chánh hưng/i.test(item.newText))).toBe(true);
+  });
+
+  it('chọn tay 3 cấp Tráng Việt / Mê Linh / Hà Nội ra Xã Mê Linh', () => {
+    const target = wardNamed('Thành phố Hà Nội', 'Xã Mê Linh');
+    expect(target).toBeTruthy();
+    const tree = buildLegacySelectTree(mapping);
+    expect(tree.provinces.some((name) => /hà nội/i.test(name))).toBe(true);
+    const province = tree.provinces.find((name) => /hà nội/i.test(name));
+    expect(province).toBeTruthy();
+    const districts = tree.districts[province!];
+    const district = districts?.find((name) => /mê linh/i.test(name));
+    expect(district).toBeTruthy();
+    const wards = tree.wards[`${province}\t${district}`];
+    const ward = wards?.find((name) => /tráng việt/i.test(name));
+    expect(ward).toBeTruthy();
+    const hit = resolveLegacyManual(rows, mapping, {
+      province: province!,
+      district: district!,
+      ward: ward!,
+    });
+    expect(hit).toMatchObject({
+      provinceCode: target?.provinceCode,
+      wardCode: target?.wardCode,
+      newText: 'Xã Mê Linh · Thành phố Hà Nội',
+    });
+  });
+
+  it('Thôn + dấu chấm dính + Thuỷ Nguyên Hải Phòng ra Phường Thủy Nguyên', () => {
+    const target = wardNamed('Thành phố Hải Phòng', 'Phường Thủy Nguyên');
+    expect(target).toBeTruthy();
+    for (const raw of [
+      'Thon 7 Trung Sơn.Ngũ Lão . Thuỷ Nguyên,Hải Phòng b',
+      'Thôn 7 Trung Sơn, Ngũ Lão, Thuỷ Nguyên, Hải Phòng',
+      'Ngũ Lão, Thuỷ Nguyên, Hải Phòng',
+    ]) {
+      const result = searchLegacyAddress(rows, mapping, raw);
+      expect(result.items, raw).toHaveLength(1);
+      expect(result.items[0], raw).toMatchObject({
+        provinceCode: target?.provinceCode,
+        wardCode: target?.wardCode,
+        newText: 'Phường Thủy Nguyên · Thành phố Hải Phòng',
+      });
+    }
+    const withStreet = searchLegacyAddress(
+      rows,
+      mapping,
+      'Thon 7 Trung Sơn.Ngũ Lão . Thuỷ Nguyên,Hải Phòng b',
+    );
+    expect(withStreet.items[0]?.line.toLowerCase()).toMatch(/thon 7|trung sơn/);
   });
 
   it('xã đồng đăng Lạng Sơn không nhầm thành đông kinh', () => {

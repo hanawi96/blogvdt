@@ -495,12 +495,14 @@ function readMessageAddressText(node) {
   if (flat.length < 8 || flat.length > 600) return null;
   const hasPlace =
     /(xã|xa\b|phường|phuong|p\.|p\/|tỉnh|tinh|thành phố|tp\.|tphcm|\bhcm\b|quận|quan|huyện|đường|ngõ|hẻm|ấp)/i.test(flat);
+  const hasShortWardDistrict = /(?:^|[^0-9\p{L}])(?:p|ph|q)\.?\s*\d{1,2}\b/iu.test(flat);
   const hasDashedPlace = /\p{L}{2,}(?:\s+\p{L}+){0,3}\s*[-–—]\s*\p{L}{2,}(?:\s+\p{L}+){0,3}\s*[-–—]\s*\p{L}{2,}/u.test(flat);
   const hasPhone = /(?:\+?84|0)[\d.\s-]{8,16}/.test(flat);
   const hasNumber = /\d/.test(flat);
   if (
     !(
       hasPlace ||
+      hasShortWardDistrict ||
       hasDashedPlace ||
       (hasNumber && /[,\n]/.test(raw)) ||
       (hasPhone && hasNumber && flat.split(/\s+/).length >= 4)

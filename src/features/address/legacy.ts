@@ -199,6 +199,26 @@ function expandAlias(token: string): readonly string[] {
   return ALIAS_TOKENS[token] ?? [token];
 }
 
+/**
+ * p5 / P.5 / ph 14 → Phường N; Q8 / q.8 → Quận N.
+ * Quận 1–12 mà chưa có tỉnh → thêm TP.HCM (quận số hầu hết thuộc HCM).
+ */
+function expandWardDistrictShortcuts(text: string): string {
+  let out = String(text || '');
+  // Không mở khi dính chữ liền trước (tránh «ấp» + «p5» kiểu biên ASCII \b).
+  out = out.replace(/(^|[^0-9\p{L}])(?:q|quận)\.?\s*(\d{1,2})(?=$|[^0-9])/giu, '$1Quận $2');
+  out = out.replace(/(^|[^0-9\p{L}])(?:p|ph|phường)\.?\s*(\d{1,2})(?=$|[^0-9])/giu, '$1Phường $2');
+  const folded = loose(out);
+  const hasNumberedDistrict = /\bquan\s+(?:[1-9]|1[0-2])\b/.test(folded);
+  const hasProvince =
+    /\b(?:tinh|thanh pho|tp|hcm|tphcm|sai gon|sg|ho chi minh|ha noi|da nang|hai phong|can tho|hue)\b/.test(folded) ||
+    /\b(?:tỉnh|thành phố)\b/i.test(out);
+  if (hasNumberedDistrict && !hasProvince) {
+    out = `${out.replace(/[,\s]+$/g, '')}, Thành phố Hồ Chí Minh`;
+  }
+  return out;
+}
+
 /** Chuẩn hóa tin chat: bỏ SĐT/tên đầu, đổi «A - B - C» thành dấu phẩy, tách ghi chú (...). */
 function normalizeChatAddressQuery(raw: string): { text: string; notes: string[] } {
   const source = String(raw || '').replace(/\u00a0/g, ' ');
@@ -219,10 +239,15 @@ function normalizeChatAddressQuery(raw: string): { text: string; notes: string[]
     );
   }
   text = text.replace(/\s*[-–—]\s*/g, ', ');
+  // «Sơn.Ngũ Lão» / «Lão . Thuỷ» → phẩy; không đụng số nhà (12.5) hay P.5.
+  text = text.replace(/(?<=\p{L})\s*\.\s*(?=\p{L})/gu, ', ');
+  text = expandWardDistrictShortcuts(text);
   text = text
     .replace(/^(?:đc|dc|địa\s*chỉ|dia\s*chi)\s*[:：-]?\s*/i, '')
     .replace(/[|]+/g, ' ')
     .replace(/\s+/g, ' ')
+    // Ký tự đơn cuối kiểu «Hải Phòng b» thường là nhiễu chat.
+    .replace(/\s+\p{L}\s*$/u, '')
     .replace(/^[,.\s]+|[,.\s]+$/g, '')
     .trim();
   return { text, notes };
@@ -320,11 +345,20 @@ function scoreEntry(entry: Entry, tokens: readonly string[]): number {
   let score = 0;
   let rest: string[] = [];
   if (at >= 0) {
-    // Không lấy «An Phú» giữa «Long Bình - An Phú - An Giang» làm xã — phần trước phải là số nhà/đường.
     const before = tokens.slice(0, at);
-    if (before.some((token) => !isStreetToken(token))) return 0;
+    const after = tokens.slice(at + entry.wardTokens.length);
+    rest = [...before, ...after];
+    const beforeHasPlace = before.some((token) => !isStreetToken(token));
+    if (beforeHasPlace) {
+      // «Ngũ Lão, Thuỷ Nguyên, Hải Phòng»: tên cũ/xóm trước phường mới — chỉ nhận khi phần SAU đã đủ tỉnh.
+      // Không cộng thưởng huyện/tỉnh (giữ < 1000) để không át khớp xã cũ exact.
+      const provinceAfter =
+        entry.provinceTokens.length > 0 && entry.provinceTokens.every((token) => after.includes(token));
+      if (!provinceAfter) return 0;
+      if (!restCovered(rest, entry.districtTokens, entry.provinceTokens)) return 0;
+      return 850 + entry.wardTokens.length * 10 + (entry.kind === 'old' ? 5 : 0);
+    }
     score = 1000 + entry.wardTokens.length * 10 + (entry.kind === 'old' ? 5 : 0);
-    rest = [...before, ...tokens.slice(at + entry.wardTokens.length)];
   } else if (
     entry.wardTokens.length > tokens.length &&
     tokens.length > 0 &&
@@ -339,6 +373,100 @@ function scoreEntry(entry: Entry, tokens: readonly string[]): number {
   if (rest.length > 0 && entry.districtTokens.length > 0 && entry.districtTokens.every((token) => rest.includes(token))) score += 200;
   if (rest.length > 0 && entry.provinceTokens.length > 0 && entry.provinceTokens.every((token) => rest.includes(token))) score += 200;
   return score;
+}
+
+export type LegacySelectTree = {
+  provinces: string[];
+  /** Tỉnh → danh sách huyện/quận cũ */
+  districts: Record<string, string[]>;
+  /** `${tỉnh}\t${huyện}` → danh sách xã/phường cũ */
+  wards: Record<string, string[]>;
+};
+
+function wardBucketKey(province: string, district: string): string {
+  return `${province}\t${district}`;
+}
+
+/** Cây chọn tay 3 cấp từ file ánh xạ (một lần khi load). */
+export function buildLegacySelectTree(mapping: Readonly<Record<string, string>>): LegacySelectTree {
+  const provinceNames = new Map<string, string>();
+  const districtNames = new Map<string, Map<string, string>>();
+  const wardNames = new Map<string, Map<string, string>>();
+
+  for (const key of Object.keys(mapping)) {
+    const parts = splitOldKey(key);
+    if (!parts) continue;
+    const pLoose = loose(parts.province);
+    const dLoose = loose(parts.district);
+    const wLoose = loose(parts.ward);
+    if (!provinceNames.has(pLoose)) provinceNames.set(pLoose, displayName(parts.province));
+    let districts = districtNames.get(pLoose);
+    if (!districts) {
+      districts = new Map();
+      districtNames.set(pLoose, districts);
+    }
+    if (!districts.has(dLoose)) districts.set(dLoose, displayName(parts.district));
+    const bucket = wardBucketKey(pLoose, dLoose);
+    let wards = wardNames.get(bucket);
+    if (!wards) {
+      wards = new Map();
+      wardNames.set(bucket, wards);
+    }
+    if (!wards.has(wLoose)) wards.set(wLoose, displayName(parts.ward));
+  }
+
+  const provinces = [...provinceNames.values()].sort((a, b) => a.localeCompare(b, 'vi'));
+  const districts: Record<string, string[]> = {};
+  const wards: Record<string, string[]> = {};
+  for (const [pLoose, pName] of provinceNames) {
+    const distMap = districtNames.get(pLoose);
+    districts[pName] = distMap
+      ? [...distMap.values()].sort((a, b) => a.localeCompare(b, 'vi'))
+      : [];
+    if (!distMap) continue;
+    for (const [dLoose, dName] of distMap) {
+      const wMap = wardNames.get(wardBucketKey(pLoose, dLoose));
+      wards[wardBucketKey(pName, dName)] = wMap
+        ? [...wMap.values()].sort((a, b) => a.localeCompare(b, 'vi'))
+        : [];
+    }
+  }
+  return { provinces, districts, wards };
+}
+
+/** Chọn tay tỉnh/huyện/xã cũ → địa chỉ 2 cấp. */
+export function resolveLegacyManual(
+  rows: readonly AddressSelectRow[],
+  mapping: Readonly<Record<string, string>>,
+  selection: { province: string; district: string; ward: string },
+): LegacySuggestion | null {
+  const p = loose(selection.province);
+  const d = loose(selection.district);
+  const w = loose(selection.ward);
+  if (!p || !d || !w) return null;
+
+  let matched: { oldParts: { ward: string; district: string; province: string }; value: string } | null = null;
+  for (const [key, value] of Object.entries(mapping)) {
+    const oldParts = splitOldKey(key);
+    if (!oldParts) continue;
+    if (loose(oldParts.province) !== p || loose(oldParts.district) !== d || loose(oldParts.ward) !== w) continue;
+    matched = { oldParts, value };
+    break;
+  }
+  if (!matched) return null;
+
+  const next = splitNewValue(matched.value);
+  if (!next) return null;
+  const lookup = buildWardLookup(rows);
+  const resolved = lookup.get(`${stripWard(loose(next.ward))}|${stripProvince(loose(next.province))}`);
+  if (!resolved || resolved === 'ambiguous') return null;
+  return {
+    oldText: `${displayName(matched.oldParts.ward)} · ${displayName(matched.oldParts.district)} · ${displayName(matched.oldParts.province)}`,
+    newText: `${next.ward} · ${next.province}`,
+    provinceCode: resolved.provinceCode,
+    wardCode: resolved.wardCode,
+    line: '',
+  };
 }
 
 export function searchLegacyAddress(

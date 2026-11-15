@@ -8336,8 +8336,88 @@
     position: relative;
     margin-top: 0.85rem;
   }
+  .pos-legacy-head {
+    display: grid;
+    gap: 0.35rem;
+  }
+  .pos-legacy-title-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .pos-legacy-title-row .od-label {
+    margin: 0;
+  }
+  .pos-legacy-toggle {
+    flex: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: var(--color-accent-strong);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 650;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+    white-space: nowrap;
+  }
+  .pos-legacy-toggle.is-open::after {
+    content: ' ▴';
+  }
+  .pos-legacy-toggle:not(.is-open)::after {
+    content: ' ▾';
+  }
+  /* Nền cát + viền ấm — khác rõ field trắng thường, vẫn dịu. */
+  .pos-legacy input.field,
+  .pos-legacy [data-pos-legacy-input] {
+    border-color: color-mix(in oklab, var(--color-accent) 58%, var(--color-line));
+    background: color-mix(in oklab, var(--color-sand) 78%, var(--color-accent) 6%);
+  }
+  .pos-legacy input.field:focus,
+  .pos-legacy input.field:focus-visible,
+  .pos-legacy [data-pos-legacy-input]:focus,
+  .pos-legacy [data-pos-legacy-input]:focus-visible {
+    border-color: color-mix(in oklab, var(--color-accent) 75%, var(--color-primary-strong));
+    outline: 2px solid color-mix(in oklab, var(--color-accent) 50%, transparent);
+    outline-offset: 2px;
+  }
   .pos-legacy-hint {
     margin: 0.35rem 0 0;
+  }
+  .pos-legacy-manual {
+    margin-top: 0.55rem;
+    padding: 0.65rem 0.7rem 0.75rem;
+    border: 1px solid color-mix(in oklab, var(--color-accent) 28%, var(--color-line));
+    border-radius: var(--radius-md);
+    background: color-mix(in oklab, var(--color-sand) 70%, var(--color-surface));
+  }
+  .pos-legacy-manual[hidden] {
+    display: none !important;
+  }
+  .pos-legacy-manual-title {
+    margin: 0 0 0.45rem;
+    color: var(--color-heading);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .pos-legacy-manual-grid {
+    display: grid;
+    gap: 0.45rem;
+  }
+  .pos-legacy-manual .field {
+    min-height: 2.45rem;
+    font-size: 0.9rem;
+  }
+  .pos-legacy-manual .address-combo-panel {
+    z-index: 55;
+  }
+  .pos-legacy-manual .address-combo-trigger {
+    border-color: color-mix(in oklab, var(--color-accent) 45%, var(--color-line));
+    background: var(--color-surface);
   }
   .pos-legacy-list {
     margin: 0.35rem 0 0;

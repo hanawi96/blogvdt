@@ -207,6 +207,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(() => sendResponse({ ok: false, ready: false, items: [], more: false }));
     return true;
   }
+  if (message?.type === 'vdt-legacy-tree') {
+    legacySearcher()
+      .then((searcher) => sendResponse({ ok: true, tree: searcher.tree }))
+      .catch(() => sendResponse({ ok: false, tree: null }));
+    return true;
+  }
+  if (message?.type === 'vdt-legacy-resolve' && message.selection) {
+    legacySearcher()
+      .then((searcher) => {
+        const item = searcher.resolveManual(message.selection);
+        sendResponse({ ok: Boolean(item), item: item || null });
+      })
+      .catch(() => sendResponse({ ok: false, item: null }));
+    return true;
+  }
   if (message?.type === 'vdt-lookup-phone' && typeof message.phone === 'string') {
     lookupPhone(message.phone).then(sendResponse);
     return true;

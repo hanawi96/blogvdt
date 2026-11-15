@@ -122,8 +122,13 @@ const {
     {
       pos && (
         <div class="pos-legacy" data-pos-legacy>
-          <label class="block" for="pos-legacy-input">
-            <span class="od-label">Địa chỉ cũ</span>
+          <div class="pos-legacy-head">
+            <div class="pos-legacy-title-row">
+              <label class="od-label" for="pos-legacy-input">Tìm nhanh địa chỉ cũ</label>
+              <button type="button" class="pos-legacy-toggle" data-pos-legacy-toggle aria-expanded="false">
+                Chọn tay 3 cấp
+              </button>
+            </div>
             <input
               id="pos-legacy-input"
               class="field"
@@ -133,9 +138,85 @@ const {
               spellcheck="false"
               data-pos-legacy-input
             />
-          </label>
+          </div>
           <p class="pos-legacy-hint od-note" data-pos-legacy-hint hidden></p>
           <ul class="pos-legacy-list" data-pos-legacy-list role="listbox" hidden></ul>
+          <div class="pos-legacy-manual" data-pos-legacy-manual hidden>
+            <p class="pos-legacy-manual-title">Chọn tay địa chỉ cũ</p>
+            <div class="pos-legacy-manual-grid">
+              <div class="block min-w-0">
+                <span class="od-label" id="pos-legacy-province-label">Tỉnh / TP cũ</span>
+                <div class="address-combo" data-pos-legacy-combo="province">
+                  <button
+                    class="address-combo-trigger field"
+                    type="button"
+                    data-combo-trigger
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                    aria-labelledby="pos-legacy-province-label"
+                  >
+                    <span class="address-combo-value is-placeholder" data-combo-value>Chọn tỉnh/TP cũ</span>
+                    <span class="address-combo-caret" aria-hidden="true">
+                      <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg>
+                    </span>
+                  </button>
+                  <div class="address-combo-panel" data-combo-panel hidden>
+                    <input class="address-combo-query" type="search" placeholder="Tìm tỉnh/TP..." autocomplete="off" data-combo-query />
+                    <p class="address-combo-head">Tỉnh / TP (cũ)</p>
+                    <ul class="address-combo-list" data-combo-list role="listbox"></ul>
+                  </div>
+                </div>
+              </div>
+              <div class="block min-w-0">
+                <span class="od-label" id="pos-legacy-district-label">Quận / Huyện cũ</span>
+                <div class="address-combo" data-pos-legacy-combo="district">
+                  <button
+                    class="address-combo-trigger field"
+                    type="button"
+                    data-combo-trigger
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                    aria-labelledby="pos-legacy-district-label"
+                    disabled
+                  >
+                    <span class="address-combo-value is-placeholder" data-combo-value>Chọn tỉnh trước</span>
+                    <span class="address-combo-caret" aria-hidden="true">
+                      <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg>
+                    </span>
+                  </button>
+                  <div class="address-combo-panel" data-combo-panel hidden>
+                    <input class="address-combo-query" type="search" placeholder="Tìm quận/huyện..." autocomplete="off" data-combo-query />
+                    <p class="address-combo-head">Quận / Huyện (cũ)</p>
+                    <ul class="address-combo-list" data-combo-list role="listbox"></ul>
+                  </div>
+                </div>
+              </div>
+              <div class="block min-w-0">
+                <span class="od-label" id="pos-legacy-ward-label">Phường / Xã cũ</span>
+                <div class="address-combo" data-pos-legacy-combo="ward">
+                  <button
+                    class="address-combo-trigger field"
+                    type="button"
+                    data-combo-trigger
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                    aria-labelledby="pos-legacy-ward-label"
+                    disabled
+                  >
+                    <span class="address-combo-value is-placeholder" data-combo-value>Chọn huyện trước</span>
+                    <span class="address-combo-caret" aria-hidden="true">
+                      <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg>
+                    </span>
+                  </button>
+                  <div class="address-combo-panel" data-combo-panel hidden>
+                    <input class="address-combo-query" type="search" placeholder="Tìm phường/xã..." autocomplete="off" data-combo-query />
+                    <p class="address-combo-head">Phường / Xã (cũ)</p>
+                    <ul class="address-combo-list" data-combo-list role="listbox"></ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )
     }
@@ -464,8 +545,14 @@ const {
 {
   pos && (
     <script>
-      import { searchLegacyAddress, type LegacySuggestion } from '../../features/address/legacy';
-      import type { AddressSelectRow } from '../../features/address/parse';
+      import {
+        buildLegacySelectTree,
+        resolveLegacyManual,
+        searchLegacyAddress,
+        type LegacySelectTree,
+        type LegacySuggestion,
+      } from '../../features/address/legacy';
+      import { foldAddressText, type AddressSelectRow } from '../../features/address/parse';
 
       const form = document.querySelector('form.staff-order-pos');
       if (form instanceof HTMLFormElement) {
@@ -480,6 +567,11 @@ const {
         const legacyInput = form.querySelector('[data-pos-legacy-input]');
         const legacyHint = form.querySelector('[data-pos-legacy-hint]');
         const legacyList = form.querySelector('[data-pos-legacy-list]');
+        const legacyToggle = form.querySelector('[data-pos-legacy-toggle]');
+        const legacyManual = form.querySelector('[data-pos-legacy-manual]');
+        const legacyProvinceCombo = form.querySelector('[data-pos-legacy-combo="province"]');
+        const legacyDistrictCombo = form.querySelector('[data-pos-legacy-combo="district"]');
+        const legacyWardCombo = form.querySelector('[data-pos-legacy-combo="ward"]');
 
         function money(amount: number) {
           return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(amount);
@@ -572,13 +664,26 @@ const {
           const legacyStatus = legacyHint;
           const legacyOptions = legacyList;
           const legacyAddress = addressRoot;
-          let legacyReady: Promise<{ rows: AddressSelectRow[]; mapping: Record<string, string> }> | null = null;
+          let legacyReady: Promise<{
+            rows: AddressSelectRow[];
+            mapping: Record<string, string>;
+            tree: LegacySelectTree;
+          }> | null = null;
           let indexReady = false;
           let timer = 0;
           let waitHint = 0;
           let requestSeq = 0;
           let hits: LegacySuggestion[] = [];
           let active = -1;
+          let selectTree: LegacySelectTree | null = null;
+
+          function escapeHtml(value: string) {
+            return value
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;');
+          }
 
           function setHint(text: string) {
             legacyStatus.hidden = !text;
@@ -607,24 +712,19 @@ const {
                 .then(([rows, mapping]) => {
                   // Dựng chỉ mục một lần bằng một truy vấn rỗng ngắn.
                   searchLegacyAddress(rows, mapping, 'ha');
+                  const tree = buildLegacySelectTree(mapping);
+                  selectTree = tree;
                   indexReady = true;
-                  return { rows, mapping };
+                  return { rows, mapping, tree };
                 })
                 .catch((error) => {
                   legacyReady = null;
                   indexReady = false;
+                  selectTree = null;
                   throw error;
                 });
             }
             return legacyReady;
-          }
-
-          function escapeHtml(value: string) {
-            return value
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;');
           }
 
           function applyHit(hit: LegacySuggestion) {
@@ -743,6 +843,229 @@ const {
             if (!(event.target instanceof Node) || legacyBox.contains(event.target)) return;
             closeList();
           });
+
+          if (
+            legacyToggle instanceof HTMLButtonElement &&
+            legacyManual instanceof HTMLElement &&
+            legacyProvinceCombo instanceof HTMLElement &&
+            legacyDistrictCombo instanceof HTMLElement &&
+            legacyWardCombo instanceof HTMLElement
+          ) {
+            const toggleBtn = legacyToggle;
+            const manualBox = legacyManual;
+            type ManualKind = 'province' | 'district' | 'ward';
+            const combos: Record<ManualKind, HTMLElement> = {
+              province: legacyProvinceCombo,
+              district: legacyDistrictCombo,
+              ward: legacyWardCombo,
+            };
+            const selection = { province: '', district: '', ward: '' };
+
+            function comboParts(combo: HTMLElement) {
+              return {
+                trigger: combo.querySelector('[data-combo-trigger]'),
+                value: combo.querySelector('[data-combo-value]'),
+                panel: combo.querySelector('[data-combo-panel]'),
+                query: combo.querySelector('[data-combo-query]'),
+                list: combo.querySelector('[data-combo-list]'),
+              };
+            }
+
+            function setTriggerLabel(combo: HTMLElement, label: string, empty: boolean) {
+              const { value, trigger } = comboParts(combo);
+              if (value instanceof HTMLElement) {
+                value.textContent = label;
+                value.classList.toggle('is-placeholder', empty);
+              }
+              if (trigger instanceof HTMLButtonElement) trigger.classList.toggle('is-empty', empty);
+            }
+
+            function closeCombo(combo: HTMLElement) {
+              const { trigger, panel, query } = comboParts(combo);
+              if (panel instanceof HTMLElement) panel.hidden = true;
+              if (trigger instanceof HTMLButtonElement) trigger.setAttribute('aria-expanded', 'false');
+              combo.classList.remove('is-open');
+              if (query instanceof HTMLInputElement) query.value = '';
+            }
+
+            function closeAllCombos(except?: HTMLElement) {
+              for (const combo of Object.values(combos)) {
+                if (combo !== except) closeCombo(combo);
+              }
+            }
+
+            function optionsFor(kind: ManualKind): string[] {
+              const tree = selectTree;
+              if (!tree) return [];
+              if (kind === 'province') return tree.provinces;
+              if (kind === 'district') return selection.province ? (tree.districts[selection.province] ?? []) : [];
+              if (!selection.province || !selection.district) return [];
+              return tree.wards[`${selection.province}\t${selection.district}`] ?? [];
+            }
+
+            function renderComboList(combo: HTMLElement, kind: ManualKind, needleRaw: string) {
+              const { list } = comboParts(combo);
+              if (!(list instanceof HTMLElement)) return;
+              const tokens = foldAddressText(needleRaw).split(' ').filter(Boolean);
+              const selected = selection[kind];
+              const fragment = document.createDocumentFragment();
+              let shown = 0;
+              for (const name of optionsFor(kind)) {
+                if (tokens.length > 0 && !tokens.every((token) => foldAddressText(name).includes(token))) continue;
+                const item = document.createElement('button');
+                item.type = 'button';
+                item.className = 'address-combo-option';
+                item.setAttribute('role', 'option');
+                item.dataset.value = name;
+                item.setAttribute('aria-selected', String(name === selected));
+                item.textContent = name;
+                item.addEventListener('mousedown', (event) => {
+                  event.preventDefault();
+                  pickManual(kind, name);
+                });
+                fragment.append(item);
+                shown += 1;
+                if (shown >= 80) break;
+              }
+              if (shown === 0) {
+                const empty = document.createElement('p');
+                empty.className = 'address-combo-empty';
+                empty.textContent = 'Không có kết quả khớp.';
+                list.replaceChildren(empty);
+                return;
+              }
+              list.replaceChildren(fragment);
+            }
+
+            function openCombo(combo: HTMLElement, kind: ManualKind) {
+              const { trigger, panel, query } = comboParts(combo);
+              if (trigger instanceof HTMLButtonElement && trigger.disabled) return;
+              closeAllCombos(combo);
+              closeList();
+              if (panel instanceof HTMLElement) panel.hidden = false;
+              if (trigger instanceof HTMLButtonElement) trigger.setAttribute('aria-expanded', 'true');
+              combo.classList.add('is-open');
+              renderComboList(combo, kind, '');
+              requestAnimationFrame(() => {
+                if (query instanceof HTMLInputElement) {
+                  query.value = '';
+                  query.focus();
+                  query.select();
+                }
+              });
+            }
+
+            function syncDependentTriggers() {
+              const districtTrigger = comboParts(combos.district).trigger;
+              const wardTrigger = comboParts(combos.ward).trigger;
+              if (districtTrigger instanceof HTMLButtonElement) districtTrigger.disabled = !selection.province;
+              if (wardTrigger instanceof HTMLButtonElement) wardTrigger.disabled = !selection.district;
+              if (!selection.province) {
+                setTriggerLabel(combos.district, 'Chọn tỉnh trước', true);
+                setTriggerLabel(combos.ward, 'Chọn huyện trước', true);
+              } else if (!selection.district) {
+                setTriggerLabel(combos.district, 'Chọn quận/huyện', true);
+                setTriggerLabel(combos.ward, 'Chọn huyện trước', true);
+              } else if (!selection.ward) {
+                setTriggerLabel(combos.ward, 'Chọn phường/xã', true);
+              }
+            }
+
+            function resetManualSelection() {
+              selection.province = '';
+              selection.district = '';
+              selection.ward = '';
+              setTriggerLabel(combos.province, 'Chọn tỉnh/TP cũ', true);
+              syncDependentTriggers();
+            }
+
+            function applyManualSelection() {
+              if (!selection.province || !selection.district || !selection.ward) return;
+              void loadLegacy()
+                .then(({ rows, mapping }) => {
+                  const hit = resolveLegacyManual(rows, mapping, selection);
+                  if (!hit) {
+                    setHint('Không khớp được địa chỉ 2 cấp cho lựa chọn này.');
+                    return;
+                  }
+                  applyHit(hit);
+                  resetManualSelection();
+                })
+                .catch(() => setHint('Không tải được danh sách địa chỉ. Tải lại trang.'));
+            }
+
+            function pickManual(kind: ManualKind, name: string) {
+              selection[kind] = name;
+              setTriggerLabel(combos[kind], name, false);
+              closeCombo(combos[kind]);
+              if (kind === 'province') {
+                selection.district = '';
+                selection.ward = '';
+                syncDependentTriggers();
+                requestAnimationFrame(() => openCombo(combos.district, 'district'));
+                return;
+              }
+              if (kind === 'district') {
+                selection.ward = '';
+                syncDependentTriggers();
+                requestAnimationFrame(() => openCombo(combos.ward, 'ward'));
+                return;
+              }
+              applyManualSelection();
+            }
+
+            function bindManualCombo(combo: HTMLElement, kind: ManualKind) {
+              const { trigger, query, panel } = comboParts(combo);
+              trigger?.addEventListener('click', () => {
+                if (!(panel instanceof HTMLElement)) return;
+                if (panel.hidden) openCombo(combo, kind);
+                else closeCombo(combo);
+              });
+              query?.addEventListener('input', () => {
+                if (query instanceof HTMLInputElement) renderComboList(combo, kind, query.value);
+              });
+              if (query instanceof HTMLInputElement) {
+                query.addEventListener('keydown', (event: KeyboardEvent) => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    closeCombo(combo);
+                    if (trigger instanceof HTMLButtonElement) trigger.focus();
+                  }
+                });
+              }
+            }
+
+            bindManualCombo(combos.province, 'province');
+            bindManualCombo(combos.district, 'district');
+            bindManualCombo(combos.ward, 'ward');
+            syncDependentTriggers();
+
+            toggleBtn.addEventListener('click', () => {
+              const open = manualBox.hasAttribute('hidden');
+              manualBox.hidden = !open;
+              toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+              toggleBtn.classList.toggle('is-open', open);
+              if (!open) {
+                closeAllCombos();
+                return;
+              }
+              void loadLegacy()
+                .then(() => {
+                  if (!selection.province) syncDependentTriggers();
+                })
+                .catch(() => setHint('Không tải được danh sách địa chỉ. Tải lại trang.'));
+            });
+
+            document.addEventListener('mousedown', (event) => {
+              if (!(event.target instanceof Node) || !manualBox.contains(event.target)) {
+                closeAllCombos();
+                return;
+              }
+              for (const combo of Object.values(combos)) {
+                if (!combo.contains(event.target)) closeCombo(combo);
+              }
+            });
+          }
         }
       }
     </script>

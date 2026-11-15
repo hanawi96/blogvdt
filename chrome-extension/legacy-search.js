@@ -143,6 +143,25 @@ function findWard(wards, wardName) {
   return null;
 }
 
+/**
+ * p5 / P.5 / ph 14 → Phường N; Q8 / q.8 → Quận N.
+ * Quận 1–12 mà chưa có tỉnh → thêm TP.HCM.
+ */
+function expandWardDistrictShortcuts(text) {
+  let out = String(text || '');
+  out = out.replace(/(^|[^0-9\p{L}])(?:q|quận)\.?\s*(\d{1,2})(?=$|[^0-9])/giu, '$1Quận $2');
+  out = out.replace(/(^|[^0-9\p{L}])(?:p|ph|phường)\.?\s*(\d{1,2})(?=$|[^0-9])/giu, '$1Phường $2');
+  const folded = loose(out);
+  const hasNumberedDistrict = /\bquan\s+(?:[1-9]|1[0-2])\b/.test(folded);
+  const hasProvince =
+    /\b(?:tinh|thanh pho|tp|hcm|tphcm|sai gon|sg|ho chi minh|ha noi|da nang|hai phong|can tho|hue)\b/.test(folded) ||
+    /\b(?:tỉnh|thành phố)\b/i.test(out);
+  if (hasNumberedDistrict && !hasProvince) {
+    out = `${out.replace(/[,\s]+$/g, '')}, Thành phố Hồ Chí Minh`;
+  }
+  return out;
+}
+
 /** Chuẩn hóa tin chat: bỏ SĐT/tên đầu, đổi «A - B - C» thành dấu phẩy, tách ghi chú (...). */
 function normalizeChatAddressQuery(raw) {
   const source = String(raw || '').replace(/\u00a0/g, ' ');
@@ -162,10 +181,14 @@ function normalizeChatAddressQuery(raw) {
     );
   }
   text = text.replace(/\s*[-–—]\s*/g, ', ');
+  // «Sơn.Ngũ Lão» / «Lão . Thuỷ» → phẩy; không đụng số nhà (12.5) hay P.5.
+  text = text.replace(/(?<=\p{L})\s*\.\s*(?=\p{L})/gu, ', ');
+  text = expandWardDistrictShortcuts(text);
   text = text
     .replace(/^(?:đc|dc|địa\s*chỉ|dia\s*chi)\s*[:：-]?\s*/i, '')
     .replace(/[|]+/g, ' ')
     .replace(/\s+/g, ' ')
+    .replace(/\s+\p{L}\s*$/u, '')
     .replace(/^[,.\s]+|[,.\s]+$/g, '')
     .trim();
   return { text, notes };
@@ -262,9 +285,17 @@ function scoreEntry(entry, tokens) {
   let rest = [];
   if (at >= 0) {
     const before = tokens.slice(0, at);
-    if (before.some((token) => !isStreetToken(token))) return 0;
+    const after = tokens.slice(at + entry.wardTokens.length);
+    rest = [...before, ...after];
+    const beforeHasPlace = before.some((token) => !isStreetToken(token));
+    if (beforeHasPlace) {
+      const provinceAfter =
+        entry.provinceTokens.length > 0 && entry.provinceTokens.every((token) => after.includes(token));
+      if (!provinceAfter) return 0;
+      if (!restCovered(rest, entry.districtTokens, entry.provinceTokens)) return 0;
+      return 850 + entry.wardTokens.length * 10 + (entry.kind === 'old' ? 5 : 0);
+    }
     score = 1000 + entry.wardTokens.length * 10 + (entry.kind === 'old' ? 5 : 0);
-    rest = [...before, ...tokens.slice(at + entry.wardTokens.length)];
   } else if (
     entry.wardTokens.length > tokens.length &&
     tokens.length > 0 &&
@@ -285,9 +316,62 @@ function scoreEntry(entry, tokens) {
   return score;
 }
 
+function titleCaseVn(value) {
+  return String(value || '').replace(/\p{L}+/gu, (word) => word.charAt(0).toLocaleUpperCase('vi') + word.slice(1));
+}
+
+function wardBucketKey(province, district) {
+  return `${province}\t${district}`;
+}
+
+function buildLegacySelectTree(mapping) {
+  const provinceNames = new Map();
+  const districtNames = new Map();
+  const wardNames = new Map();
+
+  for (const key of Object.keys(mapping)) {
+    const parts = parseOldAddressKey(key);
+    if (!parts) continue;
+    const pLoose = loose(parts.province);
+    const dLoose = loose(parts.district);
+    const wLoose = loose(parts.ward);
+    if (!provinceNames.has(pLoose)) provinceNames.set(pLoose, titleCaseVn(parts.province));
+    let districts = districtNames.get(pLoose);
+    if (!districts) {
+      districts = new Map();
+      districtNames.set(pLoose, districts);
+    }
+    if (!districts.has(dLoose)) districts.set(dLoose, titleCaseVn(parts.district));
+    const bucket = wardBucketKey(pLoose, dLoose);
+    let wards = wardNames.get(bucket);
+    if (!wards) {
+      wards = new Map();
+      wardNames.set(bucket, wards);
+    }
+    if (!wards.has(wLoose)) wards.set(wLoose, titleCaseVn(parts.ward));
+  }
+
+  const provinces = [...provinceNames.values()].sort((a, b) => a.localeCompare(b, 'vi'));
+  const districts = {};
+  const wards = {};
+  for (const [pLoose, pName] of provinceNames) {
+    const distMap = districtNames.get(pLoose);
+    districts[pName] = distMap ? [...distMap.values()].sort((a, b) => a.localeCompare(b, 'vi')) : [];
+    if (!distMap) continue;
+    for (const [dLoose, dName] of distMap) {
+      const wMap = wardNames.get(wardBucketKey(pLoose, dLoose));
+      wards[wardBucketKey(pName, dName)] = wMap
+        ? [...wMap.values()].sort((a, b) => a.localeCompare(b, 'vi'))
+        : [];
+    }
+  }
+  return { provinces, districts, wards };
+}
+
 function createLegacySearcher(mapping, rows) {
   const records = [];
   const provinceBares = new Set();
+  const tree = buildLegacySelectTree(mapping);
 
   for (const [provinceCode, provinceName, wards] of rows) {
     provinceBares.add(stripProvince(loose(provinceName)));
@@ -328,8 +412,37 @@ function createLegacySearcher(mapping, rows) {
     });
   }
 
+  function resolveManual(selection) {
+    const p = loose(selection?.province);
+    const d = loose(selection?.district);
+    const w = loose(selection?.ward);
+    if (!p || !d || !w) return null;
+    for (const [key, value] of Object.entries(mapping)) {
+      const parsed = parseOldAddressKey(key);
+      if (!parsed) continue;
+      if (loose(parsed.province) !== p || loose(parsed.district) !== d || loose(parsed.ward) !== w) continue;
+      const next = splitNewAddress(value);
+      if (!next) return null;
+      const province = findProvince(rows, next.province);
+      const ward = province ? findWard(province.wards, next.ward) : null;
+      if (!province || !ward) return null;
+      return {
+        oldText: `${abbreviateAdminLabel(parsed.ward)} · ${abbreviateAdminLabel(parsed.district)} · ${abbreviateAdminLabel(parsed.province)}`,
+        newText: `${abbreviateAdminLabel(next.ward)} · ${abbreviateAdminLabel(next.province)}`,
+        provinceCode: province.code,
+        wardCode: ward.code,
+        provinceName: province.name,
+        wardName: ward.name,
+        line: '',
+      };
+    }
+    return null;
+  }
+
   return {
     size: records.length,
+    tree,
+    resolveManual,
     search(query) {
       const prepared = prepareQuery(query, provinceBares);
       const compact = prepared.tokens.join('');
