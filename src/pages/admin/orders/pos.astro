@@ -32,19 +32,26 @@ const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
 
 const db = createDb(getDbBinding());
-const picker = await listStaffPickerProducts(db);
-const products = picker.products;
-
 const fromId = Number(Astro.url.searchParams.get('from') ?? '');
-const sourceOrder = Number.isInteger(fromId) && fromId > 0 ? await getOrder(db, fromId) : null;
+const savedId = Number(Astro.url.searchParams.get('saved') ?? '');
+const loadSaved = Number.isInteger(savedId) && savedId > 0 && Astro.request.method === 'GET';
+
+// Song song các query độc lập — giảm thời gian iframe trắng khi mở POS.
+const [picker, discountChoices, orderCosts, sourceOrder, savedOrder] = await Promise.all([
+  listStaffPickerProducts(db),
+  listStaffDiscountChoices(db),
+  listOrderCosts(db),
+  Number.isInteger(fromId) && fromId > 0 ? getOrder(db, fromId) : Promise.resolve(null),
+  loadSaved ? getOrder(db, savedId) : Promise.resolve(null),
+]);
+const products = picker.products;
 const clonedLines = sourceOrder ? orderLineSources(sourceOrder) : [];
 const keepIds = clonedLines.flatMap((line) => (line.productId ? [line.productId] : []));
 const keptChoices = keepIds.length > 0 ? await listStaffProductChoices(db, keepIds) : [];
 const pickerIds = new Set(products.map((product) => product.id));
 const editorChoices = [...products, ...keptChoices.filter((choice) => !pickerIds.has(choice.id))];
 
-const discountChoices = await listStaffDiscountChoices(db);
-const shippingCosts = (await listOrderCosts(db)).filter((cost) => cost.active && isShippingOrderCost(cost.name));
+const shippingCosts = orderCosts.filter((cost) => cost.active && isShippingOrderCost(cost.name));
 const defaultShippingFeeAmount = baseCustomerShippingFee(shippingCosts);
 const defaultShippingFee = defaultShippingFeeAmount > 0 ? groupDigits(String(defaultShippingFeeAmount), 8) : '';
 let formError = '';
@@ -53,11 +60,8 @@ let flagError = '';
 let errors: FieldErrors = {};
 let postedLines: StaffLineInput[] | null = null;
 let savedNotice: { id: number; code: string; total: string } | null = null;
-
-const savedId = Number(Astro.url.searchParams.get('saved') ?? '');
-if (Number.isInteger(savedId) && savedId > 0 && Astro.request.method === 'GET') {
-  const saved = await getOrder(db, savedId);
-  if (saved) savedNotice = { id: saved.id, code: saved.code, total: formatVnd(saved.totalPrice) };
+if (savedOrder) {
+  savedNotice = { id: savedOrder.id, code: savedOrder.code, total: formatVnd(savedOrder.totalPrice) };
 }
 
 const clonedAddress = sourceOrder ? matchComposedAddress(addressSelect as unknown as AddressSelectRow[], sourceOrder.address) : null;
@@ -97,6 +101,11 @@ const flagForm: StaffFlagForm = sourceOrder
       depositAmount: '',
     };
 
+const wantsJson = Astro.request.headers.get('x-requested-with') === 'fetch';
+const jsonHeaders = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
+const jsonResponse = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: jsonHeaders });
+
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const blocked = mutationError(Astro.request, session, form);
@@ -133,6 +142,7 @@ if (Astro.request.method === 'POST') {
     depositAmount: flagForm.depositAmount,
   });
   if (blocked) {
+    if (wantsJson) return jsonResponse({ ok: false, formError: blocked }, 403);
     Astro.response.status = 403;
     formError = blocked;
   } else {
@@ -176,11 +186,32 @@ if (Astro.request.method === 'POST') {
         session.userId,
       );
       if (!created.ok) {
+        if (wantsJson) return jsonResponse({ ok: false, formError: created.error }, 422);
         Astro.response.status = 422;
         formError = created.error;
+      } else if (wantsJson) {
+        const saved = await getOrder(db, created.id);
+        return jsonResponse({
+          ok: true,
+          id: created.id,
+          code: saved?.code ?? '',
+          total: saved ? formatVnd(saved.totalPrice) : '',
+          url: routes.adminOrder(created.id),
+        });
       } else {
         return Astro.redirect(`${routes.adminOrderPos}?saved=${created.id}`, 303);
       }
+    } else if (wantsJson) {
+      return jsonResponse(
+        {
+          ok: false,
+          formError: formError || flagError || lineError || Object.values(errors)[0] || 'Thiếu thông tin đơn hàng.',
+          flagError,
+          lineError,
+          errors,
+        },
+        422,
+      );
     } else {
       Astro.response.status = 422;
     }

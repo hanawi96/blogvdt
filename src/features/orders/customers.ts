@@ -1,9 +1,11 @@
 import { and, asc, desc, eq, inArray, like, ne, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
-import { orders } from '../../lib/db/schema';
+import { orderItems, orders, productCategories, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { readWeightScale, weightChips, weightExtras, type WeightScale } from '../products/weight';
 import { normalizePhone } from './order';
 import { orderSearchTerm } from './orders';
+import { canEditOrderProducts } from './staff';
 import { FULFILL_STATUS_LABELS, fulfillStatusOf, orderStatusLabel } from './status';
 
 const PAGE_SIZE = 20;
@@ -99,6 +101,17 @@ export async function listCustomers(db: AppDb, filters: { query: string; sort: C
   };
 }
 
+export type CustomerLookupLine = {
+  productId: number | null;
+  productName: string;
+  weight: string;
+  quantity: number;
+  note: string;
+  weightScale: WeightScale;
+  chips: string[];
+  extras: string[];
+};
+
 export type CustomerPhoneLookup = {
   phone: string;
   customerName: string;
@@ -118,6 +131,10 @@ export type CustomerPhoneLookup = {
     productName: string;
     optionLabel: string | null;
     createdAt: number;
+    editable: boolean;
+    discountCode: string;
+    shippingFee: number;
+    lines: CustomerLookupLine[];
   } | null;
 };
 
@@ -127,6 +144,72 @@ function weightLabelFromOption(optionLabel: string | null | undefined): string {
   const match = raw.match(/(\d+(?:[.,]\d+)?)\s*kg\b/i);
   if (!match?.[1]) return '';
   return `${match[1].replace(',', '.')}kg`;
+}
+
+function linePayload(
+  productId: number | null,
+  productName: string,
+  optionLabel: string | null | undefined,
+  quantity: number,
+  note: string | null | undefined,
+  weightScaleRaw: unknown,
+): CustomerLookupLine {
+  const weightScale = readWeightScale(weightScaleRaw);
+  return {
+    productId,
+    productName,
+    weight: String(optionLabel || '').trim(),
+    quantity: Math.max(1, Number(quantity) || 1),
+    note: String(note || '').trim(),
+    weightScale,
+    chips: [...weightChips(weightScale)],
+    extras: [...weightExtras(weightScale)],
+  };
+}
+
+/** Dòng SP của đơn gần nhất: ưu tiên order_items, fallback header đơn cũ. */
+async function lookupRecentLines(
+  db: AppDb,
+  order: {
+    id: number;
+    productId: number | null;
+    productName: string;
+    quantity: number;
+    optionLabel: string | null;
+  },
+): Promise<CustomerLookupLine[]> {
+  const itemRows = await db
+    .select({
+      productId: orderItems.productId,
+      productName: orderItems.productName,
+      quantity: orderItems.quantity,
+      optionLabel: orderItems.optionLabel,
+      note: orderItems.note,
+      weightScale: productCategories.weightScale,
+    })
+    .from(orderItems)
+    .leftJoin(products, eq(orderItems.productId, products.id))
+    .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+    .where(eq(orderItems.orderId, order.id))
+    .orderBy(asc(orderItems.sortOrder), asc(orderItems.id));
+  if (itemRows.length > 0) {
+    return itemRows.map((row) =>
+      linePayload(row.productId, row.productName, row.optionLabel, row.quantity, row.note, row.weightScale),
+    );
+  }
+  let weightScaleRaw: unknown = 'baby';
+  if (order.productId != null) {
+    const scaleRows = await db
+      .select({ weightScale: productCategories.weightScale })
+      .from(products)
+      .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+      .where(eq(products.id, order.productId))
+      .limit(1);
+    weightScaleRaw = scaleRows[0]?.weightScale;
+  }
+  return [
+    linePayload(order.productId, order.productName, order.optionLabel, order.quantity, null, weightScaleRaw),
+  ];
 }
 
 /** Tra khách theo SĐT cho POS / extension: đơn gần nhất + số đơn chưa hủy. */
@@ -144,8 +227,11 @@ export async function lookupCustomerByPhone(db: AppDb, rawPhone: string): Promis
       fulfillStatus: orders.fulfillStatus,
       totalPrice: orders.totalPrice,
       quantity: orders.quantity,
+      productId: orders.productId,
       productName: orders.productName,
       optionLabel: orders.optionLabel,
+      discountCode: orders.discountCode,
+      shippingFee: orders.shippingFee,
       createdAt: orders.createdAt,
     })
     .from(orders)
@@ -162,6 +248,8 @@ export async function lookupCustomerByPhone(db: AppDb, rawPhone: string): Promis
   const fulfillLabel = fulfill ? FULFILL_STATUS_LABELS[fulfill] : orderStatusLabel(recent.status);
   const parts = recent.address.split(',').map((part) => part.trim()).filter(Boolean);
   const provinceLabel = parts.length > 0 ? parts[parts.length - 1]! : '';
+  const lines = await lookupRecentLines(db, recent);
+  const first = lines[0];
   return {
     phone: recent.phone,
     customerName: recent.customerName,
@@ -174,11 +262,15 @@ export async function lookupCustomerByPhone(db: AppDb, rawPhone: string): Promis
       statusLabel: orderStatusLabel(recent.status),
       fulfillLabel,
       totalPrice: recent.totalPrice,
-      quantity: Number(recent.quantity) || 1,
-      weightLabel: weightLabelFromOption(recent.optionLabel),
-      productName: recent.productName,
-      optionLabel: recent.optionLabel,
+      quantity: lines.reduce((sum, line) => sum + line.quantity, 0) || Number(recent.quantity) || 1,
+      weightLabel: first ? weightLabelFromOption(first.weight) || first.weight : weightLabelFromOption(recent.optionLabel),
+      productName: first?.productName || recent.productName,
+      optionLabel: first?.weight || recent.optionLabel,
       createdAt: recent.createdAt,
+      editable: canEditOrderProducts(recent.status),
+      discountCode: recent.discountCode || '',
+      shippingFee: Math.max(0, Number(recent.shippingFee) || 0),
+      lines,
     },
   };
 }

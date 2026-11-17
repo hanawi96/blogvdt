@@ -48,6 +48,19 @@ const session = Astro.locals.adminSession;
         const topBar = document.querySelector('[data-pos-top]');
         if (topBar instanceof HTMLElement) topBar.hidden = true;
       }
+
+      // Chặn POST native ngay từ đầu — thiếu SP không có HTML required nên trình duyệt
+      // vẫn submit → iframe reload/nháy trước khi module validation kịp chạy.
+      document.addEventListener(
+        'submit',
+        function (event) {
+          var form = event.target;
+          if (!(form instanceof HTMLFormElement)) return;
+          if (form.getAttribute('data-pos') !== '1') return;
+          event.preventDefault();
+        },
+        true,
+      );
     </script>
     <script>
       import { searchLegacyAddress } from '../features/address/legacy';

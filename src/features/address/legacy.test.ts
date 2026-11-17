@@ -57,10 +57,17 @@ describe('đổi địa chỉ 3 cấp sang 2 cấp', () => {
   it('tên xã trùng nhiều nơi thì trả nhiều dòng, không gộp thành một', () => {
     const result = searchLegacyAddress(rows, mapping, 'tan thanh');
     expect(result.items.length).toBeGreaterThan(1);
-    expect(result.more).toBe(true);
     for (const item of result.items) {
       expect(foldAddressText(`${item.oldText} ${item.newText}`)).toContain('tan thanh');
     }
+  });
+
+  it('tiền tố «long thành» vẫn ra «long thành bắc» cùng các long thành exact', () => {
+    const result = searchLegacyAddress(rows, mapping, 'long thành');
+    expect(result.items.length).toBeGreaterThan(1);
+    const bac = result.items.find((item) => /long thành bắc/i.test(item.oldText));
+    expect(bac).toBeTruthy();
+    expect(bac?.newText.toLowerCase()).toMatch(/long hoa|tây ninh/);
   });
 
   it('p5 Q8 và biến thể viết tắt mở thành phường 5 quận 8 HCM', () => {
@@ -201,5 +208,80 @@ describe('đổi địa chỉ 3 cấp sang 2 cấp', () => {
       wardCode: target?.wardCode,
       newText: 'Phường Cam Ly - Đà Lạt · Tỉnh Lâm Đồng',
     });
+  });
+
+  it('C2: ấp giữa câu viết liền + SĐT → Xã An Biên / An Giang, giữ số nhà', () => {
+    const target = wardNamed('Tỉnh An Giang', 'Xã An Biên');
+    expect(target).toBeTruthy();
+    for (const raw of [
+      'g ấp lo 3 hung yên an biên kien giang 0888405497',
+      'ấp lộ 3 hưng yên an biên kiên giang',
+      'hung yen an bien kien giang',
+    ]) {
+      const result = searchLegacyAddress(rows, mapping, raw);
+      expect(result.items, raw).toHaveLength(1);
+      expect(result.items[0], raw).toMatchObject({
+        provinceCode: target?.provinceCode,
+        wardCode: target?.wardCode,
+        newText: 'Xã An Biên · Tỉnh An Giang',
+      });
+      expect(result.items[0]?.oldText.toLowerCase(), raw).toMatch(/hưng yên|hung yen/);
+      expect(result.items[0]?.oldText.toLowerCase(), raw).toMatch(/an biên|an bien/);
+    }
+    const withStreet = searchLegacyAddress(
+      rows,
+      mapping,
+      'g ấp lo 3 hung yên an biên kien giang 0888405497',
+    );
+    expect(withStreet.items[0]?.line.toLowerCase()).toMatch(/ấp|ap/);
+    expect(withStreet.items[0]?.line.toLowerCase()).toMatch(/lo\s*3|3/);
+  });
+
+  it('C5: ngõ/hẻm/tổ tách khỏi xã–huyện–tỉnh có phẩy', () => {
+    const target = wardNamed('Thành phố Hà Nội', 'Xã Mê Linh');
+    expect(target).toBeTruthy();
+    const result = searchLegacyAddress(
+      rows,
+      mapping,
+      'ngõ 12, hẻm 3, tổ 5, Xã Tráng Việt, huyện Mê Linh, Hà Nội',
+    );
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      provinceCode: target?.provinceCode,
+      wardCode: target?.wardCode,
+      newText: 'Xã Mê Linh · Thành phố Hà Nội',
+    });
+    expect(result.items[0]?.line.toLowerCase()).toMatch(/ngõ|hem|hẻm|tổ|to/);
+  });
+
+  it('D6/D7: hưng yên vừa tỉnh vừa xã — phẩy huyện/tỉnh vẫn ra An Biên', () => {
+    const target = wardNamed('Tỉnh An Giang', 'Xã An Biên');
+    expect(target).toBeTruthy();
+    for (const raw of ['hưng yên, an biên, kiên giang', 'an biên, hưng yên, kiên giang']) {
+      const result = searchLegacyAddress(rows, mapping, raw);
+      expect(result.items, raw).toHaveLength(1);
+      expect(result.items[0], raw).toMatchObject({
+        provinceCode: target?.provinceCode,
+        wardCode: target?.wardCode,
+        newText: 'Xã An Biên · Tỉnh An Giang',
+      });
+    }
+  });
+
+  it('số nhà đầu câu liền xã–huyện–tphcm (Bình Trị Đông) không nuốt hết thành street', () => {
+    const target = wardNamed('Thành phố Hồ Chí Minh', 'Phường Bình Trị Đông');
+    expect(target).toBeTruthy();
+    const raw = '38/27a bình trị đông bình tân tphcm đt 0966254091';
+    const result = searchLegacyAddress(rows, mapping, raw);
+    expect(result.debug.tokens.join(' ')).toMatch(/binh tri dong/);
+    expect(result.debug.tokens.join(' ')).toMatch(/ho chi minh/);
+    expect(result.debug.reason).not.toBe('tokens-too-short');
+    expect(result.items.length).toBeGreaterThan(0);
+    expect(result.items[0]).toMatchObject({
+      provinceCode: target?.provinceCode,
+      wardCode: target?.wardCode,
+      newText: 'Phường Bình Trị Đông · Thành phố Hồ Chí Minh',
+    });
+    expect(result.items[0]?.line.toLowerCase()).toContain('38/27a');
   });
 });

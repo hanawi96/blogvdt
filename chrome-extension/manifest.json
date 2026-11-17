@@ -2,8 +2,14 @@
   "manifest_version": 3,
   "name": "Vòng Dâu Tằm — Tạo đơn",
   "description": "Sidebar tạo đơn nổi trên Pancake và Zalo.",
-  "version": "1.7.2",
-  "permissions": ["sidePanel", "storage", "windows", "tabs", "cookies"],
+  "version": "1.9.28",
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "windows",
+    "tabs",
+    "cookies"
+  ],
   "host_permissions": [
     "https://pancake.vn/*",
     "https://*.pancake.vn/*",
@@ -33,35 +39,26 @@
         "https://*.pancake.vn/*",
         "https://chat.zalo.me/*"
       ],
-      "js": ["page-hook.js"],
-      "run_at": "document_start",
-      "world": "MAIN"
-    },
-    {
-      "matches": [
-        "https://pancake.vn/*",
-        "https://*.pancake.vn/*",
-        "https://chat.zalo.me/*"
+      "js": [
+        "content.js"
       ],
-      "js": ["content.js"],
-      "css": ["overlay.css"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://*.yendev96.workers.dev/*",
-        "http://127.0.0.1/*",
-        "http://localhost/*"
+      "css": [
+        "overlay.css"
       ],
-      "include_globs": ["*://*/admin/orders/pos*", "*://*/admin/orders/pos?*"],
-      "js": ["pos-legacy.js"],
-      "run_at": "document_idle",
-      "all_frames": true
+      "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["sidepanel.html", "sidepanel.js", "icons/*"],
+      "resources": [
+        "panel.html",
+        "panel.css",
+        "panel.js",
+        "data/*",
+        "sidepanel.html",
+        "sidepanel.js",
+        "icons/*"
+      ],
       "matches": [
         "https://pancake.vn/*",
         "https://*.pancake.vn/*",

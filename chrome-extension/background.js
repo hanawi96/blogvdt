@@ -25,11 +25,6 @@ async function getPosUrl() {
   return normalizePosUrl(stored.posUrl);
 }
 
-function topLevelSiteOf(pageUrl) {
-  const url = new URL(pageUrl);
-  return `${url.protocol}//${url.hostname}`;
-}
-
 /** Cookie đăng nhập tab admin (first-party, không partition). */
 async function readAdminSessionCookie(posUrl) {
   const cookie = await chrome.cookies.get({
@@ -40,51 +35,60 @@ async function readAdminSessionCookie(posUrl) {
 }
 
 /**
- * Đồng bộ session admin vào cookie partition của trang chat (Pancake/Zalo)
- * để iframe POS nhận cùng phiên — không bắt đăng nhập lại trong sidebar.
+ * Kiểm tra cookie admin first-party (tab đăng nhập).
+ * Panel extension gọi API qua SW + cookie này — không cần partition vào Pancake/Zalo.
  */
-async function syncSessionToPage(pageUrl) {
-  const posUrl = await getPosUrl();
-  const origin = new URL(posUrl).origin;
-  const topLevelSite = topLevelSiteOf(pageUrl);
-  const cookie = await readAdminSessionCookie(posUrl);
-  if (!cookie) return { ok: false, reason: 'no-session', posUrl, loginUrl: `${origin}/admin/login?next=${encodeURIComponent('/admin/orders/pos')}` };
-
-  const details = {
-    url: `${origin}/`,
-    name: SESSION_COOKIE,
-    value: cookie.value,
-    path: cookie.path || '/',
-    secure: true,
-    httpOnly: true,
-    sameSite: 'no_restriction',
-    expirationDate: cookie.expirationDate,
-    partitionKey: { topLevelSite },
-  };
-  if (!cookie.hostOnly && cookie.domain) details.domain = cookie.domain;
-
-  await chrome.cookies.set(details);
-  return { ok: true, posUrl, topLevelSite };
-}
-
-async function adminFetchJson(pathWithQuery) {
+async function syncSessionToPage(_pageUrl) {
   const posUrl = await getPosUrl();
   const origin = new URL(posUrl).origin;
   const cookie = await readAdminSessionCookie(posUrl);
   if (!cookie) {
     return {
       ok: false,
-      error: 'auth',
+      reason: 'no-session',
+      posUrl,
       loginUrl: `${origin}/admin/login?next=${encodeURIComponent('/admin/orders/pos')}`,
     };
   }
-  const response = await fetch(`${origin}${pathWithQuery}`, {
+  try {
+    await chrome.storage.local.set({ posUrlCached: posUrl });
+  } catch {
+    /* ignore */
+  }
+  return { ok: true, posUrl };
+}
+
+async function adminFetchJson(pathWithQuery, options = {}) {
+  const posUrl = await getPosUrl();
+  const origin = new URL(posUrl).origin;
+  const cookie = await readAdminSessionCookie(posUrl);
+  const loginUrl = `${origin}/admin/login?next=${encodeURIComponent('/admin/orders/pos')}`;
+  if (!cookie) {
+    return { ok: false, error: 'auth', loginUrl };
+  }
+  const method = options.method || 'GET';
+  const headers = { accept: 'application/json', ...(options.headers || {}) };
+  const init = {
+    method,
     credentials: 'include',
-    headers: { accept: 'application/json' },
+    headers,
     redirect: 'manual',
-  });
+  };
+  if (options.body !== undefined) {
+    headers['content-type'] = 'application/json';
+    init.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
+  }
+  const response = await fetch(`${origin}${pathWithQuery}`, init);
   if (response.type === 'opaqueredirect' || response.status === 301 || response.status === 302 || response.status === 303) {
-    return { ok: false, error: 'auth', loginUrl: `${origin}/admin/login?next=${encodeURIComponent('/admin/orders/pos')}` };
+    return { ok: false, error: 'auth', loginUrl };
+  }
+  if (response.status === 401) {
+    try {
+      const data = await response.json();
+      return { ...data, ok: false, error: 'auth', loginUrl: data.loginUrl || loginUrl };
+    } catch {
+      return { ok: false, error: 'auth', loginUrl };
+    }
   }
   if (!response.ok) {
     try {
@@ -96,8 +100,137 @@ async function adminFetchJson(pathWithQuery) {
   return response.json();
 }
 
+const BOOTSTRAP_CACHE_KEY = 'posBootstrapCache';
+/** @type {object | null} */
+let bootstrapMemory = null;
+/** @type {Promise<object> | null} */
+let bootstrapInflight = null;
+
+async function readBootstrapCache() {
+  if (bootstrapMemory?.ok) return bootstrapMemory;
+  try {
+    const stored = await chrome.storage.local.get([BOOTSTRAP_CACHE_KEY]);
+    const cached = stored?.[BOOTSTRAP_CACHE_KEY];
+    if (cached && typeof cached === 'object' && cached.ok) {
+      bootstrapMemory = cached;
+      return cached;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+async function writeBootstrapCache(data) {
+  if (!data?.ok) return;
+  bootstrapMemory = data;
+  try {
+    await chrome.storage.local.set({ [BOOTSTRAP_CACHE_KEY]: data });
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Panel chạy origin chrome-extension:// — ảnh /media/... tương đối sẽ hỏng.
+ * Luôn gắn absolute URL trước khi trả bootstrap cho UI.
+ */
+async function absolutizeBootstrapMedia(data) {
+  if (!data || typeof data !== 'object') return data;
+  let origin = '';
+  try {
+    origin = new URL(await getPosUrl()).origin;
+  } catch {
+    origin = '';
+  }
+  if (!origin) return data;
+  data.adminOrigin = origin;
+  if (Array.isArray(data.products)) {
+    data.products = data.products.map((product) => {
+      let cover = typeof product?.coverUrl === 'string' ? product.coverUrl : '';
+      if (!cover) return product;
+      // Cache/UI cũ có thể đã resolve nhầm sang chrome-extension://…/media/…
+      if (cover.startsWith('chrome-extension:')) {
+        const idx = cover.indexOf('/media/');
+        cover = idx >= 0 ? cover.slice(idx) : '';
+        if (!cover) return { ...product, coverUrl: null };
+      }
+      if (/^https?:\/\//i.test(cover)) return product;
+      return {
+        ...product,
+        coverUrl: `${origin}${cover.startsWith('/') ? '' : '/'}${cover}`,
+      };
+    });
+  }
+  return data;
+}
+
+async function posBootstrap({ force = false } = {}) {
+  if (!force && bootstrapInflight) return bootstrapInflight;
+  bootstrapInflight = (async () => {
+    const data = await absolutizeBootstrapMedia(await adminFetchJson('/admin/orders/pos-bootstrap'));
+    if (data?.ok) await writeBootstrapCache(data);
+    return data;
+  })().finally(() => {
+    bootstrapInflight = null;
+  });
+  return bootstrapInflight;
+}
+
+async function posBootstrapPeek() {
+  const cached = await readBootstrapCache();
+  if (!cached?.ok) return { ok: false, error: 'empty' };
+  return absolutizeBootstrapMedia(cached);
+}
+
+async function posCreate(payload) {
+  return adminFetchJson('/admin/orders/pos-create', { method: 'POST', body: payload || {} });
+}
+
 async function lookupPhone(phone) {
   return adminFetchJson(`/admin/orders/lookup?phone=${encodeURIComponent(phone)}`);
+}
+
+async function withCsrfPost(path, body) {
+  const post = async (csrf) =>
+    adminFetchJson(path, {
+      method: 'POST',
+      body: { ...(body || {}), csrf: csrf || '' },
+    });
+
+  let boot = await readBootstrapCache();
+  if (!boot?.csrf) boot = await posBootstrap({ force: true });
+  let result = await post(boot?.csrf || '');
+  if (result?.error && /phiên|csrf/i.test(String(result.error))) {
+    boot = await posBootstrap({ force: true });
+    result = await post(boot?.csrf || '');
+  }
+  return result;
+}
+
+async function updateOrderLines(orderId, lines) {
+  const id = Number(orderId);
+  if (!Number.isInteger(id) || id < 1) return { ok: false, error: 'Đơn không hợp lệ.' };
+  if (!Array.isArray(lines) || lines.length < 1) return { ok: false, error: 'Thêm ít nhất một sản phẩm.' };
+  return withCsrfPost(`/admin/orders/${id}/lines`, { lines });
+}
+
+async function deleteOrderById(orderId) {
+  const id = Number(orderId);
+  if (!Number.isInteger(id) || id < 1) return { ok: false, error: 'Đơn không hợp lệ.' };
+  return withCsrfPost(`/admin/orders/${id}/delete`, {});
+}
+
+async function getPosOrder(orderId) {
+  const id = Number(orderId);
+  if (!Number.isInteger(id) || id < 1) return { ok: false, error: 'Đơn không hợp lệ.' };
+  return adminFetchJson(`/admin/orders/${id}/pos`);
+}
+
+async function updatePosOrder(orderId, payload) {
+  const id = Number(orderId);
+  if (!Number.isInteger(id) || id < 1) return { ok: false, error: 'Đơn không hợp lệ.' };
+  return withCsrfPost(`/admin/orders/${id}/pos`, payload || {});
 }
 
 let legacySearcherPromise = null;
@@ -222,8 +355,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(() => sendResponse({ ok: false, item: null }));
     return true;
   }
+  if (message?.type === 'vdt-pos-bootstrap') {
+    posBootstrap({ force: Boolean(message.force) }).then(sendResponse);
+    return true;
+  }
+  if (message?.type === 'vdt-pos-bootstrap-peek') {
+    posBootstrapPeek().then(sendResponse);
+    return true;
+  }
+  if (message?.type === 'vdt-pos-bootstrap-warm') {
+    // Chỉ warm catalog — không nạp ward_mapping (~1MB) để lần đầu không bị chặn.
+    void posBootstrap();
+    sendResponse({ ok: true });
+    return false;
+  }
+  if (message?.type === 'vdt-pos-create') {
+    posCreate(message.payload).then(sendResponse);
+    return true;
+  }
   if (message?.type === 'vdt-lookup-phone' && typeof message.phone === 'string') {
     lookupPhone(message.phone).then(sendResponse);
+    return true;
+  }
+  if (message?.type === 'vdt-update-order-lines' && message.orderId != null) {
+    updateOrderLines(message.orderId, message.lines).then(sendResponse);
+    return true;
+  }
+  if (message?.type === 'vdt-delete-order' && message.orderId != null) {
+    deleteOrderById(message.orderId).then(sendResponse);
+    return true;
+  }
+  if (message?.type === 'vdt-pos-order-get' && message.orderId != null) {
+    getPosOrder(message.orderId).then(sendResponse);
+    return true;
+  }
+  if (message?.type === 'vdt-pos-order-update' && message.orderId != null) {
+    updatePosOrder(message.orderId, message.payload).then(sendResponse);
     return true;
   }
   if (
@@ -266,3 +433,4 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 void ensureDefaults();
+void posBootstrap().catch(() => null);

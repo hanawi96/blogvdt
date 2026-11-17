@@ -67,7 +67,15 @@ const {
 
 ---
 
-<form class:list={['staff-order', pos && 'staff-order-pos']} method="post" data-busy autocomplete="off" data-pos={pos ? '1' : undefined} data-lookup-url={pos ? lookupUrl : undefined}>
+<form
+  class:list={['staff-order', pos && 'staff-order-pos']}
+  method="post"
+  data-busy
+  autocomplete="off"
+  data-pos={pos ? '1' : undefined}
+  data-lookup-url={pos ? lookupUrl : undefined}
+  novalidate={pos ? true : undefined}
+>
   <input type="hidden" name="csrf" value={csrfToken} />
   <section class="od-card staff-order-customer">
     <h2>Khách hàng</h2>
@@ -248,32 +256,27 @@ const {
   <div class="staff-order-side">
     {pos && <StaffProductPicker pickerProducts={pickerProducts} pickerCategories={pickerCategories} pos />}
 
-    <section class="od-card staff-order-cart">
-      {
-        pickerProducts.length === 0 && editorLines.length === 0 ? (
-          <>
-            <h2>Sản phẩm trong đơn</h2>
-            <p class="od-note">Chưa có sản phẩm đang bán.</p>
-          </>
-        ) : (
-          <div class="staff-cart-panel">
-            <h2>Sản phẩm trong đơn</h2>
-            <OrderLineEditor
-              choices={editorChoices}
-              lines={editorLines}
-              stored={stored}
-              orderTotal={values.orderTotal}
-              discountCode={values.discountCode}
-              discountChoices={discountChoices}
-              extraDiscount={values.discountExtra}
-              error={lineError}
-              allowEmpty
-              cart
-            />
-          </div>
-        )
-      }
-    </section>
+    {
+      pickerProducts.length === 0 && editorLines.length === 0 ? (
+        <section class="od-card staff-order-cart">
+          <h2>Sản phẩm trong đơn</h2>
+          <p class="od-note">Chưa có sản phẩm đang bán.</p>
+        </section>
+      ) : (
+        <OrderLineEditor
+          choices={editorChoices}
+          lines={editorLines}
+          stored={stored}
+          orderTotal={values.orderTotal}
+          discountCode={values.discountCode}
+          discountChoices={discountChoices}
+          extraDiscount={values.discountExtra}
+          error={lineError}
+          allowEmpty
+          cart
+        />
+      )
+    }
 
     <div class="staff-order-submit">
       <button class="btn btn-primary w-full" type="submit">{submitLabel}</button>
@@ -1157,5 +1160,376 @@ const {
 
     run.addEventListener('click', () => void analyze());
     }
+  }
+</script>
+
+<script>
+  // Kiểm tra thiếu field phía client: không POST (tránh iframe reload/rung),
+  // cuộn tới ô thiếu và highlight combo/field đang hiện (không focus select ẩn 1px).
+  type FieldIssue = { target: HTMLElement; message: string };
+
+  function clearFieldAttention(scope: ParentNode) {
+    for (const node of scope.querySelectorAll('.is-field-attention')) {
+      node.classList.remove('is-field-attention');
+    }
+    for (const node of scope.querySelectorAll('[data-field-hint]')) {
+      node.remove();
+    }
+  }
+
+  function isMostlyInView(el: HTMLElement) {
+    const rect = el.getBoundingClientRect();
+    const viewH = window.innerHeight || document.documentElement.clientHeight;
+    const viewW = window.innerWidth || document.documentElement.clientWidth;
+    if (rect.width === 0 && rect.height === 0) return false;
+    const visibleH = Math.min(rect.bottom, viewH) - Math.max(rect.top, 0);
+    const visibleW = Math.min(rect.right, viewW) - Math.max(rect.left, 0);
+    return visibleH > Math.min(64, rect.height * 0.4) && visibleW > 0;
+  }
+
+  function showFieldAttention(target: HTMLElement, message: string) {
+    clearFieldAttention(document);
+    // Card lớn: chỉ nháy chữ/ô nhỏ — không scroll/pulse cả khối (gây giật iframe).
+    const inCart = Boolean(target.closest('.staff-order-cart')) || target.classList.contains('staff-order-cart');
+    const large = inCart || target.matches('.staff-meta, fieldset, [data-address]');
+    let paint: HTMLElement = target;
+    if (inCart) {
+      const empty = (target.closest('.staff-order-cart') || target).querySelector('[data-lines-empty]');
+      if (empty instanceof HTMLElement) paint = empty;
+    }
+    paint.classList.add('is-field-attention');
+    const hint = document.createElement('p');
+    hint.className = 'error-text field-attention-hint';
+    hint.dataset.fieldHint = '1';
+    hint.setAttribute('role', 'alert');
+    hint.textContent = message;
+    const host =
+      target.closest('label, .block, fieldset, .staff-order-cart, [data-address], .staff-meta') ?? target.parentElement;
+    if (host instanceof HTMLElement) {
+      const empty = host.querySelector('[data-lines-empty]');
+      if (empty instanceof HTMLElement) {
+        empty.hidden = false;
+        empty.insertAdjacentElement('afterend', hint);
+      } else {
+        host.append(hint);
+      }
+    } else {
+      target.insertAdjacentElement('afterend', hint);
+    }
+    if (!isMostlyInView(paint)) {
+      paint.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    if (!large && (paint instanceof HTMLInputElement || paint instanceof HTMLTextAreaElement || paint instanceof HTMLSelectElement)) {
+      try {
+        paint.focus({ preventScroll: true });
+      } catch {
+        paint.focus();
+      }
+    } else if (!large && paint instanceof HTMLButtonElement) {
+      try {
+        paint.focus({ preventScroll: true });
+      } catch {
+        paint.focus();
+      }
+    }
+    window.setTimeout(() => paint.classList.remove('is-field-attention'), 1200);
+  }
+
+  function firstChecked(form: HTMLFormElement, name: string) {
+    return form.querySelector(`input[name="${name}"]:checked`);
+  }
+
+  function collectStaffOrderIssues(form: HTMLFormElement): FieldIssue[] {
+    const issues: FieldIssue[] = [];
+    // SP không có HTML required — ưu tiên báo sớm (POS hay quên thêm sp).
+    const lineCount = form.querySelectorAll('[data-line-list] > [data-line]').length;
+    if (lineCount === 0) {
+      const cartTarget =
+        form.querySelector('[data-lines-empty]') ||
+        form.querySelector('[data-order-lines]') ||
+        form.querySelector('.staff-order-cart') ||
+        form.querySelector('.staff-order-submit') ||
+        form;
+      if (cartTarget instanceof HTMLElement) {
+        issues.push({ target: cartTarget, message: 'Thêm ít nhất một sản phẩm.' });
+      }
+    }
+
+    const nameInput = form.querySelector('[data-customer-name], input[name="customerName"]');
+    if (nameInput instanceof HTMLInputElement && !nameInput.value.trim()) {
+      issues.push({ target: nameInput, message: 'Nhập họ tên khách.' });
+    }
+    const phoneInput = form.querySelector('[data-customer-phone], input[name="phone"]');
+    if (phoneInput instanceof HTMLInputElement && !phoneInput.value.trim()) {
+      issues.push({ target: phoneInput, message: 'Nhập số điện thoại.' });
+    }
+
+    const addressRoot = form.querySelector('[data-address]');
+    if (addressRoot instanceof HTMLElement) {
+      const province = addressRoot.querySelector('[data-province-select], [data-province-value]');
+      const ward = addressRoot.querySelector('[data-ward-select], [data-ward-value]');
+      const line = addressRoot.querySelector('[data-line]');
+      const provinceTrigger = addressRoot.querySelector('[data-combo="province"] [data-combo-trigger]');
+      const wardTrigger = addressRoot.querySelector('[data-combo="ward"] [data-combo-trigger]');
+      const provinceEmpty =
+        (province instanceof HTMLSelectElement && !province.value) ||
+        (province instanceof HTMLInputElement && !province.value.trim());
+      const wardEmpty =
+        (ward instanceof HTMLSelectElement && !ward.value) || (ward instanceof HTMLInputElement && !ward.value.trim());
+      const lineEmpty = line instanceof HTMLInputElement && !line.value.trim();
+      if (provinceEmpty && provinceTrigger instanceof HTMLElement) {
+        issues.push({ target: provinceTrigger, message: 'Chọn tỉnh / thành phố.' });
+      } else if (wardEmpty && wardTrigger instanceof HTMLElement) {
+        issues.push({ target: wardTrigger, message: 'Chọn phường / xã.' });
+      } else if (lineEmpty && line instanceof HTMLInputElement) {
+        issues.push({ target: line, message: 'Nhập số nhà, đường.' });
+      }
+    }
+
+    if (!firstChecked(form, 'source')) {
+      const sourceBox =
+        form.querySelector('input[name="source"]')?.closest('fieldset, .category-presets, .staff-meta') ||
+        form.querySelector('input[name="source"]');
+      if (sourceBox instanceof HTMLElement) {
+        issues.push({ target: sourceBox, message: 'Chọn nguồn khách.' });
+      }
+    }
+
+    if (!firstChecked(form, 'payState')) {
+      const payBox =
+        form.querySelector('input[name="payState"]')?.closest('fieldset, .category-presets, .staff-meta') ||
+        form.querySelector('input[name="payState"]');
+      if (payBox instanceof HTMLElement) {
+        issues.push({ target: payBox, message: 'Chọn hình thức thanh toán.' });
+      }
+    }
+
+    const depositOn = firstChecked(form, 'payState');
+    if (depositOn instanceof HTMLInputElement && depositOn.value === 'deposit') {
+      const deposit = form.querySelector('[data-deposit-amount], input[name="depositAmount"]');
+      if (deposit instanceof HTMLInputElement && !deposit.value.trim().replace(/[.\s]/g, '')) {
+        issues.push({ target: deposit, message: 'Nhập số tiền cọc.' });
+      }
+    }
+
+    const shipLater = form.querySelector('input[name="shipLater"]');
+    if (shipLater instanceof HTMLInputElement && shipLater.checked) {
+      const shipOn = form.querySelector('[data-ship-on], input[name="shipOn"]');
+      if (shipOn instanceof HTMLInputElement && !shipOn.value.trim()) {
+        issues.push({ target: shipOn, message: 'Chọn ngày dự kiến gửi.' });
+      }
+    }
+
+    return issues;
+  }
+
+  function ensurePosSavedBanner(): HTMLElement {
+    const existing = document.querySelector('[data-pos-saved], .pos-saved');
+    if (existing instanceof HTMLElement) {
+      existing.setAttribute('data-pos-saved', '1');
+      return existing;
+    }
+    const main = document.querySelector('.pos-main') || document.body;
+    const banner = document.createElement('p');
+    banner.className = 'pos-saved';
+    banner.setAttribute('role', 'status');
+    banner.setAttribute('data-pos-saved', '1');
+    main.prepend(banner);
+    return banner;
+  }
+
+  function showPosSaved(result: { id: number; code: string; total: string; url: string }) {
+    const banner = ensurePosSavedBanner();
+    banner.hidden = false;
+    const code = result.code || `#${result.id}`;
+    const total = result.total ? ` · ${result.total}` : '';
+    banner.innerHTML = '';
+    banner.append('Đã tạo đơn ');
+    const link = document.createElement('a');
+    link.href = result.url;
+    link.target = '_blank';
+    link.rel = 'noreferrer';
+    link.textContent = code;
+    banner.append(link, `${total}. Tiếp tục đơn mới bên dưới.`);
+    banner.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function showPosFormError(form: HTMLFormElement, message: string) {
+    const existing = document.querySelector('[data-pos-form-error]');
+    const box =
+      existing instanceof HTMLElement
+        ? existing
+        : (() => {
+            const created = document.createElement('p');
+            created.className = 'error-text mb-3';
+            created.setAttribute('role', 'alert');
+            created.setAttribute('data-pos-form-error', '1');
+            form.before(created);
+            return created;
+          })();
+    box.hidden = false;
+    box.textContent = message;
+    box.classList.add('is-field-attention');
+    box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    window.setTimeout(() => box.classList.remove('is-field-attention'), 1600);
+  }
+
+  function clearPosFormError() {
+    const box = document.querySelector('[data-pos-form-error]');
+    if (box instanceof HTMLElement) {
+      box.hidden = true;
+      box.textContent = '';
+    }
+  }
+
+  function resetPosAfterCreate(form: HTMLFormElement) {
+    document.dispatchEvent(new CustomEvent('staff-clear-order-lines'));
+    const note = form.querySelector('input[name="note"]');
+    if (note instanceof HTMLInputElement) note.value = '';
+    const orderTotal = form.querySelector('[data-order-total], input[name="orderTotal"]');
+    if (orderTotal instanceof HTMLInputElement) orderTotal.value = '';
+    const discountExtra = form.querySelector('[data-discount-extra], input[name="discountExtra"]');
+    if (discountExtra instanceof HTMLInputElement) discountExtra.value = '';
+    const discountCode = form.querySelector('[data-discount-code], select[name="discountCode"]');
+    if (discountCode instanceof HTMLSelectElement) discountCode.value = '';
+    const deposit = form.querySelector('[data-deposit-amount]');
+    if (deposit instanceof HTMLInputElement) deposit.value = '';
+    const addressRoot = form.querySelector('[data-address]');
+    if (addressRoot instanceof HTMLElement) {
+      addressRoot.dispatchEvent(
+        new CustomEvent('staff-fill-address', {
+          detail: { provinceCode: '', wardCode: '', line: '', keepLine: false },
+        }),
+      );
+    }
+    // Giữ tên/SĐT/nguồn để tạo đơn tiếp; xóa giỏ + địa chỉ.
+  }
+
+  function setSubmitBusy(form: HTMLFormElement, busy: boolean, label: string) {
+    const button = form.querySelector('.staff-order-submit button[type="submit"]');
+    if (!(button instanceof HTMLButtonElement)) return;
+    button.disabled = busy;
+    button.textContent = label;
+  }
+
+  document.querySelectorAll('form.staff-order').forEach((node) => {
+    if (!(node instanceof HTMLFormElement)) return;
+    const form = node;
+    form.setAttribute('novalidate', '');
+    const posMode = form.dataset.pos === '1';
+    const submitLabel =
+      form.querySelector('.staff-order-submit button[type="submit"]')?.textContent?.trim() || 'Tạo đơn hàng';
+    let submitting = false;
+
+    form.addEventListener(
+      'submit',
+      (event) => {
+        // POS: luôn chặn navigation trước — thiếu SP vẫn submit được nếu chỉ dựa HTML required.
+        if (posMode) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+
+        const issues = collectStaffOrderIssues(form);
+        if (issues.length > 0) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          clearPosFormError();
+          const first = issues[0];
+          if (first) showFieldAttention(first.target, first.message);
+          return;
+        }
+
+        // POS: gửi ngầm bằng fetch — không reload iframe (tránh nháy).
+        if (!posMode) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (submitting) return;
+        submitting = true;
+        clearPosFormError();
+        clearFieldAttention(form);
+        setSubmitBusy(form, true, 'Đang tạo...');
+
+        void (async () => {
+          try {
+            const response = await fetch(form.action || window.location.href, {
+              method: 'POST',
+              body: new FormData(form),
+              credentials: 'same-origin',
+              headers: {
+                accept: 'application/json',
+                'x-requested-with': 'fetch',
+              },
+            });
+            const data = (await response.json().catch(() => null)) as
+              | {
+                  ok?: boolean;
+                  id?: number;
+                  code?: string;
+                  total?: string;
+                  url?: string;
+                  formError?: string;
+                  lineError?: string;
+                  flagError?: string;
+                  errors?: Record<string, string>;
+                }
+              | null;
+            if (!response.ok || !data?.ok || typeof data.id !== 'number') {
+              const message =
+                data?.formError ||
+                data?.flagError ||
+                data?.lineError ||
+                (data?.errors && Object.values(data.errors)[0]) ||
+                'Không tạo được đơn. Thử lại.';
+              if (data?.lineError) {
+                const cart = form.querySelector('.staff-order-cart');
+                if (cart instanceof HTMLElement) showFieldAttention(cart, data.lineError);
+              } else if (data?.errors?.customerName) {
+                const el = form.querySelector('[data-customer-name]');
+                if (el instanceof HTMLElement) showFieldAttention(el, data.errors.customerName);
+              } else if (data?.errors?.phone) {
+                const el = form.querySelector('[data-customer-phone]');
+                if (el instanceof HTMLElement) showFieldAttention(el, data.errors.phone);
+              } else if (data?.errors?.address) {
+                const el = form.querySelector('[data-address] [data-line]') || form.querySelector('[data-address]');
+                if (el instanceof HTMLElement) showFieldAttention(el, data.errors.address);
+              } else {
+                showPosFormError(form, message);
+              }
+              return;
+            }
+            showPosSaved({
+              id: data.id,
+              code: typeof data.code === 'string' ? data.code : '',
+              total: typeof data.total === 'string' ? data.total : '',
+              url: typeof data.url === 'string' ? data.url : `/admin/orders/${data.id}`,
+            });
+            resetPosAfterCreate(form);
+          } catch {
+            showPosFormError(form, 'Không kết nối được. Thử lại.');
+          } finally {
+            submitting = false;
+            setSubmitBusy(form, false, submitLabel);
+          }
+        })();
+      },
+      true,
+    );
+
+    form.addEventListener('input', () => clearFieldAttention(form));
+    form.addEventListener('change', () => clearFieldAttention(form));
+    form.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('[data-combo-trigger], [data-combo-list], [data-pick-add]')) clearFieldAttention(form);
+    });
+  });
+
+  // Sau khi server trả lỗi HTML (hiếm): cuộn tới thông báo lỗi đã render.
+  const serverError = document.querySelector('.staff-order .error-text, .pos-main > .error-text');
+  if (serverError instanceof HTMLElement && serverError.textContent?.trim()) {
+    serverError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    serverError.classList.add('is-field-attention');
+    window.setTimeout(() => serverError.classList.remove('is-field-attention'), 1600);
   }
 </script>

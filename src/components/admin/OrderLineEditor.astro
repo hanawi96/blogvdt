@@ -81,7 +81,7 @@ function coverOf(line: StaffLineInput): string {
 ---
 
 <div
-  class:list={['staff-lines-wrap', cart && 'staff-lines-cart']}
+  class:list={['staff-lines-wrap', cart && 'staff-lines-cart', cart && 'staff-lines-split']}
   data-order-lines
   data-max={CART_MAX_LINES}
   data-add={canAdd ? '1' : '0'}
@@ -90,6 +90,8 @@ function coverOf(line: StaffLineInput): string {
 >
   <pre hidden data-order-choices>{JSON.stringify(choices).replace(/</g, '\\u003c')}</pre>
   <pre hidden data-discount-choices>{JSON.stringify(discountChoices).replace(/</g, '\\u003c')}</pre>
+  <section class:list={[cart && 'od-card staff-order-cart']}>
+    {cart && <h2 class="staff-cart-title">Sản phẩm trong đơn</h2>}
   <ul class="staff-lines" data-line-list>
     {
       lines.map((line) => {
@@ -325,41 +327,48 @@ function coverOf(line: StaffLineInput): string {
     )
   }
   <button class="btn mt-3" type="button" data-add-line hidden={allowEmpty || !canAdd || lines.length >= CART_MAX_LINES}>Thêm mẫu</button>
-  <div class="staff-pay">
+  {error && <p class="error-text mt-3" role="alert">{error}</p>}
+  </section>
+  <section class:list={[cart ? 'od-card staff-pay-card' : undefined]}>
+  <div class:list={['staff-pay', cart && 'staff-pay-standalone']}>
     <div class="staff-discount" data-staff-discount>
-      <label class="staff-discount-code">
-        <span class="od-label">Mã giảm giá</span>
-        <select class="field" name="discountCode" data-discount-code>
-          <option value="">Không dùng mã</option>
-          {codeOptions.map((choice) => (
-            <option value={choice.code} selected={choice.code === selectedCode}>
-              {discountOptionLabel(choice)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <p class="error-text" data-discount-code-msg role="alert" hidden></p>
-      <div class="staff-extra" data-staff-extra>
-        <span class="od-label">Giảm thêm</span>
-        <button class="staff-money-text staff-extra-text" type="button" data-money-text>{extraLabel}</button>
-        <div class="staff-extra-edit" data-extra-edit hidden>
-          <input class="field staff-extra-input" name="discountExtra" data-discount-extra inputmode="numeric" maxlength="8" autocomplete="off" value={extraDiscount} aria-label="Số tiền giảm thêm" />
-          <div class="staff-extra-presets" data-extra-presets></div>
+      <div class="staff-discount-fields">
+        <label class="staff-discount-code">
+          <span class="od-label">Mã giảm giá</span>
+          <select class="field" name="discountCode" data-discount-code>
+            <option value="">Không dùng mã</option>
+            {codeOptions.map((choice) => (
+              <option value={choice.code} selected={choice.code === selectedCode}>
+                {discountOptionLabel(choice)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div class="staff-extra" data-staff-extra>
+          <span class="od-label">Giảm thêm</span>
+          <button class="staff-money-text staff-extra-text" type="button" data-money-text aria-label={`Giảm thêm ${extraLabel}`}>{extraLabel}</button>
+          <div class="staff-extra-edit" data-extra-edit hidden>
+            <input class="field staff-extra-input" name="discountExtra" data-discount-extra inputmode="numeric" maxlength="8" autocomplete="off" value={extraDiscount} aria-label="Số tiền giảm thêm" placeholder="0" />
+            <div class="staff-extra-presets" data-extra-presets></div>
+          </div>
         </div>
       </div>
+      <p class="error-text" data-discount-code-msg role="alert" hidden></p>
     </div>
-    <p class="od-note" data-pay-sub hidden></p>
-    <div class="staff-pay-ship" data-pay-ship hidden={!cart || lines.length === 0}>
-      <span class="od-label">Phí ship</span>
-      <strong data-pay-ship-fee>Miễn phí</strong>
-    </div>
-    <div class="staff-pay-total" data-pay-total hidden={cart && lines.length === 0}>
-      <span data-pay-label>Tổng tiền</span>
-      <button class="staff-money-text" type="button" data-money-text data-pay-payable>{totalLabel}</button>
-      <input class="field staff-pay-input" name="orderTotal" data-order-total inputmode="numeric" maxlength="9" autocomplete="off" value={orderTotal} data-lock={orderTotal ? '1' : undefined} hidden />
+    <div class="staff-pay-summary" data-pay-summary hidden={cart && lines.length === 0}>
+      <div class="staff-pay-total" data-pay-total>
+        <span class="od-label" data-pay-label>{cart ? 'Tổng thu' : 'Tổng tiền'}</span>
+        <button class="staff-money-text" type="button" data-money-text data-pay-payable>{totalLabel}</button>
+        <input class="field staff-pay-input" name="orderTotal" data-order-total inputmode="numeric" maxlength="9" autocomplete="off" value={orderTotal} data-lock={orderTotal ? '1' : undefined} hidden placeholder="Tự tính" />
+      </div>
+      <div class="staff-pay-ship" data-pay-ship hidden={!cart || lines.length === 0}>
+        <span class="od-label">Phí ship</span>
+        <strong data-pay-ship-fee>Miễn phí</strong>
+      </div>
+      <p class="od-note" data-pay-sub hidden></p>
     </div>
   </div>
-  {error && <p class="error-text mt-3" role="alert">{error}</p>}
+  </section>
 </div>
 
 <script>
@@ -645,11 +654,11 @@ function coverOf(line: StaffLineInput): string {
           return product instanceof HTMLInputElement && product.value !== '';
         });
         const shipRow = root.querySelector('[data-pay-ship]');
-        const totalRow = root.querySelector('[data-pay-total]');
+        const summary = root.querySelector('[data-pay-summary]');
         const shipFeeOut = root.querySelector('[data-pay-ship-fee]');
         const showShipSummary = root.dataset.cart === '1' && hasLines;
+        if (summary instanceof HTMLElement) summary.hidden = root.dataset.cart === '1' && !hasLines;
         if (shipRow instanceof HTMLElement) shipRow.hidden = !showShipSummary;
-        if (totalRow instanceof HTMLElement) totalRow.hidden = root.dataset.cart === '1' && !hasLines;
         if (shipFeeOut) shipFeeOut.textContent = ship.free ? 'Miễn phí' : formatVnd(ship.fee);
         const payableOut = root.querySelector('[data-pay-payable]');
         const payable = goodsPayable + (showShipSummary ? ship.fee : 0);
@@ -950,6 +959,14 @@ function coverOf(line: StaffLineInput): string {
         if (existing && mergeIntoRow(existing, addQty)) return;
         appendLine(detail.id, weight, focus, { quantity, note, cover });
       }
+    });
+
+    document.addEventListener('staff-clear-order-lines', () => {
+      if (!(list instanceof HTMLElement) || !root.isConnected) return;
+      list.replaceChildren();
+      syncAdd();
+      unlockTotal();
+      paintPay();
     });
 
     document.addEventListener('change', (event) => {

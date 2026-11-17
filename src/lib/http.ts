@@ -17,6 +17,17 @@ export function isSameOrigin(request: Request): boolean {
   return origin === new URL(request.url).origin;
 }
 
+/**
+ * API staff gọi từ trang admin (same-origin) hoặc Chrome extension (SW / panel).
+ * CSRF token vẫn bắt buộc ở tầng mutation — Origin chỉ là lớp phụ.
+ */
+export function allowsStaffApiOrigin(request: Request): boolean {
+  const origin = request.headers.get('origin');
+  if (!origin) return true;
+  if (origin === new URL(request.url).origin) return true;
+  return origin.startsWith('chrome-extension://');
+}
+
 export function clientIp(request: Request, reportedAddress: string | null): string {
   if (reportedAddress && reportedAddress !== '') return reportedAddress;
   return request.headers.get('cf-connecting-ip') ?? 'unknown';

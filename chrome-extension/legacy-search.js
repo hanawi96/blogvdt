@@ -3,7 +3,8 @@
  * (ưu tiên cụm phường/xã liền mạch, không chấm điểm mờ từng token).
  */
 
-const SEARCH_LIMIT = 12;
+const SEARCH_LIMIT = 20;
+const EXPANSION_RESERVE = 8;
 const CENTRAL_PROVINCES = [
   'thành phố hồ chí minh',
   'thành phố hà nội',
@@ -186,6 +187,8 @@ function normalizeChatAddressQuery(raw) {
   text = expandWardDistrictShortcuts(text);
   text = text
     .replace(/^(?:đc|dc|địa\s*chỉ|dia\s*chi)\s*[:：-]?\s*/i, '')
+    // Nhãn SĐT còn sót: «… tphcm đt» / «… dt».
+    .replace(/\b(?:đt|dt|sđt|sdt)\b/gi, ' ')
     .replace(/[|]+/g, ' ')
     .replace(/\s+/g, ' ')
     .replace(/\s+\p{L}\s*$/u, '')
@@ -207,17 +210,66 @@ function prepareQuery(raw, provinceBares) {
   const provinceTokens = [];
   const street = [...normalized.notes];
 
+  const pushProvinceOrLoose = (tokens, labeledProvince) => {
+    const bare = tokens.join(' ');
+    // D6: «hưng yên» vừa là tỉnh vừa là xã cũ — khi còn piece khác, để loose để khớp liền mạch.
+    if (provinceBares.has(bare) && (labeledProvince || pieces.length === 1)) {
+      provinceTokens.push(...tokens);
+    } else {
+      looseTokens.push(...tokens);
+    }
+  };
+
+  const cleanStreetPiece = (value) =>
+    value.replace(/^(?:đc|dc|địa\s*chỉ|dia\s*chi)\s*[:：-]?\s*/i, '').trim() || value;
+
   for (const piece of pieces) {
     const folded = loose(piece);
     if (!folded) continue;
-    if (
-      /^(?:xom|thon|ap|to|khu|so|duong|pho|ngo|hem|ke|gan|nha|dc|dia chi)\b/.test(folded) ||
-      /\b(?:thon|xom|ap)\b/.test(folded) ||
-      /^\d/.test(folded)
-    ) {
-      street.push(piece.replace(/^(?:đc|dc|địa\s*chỉ|dia\s*chi)\s*[:：-]?\s*/i, '').trim() || piece);
+    const pieceTokens = wordTokens(folded);
+    const hasAdminLabel = /\b(?:phuong|xa|thi tran|huyen|quan|thi xa|tinh|thanh pho|tp)\b/.test(folded);
+    const hasHamlet = /\b(?:thon|xom|ap)\b/.test(folded);
+    const startsStreet = /^(?:xom|thon|ap|to|khu|so|duong|pho|ngo|hem|ke|gan|nha|dc|dia chi)\b/.test(folded);
+
+    // «38/27a bình trị đông bình tân tphcm» — không nuốt cả câu vì bắt đầu bằng số.
+    if (/^\d/.test(folded)) {
+      if (pieceTokens.length <= 4) {
+        street.push(cleanStreetPiece(piece));
+        continue;
+      }
+      const peeled = peelLeadingStreetTokens(pieceTokens.flatMap(expandAlias));
+      if (peeled.rest.length < 2) {
+        street.push(cleanStreetPiece(piece));
+        continue;
+      }
+      const rawWords = piece.trim().split(/\s+/).filter(Boolean);
+      street.push(rawWords.slice(0, peeled.street.length).join(' ') || peeled.street.join(' '));
+      pushProvinceOrLoose([...peeled.rest], false);
       continue;
     }
+
+    // C1/C5: cụm ngắn số nhà. C2: cụm dài có ấp + tên chỗ sau → peel, không nuốt cả câu.
+    if ((startsStreet || hasHamlet) && !hasAdminLabel) {
+      if (pieceTokens.length <= 4) {
+        street.push(cleanStreetPiece(piece));
+        continue;
+      }
+      const peeled = peelLeadingStreetTokens(pieceTokens.flatMap(expandAlias));
+      if (peeled.rest.length < 2) {
+        street.push(cleanStreetPiece(piece));
+        continue;
+      }
+      const rawWords = piece.trim().split(/\s+/).filter(Boolean);
+      street.push(rawWords.slice(0, peeled.street.length).join(' ') || peeled.street.join(' '));
+      pushProvinceOrLoose([...peeled.rest], false);
+      continue;
+    }
+
+    if ((startsStreet || hasHamlet) && hasAdminLabel && pieceTokens.length <= 4) {
+      street.push(cleanStreetPiece(piece));
+      continue;
+    }
+
     if (/^(?:phuong|xa|thi tran)\b/.test(folded)) {
       wardTokens.push(...wordTokens(stripWard(folded)).flatMap(expandAlias));
       continue;
@@ -238,15 +290,44 @@ function prepareQuery(raw, provinceBares) {
       continue;
     }
     const bare = stripProvince(stripDistrict(stripWard(folded)));
-    const tokens = wordTokens(bare).flatMap(expandAlias);
-    if (provinceBares.has(bare)) provinceTokens.push(...tokens);
-    else looseTokens.push(...tokens);
+    let tokens = wordTokens(bare).flatMap(expandAlias);
+    if (pieceTokens.length >= 5) {
+      const peeled = peelLeadingStreetTokens(tokens);
+      if (peeled.street.length > 0 && peeled.rest.length >= 2) {
+        const rawWords = piece.trim().split(/\s+/).filter(Boolean);
+        street.push(rawWords.slice(0, peeled.street.length).join(' ') || peeled.street.join(' '));
+        tokens = [...peeled.rest];
+      }
+    }
+    pushProvinceOrLoose(tokens, false);
   }
 
   return {
     tokens: [...wardTokens, ...looseTokens, ...districtTokens, ...provinceTokens],
     line: street.join(', '),
   };
+}
+
+/** Gỡ token kiểu ấp/số nhà ở đầu cụm dài, giữ lại xã–huyện–tỉnh. */
+function peelLeadingStreetTokens(tokens) {
+  const street = [];
+  let index = 0;
+  while (index < tokens.length) {
+    const token = tokens[index];
+    if (isStreetToken(token) || /^(?:ap|thon|xom|to|khu|lo|hem|ngo|duong|pho|so)$/.test(token)) {
+      street.push(token);
+      index += 1;
+      continue;
+    }
+    if (/^\d/.test(token) && street.length > 0) {
+      street.push(token);
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  if (index === 0) return { street: [], rest: tokens.slice() };
+  return { street, rest: tokens.slice(index) };
 }
 
 function indexOfSlice(hay, needle) {
@@ -259,7 +340,7 @@ function indexOfSlice(hay, needle) {
 
 function isStreetToken(token) {
   if (!token || token.length <= 1 || /^\d/.test(token)) return true;
-  return /^(?:dc|dia|chi|nha|van|hoa|thon|xom|ap|to|khu|so|duong|pho|ngo|hem|ke|gan|con|pheo)$/.test(token);
+  return /^(?:dc|dia|chi|nha|van|hoa|thon|xom|ap|to|khu|so|duong|pho|ngo|hem|ke|gan|con|pheo|lo)$/.test(token);
 }
 
 function restCovered(rest, district, province) {
@@ -296,15 +377,13 @@ function scoreEntry(entry, tokens) {
       return 850 + entry.wardTokens.length * 10 + (entry.kind === 'old' ? 5 : 0);
     }
     score = 1000 + entry.wardTokens.length * 10 + (entry.kind === 'old' ? 5 : 0);
-  } else if (
-    entry.wardTokens.length > tokens.length &&
-    tokens.length > 0 &&
-    entry.wardTokens.slice(0, tokens.length).every((token, index) => token === tokens[index])
-  ) {
-    score = 700;
-    rest = [];
   } else {
-    return 0;
+    // Query là đoạn liên tiếp trong tên xã dài hơn: «long thành» ⊂ «long thành bắc».
+    const wardAt = indexOfSlice(entry.wardTokens, tokens);
+    if (wardAt < 0 || entry.wardTokens.length <= tokens.length) return 0;
+    const prefix = wardAt === 0;
+    score = (prefix ? 920 : 860) + tokens.length * 15 + (entry.kind === 'old' ? 5 : 0);
+    rest = [];
   }
   if (!restCovered(rest, entry.districtTokens, entry.provinceTokens)) return 0;
   if (rest.length > 0 && entry.districtTokens.length > 0 && entry.districtTokens.every((token) => rest.includes(token))) {
@@ -314,6 +393,54 @@ function scoreEntry(entry, tokens) {
     score += 200;
   }
   return score;
+}
+
+function pickScoredPool(scored, tokenCount) {
+  const sorted = scored.slice().sort(
+    (a, b) =>
+      b.score - a.score ||
+      a.entry.oldText.localeCompare(b.entry.oldText, 'vi') ||
+      a.entry.newText.localeCompare(b.entry.newText, 'vi'),
+  );
+  const exact = sorted.filter((item) => item.score >= 1000);
+  const wantExpansions = tokenCount > 0 && tokenCount <= 3;
+  const destKey = (item) => `${item.entry.provinceCode}:${item.entry.wardCode}`;
+  if (!wantExpansions) {
+    const pool = exact.length > 0 ? exact : sorted;
+    const out = [];
+    const seen = new Set();
+    for (const item of pool) {
+      const key = destKey(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+      if (out.length >= SEARCH_LIMIT) break;
+    }
+    return out;
+  }
+  const expansions = sorted.filter((item) => item.score >= 700 && item.score < 1000);
+  const out = [];
+  const seen = new Set();
+  const push = (item) => {
+    const key = destKey(item);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(item);
+  };
+  const reserve = Math.min(EXPANSION_RESERVE, expansions.length);
+  for (const item of exact) {
+    if (out.length >= SEARCH_LIMIT - reserve) break;
+    push(item);
+  }
+  for (const item of expansions) {
+    if (out.length >= SEARCH_LIMIT) break;
+    push(item);
+  }
+  for (const item of sorted) {
+    if (out.length >= SEARCH_LIMIT) break;
+    push(item);
+  }
+  return out;
 }
 
 function titleCaseVn(value) {
@@ -446,7 +573,19 @@ function createLegacySearcher(mapping, rows) {
     search(query) {
       const prepared = prepareQuery(query, provinceBares);
       const compact = prepared.tokens.join('');
-      if (compact.length < 3) return { items: [], more: false };
+      const baseDebug = {
+        raw: String(query || ''),
+        tokens: prepared.tokens.slice(),
+        line: prepared.line,
+        compact,
+      };
+      if (compact.length < 3) {
+        return {
+          items: [],
+          more: false,
+          debug: { ...baseDebug, itemCount: 0, top: [], reason: 'tokens-too-short' },
+        };
+      }
 
       const scored = [];
       for (const entry of records) {
@@ -455,24 +594,18 @@ function createLegacySearcher(mapping, rows) {
         if (compact.length < 4 && score < 1000) continue;
         scored.push({ entry, score });
       }
-      scored.sort(
-        (a, b) =>
-          b.score - a.score ||
-          a.entry.oldText.localeCompare(b.entry.oldText, 'vi') ||
-          a.entry.newText.localeCompare(b.entry.newText, 'vi'),
-      );
-      const exact = scored.filter((item) => item.score >= 1000);
-      const pool = exact.length > 0 ? exact : scored;
-      const deduped = [];
-      const seen = new Set();
-      for (const item of pool) {
-        const key = `${item.entry.provinceCode}:${item.entry.wardCode}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        deduped.push(item);
-      }
+      const pool = pickScoredPool(scored, prepared.tokens.length);
+      const top = scored
+        .slice()
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5)
+        .map((item) => ({
+          score: item.score,
+          oldText: item.entry.oldText,
+          newText: item.entry.newText,
+        }));
       return {
-        items: deduped.slice(0, SEARCH_LIMIT).map((item) => ({
+        items: pool.map((item) => ({
           oldText: item.entry.oldText,
           newText: item.entry.newText,
           provinceCode: item.entry.provinceCode,
@@ -481,7 +614,13 @@ function createLegacySearcher(mapping, rows) {
           wardName: item.entry.wardName,
           line: prepared.line,
         })),
-        more: deduped.length > SEARCH_LIMIT,
+        more: scored.length > pool.length,
+        debug: {
+          ...baseDebug,
+          itemCount: pool.length,
+          top,
+          reason: pool.length === 0 ? 'no-score' : undefined,
+        },
       };
     },
   };

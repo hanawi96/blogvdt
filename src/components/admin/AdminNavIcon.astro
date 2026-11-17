@@ -8,7 +8,6 @@ interface Props {
     | 'products'
     | 'productCategories'
     | 'materials'
-    | 'pricing'
     | 'costs'
     | 'discounts'
     | 'orders'
@@ -103,18 +102,6 @@ const { name } = Astro.props;
         <circle cx="16" cy="9.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
         <circle cx="12" cy="16.5" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
       </>
-    )
-  }
-  {
-    name === 'pricing' && (
-      <path
-        d="M4.5 12.5V6.2A1.7 1.7 0 0 1 6.2 4.5h6.3L19.5 11.5l-7 7-8-6zm5.2-4.2a1.35 1.35 0 1 0 0-2.7 1.35 1.35 0 0 0 0 2.7z"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.7"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      ></path>
     )
   }
   {

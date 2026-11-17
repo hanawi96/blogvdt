@@ -101,6 +101,8 @@
   let idInput = $state<HTMLInputElement | null>(null);
   let fileInput = $state<HTMLInputElement | null>(null);
   let replaceInput = $state<HTMLInputElement | null>(null);
+  /** Cache-bust chỉ cho <img> sau khi thay ảnh — không ghi vào url lưu/copy. */
+  let mediaBust = $state<Record<number, number>>({});
 
   const dialogOpen = $derived(manage ? false : hideTrigger ? open : showing);
   /** Ảnh SSR ban đầu — giữ để preview ảnh đã chọn khi trang hiện tại không chứa chúng. */
@@ -385,6 +387,35 @@
     }
   }
 
+  /** Tải bản gốc trên R2 (`url`), không dùng card/thumb. */
+  function downloadOriginal(item: MediaItem) {
+    const sep = item.url.includes('?') ? '&' : '?';
+    const href = `${item.url}${sep}download=1`;
+    const anchor = document.createElement('a');
+    anchor.href = href;
+    anchor.download = item.filename || 'anh';
+    anchor.rel = 'noopener';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    menuFor = null;
+  }
+
+  /** Mở lightbox xem ảnh gốc 1:1 (URL gốc, không card/thumb). */
+  function openOriginalViewer(item: MediaItem) {
+    if (previewId !== item.id) {
+      previewId = item.id;
+      altDraft = item.alt;
+      usesExpanded = false;
+    }
+    menuFor = null;
+    zoomed = true;
+  }
+
+  function closeOriginalViewer() {
+    zoomed = false;
+  }
+
   function scheduleAlt() {
     window.clearTimeout(altTimer);
     altTimer = window.setTimeout(() => void saveAlt(), 500);
@@ -486,12 +517,16 @@
 
   /** Ô lưới / preview chọn (~140px+): dùng card 800px, không dùng thumb 96 (bị mờ khi phóng). */
   function tileSrc(item: MediaItem): string {
-    return item.cardUrl || item.url;
+    return withBust(item.id, item.cardUrl || item.url);
   }
 
   /** Chip nhỏ: thumb đủ nét. */
   function chipSrc(item: MediaItem): string {
-    return item.thumbUrl || item.cardUrl || item.url;
+    return withBust(item.id, item.thumbUrl || item.cardUrl || item.url);
+  }
+
+  function previewSrc(item: MediaItem): string {
+    return withBust(item.id, item.url);
   }
 
   async function runBackfill() {
@@ -525,9 +560,10 @@
     }
   }
 
-  /** Thêm tham số cache-bust để <img> tải lại ngay sau khi thay (URL/key không đổi). */
-  function bust(url: string): string {
-    return `${url}${url.includes('?') ? '&' : '?'}v=${Date.now()}`;
+  function withBust(id: number, url: string): string {
+    const version = mediaBust[id];
+    if (!version) return url;
+    return `${url}${url.includes('?') ? '&' : '?'}v=${version}`;
   }
 
   function onPickReplace(event: Event) {
@@ -537,7 +573,7 @@
     if (file) void replacePreview(file);
   }
 
-  /** Thay nội dung ảnh đang xem bằng file mới; giữ nguyên id nên mọi nơi dùng tự cập nhật. */
+  /** Thay nội dung ảnh đang xem bằng file mới; giữ nguyên id + URL /media/{key}. */
   async function replacePreview(file: File) {
     if (!preview || replacing) return;
     const target = preview;
@@ -563,9 +599,9 @@
         return;
       }
       const next: Partial<MediaItem> = {
-        url: bust(payload.url),
-        cardUrl: payload.cardUrl ? bust(payload.cardUrl) : null,
-        thumbUrl: payload.thumbUrl ? bust(payload.thumbUrl) : null,
+        url: payload.url,
+        cardUrl: payload.cardUrl ?? null,
+        thumbUrl: payload.thumbUrl ?? null,
         filename: payload.filename ?? target.filename,
         mimeType: payload.mimeType ?? target.mimeType,
         width: payload.width ?? null,
@@ -573,6 +609,7 @@
         sizeBytes: payload.sizeBytes ?? target.sizeBytes,
       };
       library = library.map((entry) => (entry.id === target.id ? { ...entry, ...next } : entry));
+      mediaBust = { ...mediaBust, [target.id]: Date.now() };
       altStatus = 'Đã thay ảnh.';
     } catch (error) {
       altStatus = '';
@@ -703,13 +740,49 @@
   {#if zoomed && preview}
     <div
       class="media-lightbox"
-      role="button"
-      tabindex="0"
-      aria-label="Đóng xem ảnh"
-      onclick={() => (zoomed = false)}
-      onkeydown={(event) => { if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') { event.preventDefault(); zoomed = false; } }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Xem ảnh gốc"
+      tabindex="-1"
+      onkeydown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          closeOriginalViewer();
+        }
+      }}
     >
-      <img src={preview.url} alt={preview.alt || preview.filename} />
+      <div class="media-lightbox-bar">
+        <p class="media-lightbox-meta">
+          Ảnh gốc
+          {#if preview.width && preview.height}
+            · {preview.width}×{preview.height}
+          {/if}
+          · {formatBytes(preview.sizeBytes)}
+          · {preview.filename}
+        </p>
+        <button class="btn media-lightbox-close" type="button" onclick={closeOriginalViewer}>Đóng</button>
+      </div>
+      <div
+        class="media-lightbox-stage"
+        role="button"
+        tabindex="0"
+        aria-label="Đóng xem ảnh gốc"
+        onclick={closeOriginalViewer}
+        onkeydown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            closeOriginalViewer();
+          }
+        }}
+      >
+        <img
+          src={previewSrc(preview)}
+          alt={preview.alt || preview.filename}
+          width={preview.width ?? undefined}
+          height={preview.height ?? undefined}
+          onclick={(event) => event.stopPropagation()}
+        />
+      </div>
     </div>
   {/if}
 {:else}
@@ -854,8 +927,8 @@
       {#if manage}
         {@const inUse = usesOf(preview).length > 0}
         <div class="media-preview-figure">
-          <img src={preview.url} alt={preview.alt || preview.filename} />
-          <button class="media-zoom-btn" type="button" aria-label="Phóng to ảnh" onclick={() => (zoomed = true)}>
+          <img src={previewSrc(preview)} alt={preview.alt || preview.filename} />
+          <button class="media-zoom-btn" type="button" aria-label="Xem ảnh gốc" title="Xem ảnh gốc" onclick={() => preview && openOriginalViewer(preview)}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M8 3H5a2 2 0 0 0-2 2v3" />
               <path d="M16 3h3a2 2 0 0 1 2 2v3" />
@@ -877,6 +950,16 @@
                 <rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
               </svg>
             {/if}
+          </button>
+          <button class="btn media-action-btn media-view-btn" type="button" aria-label="Xem ảnh gốc" title="Xem ảnh gốc (kích thước đầy đủ)" onclick={() => preview && openOriginalViewer(preview)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+          <button class="btn media-action-btn media-download-btn" type="button" aria-label="Tải ảnh gốc" title="Tải ảnh gốc (kích thước đầy đủ)" onclick={() => preview && downloadOriginal(preview)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
+            </svg>
           </button>
           <button class="btn media-action-btn media-replace-btn" type="button" disabled={replacing} aria-label="Thay ảnh" title="Thay ảnh (giữ nguyên mọi nơi đang dùng, chỉ đổi nội dung)" onclick={() => replaceInput?.click()}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class:media-spin={replacing}>
@@ -933,7 +1016,7 @@
           Lưu thay đổi
         </button>
       {:else}
-        <img src={preview.url} alt={preview.alt || preview.filename} />
+        <img src={previewSrc(preview)} alt={preview.alt || preview.filename} />
         <p class="font-semibold">{preview.filename}</p>
         <p class="media-meta">{meta(preview)}</p>
         <button class="btn" type="button" onclick={() => preview && void copyPath(preview.url)}>{copied === preview.url ? 'Đã copy' : 'Copy đường dẫn'}</button>
@@ -979,6 +1062,12 @@
                 <div class="media-menu" role="menu">
                   <button class="media-menu-item" type="button" role="menuitem" onclick={() => { void copyPath(item.url); menuFor = null; }}>
                     {copied === item.url ? 'Đã sao chép' : 'Sao chép URL'}
+                  </button>
+                  <button class="media-menu-item" type="button" role="menuitem" onclick={() => openOriginalViewer(item)}>
+                    Xem ảnh gốc
+                  </button>
+                  <button class="media-menu-item" type="button" role="menuitem" onclick={() => downloadOriginal(item)}>
+                    Tải ảnh gốc
                   </button>
                   <button class="media-menu-item media-menu-del" type="button" role="menuitem" disabled={usedTile} onclick={() => { previewId = item.id; altDraft = item.alt; confirmDeleteId = item.id; menuFor = null; }}>
                     Xóa ảnh

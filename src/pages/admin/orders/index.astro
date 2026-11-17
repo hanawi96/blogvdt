@@ -227,7 +227,7 @@ const shippedPanelHref =
   {notice === 'priority-error' && <p class="error-text mb-4" role="alert" data-admin-flash>Không đổi được ưu tiên. Đơn có thể đã kết thúc.</p>}
   {notice === 'status-error' && <p class="error-text mb-4" role="alert" data-admin-flash>Không đổi được trạng thái. Kiểm tra bước chuyển hợp lệ.</p>}
   {
-    result && result.libraryTotal === 0 && !query && !source && !payment && !from && !to && !tag && (status === '' || status === 'unshipped') ? (
+    result && result.libraryTotal === 0 ? (
       <section class="cms-empty">
         <span class="cms-empty-icon" aria-hidden="true">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -250,6 +250,7 @@ const shippedPanelHref =
           class:list={['post-toolbar', 'product-toolbar', 'order-toolbar', advancedFiltersActive && 'is-filters-open']}
           method="get"
           data-order-search
+          hidden={result.total === 0}
         >
           <div class="order-toolbar-primary">
             <label class="sr-only" for="order-query">Tìm đơn</label>
@@ -653,6 +654,16 @@ const shippedPanelHref =
       if (!(nextPanel instanceof HTMLElement)) throw new Error('panel missing');
       board.replaceChildren(nextPanel);
       if (lead instanceof HTMLElement) lead.textContent = nextPanel.dataset.lead ?? lead.textContent;
+      // Không còn đơn khớp lọc → ẩn thanh lọc; có đơn lại thì hiện.
+      if (form instanceof HTMLFormElement) {
+        const total = Number(nextPanel.dataset.total);
+        const libraryTotal = Number(nextPanel.dataset.libraryTotal);
+        if (Number.isFinite(libraryTotal) && libraryTotal === 0) {
+          location.assign(listHref);
+          return;
+        }
+        form.hidden = Number.isFinite(total) && total === 0;
+      }
       syncToolbar(params);
       if (opts.push) history.pushState({ orderSoft: true }, '', listHref);
       schedulePrefetch();

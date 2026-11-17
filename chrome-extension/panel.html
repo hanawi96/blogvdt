@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tạo đơn nhanh</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <div class="panel" id="panel">
+      <div class="panel-status" data-boot-status>Đang tải…</div>
+      <div class="panel-auth" data-auth hidden>
+        <p data-auth-text>Chưa đăng nhập admin. Đăng nhập trên trang quản trị một lần.</p>
+        <div class="panel-auth-actions">
+          <button type="button" class="btn btn-primary" data-login>Mở đăng nhập</button>
+          <button type="button" class="btn" data-retry>Đã đăng nhập — tải lại</button>
+        </div>
+      </div>
+
+      <p class="panel-saved" data-saved hidden role="status"></p>
+      <p class="panel-error" data-form-error hidden role="alert"></p>
+      <div class="panel-edit" data-edit-banner hidden>
+        <p class="panel-edit-text" data-edit-text>Đang sửa đơn</p>
+        <button type="button" class="btn" data-edit-cancel>Hủy sửa</button>
+      </div>
+
+      <form class="panel-form" data-form hidden autocomplete="off" novalidate>
+        <section class="card" data-section="customer">
+          <h2>Khách hàng</h2>
+          <div class="lookup-row">
+            <input class="field" type="search" inputmode="tel" maxlength="20" placeholder="Dán SĐT tra đơn…" data-lookup-phone />
+            <button class="btn" type="button" data-lookup-run>Tra</button>
+          </div>
+          <p class="note" data-lookup-result hidden></p>
+          <div class="pair">
+            <label class="block">
+              <span class="label">Họ tên</span>
+              <input class="field" name="customerName" maxlength="80" data-customer-name required />
+            </label>
+            <label class="block">
+              <span class="label">Số điện thoại</span>
+              <input class="field" type="tel" name="phone" maxlength="20" inputmode="tel" data-customer-phone required />
+            </label>
+          </div>
+
+          <div class="legacy" data-legacy>
+            <div class="legacy-head">
+              <span class="label">Tìm nhanh địa chỉ cũ</span>
+              <button type="button" class="linkish" data-legacy-toggle aria-expanded="false">Chọn tay 3 cấp</button>
+            </div>
+            <input class="field" type="search" placeholder="Tráng Việt, Mê Linh hoặc dán cả câu" data-legacy-input autocomplete="off" spellcheck="false" />
+            <p class="note" data-legacy-hint hidden></p>
+            <ul class="legacy-list" data-legacy-list role="listbox" hidden></ul>
+            <div class="legacy-manual" data-legacy-manual hidden>
+              <p class="label strong">Chọn tay địa chỉ cũ</p>
+              <div class="manual-grid">
+                <div class="block" data-legacy-combo="province">
+                  <span class="label">Tỉnh / TP cũ</span>
+                  <button type="button" class="field combo-trigger" data-combo-trigger aria-haspopup="listbox" aria-expanded="false">
+                    <span class="combo-value is-placeholder" data-combo-value>Chọn tỉnh/TP cũ</span>
+                  </button>
+                  <div class="combo-panel" data-combo-panel hidden>
+                    <input class="field combo-query" type="search" placeholder="Tìm tỉnh/TP…" data-combo-query autocomplete="off" />
+                    <ul class="combo-list" data-combo-list role="listbox"></ul>
+                  </div>
+                </div>
+                <div class="block" data-legacy-combo="district">
+                  <span class="label">Quận / Huyện cũ</span>
+                  <button type="button" class="field combo-trigger" data-combo-trigger aria-haspopup="listbox" aria-expanded="false" disabled>
+                    <span class="combo-value is-placeholder" data-combo-value>Chọn tỉnh trước</span>
+                  </button>
+                  <div class="combo-panel" data-combo-panel hidden>
+                    <input class="field combo-query" type="search" placeholder="Tìm quận/huyện…" data-combo-query autocomplete="off" />
+                    <ul class="combo-list" data-combo-list role="listbox"></ul>
+                  </div>
+                </div>
+                <div class="block" data-legacy-combo="ward">
+                  <span class="label">Phường / Xã cũ</span>
+                  <button type="button" class="field combo-trigger" data-combo-trigger aria-haspopup="listbox" aria-expanded="false" disabled>
+                    <span class="combo-value is-placeholder" data-combo-value>Chọn huyện trước</span>
+                  </button>
+                  <div class="combo-panel" data-combo-panel hidden>
+                    <input class="field combo-query" type="search" placeholder="Tìm phường/xã…" data-combo-query autocomplete="off" />
+                    <ul class="combo-list" data-combo-list role="listbox"></ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="address" data-address>
+            <p class="label strong">Địa chỉ nhận hàng</p>
+            <div class="pair">
+              <label class="block">
+                <span class="label">Tỉnh / TP</span>
+                <select class="field" data-province required>
+                  <option value="">Đang tải…</option>
+                </select>
+              </label>
+              <label class="block">
+                <span class="label">Phường / Xã</span>
+                <select class="field" data-ward required disabled>
+                  <option value="">Chọn tỉnh trước</option>
+                </select>
+              </label>
+            </div>
+            <label class="block mt">
+              <span class="label">Số nhà, đường</span>
+              <input class="field" name="addressLine" maxlength="80" data-line required />
+            </label>
+            <input type="hidden" name="address" data-address-value value="" />
+            <input type="hidden" name="provinceCode" data-province-value value="" />
+            <input type="hidden" name="wardCode" data-ward-value value="" />
+          </div>
+        </section>
+
+        <section class="card" data-section="products">
+          <h2>Sản phẩm</h2>
+          <div class="picker" data-picker>
+            <input class="field" type="search" placeholder="Tìm mẫu…" data-pick-query autocomplete="off" />
+            <div class="pick-cats" data-pick-cats role="group" aria-label="Danh mục"></div>
+            <div class="pick-list" data-pick-list></div>
+            <p class="note" data-pick-empty hidden>Không có mẫu khớp.</p>
+          </div>
+        </section>
+
+        <section class="card" data-section="cart">
+          <h2>Trong đơn</h2>
+          <ul class="cart" data-cart></ul>
+          <p class="note" data-cart-empty>Chưa có sản phẩm. Chọn mẫu rồi thêm vào đơn.</p>
+        </section>
+
+        <section class="card" data-section="meta">
+          <h2>Thanh toán &amp; giao</h2>
+          <div class="meta-stack" data-meta>
+            <div class="meta-block">
+              <p class="meta-title">Thanh toán</p>
+              <div class="presets" data-pay-states></div>
+              <div class="meta-sub" data-deposit-box hidden>
+                <label class="block">
+                  <span class="label">Tiền cọc</span>
+                  <input class="field" name="depositAmount" data-deposit-amount inputmode="numeric" maxlength="8" autocomplete="off" placeholder="VD: 50.000" />
+                </label>
+                <p class="note" data-deposit-hint>Doanh thu vẫn là tổng đơn.</p>
+              </div>
+            </div>
+
+            <div class="meta-block">
+              <p class="meta-title">Nguồn khách</p>
+              <div class="presets" data-sources></div>
+            </div>
+
+            <div class="meta-block">
+              <p class="meta-title">Tuỳ chọn đơn</p>
+              <div class="flag-list">
+                <label class="flag">
+                  <input type="checkbox" data-priority />
+                  <span><strong>Đơn ưu tiên</strong><span class="note">Hiện lên đầu danh sách.</span></span>
+                </label>
+                <label class="flag">
+                  <input type="checkbox" data-compensation />
+                  <span><strong>Gửi bù</strong><span class="note">Không thu tiền, không ghi doanh thu.</span></span>
+                </label>
+                <label class="flag">
+                  <input type="checkbox" data-ship-later />
+                  <span><strong>Gửi sau</strong><span class="note">Chọn ngày dự kiến gửi.</span></span>
+                </label>
+              </div>
+              <div class="meta-sub" data-ship-date hidden>
+                <label class="block">
+                  <span class="label">Ngày dự kiến gửi</span>
+                  <input class="field" type="date" data-ship-on />
+                </label>
+                <div class="presets mt" data-ship-presets></div>
+              </div>
+            </div>
+
+            <div class="meta-block">
+              <p class="meta-title">Vận chuyển</p>
+              <div class="ship-row">
+                <label class="block grow">
+                  <span class="label">Phí ship khách trả</span>
+                  <input class="field" data-ship-fee inputmode="numeric" maxlength="8" autocomplete="off" />
+                </label>
+                <label class="flag flag-inline">
+                  <input type="checkbox" data-free-ship />
+                  <span><strong>Miễn phí ship</strong></span>
+                </label>
+              </div>
+              <p class="note" data-ship-note></p>
+            </div>
+
+            <div class="meta-block meta-block-last">
+              <label class="block">
+                <span class="meta-title">Ghi chú của khách</span>
+                <input class="field" name="note" maxlength="500" data-note placeholder="Tuỳ chọn" />
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="card" data-section="pay">
+          <h2>Giảm giá &amp; thu</h2>
+          <div class="discount" data-discount>
+            <label class="block">
+              <span class="label">Mã giảm giá</span>
+              <select class="field" data-discount-code>
+                <option value="">Không dùng mã</option>
+              </select>
+            </label>
+            <div class="pair mt">
+              <label class="block">
+                <span class="label">Giảm thêm (đ)</span>
+                <input class="field" inputmode="numeric" maxlength="8" data-discount-extra autocomplete="off" />
+              </label>
+              <label class="block">
+                <span class="label">Tổng thu (đ)</span>
+                <input class="field" inputmode="numeric" maxlength="9" data-order-total autocomplete="off" placeholder="Tự tính" />
+              </label>
+            </div>
+            <p class="note" data-pay-summary></p>
+          </div>
+        </section>
+
+        <div class="submit-bar">
+          <button class="btn btn-primary btn-block" type="submit" data-submit>Tạo đơn hàng</button>
+        </div>
+      </form>
+    </div>
+    <script src="panel.js"></script>
+  </body>
+</html>

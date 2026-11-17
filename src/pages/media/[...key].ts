@@ -23,7 +23,15 @@ export const GET: APIRoute = async ({ params, request }) => {
   headers.set('cache-control', cacheControl);
   headers.set('etag', etag);
   if (!headers.has('content-type')) headers.set('content-type', 'application/octet-stream');
+  // ?download=1 → tải file gốc (attachment), không mở xem trong tab.
+  if (new URL(request.url).searchParams.has('download')) {
+    const rawName = key.split('/').pop() || 'anh';
+    const safeName = rawName.replace(/[^\w.\-()+ ]+/g, '_').slice(0, 120) || 'anh';
+    headers.set('content-disposition', `attachment; filename="${safeName}"`);
+  }
   return new Response(object.body as unknown as BodyInit, { headers });
 };
 
-const cacheControl = 'public, max-age=31536000, stale-while-revalidate=86400, must-revalidate';
+// max-age=0 + ETag: trình duyệt/CDN luôn revalidate. Cần cho «thay ảnh tại chỗ»
+// (cùng URL /media/{key}) — nếu max-age dài cả năm, khách còn thấy bản cũ dù R2 đã đổi.
+const cacheControl = 'public, max-age=0, must-revalidate';

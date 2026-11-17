@@ -70,6 +70,8 @@ const canToggleSort = status !== 'shipped';
 <div
   data-order-panel
   data-lead={`${result.total} đơn hàng`}
+  data-total={String(result.total)}
+  data-library-total={String(result.libraryTotal)}
   data-page={String(result.page)}
   data-page-count={String(result.pageCount)}
   data-next-panel={nextPanelHref}

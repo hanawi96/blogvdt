@@ -407,6 +407,11 @@ const {
     form.addEventListener(
       'submit',
       (event) => {
+        // POS tự validate + fetch; không chặn/focus tại đây (tránh nhảy iframe).
+        if (form.dataset.pos === '1') {
+          write();
+          return;
+        }
         const submitter = event.submitter;
         if (submitter instanceof HTMLButtonElement && submitter.value === 'apply') return;
         if (!ready) {
@@ -424,6 +429,16 @@ const {
       },
       true,
     );
+
+    // Fetch/AJAX: FormData đã dựng xong trước listener submit khác — ghi lại address vào formdata.
+    form.addEventListener('formdata', (event) => {
+      if (!(event instanceof FormDataEvent)) return;
+      write();
+      event.formData.set('address', address.value);
+      event.formData.set('provinceCode', provinceValue.value);
+      event.formData.set('wardCode', wardValue.value);
+      event.formData.set('addressLine', line.value.trim());
+    });
 
     function applyParsed(input: {
       provinceCode: string;
@@ -529,7 +544,13 @@ const {
 
     function applyFill(input: { provinceCode: string; wardCode: string | null; line: string; keepLine?: boolean }) {
       if (!input.provinceCode) {
-        if (input.line) line.value = input.line;
+        root.dataset.province = '';
+        root.dataset.ward = '';
+        fill(province, 'Chọn tỉnh, thành phố', rows.map((row) => [row[0], row[1]] as const), '');
+        provinceValue.value = '';
+        wardValue.value = '';
+        showWards();
+        line.value = input.keepLine ? line.value : input.line || '';
         write();
         return;
       }

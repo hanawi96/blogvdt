@@ -18,8 +18,8 @@ export const GET: APIRoute = async ({ locals, url, redirect }) => {
   if (!phone.trim()) return json({ ok: false, error: 'Nhập số điện thoại.' }, 422);
   try {
     const found = await lookupCustomerByPhone(createDb(getDbBinding()), phone);
-    if (!found) return json({ ok: true, found: false });
-    return json({ ok: true, found: true, customer: found });
+    if (!found) return json({ ok: true, found: false, canDelete: session.role === 'admin' });
+    return json({ ok: true, found: true, canDelete: session.role === 'admin', customer: found });
   } catch (error) {
     console.error(JSON.stringify({ event: 'order_phone_lookup_failed', name: error instanceof Error ? error.name : 'unknown' }));
     return json({ ok: false, error: 'Không tra được khách.' }, 500);
