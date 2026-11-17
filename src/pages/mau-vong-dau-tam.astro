@@ -108,7 +108,7 @@ async function loadCatalog() {
             <div class="catalog-toolbar">
               <form class="catalog-search" method="get" action={routes.catalog} role="search">
                 {query.category && <input type="hidden" name="danh-muc" value={query.category} />}
-                {query.sort !== 'mac-dinh' && <input type="hidden" name="sap-xep" value={query.sort} />}
+                {query.sort !== 'ban-chay' && <input type="hidden" name="sap-xep" value={query.sort} />}
                 <label class="sr-only" for="catalog-q">Tìm mẫu vòng</label>
                 <span class="catalog-search-field">
                   <button class="catalog-search-submit" type="submit" aria-label="Tìm">

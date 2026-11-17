@@ -226,9 +226,9 @@ async function loadTopProducts(db: AppDb, start: number) {
   });
 }
 
-/** Lifetime: tránh double-count — đơn có order_items chỉ đếm items; đơn legacy (không có item) đếm orders.quantity. */
+/** Lifetime: tránh double-count — đơn có order_items chỉ đếm items; đơn legacy (không có item) đếm orders.quantity; cộng sold_base. */
 async function loadLifetimeSales(db: AppDb) {
-  const [orderAgg, itemQty, legacyQty] = await Promise.all([
+  const [orderAgg, itemQty, legacyQty, baseQty] = await Promise.all([
     db
       .select({
         ordersCount: num(sql`sum(case when ${live} then 1 else 0 end)`),
@@ -249,11 +249,12 @@ async function loadLifetimeSales(db: AppDb) {
           sql`not exists (select 1 from order_items where order_items.order_id = ${orders.id})`,
         ),
       ),
+    db.select({ sold: num(sql`sum(${products.soldBase})`) }).from(products),
   ]);
   return {
     orders: orderAgg[0]?.ordersCount ?? 0,
     revenue: orderAgg[0]?.revenue ?? 0,
-    soldQty: (itemQty[0]?.sold ?? 0) + (legacyQty[0]?.sold ?? 0),
+    soldQty: (itemQty[0]?.sold ?? 0) + (legacyQty[0]?.sold ?? 0) + (baseQty[0]?.sold ?? 0),
   };
 }
 

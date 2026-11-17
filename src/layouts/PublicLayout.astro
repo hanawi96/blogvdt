@@ -150,11 +150,11 @@ async function reachableShareImage(
     {trackingSnippets.headSrc.map((src) => <script async src={src}></script>)}
     {trackingSnippets.headScripts.map((code) => <script set:html={code} />)}
   </head>
-  <body class:list={['bg-canvas font-sans text-ink antialiased', embed && 'preview-embed']}>
+  <body class:list={['site-body bg-canvas font-sans text-ink antialiased', embed && 'preview-embed']}>
     {trackingSnippets.bodyNoscript.map((html) => <noscript set:html={html} />)}
     <a class="skip-link" href="#noi-dung">Tới nội dung</a>
     {showChrome && chrome && <SiteHeader site={chrome} />}
-    <div id="noi-dung">
+    <div id="noi-dung" class="site-main">
       <slot />
     </div>
     {showChrome && chrome && <SiteFooter site={chrome} />}

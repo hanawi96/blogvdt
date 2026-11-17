@@ -1,0 +1,24 @@
+---
+import Gone from '../components/public/Gone.astro';
+import { staticChrome } from '../features/content/policies';
+import PublicLayout from '../layouts/PublicLayout.astro';
+import { goneMeta } from '../lib/seo/meta';
+import { PRIVATE_PAGE_CACHE } from '../lib/seo/cache';
+
+// SSR để middleware có thể rewrite URL đã đánh dấu 410 sang trang HTML thân thiện.
+Astro.response.status = 410;
+Astro.response.headers.set('Cache-Control', PRIVATE_PAGE_CACHE);
+Astro.response.headers.set('X-Robots-Tag', 'noindex');
+
+const pageMeta = goneMeta();
+---
+
+<PublicLayout
+  title={pageMeta.title}
+  description={pageMeta.description}
+  robots="noindex,nofollow"
+  siteName={staticChrome.siteName}
+  chrome={staticChrome}
+>
+  <Gone />
+</PublicLayout>

@@ -7,7 +7,7 @@ import { media, productCategories, productMedia, products, redirects } from '../
 import { routes } from '../../lib/routes';
 import { listingMediaKey } from '../media/files';
 import { mediaMapByIds } from '../media/media';
-import type { RecipeLine } from '../materials/costing';
+import { PRODUCT_MARGIN_HIGH, PRODUCT_MARGIN_LOW, type RecipeLine } from '../materials/costing';
 import { insertRecipe, recipeWrites, validateRecipe } from '../materials/recipes';
 import { CORD_TYPES } from './form';
 import { canFeatureProduct, isProductStatus, type ProductStatus } from './status';
@@ -28,9 +28,12 @@ const PRODUCT_SORTS = [
   'stock-asc',
   'stock-desc',
 ] as const;
+const PRODUCT_LIST_MARGINS = ['none', 'loss', 'low', 'mid', 'high'] as const;
 
 export type ProductListSort = (typeof PRODUCT_SORTS)[number];
 export type ProductListCord = (typeof CORD_TYPES)[number] | '';
+export type ProductListView = 'list' | 'cards';
+export type ProductListMargin = (typeof PRODUCT_LIST_MARGINS)[number] | '';
 
 export function productListSort(value: string | null | undefined): ProductListSort {
   return PRODUCT_SORTS.find((sort) => sort === value) ?? DEFAULT_PRODUCT_LIST_SORT;
@@ -40,12 +43,22 @@ export function productListCord(value: string | null | undefined): ProductListCo
   return CORD_TYPES.find((cord) => cord === value) ?? '';
 }
 
+export function productListView(value: string | null | undefined): ProductListView {
+  return value === 'list' ? 'list' : 'cards';
+}
+
+export function productListMargin(value: string | null | undefined): ProductListMargin {
+  return PRODUCT_LIST_MARGINS.find((margin) => margin === value) ?? '';
+}
+
 export function productAdminQuery(input: {
   query?: string;
   status?: string;
   category?: number | null;
   cord?: string;
   sort?: string;
+  view?: string;
+  margin?: string;
   page?: number;
   notice?: 'deleted' | 'featured-on' | 'featured-off' | 'feature-error';
   bulk?: { action: ProductBulkAction; count: number } | 'error';
@@ -56,12 +69,16 @@ export function productAdminQuery(input: {
   const category = input.category && Number.isInteger(input.category) && input.category > 0 ? input.category : 0;
   const cord = productListCord(input.cord);
   const sort = productListSort(input.sort);
+  const view = productListView(input.view);
+  const margin = productListMargin(input.margin);
   const page = input.page && Number.isInteger(input.page) && input.page > 1 ? input.page : 0;
   if (query) params.set('q', query);
   if (status) params.set('status', status);
   if (category) params.set('category', String(category));
   if (cord) params.set('cord', cord);
   if (sort !== DEFAULT_PRODUCT_LIST_SORT) params.set('sort', sort);
+  if (view === 'list') params.set('view', 'list');
+  if (margin) params.set('margin', margin);
   if (page) params.set('page', String(page));
   if (input.notice === 'deleted') params.set('deleted', '1');
   if (input.notice === 'featured-on') params.set('featured', '1');
@@ -89,6 +106,8 @@ export function readProductListContext(form: FormData) {
     category: Number.isInteger(category) && category > 0 ? category : null,
     cord: productListCord(read('cord')),
     sort: read('sort'),
+    view: productListView(read('view')),
+    margin: productListMargin(read('margin')),
     page: Number.isInteger(page) && page > 0 ? page : 1,
   };
 }
@@ -113,6 +132,22 @@ export type ProductInput = {
   metaDescription: string | null;
 };
 
+// Giá vốn công thức — cùng nguồn với loadProductCosts.
+const productCostSql = sql`(
+  select sum(pm.quantity * m.unit_cost)
+  from product_materials pm
+  join materials m on m.id = pm.material_id
+  where pm.product_id = ${products.id}
+)`;
+
+const productMarginSql = sql`(
+  case
+    when ${products.price} <= 0 then null
+    when ${productCostSql} is null then null
+    else round((${products.price} - ${productCostSql}) * 100.0 / ${products.price})
+  end
+)`;
+
 export async function listProducts(
   db: AppDb,
   filters: {
@@ -120,21 +155,32 @@ export async function listProducts(
     status: ProductStatus | '';
     categoryId?: number | null;
     cord?: ProductListCord;
+    margin?: ProductListMargin;
     page: number;
     sort?: ProductListSort;
   },
 ) {
   const term = filters.query.replace(/[%_]/g, '').trim().slice(0, 160);
   const cord = productListCord(filters.cord);
+  const margin = productListMargin(filters.margin);
   const shared = [];
   if (filters.status) shared.push(eq(products.status, filters.status));
   if (term) shared.push(like(products.name, `%${term}%`));
   if (cord) shared.push(eq(products.cordType, cord));
+  if (margin === 'none') shared.push(sql`${productCostSql} is null`);
+  else if (margin === 'loss') shared.push(sql`${productMarginSql} < 0`);
+  else if (margin === 'low') {
+    shared.push(sql`${productMarginSql} >= 0 and ${productMarginSql} < ${PRODUCT_MARGIN_LOW}`);
+  } else if (margin === 'mid') {
+    shared.push(
+      sql`${productMarginSql} >= ${PRODUCT_MARGIN_LOW} and ${productMarginSql} <= ${PRODUCT_MARGIN_HIGH}`,
+    );
+  } else if (margin === 'high') shared.push(sql`${productMarginSql} > ${PRODUCT_MARGIN_HIGH}`);
   const conditions = filters.categoryId ? [...shared, eq(products.categoryId, filters.categoryId)] : shared;
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = Math.max(1, filters.page);
   const sort = productListSort(filters.sort);
-  const filtered = Boolean(term || filters.status || filters.categoryId || cord);
+  const filtered = Boolean(term || filters.status || filters.categoryId || cord || margin);
   const [totalRows, libraryRows, sharedRows, categoryRows, rows] = await Promise.all([
     db.select({ value: count() }).from(products).where(where),
     filtered ? db.select({ value: count() }).from(products) : Promise.resolve([]),
@@ -155,6 +201,7 @@ export async function listProducts(
         comparePrice: products.comparePrice,
         stockQty: products.stockQty,
         rating: products.rating,
+        sold: soldQty,
         categoryId: products.categoryId,
         categoryName: productCategories.name,
         cordType: products.cordType,
@@ -185,6 +232,7 @@ export async function listProducts(
         comparePrice: row.comparePrice,
         stockQty: row.stockQty,
         rating: row.rating,
+        sold: Math.max(0, Number(row.sold) || 0),
         categoryId: row.categoryId,
         categoryName: row.categoryName ?? '',
         cordType: row.cordType,
@@ -206,9 +254,10 @@ export async function listProducts(
   };
 }
 
-// Số lượng đã bán = đơn một mẫu (không có order_items) + dòng order_items; bỏ đơn hủy.
+// Số lượng đã bán = sold_base + đơn một mẫu (không có order_items) + dòng order_items; bỏ đơn hủy.
 const soldQty = sql<number>`(
-  coalesce((
+  coalesce(${products.soldBase}, 0)
+  + coalesce((
     select sum(o.quantity) from orders o
     where o.product_id = ${products.id} and o.status <> 'cancelled'
       and not exists (select 1 from order_items i where i.order_id = o.id)

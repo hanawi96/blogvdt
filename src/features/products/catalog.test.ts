@@ -10,26 +10,30 @@ describe('giá gốc trên trang mẫu vòng', () => {
 });
 
 describe('truy vấn trang mẫu vòng', () => {
-  it('bỏ tham số rỗng, sai và trang 1, làm sạch từ khóa tìm', () => {
-    const empty = readCatalogQuery(new URLSearchParams('sap-xep=mac-dinh&page=1&danh-muc=Không Hợp Lệ'));
+  it('mặc định bán chạy, bỏ tham số rỗng/sai và trang 1', () => {
+    const empty = readCatalogQuery(new URLSearchParams('page=1&danh-muc=Không Hợp Lệ'));
     expect(empty.category).toBe('');
-    expect(empty.sort).toBe('mac-dinh');
+    expect(empty.sort).toBe('ban-chay');
     expect(catalogPath(empty)).toBe('/mau-vong-dau-tam');
     expect(catalogFiltered(empty)).toBe(false);
+    const price = readCatalogQuery(new URLSearchParams('sap-xep=mac-dinh'));
+    expect(price.sort).toBe('mac-dinh');
+    expect(catalogPath(price)).toBe('/mau-vong-dau-tam?sap-xep=mac-dinh');
+    expect(catalogFiltered(price)).toBe(true);
     const searched = readCatalogQuery(new URLSearchParams('q=%20vòng_%20'));
     expect(searched.q).toBe('vòng');
     expect(catalogPath(searched)).toBe('/mau-vong-dau-tam?q=v%C3%B2ng');
     expect(catalogFiltered(searched)).toBe(true);
   });
 
-  it('giữ từ khóa, danh mục và sắp xếp bán chạy, bỏ các tham số lọc cũ', () => {
+  it('giữ từ khóa, danh mục; bỏ sap-xep khi đang bán chạy', () => {
     const query = readCatalogQuery(new URLSearchParams('q=vong&day=rut&tu=1&den=2&danh-muc=vong-charm&sap-xep=ban-chay&page=2'));
     expect(query.q).toBe('vong');
     expect(query.category).toBe('vong-charm');
     expect(query.sort).toBe('ban-chay');
-    expect(catalogPath(query)).toBe('/mau-vong-dau-tam?q=vong&danh-muc=vong-charm&sap-xep=ban-chay&page=2');
+    expect(catalogPath(query)).toBe('/mau-vong-dau-tam?q=vong&danh-muc=vong-charm&page=2');
     expect(catalogFiltered(query)).toBe(true);
-    expect(readCatalogQuery(new URLSearchParams('sap-xep=gia-tang')).sort).toBe('mac-dinh');
+    expect(readCatalogQuery(new URLSearchParams('sap-xep=gia-tang')).sort).toBe('ban-chay');
     expect(readCatalogQuery(new URLSearchParams('sap-xep=giam-gia')).sort).toBe('giam-gia');
   });
 

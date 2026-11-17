@@ -36,6 +36,7 @@ export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   'favicon.svg',
   'favicon.ico',
   '404',
+  '410',
   '_astro',
   '_image',
   // Thư mục asset tĩnh trong public/ (phục vụ ở root).

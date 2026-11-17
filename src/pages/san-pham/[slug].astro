@@ -85,7 +85,7 @@ async function loadProduct() {
     const product = await getPublicProduct(db, slug);
     if (product && !isPubliclySellable(product)) {
       const outcome = await resolvePublicRedirect(db, routes.product(slug));
-      if (outcome) return { site, failed: false, product: null, http: redirectHttpResponse(outcome) };
+      if (outcome?.type === 'redirect') return { site, failed: false, product: null, http: redirectHttpResponse(outcome) };
     }
     return { site, failed: false, product, http: null };
   } catch (error) {

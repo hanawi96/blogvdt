@@ -13,7 +13,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.allowIndex = requestAllowsIndexing(context.url.origin);
   const { pathname } = context.url;
   if (!pathname.startsWith('/admin')) {
-    return finish(context, await withPublicRedirect(pathname, await next()));
+    return finish(context, await withPublicRedirect(context, pathname, await next()));
   }
 
   const sessionId = context.cookies.get(SESSION_COOKIE)?.value;
@@ -46,13 +46,20 @@ export const onRequest = defineMiddleware(async (context, next) => {
   return finish(context, privateResponse(await next()));
 });
 
-async function withPublicRedirect(pathname: string, response: Response): Promise<Response> {
+async function withPublicRedirect(
+  context: { rewrite: (path: string) => Promise<Response> },
+  pathname: string,
+  response: Response,
+): Promise<Response> {
   if (response.status !== 404) return response;
   const path = normalizeInternalPath(pathname);
-  if (!path || skipsRedirectLookup(path)) return response;
+  if (!path || skipsRedirectLookup(path) || path === '/410') return response;
   try {
     const outcome = await resolvePublicRedirect(createDb(getDbBinding()), path);
-    if (outcome) return redirectHttpResponse(outcome);
+    if (!outcome) return response;
+    // 410 dùng trang HTML thân thiện; URL trình duyệt vẫn là path gốc nhờ rewrite.
+    if (outcome.type === 'gone') return context.rewrite('/410');
+    return redirectHttpResponse(outcome);
   } catch (error) {
     console.error(JSON.stringify({ event: 'redirect_lookup_failed', name: error instanceof Error ? error.name : 'unknown' }));
   }

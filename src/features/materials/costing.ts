@@ -84,6 +84,9 @@ export function defaultNewProductRecipe(catalog: readonly MaterialOption[]): Rec
 // ---- Biên lợi nhuận, giá đề xuất, tác động khi đổi giá nguyên liệu ----
 
 export const LOW_MARGIN_PERCENT = 30;
+/** Ngưỡng màu biên trên danh sách/thẻ admin sản phẩm. */
+export const PRODUCT_MARGIN_LOW = 15;
+export const PRODUCT_MARGIN_HIGH = 35;
 export const DEFAULT_TARGET_MARGIN = 60;
 export const MAX_TARGET_MARGIN = 90;
 export const ROUND_STEPS = [1, 500, 1000, 5000, 10000] as const;
@@ -92,11 +95,29 @@ export const DEFAULT_ROUND_STEP = 1000;
 export const MAX_PRODUCT_PRICE = 99_999_999;
 
 export type MarginTone = 'loss' | 'low' | 'ok' | 'none';
+/** Band lọc/hiển thị admin: khớp select biên và data-margin (loss dùng màu low). */
+export type ProductMarginBand = 'none' | 'loss' | 'low' | 'mid' | 'high';
 
 export function marginTone(marginPercent: number | null): MarginTone {
   if (marginPercent === null) return 'none';
   if (marginPercent < 0) return 'loss';
   return marginPercent < LOW_MARGIN_PERCENT ? 'low' : 'ok';
+}
+
+export function productMarginBand(marginPercent: number | null | undefined): ProductMarginBand {
+  if (marginPercent == null) return 'none';
+  if (marginPercent < 0) return 'loss';
+  if (marginPercent < PRODUCT_MARGIN_LOW) return 'low';
+  if (marginPercent <= PRODUCT_MARGIN_HIGH) return 'mid';
+  return 'high';
+}
+
+/** Thuộc tính data-margin trên UI: loss gộp vào low. */
+export function productMarginAttr(marginPercent: number | null | undefined): 'low' | 'mid' | 'high' | null {
+  const band = productMarginBand(marginPercent);
+  if (band === 'none') return null;
+  if (band === 'loss' || band === 'low') return 'low';
+  return band;
 }
 
 export function parseTargetMargin(value: string | null | undefined): number {

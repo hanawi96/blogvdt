@@ -11,10 +11,13 @@ import { readWeightScale, type WeightScale } from './weight';
 export const CATALOG_PAGE_SIZE = 12;
 
 export const CATALOG_SORTS = [
-  { value: 'mac-dinh', label: 'Giá thấp đến cao' },
   { value: 'ban-chay', label: 'Bán chạy' },
+  { value: 'mac-dinh', label: 'Giá thấp đến cao' },
   { value: 'giam-gia', label: 'Giảm giá nhiều' },
 ] as const;
+
+/** Mặc định catalog/home: bán chạy (kể cả khi lọc danh mục). */
+export const DEFAULT_CATALOG_SORT = 'ban-chay' as const;
 
 const CATALOG_PARAMS = ['q', 'danh-muc', 'sap-xep', 'page'] as const;
 
@@ -37,14 +40,14 @@ export function readCatalogQuery(params: URLSearchParams): CatalogQuery {
 }
 
 export function catalogFiltered(query: CatalogQuery): boolean {
-  return query.q.length > 0 || query.category.length > 0 || query.sort !== 'mac-dinh';
+  return query.q.length > 0 || query.category.length > 0 || query.sort !== DEFAULT_CATALOG_SORT;
 }
 
 export function catalogPath(query: CatalogQuery, page = query.page): string {
   const params = new URLSearchParams();
   if (query.q) params.set('q', query.q);
   if (query.category) params.set('danh-muc', query.category);
-  if (query.sort !== 'mac-dinh') params.set('sap-xep', query.sort);
+  if (query.sort !== DEFAULT_CATALOG_SORT) params.set('sap-xep', query.sort);
   if (page > 1) params.set('page', String(page));
   const text = params.toString();
   return text ? `${routes.catalog}?${text}` : routes.catalog;
@@ -55,7 +58,7 @@ export function catalogApiPath(query: CatalogQuery, page = query.page): string {
   const params = new URLSearchParams();
   if (query.q) params.set('q', query.q);
   if (query.category) params.set('danh-muc', query.category);
-  if (query.sort !== 'mac-dinh') params.set('sap-xep', query.sort);
+  if (query.sort !== DEFAULT_CATALOG_SORT) params.set('sap-xep', query.sort);
   if (page > 1) params.set('page', String(page));
   const text = params.toString();
   return text ? `${routes.catalogApi}?${text}` : routes.catalogApi;
@@ -65,7 +68,7 @@ export function catalogApiPath(query: CatalogQuery, page = query.page): string {
 export function homeShopPath(query: Pick<CatalogQuery, 'category' | 'sort'>, hash = 'san-pham'): string {
   const params = new URLSearchParams();
   if (query.category) params.set('danh-muc', query.category);
-  if (query.sort !== 'mac-dinh') params.set('sap-xep', query.sort);
+  if (query.sort !== DEFAULT_CATALOG_SORT) params.set('sap-xep', query.sort);
   const text = params.toString();
   return text ? `${routes.home}?${text}#${hash}` : `${routes.home}#${hash}`;
 }
@@ -182,9 +185,10 @@ export async function listBestSellers(db: AppDb, limit = 5): Promise<CatalogCard
   return rows.map(toCard);
 }
 
-// Lượt bán = tổng số lượng ở đơn một mẫu (orders) và đơn nhiều mẫu (order_items), bỏ đơn đã hủy.
+// Lượt bán = sold_base (lịch sử) + đơn một mẫu + đơn nhiều mẫu, bỏ đơn đã hủy.
 const soldCount = sql<number>`(
-  coalesce((select sum(o.quantity) from orders o where o.product_id = ${products.id} and o.status <> 'cancelled'), 0)
+  coalesce(${products.soldBase}, 0)
+  + coalesce((select sum(o.quantity) from orders o where o.product_id = ${products.id} and o.status <> 'cancelled'), 0)
   + coalesce((select sum(i.quantity) from order_items i join orders o2 on o2.id = i.order_id where i.product_id = ${products.id} and o2.status <> 'cancelled'), 0)
 )`;
 
@@ -215,7 +219,7 @@ function readSlug(value: string | null): string {
 
 function readSort(value: string | null): CatalogSort {
   const found = CATALOG_SORTS.find((item) => item.value === value);
-  return found ? found.value : 'mac-dinh';
+  return found ? found.value : DEFAULT_CATALOG_SORT;
 }
 
 function readPage(value: string | null): number {

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { parseProductForm, ratingFormValue } from './form';
-import { DEFAULT_PRODUCT_LIST_SORT, productAdminQuery, productListCord, productListSort, readProductBulk } from './products';
+import { productMarginAttr, productMarginBand } from '../materials/costing';
+import {
+  DEFAULT_PRODUCT_LIST_SORT,
+  productAdminQuery,
+  productListCord,
+  productListMargin,
+  productListSort,
+  productListView,
+  readProductBulk,
+} from './products';
 import { canFeatureProduct, isPubliclySellable } from './status';
 
 describe('danh sách sản phẩm', () => {
@@ -23,6 +32,23 @@ describe('danh sách sản phẩm', () => {
       '/admin/products?cord=D%C3%A2y+r%C3%BAt&sort=stock-desc',
     );
     expect(productAdminQuery({ sort: 'sold-desc' })).toBe('/admin/products');
+    expect(productAdminQuery({ view: 'list', status: 'active' })).toBe('/admin/products?status=active&view=list');
+    expect(productAdminQuery({ view: 'cards' })).toBe('/admin/products');
+    expect(productAdminQuery({ margin: 'low', status: 'active' })).toBe('/admin/products?status=active&margin=low');
+    expect(productAdminQuery({ margin: 'weird' })).toBe('/admin/products');
+    expect(productListView('list')).toBe('list');
+    expect(productListView(null)).toBe('cards');
+    expect(productListView('grid')).toBe('cards');
+    expect(productListMargin('high')).toBe('high');
+    expect(productListMargin('none')).toBe('none');
+    expect(productListMargin('x')).toBe('');
+    expect(productMarginBand(null)).toBe('none');
+    expect(productMarginBand(-5)).toBe('loss');
+    expect(productMarginBand(10)).toBe('low');
+    expect(productMarginBand(20)).toBe('mid');
+    expect(productMarginBand(40)).toBe('high');
+    expect(productMarginAttr(-5)).toBe('low');
+    expect(productMarginAttr(40)).toBe('high');
     expect(productListCord('Dây co giãn')).toBe('Dây co giãn');
     expect(productListCord('Chun')).toBe('');
     expect(productAdminQuery({ status: 'archived', sort: 'random', notice: 'feature-error' })).toBe(

@@ -179,6 +179,7 @@ export async function listStaffPickerProducts(db: AppDb): Promise<{ products: St
         id: products.id,
         name: products.name,
         price: products.price,
+        soldBase: products.soldBase,
         weightScale: productCategories.weightScale,
         categoryId: productCategories.id,
         categoryName: productCategories.name,
@@ -233,7 +234,7 @@ export async function listStaffPickerProducts(db: AppDb): Promise<{ products: St
         categoryId: row.categoryId,
         categoryName: row.categoryName ?? '',
         categorySlug: row.categorySlug ?? '',
-        sold: soldByProduct.get(row.id) ?? 0,
+        sold: (soldByProduct.get(row.id) ?? 0) + Math.max(0, row.soldBase || 0),
         coverUrl: listKey ? routes.media(listKey) : null,
         coverAlt: row.coverAlt ?? '',
       };

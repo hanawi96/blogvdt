@@ -126,7 +126,10 @@ export async function searchActiveProducts(db: AppDb, query: string): Promise<Pr
 
 /** Top sản phẩm đang bán theo tổng số lượng trong đơn (bỏ đơn hủy). Ít đơn thì fallback sortOrder. */
 export async function listTopSellingProducts(db: AppDb, limit = 5): Promise<ProductCardHit[]> {
-  const sold = sql<number>`coalesce(sum(case when ${orders.status} is not null and ${orders.status} <> 'cancelled' then ${orderItems.quantity} else 0 end), 0)`;
+  const sold = sql<number>`(
+    coalesce(${products.soldBase}, 0)
+    + coalesce(sum(case when ${orders.status} is not null and ${orders.status} <> 'cancelled' then ${orderItems.quantity} else 0 end), 0)
+  )`;
   const rows = await db
     .select({
       id: products.id,

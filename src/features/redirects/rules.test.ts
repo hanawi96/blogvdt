@@ -73,13 +73,10 @@ describe('quyết định lúc truy cập', () => {
     expect(moved.status).toBe(301);
     expect(moved.headers.get('location')).toBe('/kien-thuc/moi');
     expect(moved.headers.get('cache-control')).toBe('private, no-cache');
+    expect(moved.headers.get('x-robots-tag')).toBe('noindex');
     const temporary = redirectHttpResponse({ type: 'redirect', location: '/kien-thuc/moi', status: 302 });
     expect(temporary.status).toBe(302);
-    const gone = redirectHttpResponse({ type: 'gone' });
-    expect(gone.status).toBe(410);
-    expect(gone.headers.get('location')).toBeNull();
-    expect(gone.headers.get('x-robots-tag')).toBe('noindex');
-    expect(gone.headers.get('cache-control')).toBe('private, no-cache');
+    expect(temporary.headers.get('location')).toBe('/kien-thuc/moi');
   });
 
   it('sitemap bỏ URL nguồn của redirect', () => {

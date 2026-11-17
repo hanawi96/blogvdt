@@ -97,7 +97,9 @@ async function loadPost() {
     const found = await getPostBySlug(db, slug);
     if (!found) {
       const outcome = await resolvePublicRedirect(db, routes.knowledge(slug));
-      if (outcome) return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], author: null, http: redirectHttpResponse(outcome) };
+      if (outcome?.type === 'redirect') {
+        return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], author: null, http: redirectHttpResponse(outcome) };
+      }
       return { site, failed: false, post: null, html: '', headings: [], related: [], products: [], author: null, http: null };
     }
     const bucket = optionalMediaBucket();

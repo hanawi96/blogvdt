@@ -209,6 +209,8 @@ export const products = sqliteTable(
     stockQty: integer('stock_qty').notNull().default(0),
     // Điểm ×10 (45 = 4.5★). 0 = chưa có điểm hiển thị.
     rating: integer('rating').notNull().default(0),
+    // Lượt bán nền (lịch sử Turso/import). Cộng với đơn trên D1 khi hiển thị.
+    soldBase: integer('sold_base').notNull().default(0),
     seoTitle: text('seo_title'),
     metaDescription: text('meta_description'),
     createdAt: integer('created_at').notNull(),
@@ -223,6 +225,7 @@ export const products = sqliteTable(
     check('products_compare_price_check', sql`${table.comparePrice} is null or ${table.comparePrice} >= 0`),
     check('products_stock_qty_check', sql`${table.stockQty} >= 0`),
     check('products_rating_check', sql`${table.rating} >= 0 and ${table.rating} <= 50`),
+    check('products_sold_base_check', sql`${table.soldBase} >= 0`),
   ],
 );
 

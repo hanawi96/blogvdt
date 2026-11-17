@@ -55,14 +55,14 @@ function boot() {
       page: Number(root.dataset.page || '1') || 1,
       pageCount: Number(root.dataset.pageCount || '1') || 1,
       category: root.dataset.category || '',
-      sort: root.dataset.sort || 'mac-dinh',
+      sort: root.dataset.sort || 'ban-chay',
     };
   }
 
   function apiUrl(page: number, category: string, sort: string) {
     const params = new URLSearchParams();
     if (category) params.set('danh-muc', category);
-    if (sort && sort !== 'mac-dinh') params.set('sap-xep', sort);
+    if (sort && sort !== 'ban-chay') params.set('sap-xep', sort);
     if (page > 1) params.set('page', String(page));
     const text = params.toString();
     return text ? `${apiBase}?${text}` : apiBase;
@@ -71,7 +71,7 @@ function boot() {
   function shopUrl(category: string, sort: string) {
     const params = new URLSearchParams();
     if (category) params.set('danh-muc', category);
-    if (sort && sort !== 'mac-dinh') params.set('sap-xep', sort);
+    if (sort && sort !== 'ban-chay') params.set('sap-xep', sort);
     const text = params.toString();
     return text ? `/?${text}#san-pham` : '/#san-pham';
   }
@@ -211,7 +211,7 @@ function boot() {
     moreWrap.hidden = false;
     const params = new URLSearchParams();
     if (category) params.set('danh-muc', category);
-    if (sort !== 'mac-dinh') params.set('sap-xep', sort);
+    if (sort !== 'ban-chay') params.set('sap-xep', sort);
     params.set('page', String(page + 1));
     moreBtn.href = `/mau-vong-dau-tam?${params.toString()}`;
     moreBtn.dataset.nextApi = apiUrl(page + 1, category, sort);
@@ -282,10 +282,15 @@ function boot() {
     const nextCategory = target.dataset.category !== undefined ? target.dataset.category : state().category;
     let nextSort = state().sort;
     if (target.dataset.sort !== undefined) {
-      // Bấm lại bộ lọc đang chọn → về mặc định (giá thấp → cao).
-      nextSort = target.dataset.sort === state().sort ? 'mac-dinh' : target.dataset.sort;
+      // Bấm lại chip đang chọn: Bán chạy → giá; chip khác → về bán chạy (mặc định).
+      nextSort =
+        target.dataset.sort === state().sort
+          ? target.dataset.sort === 'ban-chay'
+            ? 'mac-dinh'
+            : 'ban-chay'
+          : target.dataset.sort;
     }
-    void replaceList(nextCategory, nextSort || 'mac-dinh');
+    void replaceList(nextCategory, nextSort || 'ban-chay');
     if (target.dataset.category !== undefined) {
       document.getElementById('san-pham')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }

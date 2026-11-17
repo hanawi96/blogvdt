@@ -2,12 +2,20 @@
 import { routes } from '../../lib/routes';
 ---
 
-<main class="mx-auto max-w-3xl px-4 py-16">
-  <h1 class="text-3xl font-semibold">Không tìm thấy trang</h1>
-  <p class="mt-4 text-muted">Đường dẫn này không có nội dung công khai.</p>
-  <p class="mt-6 flex flex-wrap gap-3">
-    <a class="btn btn-primary" href={routes.home}>Về trang chủ</a>
-    <a class="btn" href={routes.knowledgeList}>Kiến thức</a>
-    <a class="btn" href={routes.catalog}>Mẫu vòng</a>
-  </p>
+<main class="not-found">
+  <div class="not-found-panel">
+    <p class="not-found-mark" aria-hidden="true">404</p>
+    <svg class="not-found-motif" viewBox="0 0 72 24" width="72" height="24" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="12" r="4.5"></circle>
+      <circle cx="36" cy="12" r="4.5"></circle>
+      <circle cx="60" cy="12" r="4.5"></circle>
+      <path d="M16.5 12h15M40.5 12h15"></path>
+    </svg>
+    <h1 class="not-found-title">Không tìm thấy trang</h1>
+    <p class="not-found-lead">Trang này không còn, hoặc chưa được mở công khai.</p>
+    <div class="not-found-actions">
+      <a class="btn btn-primary" href={routes.home}>Về trang chủ</a>
+      <a class="btn" href={routes.catalog}>Xem mẫu vòng</a>
+    </div>
+  </div>
 </main>

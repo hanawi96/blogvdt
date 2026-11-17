@@ -91,7 +91,11 @@ export function policyPageMeta(policy: { title: string; description: string }, s
 }
 
 export function notFoundMeta(): { title: string; description: string } {
-  return { title: 'Không tìm thấy trang', description: 'Đường dẫn này không có nội dung công khai.' };
+  return { title: 'Không tìm thấy trang', description: 'Trang này không còn, hoặc chưa được mở công khai.' };
+}
+
+export function goneMeta(): { title: string; description: string } {
+  return { title: 'Nội dung đã được gỡ', description: 'Trang này không còn tồn tại trên website.' };
 }
 
 export function unavailableMeta(): { title: string; description: string } {

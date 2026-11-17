@@ -1,0 +1,21 @@
+---
+import { routes } from '../../lib/routes';
+---
+
+<main class="not-found">
+  <div class="not-found-panel">
+    <p class="not-found-mark" aria-hidden="true">410</p>
+    <svg class="not-found-motif" viewBox="0 0 72 24" width="72" height="24" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="12" r="4.5"></circle>
+      <circle cx="36" cy="12" r="4.5"></circle>
+      <circle cx="60" cy="12" r="4.5"></circle>
+      <path d="M16.5 12h15M40.5 12h15"></path>
+    </svg>
+    <h1 class="not-found-title">Nội dung đã được gỡ</h1>
+    <p class="not-found-lead">Trang này không còn tồn tại. Bạn có thể về trang chủ hoặc xem các mẫu vòng đang bán.</p>
+    <div class="not-found-actions">
+      <a class="btn btn-primary" href={routes.home}>Về trang chủ</a>
+      <a class="btn" href={routes.catalog}>Xem mẫu vòng</a>
+    </div>
+  </div>
+</main>
