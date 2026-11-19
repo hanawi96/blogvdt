@@ -144,15 +144,42 @@ export function orderOptionLabel(weight: string): string | null {
   return value.length > 0 ? value : null;
 }
 
+/** Thân máy VN (9 số sau số 0): 03x/05x/07x/08x/09x. */
+const VN_MOBILE_BODY_RE = /^(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)\d{7}$/;
+
+/**
+ * Chuẩn hóa SĐT di động Việt Nam → `0xxxxxxxxx` (10 số).
+ * Nhận: 0386 190 596 | +84386190596 | 84386190596 | 84386 190 596 | 386 190 596 | 0386190596…
+ * Trả null nếu không phải mobile VN hợp lệ.
+ */
 export function normalizePhone(value: string): string | null {
-  const compact = value.replace(/[\s.\-()]/g, '');
-  const local = compact.startsWith('+84')
-    ? `0${compact.slice(3)}`
-    : compact.startsWith('84') && compact.length >= 11
-      ? `0${compact.slice(2)}`
-      : compact;
-  // Mobile VN 10 số (03/05/07/08/09) — loại id/timestamp giả 11 số.
-  return /^0(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)\d{7}$/.test(local) ? local : null;
+  // Chỉ giữ chữ số — bỏ +, khoảng trắng, dấu chấm/gạch/ngoặc.
+  let digits = String(value ?? '').replace(/\D/g, '');
+  if (!digits) return null;
+
+  // Bỏ mã quốc gia 84 (+84 / 84 / 840…).
+  if (digits.startsWith('84') && digits.length >= 11) {
+    digits = digits.slice(2);
+  }
+
+  // Khách hay bỏ số 0 đầu → còn 9 số thân máy.
+  if (digits.length === 9 && VN_MOBILE_BODY_RE.test(digits)) {
+    digits = `0${digits}`;
+  }
+
+  // Kết quả chuẩn: 0 + 9 số đầu mạng hợp lệ.
+  if (digits.length === 10 && digits.startsWith('0') && VN_MOBILE_BODY_RE.test(digits.slice(1))) {
+    return digits;
+  }
+  return null;
+}
+
+/** Tách ô tìm đơn/khách: SĐT thuần → phone; còn lại → text (đã bỏ ký tự LIKE). */
+export function orderSearchTerm(query: string): { text: string; phone: string } {
+  const text = query.replace(/[%_]/g, '').trim().slice(0, 80);
+  const digits = text.replace(/\D/g, '');
+  if (/^[\d\s.+\-()]+$/.test(text) && digits.length >= 8) return { text: '', phone: normalizePhone(text) ?? digits };
+  return { text, phone: '' };
 }
 
 export function orderDayKey(now: number): string {

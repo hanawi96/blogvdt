@@ -242,6 +242,12 @@ async function deleteOrderById(orderId) {
   return withCsrfPost(`/admin/orders/${id}/delete`, {});
 }
 
+async function updateOrderPriorityById(orderId, priority) {
+  const id = Number(orderId);
+  if (!Number.isInteger(id) || id < 1) return { ok: false, error: 'Đơn không hợp lệ.' };
+  return withCsrfPost(`/admin/orders/${id}/priority`, { priority: Boolean(priority) });
+}
+
 async function getPosOrder(orderId) {
   const id = Number(orderId);
   if (!Number.isInteger(id) || id < 1) return { ok: false, error: 'Đơn không hợp lệ.' };
@@ -429,6 +435,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message?.type === 'vdt-delete-order' && message.orderId != null) {
     deleteOrderById(message.orderId).then(sendResponse);
+    return true;
+  }
+  if (message?.type === 'vdt-order-priority' && message.orderId != null) {
+    updateOrderPriorityById(message.orderId, message.priority === true).then(sendResponse);
     return true;
   }
   if (message?.type === 'vdt-pos-order-get' && message.orderId != null) {

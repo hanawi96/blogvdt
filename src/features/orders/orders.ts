@@ -9,19 +9,22 @@ import { normalizeDiscountCode } from '../discounts/quote';
 import { resolveProvinceCode } from '../address/provinces';
 import { encodeCostLines, listOrderCosts, snapshotOrderCosts } from '../costs/order-costs';
 import { baseCustomerShippingFee, resolveCustomerShippingFee, shipGroupOf } from '../shipping/customer-fee';
+import { upsertCustomer } from './customers';
 import {
   formatOrderCode,
   isRecentDuplicate,
   isUniqueViolation,
-  normalizePhone,
   ORDER_IP_LIMIT,
   ORDER_IP_WINDOW_MS,
   orderDayKey,
+  orderSearchTerm,
   readCustomer,
   sequenceFromCode,
   type CartOrderDraft,
   type OrderDraft,
 } from './order';
+
+export { orderSearchTerm };
 import type { FieldErrors } from '../../lib/validation/errors';
 import { isPaymentMethod, type PaymentMethod } from './payment';
 import {
@@ -72,7 +75,16 @@ export function orderListSort(value: string | null | undefined): OrderSort {
   return value === 'newest' ? 'newest' : 'oldest';
 }
 
-/** Mặc định «Chưa gửi hàng»: gồm chưa gửi, gửi sau, chờ gửi lại. `all` / `''` = mọi trạng thái. */
+/** Có ô tìm → luôn đơn mới nhất trước; tab đã gửi theo ngày gửi; còn lại theo sort (+ ưu tiên). */
+function orderListOrderBy(filters: OrderListFilters) {
+  const term = orderSearchTerm(filters.query);
+  if (term.phone || term.text) return [desc(orders.createdAt), desc(orders.id)] as const;
+  if (filters.status === 'shipped') return [desc(orders.shippedAt), desc(orders.id)] as const;
+  if (filters.sort === 'newest') return [desc(orders.priority), desc(orders.createdAt), desc(orders.id)] as const;
+  return [desc(orders.priority), asc(orders.createdAt), asc(orders.id)] as const;
+}
+
+/** Mặc định «Chưa gửi hàng» (chưa gửi / gửi sau đến hạn / chờ gửi lại). `all` / `''` = mọi trạng thái. */
 export function orderListStatus(value: string | null | undefined): OrderListStatus {
   if (value === 'processing') return 'processing';
   if (value === 'all' || value === '') return '';
@@ -238,7 +250,25 @@ function orderListWhere(filters: OrderListFilters) {
   const shared = [];
   if (term.phone) shared.push(like(orders.phone, `%${term.phone}%`));
   else if (term.text) {
-    shared.push(or(like(orders.code, `%${term.text}%`), like(orders.customerName, `%${term.text}%`), like(orders.phone, `%${term.text}%`)));
+    const textLike = `%${term.text}%`;
+    shared.push(
+      or(
+        like(orders.code, textLike),
+        like(orders.customerName, textLike),
+        like(orders.phone, textLike),
+        like(orders.productName, textLike),
+        like(orders.note, textLike),
+        like(orders.internalNote, textLike),
+        sql`exists (
+          select 1 from order_items as oi
+          where oi.order_id = ${orders.id}
+            and (
+              oi.product_name like ${textLike}
+              or ifnull(oi.note, '') like ${textLike}
+            )
+        )`,
+      ),
+    );
   }
   if (filters.start !== null) shared.push(gte(orders.createdAt, filters.start));
   if (filters.end !== null) shared.push(lt(orders.createdAt, filters.end));
@@ -432,30 +462,14 @@ export async function listOrders(
       })
       .from(orders)
       .where(where)
-      .orderBy(
-        ...(filters.status === 'shipped'
-          ? [desc(orders.shippedAt), desc(orders.id)]
-          : // Chưa gửi: ưu tiên nổi trên cùng; sau đó theo ngày đặt (mặc định sớm nhất trước, đảo được).
-            filters.sort === 'newest'
-            ? [desc(orders.priority), desc(orders.createdAt), desc(orders.id)]
-            : [desc(orders.priority), asc(orders.createdAt), asc(orders.id)]),
-      )
+      .orderBy(...orderListOrderBy(filters))
       .limit(PAGE_SIZE)
       .offset((page - 1) * PAGE_SIZE),
   ]);
   const total = totalRows[0]?.value ?? 0;
-  // Chỉ đếm cả thư viện khi list đang trống — phục vụ empty-state, tránh count(*) mỗi lần lọc.
+  // List trống: đếm cả thư viện để phân biệt «chưa có đơn» vs «không khớp bộ lọc/tìm kiếm».
   let libraryTotal = total;
-  const term = orderSearchTerm(filters.query);
-  const bareFilters =
-    !term.text &&
-    !term.phone &&
-    !filters.source &&
-    !filters.payment &&
-    !filters.tag &&
-    filters.start === null &&
-    filters.end === null;
-  if (total === 0 && bareFilters) {
+  if (total === 0) {
     const libraryRows = await db.select({ value: count() }).from(orders);
     libraryTotal = libraryRows[0]?.value ?? 0;
   }
@@ -512,13 +526,16 @@ export async function listOrders(
   };
 }
 
-/** Doanh thu + số đơn chưa gửi / gửi sau / chờ gửi lại (ẩn đã gửi, hoàn thành, hủy). Gửi bù không cộng doanh thu. */
+/** Doanh thu + số đơn khớp bộ lọc «Chưa gửi hàng» (ẩn gửi sau còn xa). Gửi bù không cộng doanh thu. */
 export async function pendingUnshippedSummary(db: AppDb): Promise<{ revenue: number; orderCount: number }> {
-  const openShip = notInArray(orders.status, ['shipped', 'completed', 'cancelled']);
-  const pending = or(
-    eq(orders.fulfillStatus, 'reship'),
-    and(openShip, or(isNull(orders.fulfillStatus), eq(orders.fulfillStatus, 'unshipped'))),
-  );
+  const pending = orderListWhere({
+    query: '',
+    status: 'unshipped',
+    source: '',
+    payment: '',
+    start: null,
+    end: null,
+  });
   const rows = await db
     .select({
       orderCount: count(),
@@ -537,9 +554,11 @@ export async function getOrder(db: AppDb, id: number) {
     .select({
       id: orders.id,
       code: orders.code,
+      customerId: orders.customerId,
       customerName: orders.customerName,
       phone: orders.phone,
       address: orders.address,
+      provinceCode: orders.provinceCode,
       note: orders.note,
       internalNote: orders.internalNote,
       productId: orders.productId,
@@ -784,9 +803,15 @@ export async function updateStaffOrderCustomer(
   if (Object.keys(parsed.errors).length > 0 || !parsed.phone) {
     return { ok: false, error: 'Thông tin khách chưa hợp lệ.', errors: parsed.errors };
   }
+  const customerId = await upsertCustomer(
+    db,
+    { phone: parsed.phone, name: parsed.customerName, address: parsed.address },
+    now,
+  );
   await db
     .update(orders)
     .set({
+      customerId,
       customerName: parsed.customerName,
       phone: parsed.phone,
       address: parsed.address,
@@ -926,8 +951,14 @@ export async function placeOrder(
       }
       const code = formatOrderCode(day, sequence);
       try {
+        const customerId = await upsertCustomer(
+          db,
+          { phone: draft.phone, name: draft.customerName, address: draft.address },
+          now,
+        );
         await db.insert(orders).values({
           code,
+          customerId,
           customerName: draft.customerName,
           phone: draft.phone,
           address: draft.address,
@@ -1021,10 +1052,16 @@ export async function placeCartOrder(
       }
       const code = formatOrderCode(day, sequence);
       try {
+        const customerId = await upsertCustomer(
+          db,
+          { phone: draft.phone, name: draft.customerName, address: draft.address },
+          now,
+        );
         const inserted = await db
           .insert(orders)
           .values({
             code,
+            customerId,
             customerName: draft.customerName,
             phone: draft.phone,
             address: draft.address,
@@ -1161,10 +1198,16 @@ export async function createStaffOrder(
     }
     const code = formatOrderCode(day, sequence);
     try {
+      const customerId = await upsertCustomer(
+        db,
+        { phone: draft.phone, name: draft.customerName, address: draft.address },
+        now,
+      );
       const inserted = await db
         .insert(orders)
         .values({
           code,
+          customerId,
           customerName: draft.customerName,
           phone: draft.phone,
           address: draft.address,
@@ -1268,10 +1311,16 @@ export async function updateStaffOrder(
   const slot = await takeDiscountSlot(db, claim, now);
   if (!slot.ok) return slot;
   try {
+    const customerId = await upsertCustomer(
+      db,
+      { phone: draft.phone, name: draft.customerName, address: draft.address },
+      now,
+    );
     await commitWrites(db, [
       db
         .update(orders)
         .set({
+          customerId,
           customerName: draft.customerName,
           phone: draft.phone,
           address: draft.address,
@@ -1474,9 +1523,3 @@ function itemValues(orderId: number, lines: StaffOrderDraft['lines']) {
   }));
 }
 
-export function orderSearchTerm(query: string): { text: string; phone: string } {
-  const text = query.replace(/[%_]/g, '').trim().slice(0, 80);
-  const digits = text.replace(/\D/g, '');
-  if (/^[\d\s.+\-()]+$/.test(text) && digits.length >= 8) return { text: '', phone: normalizePhone(text) ?? digits };
-  return { text, phone: '' };
-}

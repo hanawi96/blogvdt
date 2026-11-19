@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { productCardName } from './cord';
 import { parseProductForm, ratingFormValue } from './form';
 import { productMarginAttr, productMarginBand } from '../materials/costing';
 import {
@@ -28,8 +29,8 @@ describe('danh sách sản phẩm', () => {
     );
     expect(productAdminQuery({ category: 4, status: 'active' })).toBe('/admin/products?status=active&category=4');
     expect(productAdminQuery({ category: 0 })).toBe('/admin/products');
-    expect(productAdminQuery({ cord: 'Dây rút', sort: 'stock-desc' })).toBe(
-      '/admin/products?cord=D%C3%A2y+r%C3%BAt&sort=stock-desc',
+    expect(productAdminQuery({ cord: 'adjustable', sort: 'stock-desc' })).toBe(
+      '/admin/products?cord=adjustable&sort=stock-desc',
     );
     expect(productAdminQuery({ sort: 'sold-desc' })).toBe('/admin/products');
     expect(productAdminQuery({ view: 'list', status: 'active' })).toBe('/admin/products?status=active&view=list');
@@ -49,7 +50,8 @@ describe('danh sách sản phẩm', () => {
     expect(productMarginBand(40)).toBe('high');
     expect(productMarginAttr(-5)).toBe('low');
     expect(productMarginAttr(40)).toBe('high');
-    expect(productListCord('Dây co giãn')).toBe('Dây co giãn');
+    expect(productListCord('elastic')).toBe('elastic');
+    expect(productListCord('Dây co giãn')).toBe('elastic');
     expect(productListCord('Chun')).toBe('');
     expect(productAdminQuery({ status: 'archived', sort: 'random', notice: 'feature-error' })).toBe(
       '/admin/products?error=feature',
@@ -116,13 +118,13 @@ describe('danh sách sản phẩm', () => {
     const form = productForm();
     form.set('comparePrice', '180000');
     form.set('categoryId', '4');
-    form.set('cordType', 'Dây rút');
+    form.set('cordType', 'adjustable');
     const parsed = parseProductForm(form);
     expect(parsed.ok && parsed.input.comparePrice).toBe(180000);
     expect(parsed.ok && parsed.input.categoryId).toBe(4);
-    expect(parsed.ok && parsed.input.cordType).toBe('Dây rút');
+    expect(parsed.ok && parsed.input.cordType).toBe('adjustable');
     const elastic = productForm();
-    elastic.set('cordType', 'Dây co giãn');
+    elastic.set('cordType', 'elastic');
     expect(parseProductForm(elastic).ok).toBe(true);
     const unknown = productForm();
     unknown.set('cordType', 'Chun');
@@ -135,6 +137,15 @@ describe('danh sách sản phẩm', () => {
     const bad = parseProductForm(invalid);
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.errors.categoryId).toBe('Danh mục không hợp lệ.');
+  });
+
+  it('tiền tố tên card theo kiểu dây', () => {
+    expect(productCardName('Vòng mix bạc', 'adjustable')).toBe('[DÂY RÚT] Vòng mix bạc');
+    expect(productCardName('Vòng mix bạc', 'elastic')).toBe('[CO GIÃN] Vòng mix bạc');
+    expect(productCardName('Vòng mix bạc', 'Dây rút')).toBe('[DÂY RÚT] Vòng mix bạc');
+    expect(productCardName('Vòng mix bạc', 'other')).toBe('Vòng mix bạc');
+    expect(productCardName('Vòng mix bạc', '')).toBe('Vòng mix bạc');
+    expect(productCardName('Vòng mix bạc', null)).toBe('Vòng mix bạc');
   });
 
   it('từ chối giá gốc không lớn hơn giá bán', () => {

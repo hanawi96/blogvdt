@@ -343,7 +343,7 @@ body {
   border-radius: 0.6rem;
   border: 1px solid transparent;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.92rem;
   font-weight: 700;
   line-height: 1.2;
   text-align: center;
@@ -429,6 +429,42 @@ body {
 [data-section='products'],
 [data-section='cart'] {
   scroll-margin-top: 0.35rem;
+}
+
+.card-cart {
+  position: relative;
+}
+
+.cart-back-products-btn {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  z-index: 2;
+  display: inline-grid;
+  place-items: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transform: translate(-50%, 50%);
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--ink) 8%, transparent);
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.cart-back-products-btn:hover,
+.cart-back-products-btn:focus-visible {
+  color: var(--accent-strong);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, #fff);
+  outline: none;
 }
 
 .is-field-attention {
@@ -815,8 +851,15 @@ body {
 
 .pick-panel-top {
   display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 0.4rem;
+  align-items: stretch;
   padding-top: 0.55rem;
+}
+
+.pick-note {
+  min-width: 0;
+  width: 100%;
 }
 
 .pick-chips {
@@ -851,7 +894,7 @@ body {
 
 .pick-panel-actions {
   display: grid;
-  grid-template-columns: minmax(7rem, 0.85fr) minmax(0, 1.4fr);
+  grid-template-columns: 1fr;
   gap: 0.45rem;
   align-items: stretch;
 }
@@ -859,6 +902,13 @@ body {
 .pick-add {
   width: 100%;
   min-height: 2.35rem;
+}
+
+.qty-box-compact {
+  width: auto;
+  max-width: none;
+  flex: none;
+  grid-template-columns: 1.85rem 2rem 1.85rem;
 }
 
 .chips {
@@ -949,8 +999,22 @@ body {
 }
 
 .cart-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.1rem;
   color: var(--muted);
   font-size: 0.75rem;
+}
+
+.cart-sub-sep {
+  color: var(--muted);
+}
+
+.cart-weight-editor {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.15rem 0 0.1rem;
 }
 
 .cart-controls {
@@ -976,6 +1040,14 @@ body {
   line-height: 1.25;
   text-align: left;
   cursor: pointer;
+}
+
+.cart-info-weight {
+  min-height: 1.35rem;
+  padding: 0.05rem 0.3rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
 }
 
 .cart-info:hover,

@@ -9,7 +9,7 @@ import { listingMediaKey } from '../media/files';
 import { mediaMapByIds } from '../media/media';
 import { PRODUCT_MARGIN_HIGH, PRODUCT_MARGIN_LOW, type RecipeLine } from '../materials/costing';
 import { insertRecipe, recipeWrites, validateRecipe } from '../materials/recipes';
-import { CORD_TYPES } from './form';
+import { normalizeCordType, type CordType } from './cord';
 import { canFeatureProduct, isProductStatus, type ProductStatus } from './status';
 
 /** Số sản phẩm mỗi trang danh sách admin. */
@@ -31,7 +31,7 @@ const PRODUCT_SORTS = [
 const PRODUCT_LIST_MARGINS = ['none', 'loss', 'low', 'mid', 'high'] as const;
 
 export type ProductListSort = (typeof PRODUCT_SORTS)[number];
-export type ProductListCord = (typeof CORD_TYPES)[number] | '';
+export type ProductListCord = CordType | '';
 export type ProductListView = 'list' | 'cards';
 export type ProductListMargin = (typeof PRODUCT_LIST_MARGINS)[number] | '';
 
@@ -40,7 +40,7 @@ export function productListSort(value: string | null | undefined): ProductListSo
 }
 
 export function productListCord(value: string | null | undefined): ProductListCord {
-  return CORD_TYPES.find((cord) => cord === value) ?? '';
+  return normalizeCordType(value);
 }
 
 export function productListView(value: string | null | undefined): ProductListView {

@@ -4,7 +4,8 @@ import { listTopSellingProducts, searchActiveProducts } from '../../../features/
 import { productMarginAttr, profitOf } from '../../../features/materials/costing';
 import { loadProductCosts } from '../../../features/materials/recipes';
 import { discountPercent } from '../../../features/products/catalog';
-import { CORD_TYPES, ratingFormValue } from '../../../features/products/form';
+import { CORD_TYPES, CORD_TYPE_LABELS, cordTypeLabel } from '../../../features/products/cord';
+import { ratingFormValue } from '../../../features/products/form';
 import {
   DEFAULT_PRODUCT_LIST_SORT,
   listProducts,
@@ -179,7 +180,7 @@ function listHref(nextView: 'list' | 'cards'): string {
           <select id="product-cord" class="field" name="cord">
             <option value="" selected={cord === ''}>Tất cả kiểu dây</option>
             {CORD_TYPES.map((item) => (
-              <option value={item} selected={cord === item}>{item}</option>
+              <option value={item} selected={cord === item}>{CORD_TYPE_LABELS[item]}</option>
             ))}
           </select>
           <label class="sr-only" for="product-margin">Biên lợi nhuận</label>
@@ -384,10 +385,10 @@ function listHref(nextView: 'list' | 'cards'): string {
                               <a class="product-admin-card-title" href={routes.adminProduct(product.id)}>{product.name}</a>
                               <p class="product-admin-card-meta">
                                 <span>{product.categoryName || 'Không danh mục'}</span>
-                                {product.cordType && (
+                                {cordTypeLabel(product.cordType) && (
                                   <>
                                     <span aria-hidden="true">·</span>
-                                    <span>{product.cordType}</span>
+                                    <span>{cordTypeLabel(product.cordType)}</span>
                                   </>
                                 )}
                                 <span aria-hidden="true">·</span>
@@ -546,7 +547,7 @@ function listHref(nextView: 'list' | 'cards'): string {
                               )}
                             </td>
                             <td class="product-list-category" data-label="Danh mục">{product.categoryName || '—'}</td>
-                            <td class="product-list-cord" data-label="Kiểu dây">{product.cordType || '—'}</td>
+                            <td class="product-list-cord" data-label="Kiểu dây">{cordTypeLabel(product.cordType) || '—'}</td>
                             <td class="product-list-status" data-label="Trạng thái">
                               <span class="post-status" data-status={active ? 'active' : 'inactive'}>
                                 {isProductStatus(product.status) ? PRODUCT_STATUS_LABELS[product.status] : product.status}
@@ -1007,7 +1008,7 @@ function listHref(nextView: 'list' | 'cards'): string {
     if (term) params.set('q', term);
     if (status === 'active' || status === 'inactive') params.set('status', status);
     if (Number.isInteger(categoryId) && categoryId > 0) params.set('category', String(categoryId));
-    if (cord === 'Dây rút' || cord === 'Dây co giãn') params.set('cord', cord);
+    if (cord === 'adjustable' || cord === 'elastic') params.set('cord', cord);
     if (sort && sort !== 'sold-desc') params.set('sort', sort);
     if (view === 'list') params.set('view', 'list');
     if (margin === 'none' || margin === 'loss' || margin === 'low' || margin === 'mid' || margin === 'high') {

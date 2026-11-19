@@ -1,5 +1,6 @@
 /** Filter danh mục/sort + Xem tiếp trên trang chủ — fetch JSON /api/catalog, không reload. */
 import { CART_MAX_QUANTITY } from '../features/cart/cart';
+import { productCardName } from '../features/products/cord';
 import { WEIGHT_SCALES, type WeightScale } from '../features/products/weight';
 import { FREE_SHIP_WITH_ADDON_LABEL, type ProductShipBadge } from '../features/shipping/customer-fee';
 
@@ -16,6 +17,7 @@ type ApiProduct = {
   price: number;
   comparePrice: number | null;
   discountPercent: number | null;
+  cordType?: string;
   weightScale: string;
   shipBadge?: ProductShipBadge;
   ratingLabel?: string | null;
@@ -97,6 +99,7 @@ function boot() {
     const href = `${productBase}${encodeURIComponent(product.slug)}`;
     const orderHref = `${checkoutPath}?san-pham=${encodeURIComponent(product.slug)}`;
     const name = escapeHtml(product.name);
+    const title = escapeHtml(productCardName(product.name, product.cordType));
     const needsWeight = product.weightScale !== 'none';
     const media = product.coverUrl
       ? `<img src="${escapeHtml(product.coverUrl)}" alt="" width="${product.coverWidth ?? 480}" height="${product.coverHeight ?? 480}" loading="${eager ? 'eager' : 'lazy'}" decoding="async" sizes="(min-width: 64rem) 16rem, (min-width: 40rem) 30vw, 46vw" />`
@@ -144,7 +147,7 @@ function boot() {
       ? `<dialog id="${addId}" class="add-dialog" aria-labelledby="${addTitleId}">
           <form class="add-form" method="post" action="${cartPath}" data-cart-form data-requires-weight="true">
             <div class="add-head">
-              <p id="${addTitleId}" class="font-semibold">${name}</p>
+              <p id="${addTitleId}" class="font-semibold">${title}</p>
               <button class="add-close" type="button" data-add-close aria-label="Đóng">×</button>
             </div>
             <p class="font-semibold text-primary-strong" data-add-price>${formatVnd(product.price)}</p>
@@ -179,7 +182,7 @@ function boot() {
     return `<li><article class="home-shop-card">
       <a class="home-shop-media" href="${href}" tabindex="-1" aria-hidden="true">${media}${badge}${salesBadge}</a>
       <div class="home-shop-body">
-        <h3 class="home-shop-name"><a href="${href}">${name}</a></h3>
+        <h3 class="home-shop-name"><a href="${href}">${title}</a></h3>
         <p class="home-shop-price"><span class="home-shop-price-now">${formatVnd(product.price)}</span>${compare}</p>
         ${shipBadge}
         <div class="home-shop-actions">

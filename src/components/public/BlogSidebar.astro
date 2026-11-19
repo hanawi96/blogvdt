@@ -1,5 +1,6 @@
 ---
 import type { CatalogCard } from '../../features/products/catalog';
+import { productCardName } from '../../features/products/cord';
 import type { PublicPostCard } from '../../features/posts/public';
 import type { PublicSite } from '../../features/settings/settings';
 import { formatVnd } from '../../lib/money';
@@ -54,7 +55,7 @@ const contactHref = site.zaloUrl || site.facebookUrl || (site.phone ? `tel:${sit
                     <span class="blog-bestseller-thumb blog-bestseller-thumb-empty" aria-hidden="true"></span>
                   )}
                   <span class="blog-bestseller-copy">
-                    <span class="blog-bestseller-name">{product.name}</span>
+                    <span class="blog-bestseller-name">{productCardName(product.name, product.cordType)}</span>
                     <span class="blog-bestseller-price">
                       <span class="blog-bestseller-now">{formatVnd(product.price)}</span>
                       {product.comparePrice != null && <span class="blog-bestseller-was">{formatVnd(product.comparePrice)}</span>}

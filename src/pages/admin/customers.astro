@@ -1,7 +1,18 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
+import { activityActor } from '../../features/activity/log';
+import { mutationError } from '../../features/auth/session';
 import { userInitials } from '../../features/auth/users';
-import { CUSTOMER_SORTS, CUSTOMER_TIER_LABELS, customerAdminQuery, customerSort, listCustomers } from '../../features/orders/customers';
+import {
+  CUSTOMER_SORTS,
+  CUSTOMER_TIER_LABELS,
+  customerAdminQuery,
+  customerSort,
+  hideCustomer,
+  listCustomers,
+  restoreCustomer,
+  updateCustomerProfile,
+} from '../../features/orders/customers';
 import { orderAdminQuery } from '../../features/orders/orders';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
@@ -13,14 +24,96 @@ const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
 if (session.role !== 'admin') return new Response('Bạn không có quyền vào trang này.', { status: 403 });
 
+const db = createDb(getDbBinding());
+let formError = '';
+let formErrors: Record<string, string> = {};
+let editDraft: { id: string; customerName: string; phone: string; address: string } | null = null;
+
+const listReturn = (extra: Record<string, string> = {}) => {
+  const params = new URLSearchParams();
+  const q = Astro.url.searchParams.get('q') ?? '';
+  const sort = customerSort(Astro.url.searchParams.get('sort'));
+  const hidden = Astro.url.searchParams.get('hidden') === '1';
+  const page = Number(Astro.url.searchParams.get('page') ?? '1');
+  if (q.trim()) params.set('q', q.trim().slice(0, 80));
+  if (sort !== 'recent') params.set('sort', sort);
+  if (hidden) params.set('hidden', '1');
+  if (Number.isInteger(page) && page > 1) params.set('page', String(page));
+  for (const [key, value] of Object.entries(extra)) params.set(key, value);
+  const text = params.toString();
+  return text ? `${routes.adminCustomers}?${text}` : routes.adminCustomers;
+};
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const blocked = mutationError(Astro.request, session, form);
+  if (blocked) {
+    Astro.response.status = 403;
+    formError = blocked;
+  } else {
+    const intent = String(form.get('intent') ?? '');
+    const idValue = Number(form.get('id'));
+    const id = Number.isInteger(idValue) && idValue > 0 ? idValue : 0;
+    const actor = await activityActor(db, session.userId);
+    if (!id) {
+      formError = 'Khách hàng không hợp lệ.';
+      Astro.response.status = 422;
+    } else if (intent === 'update') {
+      const draft = {
+        id: String(id),
+        customerName: String(form.get('customerName') ?? ''),
+        phone: String(form.get('phone') ?? ''),
+        address: String(form.get('address') ?? ''),
+      };
+      editDraft = draft;
+      const saved = await updateCustomerProfile(db, id, draft, actor);
+      if (!saved.ok) {
+        Astro.response.status = 422;
+        formError = saved.error;
+        formErrors = saved.errors ?? {};
+      } else {
+        return Astro.redirect(listReturn({ saved: '1' }), 303);
+      }
+    } else if (intent === 'hide') {
+      const hidden = await hideCustomer(db, id, actor);
+      if (!hidden.ok) {
+        Astro.response.status = 422;
+        formError = hidden.error;
+      } else {
+        return Astro.redirect(listReturn({ removed: '1' }), 303);
+      }
+    } else if (intent === 'restore') {
+      const restored = await restoreCustomer(db, id, actor);
+      if (!restored.ok) {
+        Astro.response.status = 422;
+        formError = restored.error;
+      } else {
+        return Astro.redirect(listReturn({ restored: '1' }), 303);
+      }
+    } else {
+      formError = 'Thao tác không hợp lệ.';
+      Astro.response.status = 422;
+    }
+  }
+}
+
 const query = Astro.url.searchParams.get('q') ?? '';
 const sort = customerSort(Astro.url.searchParams.get('sort'));
+const showHidden = Astro.url.searchParams.get('hidden') === '1';
 const page = Number(Astro.url.searchParams.get('page') ?? '1');
-const advancedFiltersActive = sort !== 'recent';
+const advancedFiltersActive = sort !== 'recent' || showHidden;
+const saved = Astro.url.searchParams.get('saved') === '1';
+const removed = Astro.url.searchParams.get('removed') === '1';
+const restoredFlash = Astro.url.searchParams.get('restored') === '1';
 let loadError = '';
 let result: Awaited<ReturnType<typeof listCustomers>> | null = null;
 try {
-  result = await listCustomers(createDb(getDbBinding()), { query, sort, page: Number.isInteger(page) ? page : 1 });
+  result = await listCustomers(createDb(getDbBinding()), {
+    query,
+    sort,
+    page: Number.isInteger(page) ? page : 1,
+    hidden: showHidden,
+  });
 } catch (error) {
   console.error(JSON.stringify({ event: 'customer_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
   loadError = 'Không tải được danh sách khách hàng.';
@@ -29,9 +122,13 @@ try {
 
 <AdminLayout title="Khách hàng">
   <p slot="lead">{result ? `${result.libraryTotal} khách hàng` : 'Danh sách khách hàng'}</p>
+  {saved && !formError && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã lưu thông tin khách.</p>}
+  {removed && !formError && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã ẩn khách khỏi danh sách. Đơn hàng vẫn giữ nguyên.</p>}
+  {restoredFlash && !formError && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã khôi phục khách hàng.</p>}
+  {formError && !editDraft && <p class="error-text mb-4" role="alert">{formError}</p>}
   {loadError && <p class="error-text" role="alert">{loadError}</p>}
   {
-    result && result.libraryTotal === 0 && !query ? (
+    result && result.libraryTotal === 0 && !query && !showHidden ? (
       <section class="cms-empty">
         <span class="cms-empty-icon" aria-hidden="true">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -40,9 +137,9 @@ try {
           </svg>
         </span>
         <h2 class="cms-empty-title">Chưa có khách hàng nào</h2>
-        <p class="cms-empty-text">Danh sách khách được tổng hợp tự động từ đơn hàng. Khi có đơn đầu tiên, thông tin khách sẽ xuất hiện ở đây.</p>
+        <p class="cms-empty-text">Hồ sơ khách được tạo tự động khi có đơn. Bạn có thể sửa thông tin hoặc ẩn khỏi danh sách mà không xóa đơn.</p>
         <ul class="cms-empty-points">
-          <li>Gộp theo số điện thoại: số đơn, tổng chi tiêu, đơn gần nhất.</li>
+          <li>Mỗi số điện thoại là một khách.</li>
           <li>Bấm "Xem đơn" để lọc nhanh mọi đơn của một khách.</li>
           <li>Không cần khách đăng ký tài khoản.</li>
         </ul>
@@ -75,11 +172,16 @@ try {
             <select id="customer-sort" class="field" name="sort">
               {CUSTOMER_SORTS.map((item) => <option value={item.value} selected={sort === item.value}>{item.label}</option>)}
             </select>
+            <label class="sr-only" for="customer-hidden">Hiển thị</label>
+            <select id="customer-hidden" class="field" name="hidden">
+              <option value="" selected={!showHidden}>Đang hiện</option>
+              <option value="1" selected={showHidden}>Đã ẩn</option>
+            </select>
           </div>
         </form>
         <div data-customer-list>
           {result.rows.length === 0 ? (
-            <p class="post-empty">Không có khách khớp tìm kiếm.</p>
+            <p class="post-empty">{showHidden ? 'Không có khách đang ẩn.' : 'Không có khách khớp tìm kiếm.'}</p>
           ) : (
             <table class="post-table customer-table">
               <thead>
@@ -110,9 +212,68 @@ try {
                     <td class="customer-list-address" data-label="Địa chỉ"><span class="line-clamp-2 max-w-xs">{customer.address}</span></td>
                     <td class="customer-list-orders" data-label="Số đơn">{customer.orderCount} đơn</td>
                     <td class="customer-list-spent" data-label="Tổng chi tiêu">{formatVnd(customer.spent)}</td>
-                    <td class="customer-list-last" data-label="Đơn gần nhất">{formatDateTime(customer.lastOrderAt)}</td>
+                    <td class="customer-list-last" data-label="Đơn gần nhất">{customer.lastOrderAt ? formatDateTime(customer.lastOrderAt) : '—'}</td>
                     <td class="customer-list-ops" data-label="Thao tác">
-                      <a class="category-list-edit" href={orderAdminQuery({ query: customer.phone, status: 'all' })}>Xem đơn</a>
+                      <div class="post-actions customer-list-actions">
+                        {!showHidden && (
+                          <button
+                            class="order-icon-btn is-edit"
+                            type="button"
+                            data-customer-edit
+                            data-id={customer.id}
+                            data-name={customer.customerName}
+                            data-phone={customer.phone}
+                            data-address={customer.address}
+                            aria-label={`Sửa khách ${customer.customerName}`}
+                            title="Sửa"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+                            </svg>
+                          </button>
+                        )}
+                        <a
+                          class="order-icon-btn is-view"
+                          href={orderAdminQuery({ query: customer.phone, status: 'all' })}
+                          aria-label={`Xem đơn của ${customer.customerName}`}
+                          title="Xem đơn"
+                        >
+                          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z" />
+                            <circle cx="12" cy="12" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8" />
+                          </svg>
+                        </a>
+                        {showHidden ? (
+                          <form method="post" data-busy>
+                            <input type="hidden" name="csrf" value={session.csrfToken} />
+                            <input type="hidden" name="intent" value="restore" />
+                            <input type="hidden" name="id" value={customer.id} />
+                            <button class="order-icon-btn is-duplicate" type="submit" aria-label={`Khôi phục khách ${customer.customerName}`} title="Khôi phục">
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
+                              </svg>
+                            </button>
+                          </form>
+                        ) : (
+                          <form
+                            method="post"
+                            data-busy
+                            data-confirm-title="Ẩn khách hàng này?"
+                            data-confirm="Khách sẽ biến mất khỏi danh sách. Đơn hàng và doanh thu vẫn giữ nguyên. Có thể khôi phục sau trong bộ lọc Đã ẩn."
+                            data-confirm-ok="Ẩn khách"
+                            data-confirm-tone="danger"
+                          >
+                            <input type="hidden" name="csrf" value={session.csrfToken} />
+                            <input type="hidden" name="intent" value="hide" />
+                            <input type="hidden" name="id" value={customer.id} />
+                            <button class="order-icon-btn is-delete" type="submit" aria-label={`Ẩn khách ${customer.customerName}`} title="Xóa">
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                              </svg>
+                            </button>
+                          </form>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -122,14 +283,50 @@ try {
         </div>
         {result.pageCount > 1 && (
           <nav class="post-pager" aria-label="Phân trang">
-            {result.page > 1 && <a class="btn" href={customerAdminQuery({ query, sort, page: result.page - 1 })}>Trang trước</a>}
+            {result.page > 1 && <a class="btn" href={customerAdminQuery({ query, sort, page: result.page - 1, hidden: showHidden })}>Trang trước</a>}
             <span>Trang {result.page}/{result.pageCount}</span>
-            {result.page < result.pageCount && <a class="btn" href={customerAdminQuery({ query, sort, page: result.page + 1 })}>Trang sau</a>}
+            {result.page < result.pageCount && <a class="btn" href={customerAdminQuery({ query, sort, page: result.page + 1, hidden: showHidden })}>Trang sau</a>}
           </nav>
         )}
       </>
     ) : null
   }
+
+  <dialog
+    id="customer-edit-dialog"
+    class="category-dialog"
+    aria-labelledby="customer-edit-title"
+    data-customer-edit-dialog
+    data-open={editDraft ? '1' : undefined}
+  >
+    <h2 id="customer-edit-title" class="text-lg font-semibold">Sửa khách hàng</h2>
+    <p class="mt-2 text-sm text-muted">Chỉ cập nhật hồ sơ khách. Thông tin trên từng đơn cũ giữ nguyên.</p>
+    {editDraft && formError && <p class="error-text mt-3" role="alert">{formError}</p>}
+    <form class="mt-4" method="post" data-busy data-customer-edit-form>
+      <input type="hidden" name="csrf" value={session.csrfToken} />
+      <input type="hidden" name="intent" value="update" />
+      <input type="hidden" name="id" value={editDraft?.id ?? ''} data-customer-edit-id />
+      <label class="block">
+        <span class="mb-1 block font-semibold">Họ tên</span>
+        <input class="field" name="customerName" required maxlength="80" autocomplete="name" value={editDraft?.customerName ?? ''} data-customer-edit-name />
+        {formErrors.customerName && <span class="error-text mt-1 block">{formErrors.customerName}</span>}
+      </label>
+      <label class="mt-3 block">
+        <span class="mb-1 block font-semibold">Số điện thoại</span>
+        <input class="field" name="phone" required maxlength="20" inputmode="tel" autocomplete="tel" value={editDraft?.phone ?? ''} data-customer-edit-phone />
+        {formErrors.phone && <span class="error-text mt-1 block">{formErrors.phone}</span>}
+      </label>
+      <label class="mt-3 block">
+        <span class="mb-1 block font-semibold">Địa chỉ</span>
+        <textarea class="field" name="address" required maxlength="240" rows="3" data-customer-edit-address>{editDraft?.address ?? ''}</textarea>
+        {formErrors.address && <span class="error-text mt-1 block">{formErrors.address}</span>}
+      </label>
+      <div class="category-actions">
+        <button class="btn" type="button" data-customer-edit-cancel>Hủy</button>
+        <button class="btn btn-primary" type="submit">Lưu</button>
+      </div>
+    </form>
+  </dialog>
 </AdminLayout>
 
 <script>
@@ -142,9 +339,11 @@ try {
       const data = new FormData(form);
       const term = String(data.get('q') ?? '').trim();
       const sort = String(data.get('sort') ?? '');
+      const hidden = String(data.get('hidden') ?? '');
       const params = new URLSearchParams();
       if (term) params.set('q', term);
       if (sort === 'orders' || sort === 'spent') params.set('sort', sort);
+      if (hidden === '1') params.set('hidden', '1');
       const text = params.toString();
       const next = text ? `/admin/customers?${text}` : '/admin/customers';
       if (next === location.pathname + location.search) return;
@@ -172,5 +371,61 @@ try {
       const toggleBtn = form.querySelector('[data-customer-filters-toggle]');
       if (toggleBtn instanceof HTMLElement) toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
+  }
+
+  const dialog = document.querySelector('[data-customer-edit-dialog]');
+  const cancelBtn = document.querySelector('[data-customer-edit-cancel]');
+  const idInput = document.querySelector('[data-customer-edit-id]');
+  const nameInput = document.querySelector('[data-customer-edit-name]');
+  const phoneInput = document.querySelector('[data-customer-edit-phone]');
+  const addressInput = document.querySelector('[data-customer-edit-address]');
+  if (
+    dialog instanceof HTMLDialogElement &&
+    idInput instanceof HTMLInputElement &&
+    nameInput instanceof HTMLInputElement &&
+    phoneInput instanceof HTMLInputElement &&
+    addressInput instanceof HTMLTextAreaElement
+  ) {
+    const open = (payload: { id: string; name: string; phone: string; address: string }) => {
+      idInput.value = payload.id;
+      nameInput.value = payload.name;
+      phoneInput.value = payload.phone;
+      addressInput.value = payload.address;
+      if (!dialog.open) dialog.showModal();
+      nameInput.focus();
+      nameInput.select();
+    };
+    const close = () => dialog.close();
+    document.querySelectorAll('[data-customer-edit]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (!(button instanceof HTMLElement)) return;
+        open({
+          id: button.dataset.id ?? '',
+          name: button.dataset.name ?? '',
+          phone: button.dataset.phone ?? '',
+          address: button.dataset.address ?? '',
+        });
+      });
+    });
+    cancelBtn?.addEventListener('click', close);
+    dialog.addEventListener('click', (event) => {
+      if (event.target !== dialog) return;
+      const box = dialog.getBoundingClientRect();
+      const outside =
+        event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+      if (outside) close();
+    });
+    if (dialog.dataset.open === '1') dialog.showModal();
+  }
+
+  {
+    const params = new URLSearchParams(location.search);
+    if (params.has('saved') || params.has('removed') || params.has('restored')) {
+      params.delete('saved');
+      params.delete('removed');
+      params.delete('restored');
+      const text = params.toString();
+      history.replaceState({}, '', text ? `${location.pathname}?${text}` : location.pathname);
+    }
   }
 </script>

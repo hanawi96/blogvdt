@@ -4,7 +4,7 @@ import ProductRecipe from './ProductRecipe.svelte';
 import SlugField from './SlugField.svelte';
 import type { ProductPhoto } from '../../features/products/products';
 import type { CostedLine, MaterialOption } from '../../features/materials/costing';
-import { CORD_TYPES } from '../../features/products/form';
+import { CORD_TYPES, CORD_TYPE_LABELS, normalizeCordType } from '../../features/products/cord';
 import { PRODUCT_STATUS_LABELS } from '../../features/products/status';
 import type { FieldErrors } from '../../lib/validation/errors';
 import { routes } from '../../lib/routes';
@@ -100,8 +100,8 @@ const { csrf, action, values, errors, formError, categories, photos, recipeOptio
     <div class="category-presets" role="radiogroup" aria-labelledby="cord-type-label">
       {CORD_TYPES.map((type) => (
         <label class="category-preset">
-          <input type="radio" name="cordType" value={type} checked={values.cordType === type} />
-          <span>{type}</span>
+          <input type="radio" name="cordType" value={type} checked={normalizeCordType(values.cordType) === type} />
+          <span>{CORD_TYPE_LABELS[type]}</span>
         </label>
       ))}
     </div>

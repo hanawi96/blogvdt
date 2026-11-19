@@ -589,6 +589,7 @@ html.vdt-zalo-inset.vdt-zalo-resizing #chatViewContainer {
   margin-left: auto;
 }
 
+#vdt-pos-overlay-root .vdt-priority,
 #vdt-pos-overlay-root .vdt-copy,
 #vdt-pos-overlay-root .vdt-edit,
 #vdt-pos-overlay-root .vdt-delete {
@@ -604,6 +605,21 @@ html.vdt-zalo-inset.vdt-zalo-resizing #chatViewContainer {
   padding: 0;
 }
 
+#vdt-pos-overlay-root .vdt-priority {
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+#vdt-pos-overlay-root .vdt-priority.is-on {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  color: #d97706;
+}
+
+#vdt-pos-overlay-root .vdt-priority.is-static {
+  cursor: default;
+}
+
 #vdt-pos-overlay-root .vdt-edit {
   border-color: #bfdbfe;
   color: #1d4ed8;
@@ -614,6 +630,7 @@ html.vdt-zalo-inset.vdt-zalo-resizing #chatViewContainer {
   color: #b91c1c;
 }
 
+#vdt-pos-overlay-root .vdt-priority svg,
 #vdt-pos-overlay-root .vdt-copy svg,
 #vdt-pos-overlay-root .vdt-edit svg,
 #vdt-pos-overlay-root .vdt-delete svg {
@@ -624,6 +641,15 @@ html.vdt-zalo-inset.vdt-zalo-resizing #chatViewContainer {
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+#vdt-pos-overlay-root .vdt-priority.is-on svg {
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+#vdt-pos-overlay-root .vdt-priority:hover:not(:disabled):not(.is-static) {
+  background: #fef3c7;
 }
 
 #vdt-pos-overlay-root .vdt-copy:hover {
@@ -638,6 +664,7 @@ html.vdt-zalo-inset.vdt-zalo-resizing #chatViewContainer {
   background: #fee2e2;
 }
 
+#vdt-pos-overlay-root .vdt-priority:disabled,
 #vdt-pos-overlay-root .vdt-edit:disabled {
   opacity: 0.65;
   cursor: default;

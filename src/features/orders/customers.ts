@@ -1,10 +1,11 @@
-import { and, asc, desc, eq, inArray, like, ne, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
-import { orderItems, orders, productCategories, products } from '../../lib/db/schema';
+import { customers, orderItems, orders, productCategories, products } from '../../lib/db/schema';
+import type { FieldErrors } from '../../lib/validation/errors';
 import { routes } from '../../lib/routes';
+import { activityWrite, commitWrites, type ActivityActor } from '../activity/log';
 import { readWeightScale, weightChips, weightExtras, type WeightScale } from '../products/weight';
-import { normalizePhone } from './order';
-import { orderSearchTerm } from './orders';
+import { isUniqueViolation, normalizePhone, orderSearchTerm, readCustomer } from './order';
 import { canEditOrderProducts } from './staff';
 import { FULFILL_STATUS_LABELS, fulfillStatusOf, orderStatusLabel } from './status';
 
@@ -36,64 +37,259 @@ export function customerSort(value: string | null | undefined): CustomerSort {
   return CUSTOMER_SORTS.find((sort) => sort.value === value)?.value ?? 'recent';
 }
 
-export function customerAdminQuery(input: { query?: string; sort?: string; page?: number }): string {
+export function customerAdminQuery(input: {
+  query?: string;
+  sort?: string;
+  page?: number;
+  hidden?: boolean;
+}): string {
   const params = new URLSearchParams();
   const query = (input.query ?? '').replace(/[%_]/g, '').trim().slice(0, 80);
   const sort = customerSort(input.sort);
   const page = input.page && Number.isInteger(input.page) && input.page > 1 ? input.page : 0;
   if (query) params.set('q', query);
   if (sort !== 'recent') params.set('sort', sort);
+  if (input.hidden) params.set('hidden', '1');
   if (page) params.set('page', String(page));
   const text = params.toString();
   return text ? `${routes.adminCustomers}?${text}` : routes.adminCustomers;
 }
 
-/** Khách không có tài khoản: mỗi số điện thoại (đã chuẩn hóa khi đặt) là một khách. */
-export async function listCustomers(db: AppDb, filters: { query: string; sort: CustomerSort; page: number }) {
+/** Tạo hoặc cập nhật hồ sơ theo SĐT; trả về customer id để gắn đơn. */
+export async function upsertCustomer(
+  db: AppDb,
+  input: { phone: string; name: string; address: string },
+  now = Date.now(),
+): Promise<number> {
+  const existing = await db
+    .select({ id: customers.id })
+    .from(customers)
+    .where(eq(customers.phone, input.phone))
+    .limit(1);
+  if (existing[0]) {
+    await db
+      .update(customers)
+      .set({ name: input.name, address: input.address, updatedAt: now })
+      .where(eq(customers.id, existing[0].id));
+    return existing[0].id;
+  }
+  try {
+    const inserted = await db
+      .insert(customers)
+      .values({
+        phone: input.phone,
+        name: input.name,
+        address: input.address,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: customers.id });
+    const id = inserted[0]?.id;
+    if (id == null) throw new Error('customer_insert_empty');
+    return id;
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    const raced = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(eq(customers.phone, input.phone))
+      .limit(1);
+    const id = raced[0]?.id;
+    if (id == null) throw error;
+    await db
+      .update(customers)
+      .set({ name: input.name, address: input.address, updatedAt: now })
+      .where(eq(customers.id, id));
+    return id;
+  }
+}
+
+export async function updateCustomerProfile(
+  db: AppDb,
+  id: number,
+  input: { customerName: string; phone: string; address: string },
+  actor: ActivityActor,
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string; errors?: FieldErrors }> {
+  const current = await db
+    .select({
+      id: customers.id,
+      phone: customers.phone,
+      name: customers.name,
+      address: customers.address,
+    })
+    .from(customers)
+    .where(eq(customers.id, id))
+    .limit(1);
+  const row = current[0];
+  if (!row) return { ok: false, error: 'Không tìm thấy khách hàng.' };
+  const parsed = readCustomer({ ...input, note: '' });
+  if (Object.keys(parsed.errors).length > 0 || !parsed.phone) {
+    return { ok: false, error: 'Thông tin khách chưa hợp lệ.', errors: parsed.errors };
+  }
+  if (parsed.phone !== row.phone) {
+    const clash = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(and(eq(customers.phone, parsed.phone), ne(customers.id, id)))
+      .limit(1);
+    if (clash[0]) return { ok: false, error: 'Số điện thoại đã thuộc khách khác.' };
+  }
+  const changed =
+    parsed.phone !== row.phone || parsed.customerName !== row.name || parsed.address !== row.address;
+  if (!changed) return { ok: true };
+  try {
+    await commitWrites(db, [
+      db
+        .update(customers)
+        .set({
+          phone: parsed.phone,
+          name: parsed.customerName,
+          address: parsed.address,
+          updatedAt: now,
+        })
+        .where(eq(customers.id, id)),
+      activityWrite(
+        db,
+        {
+          actorId: actor.id,
+          actorName: actor.name,
+          action: 'customer.update',
+          objectType: 'customer',
+          objectId: String(id),
+          summary: `Sửa khách ${parsed.customerName} (${parsed.phone})`,
+          createdAt: now,
+        },
+        true,
+      ),
+    ]);
+  } catch (error) {
+    if (isUniqueViolation(error)) return { ok: false, error: 'Số điện thoại đã thuộc khách khác.' };
+    throw error;
+  }
+  return { ok: true };
+}
+
+export async function hideCustomer(
+  db: AppDb,
+  id: number,
+  actor: ActivityActor,
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const current = await db
+    .select({ id: customers.id, name: customers.name, phone: customers.phone, hiddenAt: customers.hiddenAt })
+    .from(customers)
+    .where(eq(customers.id, id))
+    .limit(1);
+  const row = current[0];
+  if (!row) return { ok: false, error: 'Không tìm thấy khách hàng.' };
+  if (row.hiddenAt != null) return { ok: true };
+  await commitWrites(db, [
+    db.update(customers).set({ hiddenAt: now, updatedAt: now }).where(eq(customers.id, id)),
+    activityWrite(
+      db,
+      {
+        actorId: actor.id,
+        actorName: actor.name,
+        action: 'customer.hide',
+        objectType: 'customer',
+        objectId: String(id),
+        summary: `Ẩn khách ${row.name} (${row.phone})`,
+        createdAt: now,
+      },
+      true,
+    ),
+  ]);
+  return { ok: true };
+}
+
+export async function restoreCustomer(
+  db: AppDb,
+  id: number,
+  actor: ActivityActor,
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const current = await db
+    .select({ id: customers.id, name: customers.name, phone: customers.phone, hiddenAt: customers.hiddenAt })
+    .from(customers)
+    .where(eq(customers.id, id))
+    .limit(1);
+  const row = current[0];
+  if (!row) return { ok: false, error: 'Không tìm thấy khách hàng.' };
+  if (row.hiddenAt == null) return { ok: true };
+  await commitWrites(db, [
+    db.update(customers).set({ hiddenAt: null, updatedAt: now }).where(eq(customers.id, id)),
+    activityWrite(
+      db,
+      {
+        actorId: actor.id,
+        actorName: actor.name,
+        action: 'customer.restore',
+        objectType: 'customer',
+        objectId: String(id),
+        summary: `Khôi phục khách ${row.name} (${row.phone})`,
+        createdAt: now,
+      },
+      true,
+    ),
+  ]);
+  return { ok: true };
+}
+
+/** Danh sách từ bảng customers; số đơn / chi tiêu gộp theo customer_id. */
+export async function listCustomers(
+  db: AppDb,
+  filters: { query: string; sort: CustomerSort; page: number; hidden?: boolean },
+) {
   const term = orderSearchTerm(filters.query);
   const partialPhone = /^[\d\s.+\-()]+$/.test(term.text) ? term.text.replace(/\D/g, '') : '';
   const phone = term.phone || partialPhone;
-  // Lọc theo tên bằng subquery để số đơn và tổng chi tiêu vẫn tính trên mọi đơn của số điện thoại đó.
-  const where = phone
-    ? like(orders.phone, `%${phone}%`)
+  const visibility = filters.hidden ? isNotNull(customers.hiddenAt) : isNull(customers.hiddenAt);
+  const search = phone
+    ? like(customers.phone, `%${phone}%`)
     : term.text
-      ? inArray(orders.phone, db.select({ phone: orders.phone }).from(orders).where(like(orders.customerName, `%${term.text}%`)))
+      ? or(like(customers.name, `%${term.text}%`), like(customers.phone, `%${term.text}%`))
       : undefined;
+  const where = and(visibility, search);
   const page = Math.max(1, filters.page);
-  // Số đơn xếp hạng: không tính đơn hủy. Tổng đơn hiển thị vẫn dùng cùng số này để khớp cấp khách.
   const orderCount = sql<number>`coalesce(sum(case when ${orders.status} <> 'cancelled' then 1 else 0 end), 0)`;
-  // SQLite lấy cột không gộp từ đúng dòng có max() khi truy vấn chỉ có một min()/max(): tên, địa chỉ là của đơn mới nhất.
-  const lastOrderAt = sql<number>`max(${orders.createdAt})`;
+  const lastOrderAt = sql<number | null>`max(${orders.createdAt})`;
   const spent = sql<number>`coalesce(sum(case when ${orders.status} <> 'cancelled' then ${orders.totalPrice} else 0 end), 0)`;
-  const order =
+  const orderBy =
     filters.sort === 'orders'
-      ? [desc(orderCount), desc(lastOrderAt), asc(orders.phone)]
+      ? [desc(orderCount), desc(lastOrderAt), asc(customers.phone)]
       : filters.sort === 'spent'
-        ? [desc(spent), desc(lastOrderAt), asc(orders.phone)]
-        : [desc(lastOrderAt), asc(orders.phone)];
-  const distinctPhones = sql<number>`count(distinct ${orders.phone})`;
+        ? [desc(spent), desc(lastOrderAt), asc(customers.phone)]
+        : [desc(lastOrderAt), asc(customers.phone)];
+  const activeWhere = isNull(customers.hiddenAt);
   const [rows, totalRows, libraryRows] = await db.batch([
     db
       .select({
-        phone: orders.phone,
-        customerName: orders.customerName,
-        address: orders.address,
+        id: customers.id,
+        phone: customers.phone,
+        customerName: customers.name,
+        address: customers.address,
         orderCount,
         spent,
         lastOrderAt,
       })
-      .from(orders)
+      .from(customers)
+      .leftJoin(orders, eq(orders.customerId, customers.id))
       .where(where)
-      .groupBy(orders.phone)
-      .orderBy(...order)
+      .groupBy(customers.id)
+      .orderBy(...orderBy)
       .limit(PAGE_SIZE)
       .offset((page - 1) * PAGE_SIZE),
-    db.select({ value: distinctPhones }).from(orders).where(where),
-    db.select({ value: distinctPhones }).from(orders),
+    db.select({ value: count() }).from(customers).where(where),
+    db.select({ value: count() }).from(customers).where(activeWhere),
   ]);
   const total = totalRows[0]?.value ?? 0;
   return {
-    rows: rows.map((row) => ({ ...row, tier: customerTierOf(Number(row.orderCount) || 0) })),
+    rows: rows.map((row) => ({
+      ...row,
+      lastOrderAt: row.lastOrderAt ?? 0,
+      tier: customerTierOf(Number(row.orderCount) || 0),
+    })),
     total,
     libraryTotal: libraryRows[0]?.value ?? 0,
     page,
@@ -132,6 +328,9 @@ export type CustomerPhoneLookup = {
     optionLabel: string | null;
     createdAt: number;
     editable: boolean;
+    /** unshipped | shipped | reship — dùng ẩn sửa/ưu tiên khi đã gửi hàng. */
+    fulfillStatus: string | null;
+    priority: boolean;
     discountCode: string;
     shippingFee: number;
     lines: CustomerLookupLine[];
@@ -212,10 +411,21 @@ async function lookupRecentLines(
   ];
 }
 
-/** Tra khách theo SĐT cho POS / extension: đơn gần nhất + số đơn chưa hủy. */
+/** Tra khách theo SĐT cho POS / extension: hồ sơ customers + đơn gần nhất. */
 export async function lookupCustomerByPhone(db: AppDb, rawPhone: string): Promise<CustomerPhoneLookup | null> {
   const phone = normalizePhone(rawPhone) ?? (/^\d{8,11}$/.test(rawPhone.replace(/\D/g, '')) ? rawPhone.replace(/\D/g, '') : null);
   if (!phone) return null;
+  const profileRows = await db
+    .select({
+      id: customers.id,
+      phone: customers.phone,
+      name: customers.name,
+      address: customers.address,
+    })
+    .from(customers)
+    .where(eq(customers.phone, phone))
+    .limit(1);
+  const profile = profileRows[0];
   const recentRows = await db
     .select({
       id: orders.id,
@@ -232,45 +442,57 @@ export async function lookupCustomerByPhone(db: AppDb, rawPhone: string): Promis
       optionLabel: orders.optionLabel,
       discountCode: orders.discountCode,
       shippingFee: orders.shippingFee,
+      priority: orders.priority,
       createdAt: orders.createdAt,
     })
     .from(orders)
-    .where(eq(orders.phone, phone))
+    .where(profile ? eq(orders.customerId, profile.id) : eq(orders.phone, phone))
     .orderBy(desc(orders.createdAt), desc(orders.id))
     .limit(1);
   const recent = recentRows[0];
-  if (!recent) return null;
-  const countRows = await db
-    .select({ value: sql<number>`count(*)` })
-    .from(orders)
-    .where(and(eq(orders.phone, phone), ne(orders.status, 'cancelled')));
-  const fulfill = fulfillStatusOf(recent);
-  const fulfillLabel = fulfill ? FULFILL_STATUS_LABELS[fulfill] : orderStatusLabel(recent.status);
-  const parts = recent.address.split(',').map((part) => part.trim()).filter(Boolean);
+  if (!profile && !recent) return null;
+  const countWhere = profile
+    ? and(eq(orders.customerId, profile.id), ne(orders.status, 'cancelled'))
+    : and(eq(orders.phone, phone), ne(orders.status, 'cancelled'));
+  const countRows = await db.select({ value: sql<number>`count(*)` }).from(orders).where(countWhere);
+  const customerName = profile?.name ?? recent?.customerName ?? '';
+  const address = profile?.address ?? recent?.address ?? '';
+  const displayPhone = profile?.phone ?? recent?.phone ?? phone;
+  const fulfill = recent ? fulfillStatusOf(recent) : null;
+  const fulfillLabel = recent
+    ? fulfill
+      ? FULFILL_STATUS_LABELS[fulfill]
+      : orderStatusLabel(recent.status)
+    : '';
+  const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
   const provinceLabel = parts.length > 0 ? parts[parts.length - 1]! : '';
-  const lines = await lookupRecentLines(db, recent);
+  const lines = recent ? await lookupRecentLines(db, recent) : [];
   const first = lines[0];
   return {
-    phone: recent.phone,
-    customerName: recent.customerName,
-    address: recent.address,
+    phone: displayPhone,
+    customerName,
+    address,
     provinceLabel,
     orderCount: Number(countRows[0]?.value ?? 0),
-    recent: {
-      id: recent.id,
-      code: recent.code,
-      statusLabel: orderStatusLabel(recent.status),
-      fulfillLabel,
-      totalPrice: recent.totalPrice,
-      quantity: lines.reduce((sum, line) => sum + line.quantity, 0) || Number(recent.quantity) || 1,
-      weightLabel: first ? weightLabelFromOption(first.weight) || first.weight : weightLabelFromOption(recent.optionLabel),
-      productName: first?.productName || recent.productName,
-      optionLabel: first?.weight || recent.optionLabel,
-      createdAt: recent.createdAt,
-      editable: canEditOrderProducts(recent.status),
-      discountCode: recent.discountCode || '',
-      shippingFee: Math.max(0, Number(recent.shippingFee) || 0),
-      lines,
-    },
+    recent: recent
+      ? {
+          id: recent.id,
+          code: recent.code,
+          statusLabel: orderStatusLabel(recent.status),
+          fulfillLabel,
+          totalPrice: recent.totalPrice,
+          quantity: lines.reduce((sum, line) => sum + line.quantity, 0) || Number(recent.quantity) || 1,
+          weightLabel: first ? weightLabelFromOption(first.weight) || first.weight : weightLabelFromOption(recent.optionLabel),
+          productName: first?.productName || recent.productName,
+          optionLabel: first?.weight || recent.optionLabel,
+          createdAt: recent.createdAt,
+          editable: canEditOrderProducts(recent.status),
+          fulfillStatus: fulfill,
+          priority: Number(recent.priority) === 1,
+          discountCode: recent.discountCode || '',
+          shippingFee: Math.max(0, Number(recent.shippingFee) || 0),
+          lines,
+        }
+      : null,
   };
 }

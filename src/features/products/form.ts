@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { fieldErrors, type FieldErrors } from '../../lib/validation/errors';
 import { parseRecipe } from '../materials/costing';
+import { CORD_TYPES, isCordType } from './cord';
 import type { ProductInput } from './products';
 import { canFeatureProduct, isProductStatus } from './status';
 
-export const CORD_TYPES = ['Dây rút', 'Dây co giãn'] as const;
+export { CORD_TYPES, CORD_TYPE_LABELS, cordTypeLabel, productCardName } from './cord';
 
 export const PRODUCT_RATING_MAX = 50;
 
@@ -140,10 +141,6 @@ function readRating(value: string): { ok: true; value: number } | { ok: false; e
     return { ok: false, error: 'Điểm từ 0 đến 5, tối đa 1 số lẻ.' };
   }
   return { ok: true, value: stored };
-}
-
-function isCordType(value: string): boolean {
-  return (CORD_TYPES as readonly string[]).includes(value);
 }
 
 function optionalId(value: string): number | null {

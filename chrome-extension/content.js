@@ -5,8 +5,14 @@ const DEFAULT_WIDTH = 400;
 const MIN_WIDTH = 300;
 const MAX_WIDTH = 720;
 const POS_URL_CACHE_KEY = 'posUrlCached';
-/** Chỉ mobile VN 10 số (03/05/07/08/09) — tránh khớp id/timestamp kiểu 06137105057. */
+/** Khớp SĐT dính liền có 0/+84/84. */
 const PHONE_RE = /(?:\+?84|0)(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)\d{7}/;
+/**
+ * Quét SĐT trong text tự do: có/không +84|84|0, có khoảng trắng/dấu, hoặc bỏ 0 đầu (9 số).
+ * Luôn đưa qua normalizePhone — regex chỉ để bắt ứng viên.
+ */
+const PHONE_RE_LOOSE_SRC = String.raw`(?:\+?84[\s.\-()]*)?(?:0[\s.\-()]*)?(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)(?:[\s.\-()]*\d){7}`;
+const PHONE_RE_LOOSE = new RegExp(PHONE_RE_LOOSE_SRC);
 
 /** @type {Map<string, object>} */
 const lookupCache = new Map();
@@ -320,14 +326,15 @@ function clearHostLayoutInset() {
   html.style.removeProperty('--vdt-host-inset');
 }
 
+/** Chuẩn hóa mobile VN → 0xxxxxxxxx. Khớp logic src/features/orders/order.ts. */
 function normalizePhone(raw) {
-  const compact = String(raw || '').replace(/[\s.\-()]/g, '');
-  const local = compact.startsWith('+84')
-    ? `0${compact.slice(3)}`
-    : compact.startsWith('84') && compact.length >= 11
-      ? `0${compact.slice(2)}`
-      : compact;
-  return /^0(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)\d{7}$/.test(local) ? local : null;
+  let digits = String(raw || '').replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.startsWith('84') && digits.length >= 11) digits = digits.slice(2);
+  const bodyOk = /^(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)\d{7}$/;
+  if (digits.length === 9 && bodyOk.test(digits)) digits = `0${digits}`;
+  if (digits.length === 10 && digits.startsWith('0') && bodyOk.test(digits.slice(1))) return digits;
+  return null;
 }
 
 function money(amount) {
@@ -745,7 +752,7 @@ function readPancakePhone() {
   );
   for (const node of nodes) {
     const text = node.textContent || '';
-    const match = text.match(PHONE_RE);
+    const match = text.match(PHONE_RE_LOOSE) || text.match(PHONE_RE);
     if (!match) continue;
     const phone = normalizePhone(match[0]);
     if (phone) return phone;
@@ -796,7 +803,8 @@ function extractPhonesFromNode(node) {
   if (!(node instanceof HTMLElement)) return phones;
   const text = node.innerText || node.textContent || '';
   if (text && text.length <= 4000) {
-    const matches = text.match(new RegExp(PHONE_RE.source, 'g'));
+    // Ưu tiên regex lỏng (có dấu cách); fallback dính liền. Tạo RegExp mới mỗi lần (tránh lastIndex).
+    const matches = text.match(new RegExp(PHONE_RE_LOOSE_SRC, 'g')) || text.match(new RegExp(PHONE_RE.source, 'g'));
     if (matches) {
       for (const raw of matches) {
         const phone = normalizePhone(raw);
@@ -812,7 +820,16 @@ function extractPhonesFromNode(node) {
   return phones;
 }
 
-/** SĐT trong bubble hội thoại đang mở — Zalo chỉ lấy tin khách (trắng), bỏ tin mình (xanh/shiper). */
+/** Tin nhân viên gửi trên Pancake — bỏ khi lấy SĐT khách từ bubble. */
+function isPancakeOutgoingMessage(node) {
+  if (!(node instanceof Element)) return false;
+  const bubble =
+    node.closest('[class*="message"], [class*="bubble"], [class*="Message"], [class*="chat-item"]') || node;
+  const cls = `${bubble.className || ''} ${bubble.getAttribute('data-type') || ''} ${bubble.getAttribute('data-from') || ''}`;
+  return /\b(me|mine|sent|outgoing|self|from[_-]?me|is[_-]?me|own[_-]?message|msg[_-]?out|message[_-]?out)\b/i.test(cls);
+}
+
+/** SĐT trong bubble hội thoại đang mở — ưu tiên tin khách; lấy số xuất hiện sau cùng (mới nhất). */
 function readPhoneFromVisibleMessages() {
   let found = null;
 
@@ -845,18 +862,20 @@ function readPhoneFromVisibleMessages() {
     if (!(node instanceof HTMLElement)) continue;
     if (node.closest(`#${ROOT_ID}`)) continue;
     if (node.closest(CHAT_LIST_SEL)) continue;
+    if (isPancakeOutgoingMessage(node)) continue;
     for (const phone of extractPhonesFromNode(node)) found = phone;
   }
   return found;
 }
 
 /**
- * Chỉ lấy SĐT đáng tin cho header:
- * tag SĐT trên panel Pancake hoặc số đang hiện trong tin nhắn.
+ * SĐT đáng tin cho header / tạo đơn:
+ * 1) Số trong tin nhắn khách đang hiện (ưu tiên — khách gửi số mới thì nhận số mới)
+ * 2) Tag SĐT Pancake (dự phòng khi chưa có số trong bubble)
  * Không dùng SĐT bắt từ JSON API toàn cục (dễ lấy nhầm hội thoại khác).
  */
 function readTrustedPhone() {
-  return readPancakePhone() || readPhoneFromVisibleMessages();
+  return readPhoneFromVisibleMessages() || readPancakePhone();
 }
 
 function rememberChatPhone(channel, chatId, phone) {
@@ -2132,7 +2151,12 @@ function renderCustomer(root, customer) {
   activeCustomer = customer;
   const status = recent.fulfillLabel || recent.statusLabel || '';
   const place = shortProvince(customer.provinceLabel);
-  const editable = Boolean(recent.editable);
+  const shipped =
+    recent.fulfillStatus === 'shipped' ||
+    String(recent.fulfillLabel || '').trim().toLowerCase() === 'đã gửi hàng';
+  // Đã gửi hàng: chỉ nhân bản + xóa — ẩn ưu tiên và sửa.
+  const canMutate = Boolean(recent.editable) && !shipped;
+  const priorityOn = Boolean(recent.priority);
   const lines = customerLinesOf(recent);
   const canDelete = Boolean(customerCanDelete);
   const deleteBusy = customerSaving && customerDeleteConfirm;
@@ -2141,17 +2165,24 @@ function renderCustomer(root, customer) {
   const lineSaving = customerSaving && !customerDeleteConfirm;
   box.classList.toggle('is-saving', lineSaving);
   box.innerHTML = `
-    <div class="vdt-customer-card${editable ? ' is-editable' : ''}${lineSaving ? ' is-saving' : ''}${customerDeleteConfirm ? ' is-confirm-delete' : ''}">
+    <div class="vdt-customer-card${canMutate ? ' is-editable' : ''}${priorityOn && canMutate ? ' is-priority' : ''}${lineSaving ? ' is-saving' : ''}${customerDeleteConfirm ? ' is-confirm-delete' : ''}">
       <div class="vdt-customer-row">
         <span class="vdt-pill vdt-pill-status">${escapeHtml(status)}</span>
         <span class="vdt-pill vdt-pill-phone">${escapeHtml(customer.phone)}</span>
         <span class="vdt-date">${escapeHtml(dayLabel(recent.createdAt))}</span>
         <div class="vdt-customer-actions">
+          ${
+            canMutate
+              ? `<button type="button" class="vdt-priority${priorityOn ? ' is-on' : ''}" data-vdt-priority-order title="${priorityOn ? 'Bỏ ưu tiên' : 'Gắn ưu tiên'}" aria-label="${priorityOn ? 'Bỏ ưu tiên' : 'Gắn ưu tiên'}" aria-pressed="${priorityOn ? 'true' : 'false'}" ${customerSaving ? 'disabled' : ''}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.8 6.8 19.6l1-5.8L3.5 9.7l5.9-.9L12 3.5z"/></svg>
+                </button>`
+              : ''
+          }
           <button type="button" class="vdt-copy" data-vdt-duplicate-order title="Nhân bản đơn" aria-label="Nhân bản đơn">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/></svg>
           </button>
           ${
-            editable
+            canMutate
               ? `<button type="button" class="vdt-edit" data-vdt-edit-order title="Sửa đơn" aria-label="Sửa đơn" ${customerSaving ? 'disabled' : ''}>
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                 </button>`
@@ -2182,9 +2213,17 @@ function renderCustomer(root, customer) {
         <strong class="vdt-price" data-vdt-order-total>${escapeHtml(money(recent.totalPrice))}</strong>
         ${customerSaving && !customerDeleteConfirm ? '<span class="vdt-saving">Đang lưu…</span>' : ''}
       </div>
-      <div class="vdt-lines">${lines.map((line, index) => renderLineEditor(line, index, editable)).join('')}</div>
+      <div class="vdt-lines">${lines.map((line, index) => renderLineEditor(line, index, canMutate)).join('')}</div>
     </div>
   `;
+}
+
+function customerCanMutate() {
+  const recent = activeCustomer?.recent;
+  if (!recent?.editable) return false;
+  if (recent.fulfillStatus === 'shipped') return false;
+  if (String(recent.fulfillLabel || '').trim().toLowerCase() === 'đã gửi hàng') return false;
+  return true;
 }
 
 function patchCustomerFromOrder(order) {
@@ -2216,7 +2255,7 @@ function linesPayloadFromCustomer() {
 }
 
 async function saveCustomerLines(mutate) {
-  if (!activeCustomer?.recent?.editable || customerSaving) return;
+  if (!customerCanMutate() || customerSaving) return;
   const orderId = Number(activeCustomer.recent.id);
   if (!Number.isInteger(orderId) || orderId < 1) return;
   const previousLines = customerLinesOf(activeCustomer.recent).map((line) => ({ ...line }));
@@ -2306,13 +2345,45 @@ function duplicateActiveOrder() {
   showToast('Đã nhân bản vào form tạo đơn.');
 }
 
+async function toggleActiveOrderPriority() {
+  if (!customerCanMutate() || customerSaving) return;
+  const orderId = Number(activeCustomer.recent.id);
+  if (!Number.isInteger(orderId) || orderId < 1) return;
+  const next = !Boolean(activeCustomer.recent.priority);
+  customerDeleteConfirm = false;
+  customerEditUi = null;
+  customerSaving = true;
+  renderCustomer(ensureRoot(), activeCustomer);
+  try {
+    const result = await runtimeSend({ type: 'vdt-order-priority', orderId, priority: next });
+    if (!result?.ok) {
+      showToast(result?.error || 'Không đổi được ưu tiên.');
+      return;
+    }
+    activeCustomer.recent.priority = next;
+    lookupCache.set(activeCustomer.phone, activeCustomer);
+    showToast(next ? 'Đã gắn ưu tiên.' : 'Đã bỏ ưu tiên.');
+  } catch {
+    showToast('Không đổi được ưu tiên.');
+  } finally {
+    customerSaving = false;
+    if (activeCustomer) renderCustomer(ensureRoot(), activeCustomer);
+  }
+}
+
 function handleCustomerCardClick(event) {
   const target = event.target;
   if (!(target instanceof Element)) return;
 
+  const priorityToggle = target.closest('[data-vdt-priority-order]');
+  if (priorityToggle instanceof HTMLElement) {
+    void toggleActiveOrderPriority();
+    return;
+  }
+
   const editOpen = target.closest('[data-vdt-edit-order]');
   if (editOpen instanceof HTMLElement) {
-    if (!activeCustomer?.recent?.editable || customerSaving) return;
+    if (!customerCanMutate() || customerSaving) return;
     customerDeleteConfirm = false;
     customerEditUi = null;
     openOrderInPanel(activeCustomer.recent.id);
@@ -2341,7 +2412,7 @@ function handleCustomerCardClick(event) {
     return;
   }
 
-  if (!activeCustomer?.recent?.editable || customerSaving || customerDeleteConfirm) return;
+  if (!customerCanMutate() || customerSaving || customerDeleteConfirm) return;
 
   const weightToggle = target.closest('[data-vdt-edit-weight]');
   if (weightToggle instanceof HTMLElement) {
@@ -2415,7 +2486,7 @@ function handleCustomerCardChange(event) {
   const target = event.target;
   if (!(target instanceof HTMLSelectElement)) return;
   if (!target.hasAttribute('data-vdt-weight-extra')) return;
-  if (!activeCustomer?.recent?.editable || customerSaving) return;
+  if (!customerCanMutate() || customerSaving) return;
   const lineIndex = Number(target.getAttribute('data-vdt-weight-extra'));
   const weight = target.value;
   if (!Number.isInteger(lineIndex) || !weight) return;
@@ -2710,7 +2781,8 @@ function looksLikeAddressText(raw) {
 }
 
 function readPhoneFromText(text) {
-  const match = String(text || '').match(PHONE_RE);
+  const raw = String(text || '');
+  const match = raw.match(PHONE_RE_LOOSE) || raw.match(PHONE_RE);
   return match ? normalizePhone(match[0]) : null;
 }
 
@@ -3201,24 +3273,25 @@ async function mount() {
       posReady = true;
       panelReady = true;
       flushPendingPosMessages();
+      postToPos({ type: 'vdt-host-channel', channel: chatChannel() || '' }, true);
       revealOverlayIfReady();
       scheduleSync();
       return;
     }
     if (data.type === 'vdt-order-updated') {
-      const phone = typeof data.phone === 'string' ? data.phone.trim() : '';
+      const rawPhone = typeof data.phone === 'string' ? data.phone.trim() : '';
+      const phone = normalizePhone(rawPhone) || rawPhone;
       if (!phone) return;
       lookupCache.delete(phone);
+      if (rawPhone && rawPhone !== phone) lookupCache.delete(rawPhone);
       const channel = chatChannel();
       const chatId = selectedConversationId();
       const name = readChatName() || lastName || '';
       if (channel && chatId) persistChatPhone(channel, chatId, phone, name);
-      showToast('Đã cập nhật đơn.');
       schedulePendingRefresh(200);
-      if (phone === lastPhone || chatId === lastConvId) {
-        lastPhone = '';
-        requestLookup(phone, chatId || lastConvId, name);
-      }
+      // Luôn tra lại để hiện card đơn vừa tạo/sửa — không phụ thuộc lastPhone.
+      lastPhone = '';
+      requestLookup(phone, chatId || lastConvId, name);
       return;
     }
     if (data.type === 'vdt-send-confirm') {

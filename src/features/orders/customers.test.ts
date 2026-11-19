@@ -22,5 +22,6 @@ describe('danh sách khách hàng', () => {
     expect(customerAdminQuery({ sort: 'recent', page: 1 })).toBe('/admin/customers');
     expect(customerAdminQuery({ query: ' Lan%_ ', sort: 'spent', page: 3 })).toBe('/admin/customers?q=Lan&sort=spent&page=3');
     expect(customerAdminQuery({ page: 2.5 })).toBe('/admin/customers');
+    expect(customerAdminQuery({ hidden: true, page: 2 })).toBe('/admin/customers?hidden=1&page=2');
   });
 });

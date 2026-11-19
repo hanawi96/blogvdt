@@ -185,9 +185,9 @@ function current(href: string): boolean {
   }
 
   function showCartToast(message: string, tone: 'ok' | 'err' = 'ok') {
-    let toast = document.querySelector('[data-cart-toast]');
-    if (!(toast instanceof HTMLElement)) {
-      toast = document.createElement('div');
+    const existing = document.querySelector('[data-cart-toast]');
+    const toast = existing instanceof HTMLElement ? existing : document.createElement('div');
+    if (!(existing instanceof HTMLElement)) {
       toast.className = 'cart-toast';
       toast.setAttribute('data-cart-toast', '');
       toast.setAttribute('role', 'status');

@@ -163,6 +163,7 @@ async function selectProducts(db: AppDb, pattern: string, limit: number, offset:
       comparePrice: products.comparePrice,
       rating: products.rating,
       sold: productSoldCount,
+      cordType: products.cordType,
       weightScale: productCategories.weightScale,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,

@@ -82,6 +82,10 @@
   /** @type {null | object} */
   let legacyTree = null;
   let readyNotified = false;
+  /** Kênh host: zalo | pancake | '' */
+  let hostChannel = '';
+  /** Giá trị nguồn vừa auto-gán — không đè nếu nhân viên đã đổi tay. */
+  let autoSource = '';
   let legacyTimer = 0;
   let legacyActive = -1;
   /** @type {object[]} */
@@ -125,14 +129,19 @@
     if (msg && savedEl instanceof HTMLElement) savedEl.hidden = true;
   }
 
+  /** Chuẩn hóa/kiểm tra mobile VN — khớp content.js / order.ts. */
+  function normalizeOrderPhone(raw) {
+    let digits = String(raw || '').replace(/\D/g, '');
+    if (!digits) return null;
+    if (digits.startsWith('84') && digits.length >= 11) digits = digits.slice(2);
+    const bodyOk = /^(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)\d{7}$/;
+    if (digits.length === 9 && bodyOk.test(digits)) digits = `0${digits}`;
+    if (digits.length === 10 && digits.startsWith('0') && bodyOk.test(digits.slice(1))) return digits;
+    return null;
+  }
+
   function isValidOrderPhone(raw) {
-    const compact = String(raw || '').replace(/[\s.\-()]/g, '');
-    const local = compact.startsWith('+84')
-      ? `0${compact.slice(3)}`
-      : compact.startsWith('84') && compact.length >= 11
-        ? `0${compact.slice(2)}`
-        : compact;
-    return /^0(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)\d{7}$/.test(local);
+    return Boolean(normalizeOrderPhone(raw));
   }
 
   /** Kiểm tra đủ thông tin bắt buộc; nếu thiếu thì báo lỗi + cuộn tới trường. */
@@ -277,6 +286,21 @@
     }
   }
 
+  function scrollPanelToTop() {
+    const run = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      const panel = document.getElementById('panel');
+      if (panel instanceof HTMLElement) panel.scrollTop = 0;
+    };
+    requestAnimationFrame(() => {
+      run();
+      // Layout sau reset form có thể lệch — chốt lại một nhịp.
+      window.setTimeout(run, 80);
+    });
+  }
+
   async function showSaved(result, { updated = false } = {}) {
     if (!(savedEl instanceof HTMLElement)) return;
     const origin = await adminOrigin();
@@ -293,7 +317,29 @@
     link.rel = 'noreferrer';
     link.textContent = code;
     savedEl.append(link, updated ? `${total}.` : `${total}. Tiếp tục đơn mới bên dưới.`);
-    savedEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function sourceForChannel(channel) {
+    if (channel === 'zalo') return 'zalo';
+    if (channel === 'pancake') return 'facebook';
+    return '';
+  }
+
+  /** Zalo → Zalo, Pancake → Facebook; kênh khác / không biết → bỏ chọn. */
+  function applyChannelSource(channel, { force = false } = {}) {
+    if (isEditing() && !force) return;
+    hostChannel = String(channel || '');
+    const want = sourceForChannel(hostChannel);
+    const radios = [...document.querySelectorAll('input[name="source"]')].filter(
+      (input) => input instanceof HTMLInputElement,
+    );
+    if (!radios.length) return;
+    const current = radios.find((input) => input.checked)?.value || '';
+    if (!force && current && current !== autoSource) return;
+    for (const input of radios) {
+      input.checked = Boolean(want) && input.value === want;
+    }
+    autoSource = want;
   }
 
   function setMetaFlags(flags) {
@@ -306,6 +352,7 @@
     for (const input of document.querySelectorAll('input[name="source"]')) {
       if (input instanceof HTMLInputElement) input.checked = input.value === source;
     }
+    autoSource = '';
     if (priorityEl instanceof HTMLInputElement) priorityEl.checked = Boolean(flags.priority);
     if (compensationEl instanceof HTMLInputElement) compensationEl.checked = Boolean(flags.compensation);
     if (shipLaterEl instanceof HTMLInputElement) shipLaterEl.checked = Boolean(flags.shipLater);
@@ -1319,11 +1366,16 @@
     const scale = scaleOf(product);
     const chips = scale.chips || [];
     const extras = scale.extras || [];
-    const noteField = `<div class="pick-panel-top">
-      <input class="field" maxlength="160" placeholder="Lưu ý sản phẩm…" data-weight-note value="${escapeHtml(pendingNote)}" />
+    const noteQtyRow = `<div class="pick-panel-top">
+      <div class="qty-box qty-box-compact">
+        <button type="button" class="qty-btn" data-weight-qty-dec aria-label="Giảm số lượng">−</button>
+        <input class="qty-value" type="text" inputmode="numeric" maxlength="2" value="${pendingQty}" data-weight-qty aria-label="Số lượng" />
+        <button type="button" class="qty-btn" data-weight-qty-inc aria-label="Tăng số lượng">+</button>
+      </div>
+      <input class="field pick-note" maxlength="160" placeholder="Lưu ý sản phẩm…" data-weight-note value="${escapeHtml(pendingNote)}" />
     </div>`;
     const weightBlock = weigh
-      ? `${noteField}
+      ? `${noteQtyRow}
         <div class="chips pick-chips" data-weight-chips>
           <button type="button" class="chip weight-step" data-weight-step="-1" aria-label="Giảm cân nặng">−</button>
           ${chips
@@ -1350,16 +1402,11 @@
               .join('')}
           </select>
         </label>`
-      : noteField;
+      : noteQtyRow;
 
     return `<div class="pick-panel" data-pick-panel>
       ${weightBlock}
       <div class="pick-panel-actions">
-        <div class="qty-box qty-box-wide">
-          <button type="button" class="qty-btn" data-weight-qty-dec aria-label="Giảm số lượng">−</button>
-          <input class="qty-value" type="text" inputmode="numeric" maxlength="2" value="${pendingQty}" data-weight-qty aria-label="Số lượng" />
-          <button type="button" class="qty-btn" data-weight-qty-inc aria-label="Tăng số lượng">+</button>
-        </div>
         <button type="button" class="btn btn-primary pick-add" data-weight-add>Thêm vào đơn</button>
       </div>
     </div>`;
@@ -1446,11 +1493,16 @@
     paintPay();
   }
 
-  /** @type {{ index: number, field: 'qty' | 'note' } | null} */
+  /** @type {{ index: number, field: 'qty' | 'note' | 'weight', extraOpen?: boolean } | null} */
   let cartEdit = null;
+
+  function cartLineProduct(line) {
+    return products.find((item) => Number(item.id) === Number(line?.productId)) || null;
+  }
 
   function focusCartEdit() {
     if (!cartEdit || !(cartEl instanceof HTMLElement)) return;
+    if (cartEdit.field !== 'qty' && cartEdit.field !== 'note') return;
     const row = cartEl.querySelector(`[data-cart-index="${cartEdit.index}"]`);
     if (!(row instanceof HTMLElement)) return;
     const input =
@@ -1466,6 +1518,45 @@
     }
   }
 
+  function renderCartWeightEditor(line, product) {
+    const scale = scaleOf(product);
+    const chips = scale.chips || [];
+    const extras = scale.extras || [];
+    const weight = String(line.weight || '').trim();
+    const extraOpen = Boolean(cartEdit?.extraOpen) || (weight && extras.includes(weight) && !chips.includes(weight));
+    return `<div class="cart-weight-editor" data-cart-weight-editor>
+      <div class="chips pick-chips">
+        ${chips
+          .map(
+            (label) =>
+              `<button type="button" class="chip" data-cart-weight-chip="${escapeHtml(label)}" aria-pressed="${label === weight}">${escapeHtml(label)}</button>`,
+          )
+          .join('')}
+        ${
+          extras.length
+            ? `<button type="button" class="chip weight-extra-toggle" data-cart-weight-extra-toggle aria-expanded="${extraOpen}" title="Cân nặng khác" aria-label="Cân nặng khác">+</button>`
+            : ''
+        }
+      </div>
+      ${
+        extras.length
+          ? `<label class="weight-extra-field" ${extraOpen ? '' : 'hidden'}>
+              <span class="label">Cân nặng khác</span>
+              <select class="field" data-cart-weight-extra>
+                <option value="">Chọn…</option>
+                ${extras
+                  .map(
+                    (label) =>
+                      `<option value="${escapeHtml(label)}" ${label === weight ? 'selected' : ''}>${escapeHtml(label)}</option>`,
+                  )
+                  .join('')}
+              </select>
+            </label>`
+          : ''
+      }
+    </div>`;
+  }
+
   /** @param {{ keepEdit?: boolean }} [opts] */
   function renderCart(opts = {}) {
     if (!(cartEl instanceof HTMLElement)) return;
@@ -1474,10 +1565,17 @@
     show(cartEmpty, cart.length === 0);
     cartEl.innerHTML = cart
       .map((line, index) => {
-        const sub = [line.weight, formatVnd(line.unitPrice)].filter(Boolean).join(' · ');
+        const product = cartLineProduct(line);
+        const weigh = Boolean(product && needsWeight(product));
         const editingQty = cartEdit?.index === index && cartEdit.field === 'qty';
         const editingNote = cartEdit?.index === index && cartEdit.field === 'note';
+        const editingWeight = cartEdit?.index === index && cartEdit.field === 'weight';
         const noteText = String(line.note || '').trim();
+        const priceBit = formatVnd(line.unitPrice);
+        const weightLabel = String(line.weight || '').trim();
+        const subHtml = weigh
+          ? `<button type="button" class="cart-info cart-info-weight" data-cart-edit-weight title="Bấm để sửa cân nặng">${escapeHtml(weightLabel || 'Cân nặng')}</button><span class="cart-sub-sep"> · ${escapeHtml(priceBit)}</span>`
+          : escapeHtml([weightLabel, priceBit].filter(Boolean).join(' · '));
         const qtyBlock = editingQty
           ? `<div class="qty-box">
               <button type="button" class="qty-btn" data-cart-dec aria-label="Giảm">−</button>
@@ -1493,10 +1591,11 @@
             ${cartLinePhotoHtml(line)}
             <div class="cart-copy">
               <div class="cart-name">${escapeHtml(line.name)}</div>
-              <div class="cart-sub">${escapeHtml(sub)}</div>
+              <div class="cart-sub">${subHtml}</div>
             </div>
             <button type="button" class="cart-remove" data-cart-remove>Xóa</button>
           </div>
+          ${editingWeight && product ? renderCartWeightEditor(line, product) : ''}
           <div class="cart-controls">
             ${qtyBlock}
             ${noteBlock}
@@ -1510,9 +1609,33 @@
 
   function beginCartEdit(index, field) {
     if (!Number.isInteger(index) || index < 0 || index >= cart.length) return;
-    if (field !== 'qty' && field !== 'note') return;
-    cartEdit = { index, field };
+    if (field !== 'qty' && field !== 'note' && field !== 'weight') return;
+    /** @type {{ index: number, field: 'qty' | 'note' | 'weight', extraOpen?: boolean }} */
+    const next = { index, field, extraOpen: false };
+    if (field === 'weight') {
+      const line = cart[index];
+      const product = cartLineProduct(line);
+      if (!product || !needsWeight(product)) return;
+      const scale = scaleOf(product);
+      const chips = scale.chips || [];
+      const extras = scale.extras || [];
+      const weight = String(line.weight || '').trim();
+      if (weight && extras.includes(weight) && !chips.includes(weight)) next.extraOpen = true;
+    }
+    cartEdit = next;
     renderCart({ keepEdit: true });
+  }
+
+  function applyCartWeight(index, weight) {
+    const line = cart[index];
+    if (!line) return false;
+    const product = cartLineProduct(line);
+    if (!product || !needsWeight(product)) return false;
+    const next = String(weight || '').trim();
+    line.weight = next;
+    line.unitPrice = applyWeightPrice(product.price, next);
+    line.key = `${line.productId}|${line.weight}|${line.note}`;
+    return true;
   }
 
   function commitCartQty(input, index) {
@@ -1659,13 +1782,26 @@
     section.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  function scrollProductsSectionIntoView() {
+    const section = document.querySelector('[data-section="products"]');
+    if (!(section instanceof HTMLElement)) return;
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (pickList instanceof HTMLElement) {
+      pickList.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
+
   function bindProducts() {
+    document.querySelector('[data-scroll-products]')?.addEventListener('click', () => {
+      scrollProductsSectionIntoView();
+    });
     pickCats?.addEventListener('click', (event) => {
       const button = event.target instanceof Element ? event.target.closest('[data-cat]') : null;
       if (!(button instanceof HTMLElement)) return;
       pickCategory = button.dataset.cat || 'hot';
       renderPickCats();
       renderPickList();
+      scrollProductsSectionIntoView();
     });
     pickQuery?.addEventListener('input', () => {
       pickText = pickQuery instanceof HTMLInputElement ? pickQuery.value : '';
@@ -1809,6 +1945,28 @@
         beginCartEdit(index, 'note');
         return;
       }
+      if (event.target instanceof Element && event.target.closest('[data-cart-edit-weight]')) {
+        if (cartEdit?.index === index && cartEdit.field === 'weight') {
+          endCartEdit({ paint: false });
+          return;
+        }
+        beginCartEdit(index, 'weight');
+        return;
+      }
+      if (event.target instanceof Element && event.target.closest('[data-cart-weight-chip]')) {
+        const chip = event.target.closest('[data-cart-weight-chip]');
+        const weight = chip instanceof HTMLElement ? chip.getAttribute('data-cart-weight-chip') || '' : '';
+        if (applyCartWeight(index, weight)) {
+          endCartEdit();
+        }
+        return;
+      }
+      if (event.target instanceof Element && event.target.closest('[data-cart-weight-extra-toggle]')) {
+        if (!(cartEdit && cartEdit.index === index && cartEdit.field === 'weight')) return;
+        cartEdit = { ...cartEdit, extraOpen: !cartEdit.extraOpen };
+        renderCart({ keepEdit: true });
+        return;
+      }
       if (event.target instanceof Element && event.target.closest('[data-cart-dec]')) {
         line.quantity = Math.max(1, line.quantity - 1);
         cartEdit = { index, field: 'qty' };
@@ -1831,6 +1989,11 @@
       if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-cart-qty')) {
         commitCartQty(event.target, index);
         paintPay();
+        return;
+      }
+      if (event.target instanceof HTMLSelectElement && event.target.hasAttribute('data-cart-weight-extra')) {
+        if (!event.target.value) return;
+        if (applyCartWeight(index, event.target.value)) endCartEdit();
       }
     });
     cartEl?.addEventListener('keydown', (event) => {
@@ -1852,19 +2015,19 @@
     });
     cartEl?.addEventListener('focusout', (event) => {
       if (!cartEdit) return;
-      const row = event.target instanceof Element ? event.target.closest('[data-cart-index]') : null;
+      // Bỏ qua focusout từ nút vừa bấm (DOM bị replace khi vào chế độ sửa).
+      if (!(event.target instanceof HTMLElement) || !event.target.isConnected) return;
+      if (!(event.target instanceof HTMLInputElement)) return;
+      if (!event.target.hasAttribute('data-cart-qty') && !event.target.hasAttribute('data-cart-note')) return;
+      const row = event.target.closest('[data-cart-index]');
       if (!(row instanceof HTMLElement)) return;
       const index = Number(row.dataset.cartIndex);
       if (cartEdit.index !== index) return;
       // Còn focus trong cùng dòng đang sửa (vd. bấm +/-) → giữ chế độ sửa.
       const next = event.relatedTarget;
       if (next instanceof Node && row.contains(next)) return;
-      if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-cart-qty')) {
-        commitCartQty(event.target, index);
-      }
-      if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-cart-note')) {
-        commitCartNote(event.target, index);
-      }
+      if (event.target.hasAttribute('data-cart-qty')) commitCartQty(event.target, index);
+      if (event.target.hasAttribute('data-cart-note')) commitCartNote(event.target, index);
       endCartEdit();
     });
     discountCode?.addEventListener('change', () => paintPay());
@@ -1933,6 +2096,7 @@
       sourcesEl.innerHTML = (data.sources || [])
         .map((item) => `<label class="preset"><input type="radio" name="source" value="${escapeHtml(item.value)}" /><span>${escapeHtml(item.label)}</span></label>`)
         .join('');
+      applyChannelSource(hostChannel, { force: true });
     }
     if (shipPresetsEl instanceof HTMLElement) {
       shipPresetsEl.innerHTML = (data.shipDayPresets || [])
@@ -2001,7 +2165,10 @@
     return {
       csrf: bootstrap?.csrf || '',
       customerName: nameInput instanceof HTMLInputElement ? nameInput.value.trim() : '',
-      phone: phoneInput instanceof HTMLInputElement ? phoneInput.value.trim() : '',
+      phone: (() => {
+        const raw = phoneInput instanceof HTMLInputElement ? phoneInput.value.trim() : '';
+        return normalizeOrderPhone(raw) || raw;
+      })(),
       address: addressValue instanceof HTMLInputElement ? addressValue.value : '',
       note: document.querySelector('[data-note]') instanceof HTMLInputElement ? document.querySelector('[data-note]').value.trim() : '',
           lines: cart.map((line, index) => ({
@@ -2230,14 +2397,20 @@
     await showSaved(result, { updated: editing });
     if (editing) {
       clearEditMode({ resetForm: true });
-      try {
-        window.parent.postMessage({ source: 'vdt-pos', type: 'vdt-order-updated', phone }, '*');
-      } catch {
-        /* ignore */
-      }
+      applyChannelSource(hostChannel, { force: true });
     } else {
       resetAfterCreate();
     }
+    // Báo content script tra lại khách/đơn ngay (tạo mới lẫn sửa) — không cần reload trang.
+    try {
+      window.parent.postMessage(
+        { source: 'vdt-pos', type: 'vdt-order-updated', phone, created: !editing, orderId: result.id },
+        '*',
+      );
+    } catch {
+      /* ignore */
+    }
+    scrollPanelToTop();
     return { ok: true, result };
   }
 
@@ -2281,6 +2454,7 @@
   editCancel?.addEventListener('click', () => {
     if (submitting) return;
     clearEditMode({ resetForm: true });
+    applyChannelSource(hostChannel, { force: true });
     setFormError('');
   });
 
@@ -2366,6 +2540,10 @@
       void beginDuplicateOrder(data.orderId);
       return;
     }
+    if (data.type === 'vdt-host-channel') {
+      applyChannelSource(typeof data.channel === 'string' ? data.channel : '');
+      return;
+    }
     if (data.type === 'vdt-fill-customer' || data.type === 'vdt-fill-phone') {
       if (typeof data.name === 'string' && nameInput instanceof HTMLInputElement && data.name.trim()) {
         nameInput.value = data.name.replace(/\s+/g, ' ').trim().slice(0, 80);
@@ -2374,6 +2552,7 @@
         if (phoneInput instanceof HTMLInputElement) phoneInput.value = data.phone.trim();
         if (lookupInput instanceof HTMLInputElement) lookupInput.value = data.phone.trim();
       }
+      if (typeof data.channel === 'string') applyChannelSource(data.channel);
       return;
     }
     if (data.type === 'vdt-fill-address') {

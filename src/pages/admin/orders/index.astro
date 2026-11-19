@@ -189,7 +189,7 @@ const shippedPanelHref =
 
 <AdminLayout title="Quản lý đơn hàng">
   <div slot="action" class="order-page-actions">
-    <div class="order-pending-revenue" title="Tổng tiền các đơn chưa gửi hàng và chờ gửi lại">
+    <div class="order-pending-revenue" title="Khớp bộ lọc «Chưa gửi hàng»: chưa gửi, gửi sau đã đến hạn, chờ gửi lại">
       <span class="order-pending-revenue-icon" aria-hidden="true">đ</span>
       <span class="order-pending-revenue-label">Doanh thu chưa gửi:</span>
       <span class="order-pending-revenue-value">
@@ -250,11 +250,10 @@ const shippedPanelHref =
           class:list={['post-toolbar', 'product-toolbar', 'order-toolbar', advancedFiltersActive && 'is-filters-open']}
           method="get"
           data-order-search
-          hidden={result.total === 0}
         >
           <div class="order-toolbar-primary">
             <label class="sr-only" for="order-query">Tìm đơn</label>
-            <input id="order-query" class="field" name="q" value={query} placeholder="Mã, tên hoặc số điện thoại" maxlength="80" />
+            <input id="order-query" class="field" name="q" value={query} placeholder="Mã, tên, SĐT, sản phẩm hoặc lưu ý" maxlength="80" />
             <button
               class="field order-filters-toggle"
               type="button"
@@ -654,15 +653,14 @@ const shippedPanelHref =
       if (!(nextPanel instanceof HTMLElement)) throw new Error('panel missing');
       board.replaceChildren(nextPanel);
       if (lead instanceof HTMLElement) lead.textContent = nextPanel.dataset.lead ?? lead.textContent;
-      // Không còn đơn khớp lọc → ẩn thanh lọc; có đơn lại thì hiện.
+      // Thư viện hết đơn → về empty state đầy đủ; còn đơn thì giữ thanh tìm/lọc kể cả khi lọc ra 0.
       if (form instanceof HTMLFormElement) {
-        const total = Number(nextPanel.dataset.total);
         const libraryTotal = Number(nextPanel.dataset.libraryTotal);
         if (Number.isFinite(libraryTotal) && libraryTotal === 0) {
           location.assign(listHref);
           return;
         }
-        form.hidden = Number.isFinite(total) && total === 0;
+        form.hidden = false;
       }
       syncToolbar(params);
       if (opts.push) history.pushState({ orderSoft: true }, '', listHref);

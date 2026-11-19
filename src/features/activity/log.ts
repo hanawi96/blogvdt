@@ -59,6 +59,9 @@ export const ACTIVITY_ACTIONS = [
   'discount.delete',
   'ad_spend.save',
   'ad_spend.delete',
+  'customer.update',
+  'customer.hide',
+  'customer.restore',
 ] as const;
 
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];
@@ -114,9 +117,12 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'discount.delete': 'Xóa mã giảm giá',
   'ad_spend.save': 'Lưu chi phí quảng cáo',
   'ad_spend.delete': 'Xóa chi phí quảng cáo',
+  'customer.update': 'Sửa khách hàng',
+  'customer.hide': 'Ẩn khách hàng',
+  'customer.restore': 'Khôi phục khách hàng',
 };
 
-export type ActivityObject = 'post' | 'category' | 'tag' | 'product_category' | 'user' | 'media' | 'settings' | 'redirect' | 'order' | 'material' | 'material_group' | 'order_cost' | 'ad_spend' | 'product' | 'discount';
+export type ActivityObject = 'post' | 'category' | 'tag' | 'product_category' | 'user' | 'media' | 'settings' | 'redirect' | 'order' | 'material' | 'material_group' | 'order_cost' | 'ad_spend' | 'product' | 'discount' | 'customer';
 
 export type ActivityActor = { id: number; name: string };
 

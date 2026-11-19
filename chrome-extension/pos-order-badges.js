@@ -35,14 +35,15 @@
     }
   }
 
+  /** Chuẩn hóa mobile VN → 0xxxxxxxxx. Khớp order.ts / content.js. */
   function normalizePhone(raw) {
-    const compact = String(raw || '').replace(/[\s.\-()]/g, '');
-    const local = compact.startsWith('+84')
-      ? `0${compact.slice(3)}`
-      : compact.startsWith('84') && compact.length >= 11
-        ? `0${compact.slice(2)}`
-        : compact;
-    return /^0(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)\d{7}$/.test(local) ? local : null;
+    let digits = String(raw || '').replace(/\D/g, '');
+    if (!digits) return null;
+    if (digits.startsWith('84') && digits.length >= 11) digits = digits.slice(2);
+    const bodyOk = /^(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)\d{7}$/;
+    if (digits.length === 9 && bodyOk.test(digits)) digits = `0${digits}`;
+    if (digits.length === 10 && digits.startsWith('0') && bodyOk.test(digits.slice(1))) return digits;
+    return null;
   }
 
   function runtimeSend(message) {

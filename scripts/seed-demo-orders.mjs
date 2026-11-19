@@ -386,6 +386,38 @@ runSql(
   'Đồng bộ lượt dùng mã SALE',
 );
 
+runSql(
+  `INSERT OR IGNORE INTO customers (phone, name, address, created_at, updated_at)
+   SELECT
+     phone,
+     (
+       SELECT customer_name FROM orders AS o2
+       WHERE o2.phone = orders.phone
+       ORDER BY o2.created_at DESC, o2.id DESC
+       LIMIT 1
+     ),
+     (
+       SELECT address FROM orders AS o2
+       WHERE o2.phone = orders.phone
+       ORDER BY o2.created_at DESC, o2.id DESC
+       LIMIT 1
+     ),
+     MIN(created_at),
+     MAX(created_at)
+   FROM orders
+   GROUP BY phone;`,
+  'Đồng bộ hồ sơ customers từ đơn',
+);
+
+runSql(
+  `UPDATE orders
+   SET customer_id = (
+     SELECT customers.id FROM customers WHERE customers.phone = orders.phone
+   )
+   WHERE customer_id IS NULL;`,
+  'Gắn customer_id cho đơn thiếu liên kết',
+);
+
 const summary = queryJson(`
   SELECT
     (SELECT COUNT(*) FROM orders WHERE ip_hash LIKE 'demo:seed:%') AS demo_orders,

@@ -297,11 +297,34 @@ export const productMedia = sqliteTable(
   (table) => [primaryKey({ columns: [table.productId, table.mediaId] })],
 );
 
+/**
+ * Hồ sơ khách theo SĐT chuẩn hóa. Đơn giữ snapshot tên/SĐT/địa chỉ lúc đặt + customer_id.
+ * Ẩn khỏi danh sách admin bằng hidden_at — không xóa đơn.
+ */
+export const customers = sqliteTable(
+  'customers',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    phone: text('phone').notNull(),
+    name: text('name').notNull(),
+    address: text('address').notNull(),
+    hiddenAt: integer('hidden_at'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('customers_phone_uidx').on(table.phone),
+    index('customers_hidden_at_idx').on(table.hiddenAt),
+    index('customers_name_idx').on(table.name),
+  ],
+);
+
 export const orders = sqliteTable(
   'orders',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
     code: text('code').notNull().unique(),
+    customerId: integer('customer_id').references(() => customers.id, { onDelete: 'set null' }),
     customerName: text('customer_name').notNull(),
     phone: text('phone').notNull(),
     address: text('address').notNull(),
@@ -359,6 +382,7 @@ export const orders = sqliteTable(
     index('orders_status_idx').on(table.status),
     index('orders_created_at_idx').on(table.createdAt),
     index('orders_phone_idx').on(table.phone),
+    index('orders_customer_id_idx').on(table.customerId),
     index('orders_landing_idx').on(table.landingSlug),
     index('orders_product_idx').on(table.productId),
     check(

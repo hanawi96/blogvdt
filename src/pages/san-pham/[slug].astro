@@ -229,22 +229,59 @@ async function loadProduct() {
           <p class="mt-2 text-muted">Xưởng gọi lại để chốt đơn. Website không thu tiền trực tuyến.</p>
           <OrderForm product={visible} />
         </section>
+        <div class="product-sticky-order" data-product-sticky-order>
+          <div class="product-sticky-order-inner">
+            <p class="product-sticky-order-price">{formatVnd(visible.price)}</p>
+            <a class="btn btn-cta product-sticky-order-btn" href="#dat-hang" data-scroll-to="dat-hang">
+              <span class="product-sticky-order-label">
+                <span class="product-sticky-order-title">
+                  Đặt hàng
+                  <span aria-hidden="true">↓</span>
+                </span>
+                {shipBadge === 'free' && <span class="product-sticky-order-ship">(miễn phí vận chuyển)</span>}
+              </span>
+            </a>
+          </div>
+        </div>
       </main>
     )
   }
 </PublicLayout>
 <script>
-  // Cuộn mượt tới phần đặt hàng khi bấm "Đặt mua ngay"; vẫn giữ anchor để hoạt động nếu JS tắt.
-  const buyCta = document.querySelector('[data-scroll-to]');
-  if (buyCta instanceof HTMLAnchorElement) {
-    buyCta.addEventListener('click', (event) => {
-      const target = document.getElementById(buyCta.dataset.scrollTo || '');
-      if (!target) return;
-      event.preventDefault();
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
-      const field = target.querySelector('input, select, textarea, button');
-      if (field instanceof HTMLElement) window.setTimeout(() => field.focus({ preventScroll: true }), reduceMotion ? 0 : 450);
-    });
+  // Cuộn mượt tới #dat-hang; sticky ẩn khi form đặt hàng đã nằm trong khung nhìn.
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function scrollToOrder(anchor: HTMLAnchorElement, event: Event) {
+    const target = document.getElementById(anchor.dataset.scrollTo || '');
+    if (!target) return;
+    event.preventDefault();
+    target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    const field = target.querySelector('input, select, textarea, button');
+    if (field instanceof HTMLElement) window.setTimeout(() => field.focus({ preventScroll: true }), reduceMotion ? 0 : 450);
+  }
+  document.querySelectorAll('[data-scroll-to]').forEach((node) => {
+    if (node instanceof HTMLAnchorElement) {
+      node.addEventListener('click', (event) => scrollToOrder(node, event));
+    }
+  });
+  const sticky = document.querySelector('[data-product-sticky-order]');
+  const orderBox = document.getElementById('dat-hang');
+  if (sticky instanceof HTMLElement && orderBox) {
+    const sync = (orderVisible: boolean) => {
+      sticky.classList.toggle('is-away', orderVisible);
+      sticky.setAttribute('aria-hidden', orderVisible ? 'true' : 'false');
+      sticky.toggleAttribute('inert', orderVisible);
+      document.documentElement.classList.toggle('has-product-sticky-order', !orderVisible);
+    };
+    document.documentElement.classList.add('has-product-sticky-order');
+    if ('IntersectionObserver' in window) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          const entry = entries[0];
+          sync(Boolean(entry?.isIntersecting));
+        },
+        { rootMargin: '0px 0px -18% 0px', threshold: 0.08 },
+      );
+      observer.observe(orderBox);
+    }
   }
 </script>

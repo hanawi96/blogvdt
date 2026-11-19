@@ -96,6 +96,8 @@ export type CatalogCard = {
   slug: string;
   price: number;
   comparePrice: number | null;
+  /** Kiểu dây DB: `adjustable` | `elastic` | `other` | rỗng. */
+  cordType: string;
   weightScale: WeightScale;
   shipBadge: ProductShipBadge;
   /** Điểm hiển thị (vd 5.0); null nếu chưa có rating. */
@@ -133,6 +135,7 @@ export async function listCatalogProducts(db: AppDb, query: CatalogQuery) {
       comparePrice: products.comparePrice,
       rating: products.rating,
       sold: soldCount,
+      cordType: products.cordType,
       weightScale: productCategories.weightScale,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,
@@ -168,6 +171,7 @@ export async function listBestSellers(db: AppDb, limit = 5): Promise<CatalogCard
       comparePrice: products.comparePrice,
       rating: products.rating,
       sold: soldCount,
+      cordType: products.cordType,
       weightScale: productCategories.weightScale,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,
@@ -238,6 +242,7 @@ export function toCatalogCard(row: {
   comparePrice: number | null;
   rating: number;
   sold: number;
+  cordType: string | null;
   weightScale: string | null;
   categorySlug: string | null;
   coverKey: string | null;
@@ -255,6 +260,7 @@ export function toCatalogCard(row: {
     slug: row.slug,
     price: row.price,
     comparePrice: visibleComparePrice(row.price, row.comparePrice),
+    cordType: row.cordType ?? '',
     weightScale: readWeightScale(row.weightScale),
     shipBadge: productShipBadge(row.price, row.categorySlug),
     ratingLabel: ratingLabel || null,
