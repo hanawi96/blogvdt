@@ -712,9 +712,13 @@ export const chatPhoneMaps = sqliteTable(
     phone: text('phone').notNull(),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
+    /** Nhân viên đánh dấu «không đặt / bỏ qua» — không hiện trong list chờ tạo đơn. */
+    dismissedAt: integer('dismissed_at'),
   },
   (table) => [
     primaryKey({ columns: [table.channel, table.chatId] }),
     check('chat_phone_maps_channel_check', sql`${table.channel} in ('pancake', 'zalo')`),
+    index('chat_phone_maps_phone_idx').on(table.phone),
+    index('chat_phone_maps_dismissed_at_idx').on(table.dismissedAt),
   ],
 );

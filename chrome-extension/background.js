@@ -27,11 +27,15 @@ async function getPosUrl() {
 
 /** Cookie đăng nhập tab admin (first-party, không partition). */
 async function readAdminSessionCookie(posUrl) {
-  const cookie = await chrome.cookies.get({
-    url: posUrl,
-    name: SESSION_COOKIE,
-  });
-  return cookie?.value ? cookie : null;
+  try {
+    const direct = await chrome.cookies.get({ url: posUrl, name: SESSION_COOKIE });
+    if (direct?.value) return direct;
+    const origin = new URL(posUrl).origin;
+    const listed = await chrome.cookies.getAll({ url: `${origin}/`, name: SESSION_COOKIE });
+    return listed.find((item) => item?.value && !item.partitionKey) || listed.find((item) => item?.value) || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -59,14 +63,21 @@ async function syncSessionToPage(_pageUrl) {
 }
 
 async function adminFetchJson(pathWithQuery, options = {}) {
-  const posUrl = await getPosUrl();
-  const origin = new URL(posUrl).origin;
+  let posUrl;
+  let origin;
+  try {
+    posUrl = await getPosUrl();
+    origin = new URL(posUrl).origin;
+  } catch {
+    return { ok: false, error: 'URL POS không hợp lệ.' };
+  }
   const cookie = await readAdminSessionCookie(posUrl);
   const loginUrl = `${origin}/admin/login?next=${encodeURIComponent('/admin/orders/pos')}`;
   if (!cookie) {
     return { ok: false, error: 'auth', loginUrl };
   }
   const method = options.method || 'GET';
+  // Không gắn tay header Cookie (Chrome cấm/strip). host_permissions + credentials:include gửi session.
   const headers = { accept: 'application/json', ...(options.headers || {}) };
   const init = {
     method,
@@ -78,7 +89,13 @@ async function adminFetchJson(pathWithQuery, options = {}) {
     headers['content-type'] = 'application/json';
     init.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
   }
-  const response = await fetch(`${origin}${pathWithQuery}`, init);
+  let response;
+  try {
+    response = await fetch(`${origin}${pathWithQuery}`, init);
+  } catch {
+    // Mạng/DNS/SW sleep — không để Uncaught (in promise) Failed to fetch.
+    return { ok: false, error: 'Không kết nối được máy chủ. Thử lại.' };
+  }
   if (response.type === 'opaqueredirect' || response.status === 301 || response.status === 302 || response.status === 303) {
     return { ok: false, error: 'auth', loginUrl };
   }
@@ -97,7 +114,11 @@ async function adminFetchJson(pathWithQuery, options = {}) {
       return { ok: false, error: 'Không tra được dữ liệu.' };
     }
   }
-  return response.json();
+  try {
+    return await response.json();
+  } catch {
+    return { ok: false, error: 'Phản hồi không hợp lệ.' };
+  }
 }
 
 const BOOTSTRAP_CACHE_KEY = 'posBootstrapCache';
@@ -273,6 +294,31 @@ async function lookupChatPhone(channel, chatId) {
   return adminFetchJson(`/admin/orders/chat-phone?${params.toString()}`);
 }
 
+async function saveChatPhone(channel, chatId, phone) {
+  if (typeof channel !== 'string' || typeof chatId !== 'string' || typeof phone !== 'string') {
+    return { ok: false, error: 'Thiếu kênh, chat hoặc SĐT.' };
+  }
+  return withCsrfPost('/admin/orders/chat-phone', { channel, chatId, phone });
+}
+
+async function listPendingChatPhones() {
+  return adminFetchJson('/admin/orders/chat-phone-pending');
+}
+
+async function dismissPendingChatPhone(channel, chatId) {
+  if (typeof channel !== 'string' || typeof chatId !== 'string') {
+    return { ok: false, error: 'Thiếu kênh hoặc chat.' };
+  }
+  return withCsrfPost('/admin/orders/chat-phone-pending', { channel, chatId });
+}
+
+async function phoneSavedStatus(phones) {
+  if (!Array.isArray(phones) || phones.length === 0) {
+    return { ok: true, items: [] };
+  }
+  return withCsrfPost('/admin/orders/phone-saved-status', { phones });
+}
+
 async function ensureDefaults() {
   const stored = await chrome.storage.sync.get(['posUrl', 'overlayOpen', 'overlayWidth']);
   const patch = {};
@@ -399,6 +445,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     typeof message.chatId === 'string'
   ) {
     lookupChatPhone(message.channel, message.chatId).then(sendResponse);
+    return true;
+  }
+  if (
+    message?.type === 'vdt-save-chat-phone' &&
+    typeof message.channel === 'string' &&
+    typeof message.chatId === 'string' &&
+    typeof message.phone === 'string'
+  ) {
+    saveChatPhone(message.channel, message.chatId, message.phone).then(sendResponse);
+    return true;
+  }
+  if (message?.type === 'vdt-pending-chat-phones') {
+    listPendingChatPhones().then(sendResponse);
+    return true;
+  }
+  if (
+    message?.type === 'vdt-dismiss-pending-chat' &&
+    typeof message.channel === 'string' &&
+    typeof message.chatId === 'string'
+  ) {
+    dismissPendingChatPhone(message.channel, message.chatId).then(sendResponse);
+    return true;
+  }
+  if (message?.type === 'vdt-phone-saved-status' && Array.isArray(message.phones)) {
+    phoneSavedStatus(message.phones).then(sendResponse);
     return true;
   }
   if (message?.type === 'vdt-open-login') {

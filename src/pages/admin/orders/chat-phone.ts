@@ -7,7 +7,7 @@ import {
 import { csrfMatches } from '../../../features/auth/session';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
-import { isSameOrigin } from '../../../lib/http';
+import { allowsStaffApiOrigin } from '../../../lib/http';
 import { routes } from '../../../lib/routes';
 
 export const prerender = false;
@@ -19,9 +19,15 @@ function json(data: unknown, status = 200) {
   });
 }
 
-export const GET: APIRoute = async ({ locals, url, redirect }) => {
+export const GET: APIRoute = async ({ locals, url }) => {
   const session = locals.adminSession;
-  if (!session) return redirect(routes.adminLogin);
+  // JSON 401 (không redirect HTML) — extension SW đọc được.
+  if (!session) {
+    return json(
+      { ok: false, error: 'auth', loginUrl: `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.adminOrderPos)}` },
+      401,
+    );
+  }
   const channel = url.searchParams.get('channel') ?? '';
   const chatId = url.searchParams.get('chatId') ?? '';
   if (!isChatChannel(channel)) return json({ ok: false, error: 'Kênh không hợp lệ.' }, 422);
@@ -39,7 +45,8 @@ export const GET: APIRoute = async ({ locals, url, redirect }) => {
 export const POST: APIRoute = async ({ request, locals }) => {
   const session = locals.adminSession;
   if (!session) return json({ ok: false, error: 'auth' }, 401);
-  if (!isSameOrigin(request)) return json({ ok: false, error: 'Nguồn gửi không hợp lệ.' }, 403);
+  // Cho phép SW extension (Origin chrome-extension:// hoặc không Origin) — giống pos-create.
+  if (!allowsStaffApiOrigin(request)) return json({ ok: false, error: 'Nguồn gửi không hợp lệ.' }, 403);
 
   let body: { channel?: unknown; chatId?: unknown; phone?: unknown; csrf?: unknown };
   try {

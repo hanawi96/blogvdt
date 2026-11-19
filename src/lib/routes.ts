@@ -23,6 +23,8 @@ export const routes = {
   adminOrderPosCreate: '/admin/orders/pos-create',
   adminOrderLookup: '/admin/orders/lookup',
   adminOrderChatPhone: '/admin/orders/chat-phone',
+  adminOrderChatPhonePending: '/admin/orders/chat-phone-pending',
+  adminOrderPhoneSavedStatus: '/admin/orders/phone-saved-status',
   adminInvoices: '/admin/invoices',
   adminInvoicesExport: '/admin/invoices/export',
   adminCustomers: '/admin/customers',

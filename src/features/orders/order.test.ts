@@ -168,6 +168,9 @@ describe('đơn hàng', () => {
 
   it('chuẩn hóa số điện thoại và lập mã theo ngày Việt Nam', () => {
     expect(normalizePhone('+84 901 000 099')).toBe('0901000099');
+    expect(normalizePhone('0364044255')).toBe('0364044255');
+    expect(normalizePhone('06137105057')).toBeNull();
+    expect(normalizePhone('05673017045')).toBeNull();
     expect(normalizePhone('123')).toBeNull();
     expect(orderDayKey(Date.UTC(2026, 9, 13, 17, 0, 0))).toBe('20261014');
     expect(formatOrderCode('20261014', 42)).toBe('VD20261014-0042');

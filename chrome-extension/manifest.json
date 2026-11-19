@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Vòng Dâu Tằm — Tạo đơn",
   "description": "Sidebar tạo đơn nổi trên Pancake và Zalo.",
-  "version": "1.9.28",
+  "version": "1.9.67",
   "permissions": [
     "sidePanel",
     "storage",
@@ -39,6 +39,9 @@
         "https://*.pancake.vn/*",
         "https://chat.zalo.me/*"
       ],
+      "exclude_matches": [
+        "https://pos.pancake.vn/*"
+      ],
       "js": [
         "content.js"
       ],
@@ -46,6 +49,18 @@
         "overlay.css"
       ],
       "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://pos.pancake.vn/*"
+      ],
+      "js": [
+        "pos-order-badges.js"
+      ],
+      "css": [
+        "pos-order-badges.css"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [

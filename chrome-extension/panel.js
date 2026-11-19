@@ -23,12 +23,19 @@
   const lookupRun = document.querySelector('[data-lookup-run]');
   const lookupResult = document.querySelector('[data-lookup-result]');
 
-  const provinceSelect = document.querySelector('[data-province]');
-  const wardSelect = document.querySelector('[data-ward]');
+  const addressRoot = document.querySelector('[data-address]');
+  const addressMap = document.querySelector('[data-address-map]');
+  const addressMapTitle = document.querySelector('[data-address-map-title]');
+  const addressMapOld = document.querySelector('[data-address-map-old]');
+  const addressMapNew = document.querySelector('[data-address-map-new]');
+  const addressMapClose = document.querySelector('[data-address-map-close]');
+  const provinceCombo = document.querySelector('[data-address-combo="province"]');
+  const wardCombo = document.querySelector('[data-address-combo="ward"]');
   const lineInput = document.querySelector('[data-line]');
   const addressValue = document.querySelector('[data-address-value]');
   const provinceValue = document.querySelector('[data-province-value]');
   const wardValue = document.querySelector('[data-ward-value]');
+  const addressSelection = { provinceCode: '', wardCode: '' };
 
   const legacyRoot = document.querySelector('[data-legacy]');
   const legacyInput = document.querySelector('[data-legacy-input]');
@@ -393,6 +400,7 @@
     if (lineInput instanceof HTMLInputElement) lineInput.value = '';
     fillProvinces();
     writeAddress();
+    clearAddressMap();
     const noteEl = document.querySelector('[data-note]');
     if (noteEl instanceof HTMLInputElement) noteEl.value = '';
     setLookupNote('');
@@ -427,6 +435,34 @@
     if (!(legacyHint instanceof HTMLElement)) return;
     legacyHint.hidden = !text;
     legacyHint.textContent = text || '';
+  }
+
+  function clearAddressMap() {
+    if (addressMap instanceof HTMLElement) addressMap.hidden = true;
+    if (addressMapOld instanceof HTMLElement) addressMapOld.textContent = '';
+    if (addressMapNew instanceof HTMLElement) addressMapNew.textContent = '';
+  }
+
+  /** Banner xác nhận map 3 cấp → 2 cấp (hoặc chỉ địa chỉ mới nếu không có oldText). */
+  function showAddressMap(input) {
+    if (!(addressMap instanceof HTMLElement)) return;
+    const oldText = typeof input?.oldText === 'string' ? input.oldText.trim() : '';
+    const newText = typeof input?.newText === 'string' ? input.newText.trim() : '';
+    if (!newText) {
+      clearAddressMap();
+      return;
+    }
+    if (addressMapTitle instanceof HTMLElement) {
+      addressMapTitle.textContent = oldText ? 'Đã đổi 3 cấp → 2 cấp (theo map 2025)' : 'Đã nhận địa chỉ 2 cấp';
+    }
+    if (addressMapOld instanceof HTMLElement) {
+      addressMapOld.hidden = !oldText;
+      addressMapOld.textContent = oldText ? `Cũ: ${oldText}` : '';
+    }
+    if (addressMapNew instanceof HTMLElement) addressMapNew.textContent = `Mới: ${newText}`;
+    const arrow = addressMap.querySelector('.address-map-arrow');
+    if (arrow instanceof HTMLElement) arrow.hidden = !oldText;
+    addressMap.hidden = false;
   }
 
   function notifyReady() {
@@ -613,24 +649,54 @@
     addressRows = rows;
   }
 
-  function fillSelect(select, placeholder, options, selected) {
-    if (!(select instanceof HTMLSelectElement)) return;
-    select.replaceChildren();
-    select.add(new Option(placeholder, ''));
-    for (const [code, name] of options) select.add(new Option(name, code, false, code === selected));
-    if (selected) select.value = selected;
+  function provinceNameOf(code) {
+    const row = addressRows.find((item) => item[0] === code);
+    return row ? row[1] : '';
+  }
+
+  function wardNameOf(provinceCode, wardCode) {
+    const row = addressRows.find((item) => item[0] === provinceCode);
+    const ward = row?.[2]?.find((item) => item[0] === wardCode);
+    return ward ? ward[1] : '';
+  }
+
+  function addressOptions(kind) {
+    if (kind === 'province') return addressRows.map((row) => [row[0], row[1]]);
+    const row = addressRows.find((item) => item[0] === addressSelection.provinceCode);
+    return row ? row[2] : [];
+  }
+
+  function syncAddressTriggers() {
+    const wardTrigger = wardCombo ? comboParts(wardCombo).trigger : null;
+    if (wardTrigger instanceof HTMLButtonElement) wardTrigger.disabled = !addressSelection.provinceCode;
+    if (provinceCombo instanceof HTMLElement) {
+      if (addressSelection.provinceCode) {
+        setTriggerLabel(provinceCombo, provinceNameOf(addressSelection.provinceCode) || 'Chọn tỉnh, thành phố', false);
+      } else {
+        setTriggerLabel(provinceCombo, addressRows.length ? 'Chọn tỉnh, thành phố' : 'Đang tải…', true);
+      }
+    }
+    if (wardCombo instanceof HTMLElement) {
+      if (!addressSelection.provinceCode) setTriggerLabel(wardCombo, 'Chọn tỉnh trước', true);
+      else if (addressSelection.wardCode) {
+        setTriggerLabel(
+          wardCombo,
+          wardNameOf(addressSelection.provinceCode, addressSelection.wardCode) || 'Chọn phường, xã',
+          false,
+        );
+      } else setTriggerLabel(wardCombo, 'Chọn phường, xã', true);
+    }
   }
 
   function writeAddress() {
-    if (!(provinceSelect instanceof HTMLSelectElement) || !(wardSelect instanceof HTMLSelectElement)) return;
     if (!(lineInput instanceof HTMLInputElement) || !(addressValue instanceof HTMLInputElement)) return;
     if (!(provinceValue instanceof HTMLInputElement) || !(wardValue instanceof HTMLInputElement)) return;
-    const provinceName = provinceSelect.selectedOptions[0]?.textContent || '';
-    const wardName = wardSelect.selectedOptions[0]?.textContent || '';
+    const provinceName = provinceNameOf(addressSelection.provinceCode);
+    const wardName = wardNameOf(addressSelection.provinceCode, addressSelection.wardCode);
     const house = lineInput.value.trim();
-    provinceValue.value = provinceSelect.value;
-    wardValue.value = wardSelect.value;
-    if (!provinceSelect.value || !wardSelect.value || !house) {
+    provinceValue.value = addressSelection.provinceCode;
+    wardValue.value = addressSelection.wardCode;
+    if (!addressSelection.provinceCode || !addressSelection.wardCode || !house) {
       addressValue.value = '';
       return;
     }
@@ -639,27 +705,16 @@
   }
 
   function showWards(selectedWard = '') {
-    if (!(provinceSelect instanceof HTMLSelectElement) || !(wardSelect instanceof HTMLSelectElement)) return;
-    const row = addressRows.find((item) => item[0] === provinceSelect.value);
-    fillSelect(wardSelect, row ? 'Chọn phường, xã' : 'Chọn tỉnh trước', row ? row[2] : [], selectedWard);
-    wardSelect.disabled = !row;
+    addressSelection.wardCode = selectedWard || '';
+    syncAddressTriggers();
     writeAddress();
   }
 
   function fillProvinces(selectedProvince = '', selectedWard = '') {
-    if (!(provinceSelect instanceof HTMLSelectElement)) return;
-    fillSelect(
-      provinceSelect,
-      'Chọn tỉnh, thành phố',
-      addressRows.map((row) => [row[0], row[1]]),
-      selectedProvince,
-    );
-    if (selectedProvince) showWards(selectedWard);
-    else {
-      fillSelect(wardSelect, 'Chọn tỉnh trước', [], '');
-      if (wardSelect instanceof HTMLSelectElement) wardSelect.disabled = true;
-      writeAddress();
-    }
+    addressSelection.provinceCode = selectedProvince || '';
+    addressSelection.wardCode = selectedProvince ? selectedWard || '' : '';
+    syncAddressTriggers();
+    writeAddress();
   }
 
   function applyAddress(input) {
@@ -668,7 +723,10 @@
     const line = typeof input.line === 'string' ? input.line : '';
     const keepLine = input.keepLine === true;
     if (!provinceCode) {
+      addressSelection.provinceCode = '';
+      addressSelection.wardCode = '';
       if (lineInput instanceof HTMLInputElement && !keepLine) lineInput.value = line;
+      syncAddressTriggers();
       writeAddress();
       return;
     }
@@ -698,10 +756,114 @@
     applyAddress({ provinceCode: province[0], wardCode: ward ? ward[0] : '', line: line || '' });
   }
 
+  function renderAddressComboList(combo, kind, queryText) {
+    const { list } = comboParts(combo);
+    if (!(list instanceof HTMLElement)) return;
+    const needle = fold(queryText);
+    const selected = kind === 'province' ? addressSelection.provinceCode : addressSelection.wardCode;
+    const fragment = document.createDocumentFragment();
+    let shown = 0;
+    for (const [code, name] of addressOptions(kind)) {
+      if (needle && !fold(name).includes(needle)) continue;
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'combo-option';
+      item.dataset.value = code;
+      item.setAttribute('aria-selected', String(code === selected));
+      item.textContent = name;
+      item.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        pickAddress(kind, code);
+      });
+      fragment.append(item);
+      shown += 1;
+      if (shown >= 80) break;
+    }
+    if (!shown) {
+      const empty = document.createElement('p');
+      empty.className = 'combo-empty';
+      empty.textContent = 'Không có kết quả khớp.';
+      list.replaceChildren(empty);
+      return;
+    }
+    list.replaceChildren(fragment);
+  }
+
+  function closeAllAddressCombos(except) {
+    for (const combo of [provinceCombo, wardCombo]) {
+      if (!(combo instanceof HTMLElement) || (except && combo === except)) continue;
+      closeCombo(combo);
+    }
+  }
+
+  function openAddressCombo(combo, kind) {
+    const { trigger, panel, query } = comboParts(combo);
+    if (trigger instanceof HTMLButtonElement && trigger.disabled) return;
+    closeAllAddressCombos(combo);
+    closeAllCombos();
+    closeLegacyList();
+    if (panel instanceof HTMLElement) panel.hidden = false;
+    if (trigger instanceof HTMLButtonElement) trigger.setAttribute('aria-expanded', 'true');
+    combo.classList.add('is-open');
+    renderAddressComboList(combo, kind, '');
+    requestAnimationFrame(() => {
+      if (query instanceof HTMLInputElement) {
+        query.value = '';
+        query.focus();
+        query.select();
+      }
+    });
+  }
+
+  function pickAddress(kind, code) {
+    if (kind === 'province') {
+      addressSelection.provinceCode = code;
+      addressSelection.wardCode = '';
+      clearAddressMap();
+      if (provinceCombo instanceof HTMLElement) {
+        setTriggerLabel(provinceCombo, provinceNameOf(code), false);
+        closeCombo(provinceCombo);
+      }
+      syncAddressTriggers();
+      writeAddress();
+      if (wardCombo instanceof HTMLElement) requestAnimationFrame(() => openAddressCombo(wardCombo, 'ward'));
+      return;
+    }
+    addressSelection.wardCode = code;
+    clearAddressMap();
+    if (wardCombo instanceof HTMLElement) {
+      setTriggerLabel(wardCombo, wardNameOf(addressSelection.provinceCode, code), false);
+      closeCombo(wardCombo);
+    }
+    writeAddress();
+  }
+
+  function bindAddressCombo(combo, kind) {
+    const { trigger, query, panel } = comboParts(combo);
+    trigger?.addEventListener('click', () => {
+      if (!(panel instanceof HTMLElement)) return;
+      if (panel.hidden) openAddressCombo(combo, kind);
+      else closeCombo(combo);
+    });
+    query?.addEventListener('input', () => {
+      if (query instanceof HTMLInputElement) renderAddressComboList(combo, kind, query.value);
+    });
+  }
+
   function bindAddress() {
-    provinceSelect?.addEventListener('change', () => showWards(''));
-    wardSelect?.addEventListener('change', () => writeAddress());
+    if (provinceCombo instanceof HTMLElement) bindAddressCombo(provinceCombo, 'province');
+    if (wardCombo instanceof HTMLElement) bindAddressCombo(wardCombo, 'ward');
     lineInput?.addEventListener('input', () => writeAddress());
+    document.addEventListener('mousedown', (event) => {
+      if (!(event.target instanceof Node)) return;
+      if (addressRoot instanceof HTMLElement && addressRoot.contains(event.target)) {
+        for (const combo of [provinceCombo, wardCombo]) {
+          if (combo instanceof HTMLElement && !combo.contains(event.target)) closeCombo(combo);
+        }
+        return;
+      }
+      closeAllAddressCombos();
+    });
   }
 
   async function runLookup() {
@@ -767,9 +929,14 @@
       line: typeof item.line === 'string' ? item.line : '',
       keepLine: !item.line,
     });
+    showAddressMap({ oldText: item.oldText, newText: item.newText });
     if (legacyInput instanceof HTMLInputElement) legacyInput.value = '';
     closeLegacyList();
-    setLegacyHint(`Đã chọn ${item.newText}`);
+    setLegacyHint(
+      item.oldText
+        ? `Đã map: ${item.oldText} → ${item.newText}`
+        : `Đã chọn ${item.newText}`,
+    );
   }
 
   async function runLegacySearch(query) {
@@ -943,6 +1110,7 @@
     const { trigger, panel, query } = comboParts(combo);
     if (trigger instanceof HTMLButtonElement && trigger.disabled) return;
     closeAllCombos(combo);
+    closeAllAddressCombos();
     closeLegacyList();
     if (panel instanceof HTMLElement) panel.hidden = false;
     if (trigger instanceof HTMLButtonElement) trigger.setAttribute('aria-expanded', 'true');
@@ -1598,8 +1766,12 @@
   function validateDraft(draft) {
     if (!draft.customerName) return { el: nameInput, msg: 'Nhập họ tên khách.' };
     if (!draft.phone) return { el: phoneInput, msg: 'Nhập số điện thoại.' };
-    if (!(provinceSelect instanceof HTMLSelectElement && provinceSelect.value)) return { el: provinceSelect, msg: 'Chọn tỉnh / thành phố.' };
-    if (!(wardSelect instanceof HTMLSelectElement && wardSelect.value)) return { el: wardSelect, msg: 'Chọn phường / xã.' };
+    if (!addressSelection.provinceCode) {
+      return { el: provinceCombo ? comboParts(provinceCombo).trigger : provinceCombo, msg: 'Chọn tỉnh / thành phố.' };
+    }
+    if (!addressSelection.wardCode) {
+      return { el: wardCombo ? comboParts(wardCombo).trigger : wardCombo, msg: 'Chọn phường / xã.' };
+    }
     if (!(lineInput instanceof HTMLInputElement && lineInput.value.trim())) return { el: lineInput, msg: 'Nhập số nhà, đường.' };
     if (!draft.address) return { el: lineInput, msg: 'Địa chỉ chưa hợp lệ.' };
     if (!draft.lines.length) return { el: cartEmpty, msg: 'Thêm ít nhất một sản phẩm.' };
@@ -1618,10 +1790,7 @@
     bootstrap = data;
     try {
       await ensureAddressRows();
-      fillProvinces(
-        provinceSelect instanceof HTMLSelectElement ? provinceSelect.value : '',
-        wardSelect instanceof HTMLSelectElement ? wardSelect.value : '',
-      );
+      fillProvinces(addressSelection.provinceCode, addressSelection.wardCode);
     } catch {
       if (!quiet) {
         setBoot('Không tải được danh sách địa chỉ. Tải lại extension.');
@@ -1809,19 +1978,63 @@
         if (phoneInput instanceof HTMLInputElement) phoneInput.value = data.phone.trim();
         if (lookupInput instanceof HTMLInputElement) lookupInput.value = data.phone.trim();
       }
-      if (typeof data.provinceCode === 'string' && typeof data.wardCode === 'string') {
+      const hasCodes =
+        typeof data.provinceCode === 'string' &&
+        data.provinceCode &&
+        typeof data.wardCode === 'string' &&
+        data.wardCode;
+      const mapOld = typeof data.oldText === 'string' ? data.oldText.trim() : '';
+      const mapNew = typeof data.newText === 'string' ? data.newText.trim() : '';
+      if (hasCodes) {
         applyAddress({
           provinceCode: data.provinceCode,
           wardCode: data.wardCode,
           line: typeof data.line === 'string' ? data.line : '',
           keepLine: data.keepLine === true || (typeof data.line === 'string' && data.line.length === 0),
         });
-        setLegacyHint(data.matched === false ? 'Đã điền xã/tỉnh — kiểm tra lại số nhà nếu cần.' : '');
-        return;
+        if (!data.needPick) {
+          // Khớp rõ: hiện banner cũ→mới để nhân viên tự tin; xóa list chọn.
+          legacyItems = [];
+          if (legacyInput instanceof HTMLInputElement) legacyInput.value = '';
+          closeLegacyList();
+          if (mapNew) {
+            showAddressMap({ oldText: mapOld, newText: mapNew });
+            setLegacyHint(
+              mapOld
+                ? `Đã map theo bảng 2025: ${mapOld} → ${mapNew}`
+                : `Đã điền ${mapNew}`,
+            );
+          } else {
+            clearAddressMap();
+            setLegacyHint(data.matched === false ? 'Đã điền xã/tỉnh — kiểm tra lại số nhà nếu cần.' : '');
+          }
+          const addressCard = document.querySelector('[data-section="customer"]') || addressRoot;
+          if (addressCard instanceof HTMLElement) {
+            addressCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            addressCard.classList.add('is-block-attention');
+            window.setTimeout(() => addressCard.classList.remove('is-block-attention'), 1600);
+          }
+          return;
+        }
+      } else if (typeof data.address === 'string' && data.address.trim()) {
+        // Không có mã tỉnh/xã: tránh giữ địa chỉ cũ khi đang cần chọn tay.
+        if (data.needPick) {
+          fillProvinces();
+          if (lineInput instanceof HTMLInputElement) {
+            lineInput.value = String(data.line || data.address).replace(/\s+/g, ' ').trim().slice(0, 80);
+          }
+          writeAddress();
+          clearAddressMap();
+        } else {
+          applyComposedAddress(data.address);
+          legacyItems = [];
+          if (legacyInput instanceof HTMLInputElement) legacyInput.value = '';
+          closeLegacyList();
+          clearAddressMap();
+        }
       }
-      if (typeof data.address === 'string' && data.address.trim()) applyComposedAddress(data.address);
 
-      // Không khớp rõ: mở tìm địa chỉ cũ + gợi ý chọn.
+      // Nhiều kết quả / chưa khớp rõ: hiện list để đổi (sau khi đã điền tạm nếu có).
       if (data.needPick) {
         const query =
           typeof data.legacyQuery === 'string' && data.legacyQuery.trim()
@@ -1835,12 +2048,26 @@
             legacyItems = data.legacyItems;
             legacyActive = 0;
             renderLegacyList();
-            setLegacyHint(`Chọn 1 trong ${legacyItems.length} kết quả gần đúng.`);
+            const first = legacyItems[0];
+            const firstLabel = first?.newText ? String(first.newText) : '';
+            const firstOld = first?.oldText ? String(first.oldText) : '';
+            if (hasCodes && firstLabel) {
+              showAddressMap({ oldText: firstOld || mapOld, newText: firstLabel });
+            } else {
+              clearAddressMap();
+            }
+            setLegacyHint(
+              hasCodes && firstLabel
+                ? `Đã chọn tạm ${firstLabel} — bấm kết quả khác nếu sai.`
+                : `Chọn 1 trong ${legacyItems.length} kết quả gần đúng.`,
+            );
           } else {
+            clearAddressMap();
             void runLegacySearch(query);
             setLegacyHint('Chưa khớp tự động — tìm/chọn địa chỉ cũ, hoặc chọn tỉnh–xã bên dưới.');
           }
         } else {
+          clearAddressMap();
           setLegacyHint('Chưa khớp tự động — chọn tỉnh/xã thủ công hoặc dùng tìm địa chỉ cũ.');
         }
         const addressCard = document.querySelector('[data-section="customer"]') || legacyRoot;
@@ -1859,6 +2086,8 @@
       }
     }
   });
+
+  addressMapClose?.addEventListener('click', () => clearAddressMap());
 
   void loadBootstrap();
 })();

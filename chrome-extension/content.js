@@ -5,7 +5,8 @@ const DEFAULT_WIDTH = 400;
 const MIN_WIDTH = 300;
 const MAX_WIDTH = 720;
 const POS_URL_CACHE_KEY = 'posUrlCached';
-const PHONE_RE = /(?:\+?84|0)\d{8,10}/;
+/** Chỉ mobile VN 10 số (03/05/07/08/09) — tránh khớp id/timestamp kiểu 06137105057. */
+const PHONE_RE = /(?:\+?84|0)(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)\d{7}/;
 
 /** @type {Map<string, object>} */
 const lookupCache = new Map();
@@ -13,6 +14,12 @@ const lookupCache = new Map();
 const chatPhoneCache = new Map();
 /** @type {Set<string>} */
 const chatLookupPending = new Set();
+/** Đã tra map DB một lần cho hội thoại này (tránh nháy status khi MutationObserver chạy). */
+const chatMapTried = new Set();
+/** Đã lưu SĐT→chat thành công trong phiên. */
+const chatPhonePersisted = new Set();
+/** Đang/đã gửi lưu (tránh spam); xóa khi đổi chat hoặc lưu lỗi để thử lại. */
+const chatPhoneSaveAttempted = new Set();
 /** @type {object | null} */
 let activeCustomer = null;
 /** @type {{ lineIndex: number, mode: 'weight' | 'qty', extraOpen?: boolean } | null} */
@@ -23,6 +30,9 @@ let customerCanDelete = false;
 let lastConvId = '';
 let lastPhone = '';
 let lastName = '';
+/** Giữ chatId Zalo ổn định trong lúc DOM list ảo hóa / class selected nhấp nháy. */
+let stickyZaloChatId = '';
+let stickyZaloNameKey = '';
 let debounceTimer = 0;
 let addrScanTimer = 0;
 let posOrigin = '';
@@ -42,6 +52,14 @@ let chatObserver = null;
 let desiredOpen = true;
 let panelReady = false;
 let bootRevealTimer = 0;
+/** Hội thoại có SĐT nhưng chưa có đơn (Pancake + Zalo). */
+/** @type {{ count: number, items: Array<{ channel: string, chatId: string, phone: string, updatedAt: number }> }} */
+let pendingChatState = { count: 0, items: [] };
+let pendingPanelOpen = false;
+/** @type {Promise<void> | null} */
+let pendingFetchInflight = null;
+let pendingRefreshTimer = 0;
+let listPhoneScanTimer = 0;
 
 function isExtensionAlive() {
   if (extensionDead) return false;
@@ -63,6 +81,8 @@ function markExtensionDead() {
   window.clearTimeout(debounceTimer);
   window.clearTimeout(addrScanTimer);
   window.clearTimeout(bootRevealTimer);
+  window.clearTimeout(pendingRefreshTimer);
+  window.clearTimeout(listPhoneScanTimer);
   try {
     chatObserver?.disconnect();
   } catch {
@@ -270,7 +290,7 @@ function normalizePhone(raw) {
     : compact.startsWith('84') && compact.length >= 11
       ? `0${compact.slice(2)}`
       : compact;
-  return /^0\d{9,10}$/.test(local) ? local : null;
+  return /^0(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)\d{7}$/.test(local) ? local : null;
 }
 
 function money(amount) {
@@ -287,6 +307,56 @@ function isPancake() {
 
 function isZalo() {
   return location.hostname.includes('zalo.me');
+}
+
+/** List đơn pos.pancake.vn — không gắn sidebar (badge riêng trong pos-order-badges.js). */
+function isPancakePosOrderPage() {
+  return (
+    /\.pancake\.vn$/i.test(location.hostname) &&
+    /\/shop\/[^/]+\/order(?:\/|$|\?)/i.test(`${location.pathname}${location.search}`)
+  );
+}
+
+/** Chiều cao header cố định Pancake — sidebar bắt đầu dưới thanh tím. */
+function pancakeHeaderOffset() {
+  if (!isPancake()) return 0;
+  const selectors = [
+    'header.ant-layout-header',
+    '.ant-layout-header',
+    '#root > div > header',
+    'header',
+    '[class*="AppHeader"]',
+    '[class*="app-header"]',
+    '[class*="TopNav"]',
+    '[class*="top-nav"]',
+  ];
+  let best = 0;
+  for (const selector of selectors) {
+    let nodes;
+    try {
+      nodes = document.querySelectorAll(selector);
+    } catch {
+      continue;
+    }
+    for (const el of nodes) {
+      if (!(el instanceof HTMLElement)) continue;
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      if (style.position !== 'fixed' && style.position !== 'sticky') continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.top > 4 || rect.height < 36 || rect.height > 96) continue;
+      if (rect.width < Math.min(window.innerWidth * 0.45, 360)) continue;
+      best = Math.max(best, Math.round(rect.bottom));
+    }
+    if (best > 0) break;
+  }
+  // Fallback thanh tím Pancake ~48–56px nếu DOM chưa kịp render.
+  return best > 0 ? best : 56;
+}
+
+function applyHostChromeOffset(root = document.getElementById(ROOT_ID)) {
+  if (!(root instanceof HTMLElement)) return;
+  root.style.setProperty('--vdt-top', `${pancakeHeaderOffset()}px`);
 }
 
 function cleanName(raw) {
@@ -307,14 +377,99 @@ function chatCacheKey(channel, chatId) {
   return `${channel}:${chatId}`;
 }
 
+/** Id hội thoại Zalo ổn định (anim-data-id), không phải `zalo:tên hiển thị`. */
+function isStableZaloChatId(id) {
+  const value = String(id || '').trim();
+  if (!value || /^zalo:/i.test(value)) return false;
+  return /^[ge]?\d{8,}$/i.test(value);
+}
+
+function readZaloHeaderName() {
+  const title =
+    document.querySelector('.threadChat__title .header-title') ||
+    document.querySelector('.threadChat .header-title') ||
+    document.querySelector('.threadChat__title');
+  return cleanName(title?.textContent);
+}
+
+/** Id ổn định từ list Zalo (`anim-data-id` trên `.msg-item`). */
+function readZaloListChatId() {
+  const selected =
+    document.querySelector(
+      '#conversationList .msg-item.selected, #conversationList .msg-item.active, #conversationList .msg-item.is-active, #conversationList .msg-item[aria-selected="true"], #conversationlist .msg-item.selected, #conversationlist .msg-item.active, #conversationlist .msg-item.is-active, #conversationlist .msg-item[aria-selected="true"]',
+    ) ||
+    document.querySelector('.msg-item.selected, .msg-item.active, .msg-item.is-active, .msg-item[aria-selected="true"]') ||
+    document.querySelector('#conversationList .conv-item.selected, #conversationList .conv-item.active, #conversationlist .conv-item.selected, #conversationlist .conv-item.active, .conv-item.selected, .conv-item.active')?.closest('.msg-item');
+  if (selected instanceof HTMLElement) {
+    const anim = selected.getAttribute('anim-data-id');
+    if (isStableZaloChatId(anim)) return String(anim).slice(0, 191);
+  }
+
+  // Zalo list thường không có .selected — khớp tên header với dòng trong #conversationList.
+  const headerName = readZaloHeaderName();
+  if (!headerName) return '';
+  const items = document.querySelectorAll('#conversationList .msg-item, #conversationlist .msg-item');
+  for (const item of items) {
+    if (!(item instanceof HTMLElement)) continue;
+    const anim = item.getAttribute('anim-data-id');
+    if (!isStableZaloChatId(anim)) continue;
+    const titleEl =
+      item.querySelector('.conv-item-title, .truncate, [class*="conv-item"] [class*="name"], [class*="title"]') || item;
+    const rowName = cleanName(titleEl.textContent || '');
+    if (!rowName) continue;
+    if (rowName === headerName || rowName.startsWith(headerName) || headerName.startsWith(rowName.split(/\s+/).slice(0, 4).join(' '))) {
+      return String(anim).slice(0, 191);
+    }
+  }
+  // Khớp lỏng: tên nằm ở đầu text của row (trước tin nhắn cuối).
+  for (const item of items) {
+    if (!(item instanceof HTMLElement)) continue;
+    const anim = item.getAttribute('anim-data-id');
+    if (!isStableZaloChatId(anim)) continue;
+    const rowText = cleanName(item.textContent || '');
+    if (rowText.startsWith(headerName)) return String(anim).slice(0, 191);
+  }
+  return '';
+}
+
+function readZaloThreadChatId() {
+  const thread =
+    document.querySelector('.threadChat[id]') ||
+    document.querySelector('[data-id].threadChat') ||
+    document.querySelector('.main-chat-container [id]');
+  if (!(thread instanceof HTMLElement)) return '';
+  const id = thread.id || thread.getAttribute('data-id') || '';
+  return isStableZaloChatId(id) ? String(id).slice(0, 191) : '';
+}
+
+function readZaloNameChatId() {
+  const name = readZaloHeaderName();
+  return name ? `zalo:${name}` : '';
+}
+
+/** Ưu tiên anim-data-id; `zalo:tên` chỉ để TRA map cũ (không ghi mới). */
+function zaloChatIdCandidates() {
+  const ids = [];
+  const push = (id) => {
+    const value = String(id || '').trim().slice(0, 191);
+    if (value && !ids.includes(value)) ids.push(value);
+  };
+  push(readZaloListChatId());
+  push(readZaloThreadChatId());
+  push(readZaloNameChatId());
+  return ids;
+}
+
 function selectedConversationId() {
   if (isPancake()) {
-    const item = document.querySelector('.conversation-list-item.selected');
+    const item =
+      document.querySelector('#conversationCol .conversation-list-item.selected') ||
+      document.querySelector('.conversation-list-item.selected');
     if (item instanceof HTMLElement) {
-      const wrap = item.closest('[id]');
+      // Dòng list gắn id trực tiếp: pageId_conversationId
       const fromDom =
-        wrap?.id ||
         item.id ||
+        item.closest('[id]')?.id ||
         item.getAttribute('data-id') ||
         item.getAttribute('data-conversation-id') ||
         item.getAttribute('data-cid');
@@ -327,22 +482,181 @@ function selectedConversationId() {
     return '';
   }
   if (isZalo()) {
-    const thread =
-      document.querySelector('.threadChat[id]') ||
-      document.querySelector('[data-id].threadChat') ||
-      document.querySelector('.main-chat-container [id]');
-    if (thread instanceof HTMLElement) {
-      const id = thread.id || thread.getAttribute('data-id');
-      if (id) return String(id).slice(0, 191);
+    const nameKey = readZaloNameChatId();
+    const listId = readZaloListChatId();
+    const threadId = readZaloThreadChatId();
+    const stable = [listId, threadId].find((id) => isStableZaloChatId(id)) || '';
+
+    // Có id thật (g123…) → luôn dùng; nâng cấp nếu trước đó chỉ có zalo:tên.
+    if (stable) {
+      stickyZaloChatId = stable;
+      stickyZaloNameKey = nameKey;
+      return stable;
     }
-    const title =
-      document.querySelector('.threadChat__title .header-title') ||
-      document.querySelector('.threadChat .header-title') ||
-      document.querySelector('.threadChat__title');
-    const name = cleanName(title?.textContent);
-    return name ? `zalo:${name}` : '';
+
+    if (stickyZaloChatId && isStableZaloChatId(stickyZaloChatId) && nameKey && nameKey === stickyZaloNameKey) {
+      return stickyZaloChatId;
+    }
+
+    // Tạm dùng tên khi list ảo hóa chưa có row — sẽ thay khi đọc được anim-data-id.
+    const fallback = nameKey || '';
+    stickyZaloChatId = fallback;
+    stickyZaloNameKey = nameKey;
+    return fallback;
   }
   return '';
+}
+
+/**
+ * @param {string} channel
+ * @param {string} chatId
+ * @param {string} phone
+ * @param {string} [_name]
+ * @param {{ fromList?: boolean }} [opts] fromList: chỉ lưu đúng chatId (không gắn id chat đang mở).
+ */
+function persistChatPhone(channel, chatId, phone, _name, opts = {}) {
+  if (!channel || !chatId || !phone) return;
+  const fromList = Boolean(opts.fromList);
+  // Zalo: chỉ lưu id chat ổn định — không ghi alias `zalo:tên`.
+  let primaryId = chatId;
+  if (channel === 'zalo') {
+    if (!isStableZaloChatId(primaryId)) {
+      if (fromList) return;
+      primaryId = zaloChatIdCandidates().find((id) => isStableZaloChatId(id)) || '';
+    }
+    if (!primaryId) return;
+  }
+  const gate = chatCacheKey(channel, primaryId);
+  const cached = chatPhoneCache.get(gate);
+  // Đã lưu đúng số này — thôi. Số khác (vd. trước nhầm shiper) thì cho ghi đè.
+  if (chatPhonePersisted.has(gate) && cached === phone) {
+    rememberChatPhone(channel, primaryId, phone);
+    return;
+  }
+  if (cached && cached !== phone) {
+    chatPhonePersisted.delete(gate);
+    chatPhoneSaveAttempted.delete(gate);
+  }
+  if (chatPhoneSaveAttempted.has(gate) && cached === phone) return;
+  chatPhoneSaveAttempted.add(gate);
+
+  const saveOne = (id) => {
+    const keyId = String(id || '').trim().slice(0, 191);
+    if (!keyId) return;
+    if (channel === 'zalo' && !isStableZaloChatId(keyId)) return;
+    const key = chatCacheKey(channel, keyId);
+    rememberChatPhone(channel, keyId, phone);
+    if (chatPhonePersisted.has(key) && chatPhoneCache.get(key) === phone) return;
+    chatPhoneSaveAttempted.add(key);
+    void runtimeSend({ type: 'vdt-save-chat-phone', channel, chatId: keyId, phone }).then((result) => {
+      if (result?.ok) {
+        chatPhonePersisted.add(key);
+        chatPhonePersisted.add(gate);
+        schedulePendingRefresh(500);
+        return;
+      }
+      // Lỗi mạng/CSRF/403 — cho phép thử lại khi mở lại chat.
+      chatPhoneSaveAttempted.delete(key);
+      chatPhoneSaveAttempted.delete(gate);
+    });
+  };
+  saveOne(primaryId);
+  // Chỉ khi đang ở chat mở mới đồng bộ thêm candidate id — tránh gắn nhầm khi quét list.
+  if (!fromList && channel === 'zalo') {
+    for (const id of zaloChatIdCandidates()) {
+      if (isStableZaloChatId(id)) saveOne(id);
+    }
+  }
+}
+
+function pancakeListItemChatId(item) {
+  if (!(item instanceof HTMLElement)) return '';
+  const row = item.classList.contains('conversation-list-item')
+    ? item
+    : item.closest('.conversation-list-item') || item;
+  const fromDom =
+    row.id ||
+    row.getAttribute('data-id') ||
+    row.getAttribute('data-conversation-id') ||
+    row.getAttribute('data-cid') ||
+    row.closest('[id]')?.id;
+  return fromDom ? String(fromDom).slice(0, 191) : '';
+}
+
+/** Lấy SĐT hiện trong một dòng list (preview / tag) — không mở chat. */
+function phoneFromListItem(item) {
+  if (!(item instanceof HTMLElement)) return null;
+  // Pancake: ưu tiên tag SĐT trên dòng hội thoại nếu có.
+  const tag =
+    item.querySelector('.cross-channel-phone__number, .cross-channel-phone.phone-tag, .cross-channel-phone copy, [class*="phone-tag"]') ||
+    null;
+  if (tag) {
+    const fromTag = normalizePhone(tag.textContent || '');
+    if (fromTag) return fromTag;
+  }
+  const phones = extractPhonesFromNode(item);
+  if (!phones.length) return null;
+  // Một số trong preview thường là SĐT khách vừa gửi.
+  return phones[phones.length - 1] || phones[0] || null;
+}
+
+/**
+ * Quét list hội thoại đang hiện — lưu chat→SĐT để badge «chưa lưu» không cần mở từng box.
+ * @returns {number} số mapping phát hiện trên DOM
+ */
+function scanConversationListPhones() {
+  const channel = chatChannel();
+  if (!channel) return 0;
+  /** @type {Array<{ chatId: string, phone: string }>} */
+  const rows = [];
+
+  if (channel === 'pancake') {
+    const items = document.querySelectorAll('.conversation-list-item, .body-conver-item');
+    for (const item of items) {
+      if (!(item instanceof HTMLElement)) continue;
+      if (item.closest(`#${ROOT_ID}`)) continue;
+      const chatId = pancakeListItemChatId(item);
+      if (!chatId) continue;
+      const phone = phoneFromListItem(item);
+      if (!phone) continue;
+      rows.push({ chatId, phone });
+    }
+  } else if (channel === 'zalo') {
+    const items = document.querySelectorAll('#conversationList .msg-item, #conversationlist .msg-item');
+    for (const item of items) {
+      if (!(item instanceof HTMLElement)) continue;
+      const anim = item.getAttribute('anim-data-id');
+      if (!isStableZaloChatId(anim)) continue;
+      const phone = phoneFromListItem(item);
+      if (!phone) continue;
+      rows.push({ chatId: String(anim).slice(0, 191), phone });
+    }
+  }
+
+  let touched = 0;
+  for (const row of rows) {
+    const key = chatCacheKey(channel, row.chatId);
+    if (chatPhonePersisted.has(key) && chatPhoneCache.get(key) === row.phone) continue;
+    persistChatPhone(channel, row.chatId, row.phone, '', { fromList: true });
+    touched += 1;
+  }
+  return rows.length;
+}
+
+function scheduleListPhoneScan(delayMs = 700) {
+  if (!isExtensionAlive()) return;
+  window.clearTimeout(listPhoneScanTimer);
+  listPhoneScanTimer = window.setTimeout(() => {
+    listPhoneScanTimer = 0;
+    if (!isExtensionAlive()) return;
+    try {
+      scanConversationListPhones();
+    } catch {
+      /* DOM race */
+    }
+    // Luôn kéo lại badge từ DB — kể cả khi chưa mở chat nào.
+    schedulePendingRefresh(250);
+  }, delayMs);
 }
 
 function readChatName() {
@@ -397,23 +711,87 @@ const MESSAGE_BUBBLE_SELECTOR = [
   '[data-contents]',
 ].join(', ');
 
-/** SĐT trong bubble hội thoại đang mở (không lấy list bên / API ngầm). */
+const CHAT_LIST_SEL =
+  '#conversationList, #conversationlist, .conversation-list, .conversation-list-item, .body-conver-item, [class*="conversation-list"], .msg-item, .left-nav';
+
+/** Tin mình gửi (bubble xanh) — Zalo: SentMsg / me / outgoing. */
+function isZaloOutgoingMessage(node) {
+  if (!(node instanceof Element)) return false;
+  if (node.closest('[data-id="div_SentMsg_Text"], [data-id*="SentMsg"], [data-id*="SendMsg"]')) return true;
+  const bubble = node.closest('.chat-message, [data-component="bubble-message"], .chat-item');
+  if (!bubble) return false;
+  if (bubble.querySelector('[data-id="div_SentMsg_Text"], [data-id*="SentMsg"], [data-id*="SendMsg"]')) return true;
+  return /\b(me|mine|sent|outgoing|self)\b/i.test(bubble.className);
+}
+
+/**
+ * Tin khách gửi (bubble trắng) — Zalo: data-id div_ReceivedMsg_Text.
+ * Chỉ tin cậy nhãn ReceivedMsg; không đoán theo màu CSS.
+ */
+function isZaloCustomerMessage(node) {
+  if (!(node instanceof Element)) return false;
+  if (isZaloOutgoingMessage(node)) return false;
+  if (node.closest('[data-id="div_ReceivedMsg_Text"], [data-id*="ReceivedMsg"]')) return true;
+  const bubble = node.closest('.chat-message, [data-component="bubble-message"], .chat-item');
+  return Boolean(bubble?.querySelector('[data-id="div_ReceivedMsg_Text"], [data-id*="ReceivedMsg"]'));
+}
+
+function extractPhonesFromNode(node) {
+  /** @type {string[]} */
+  const phones = [];
+  if (!(node instanceof HTMLElement)) return phones;
+  const text = node.innerText || node.textContent || '';
+  if (text && text.length <= 4000) {
+    const matches = text.match(new RegExp(PHONE_RE.source, 'g'));
+    if (matches) {
+      for (const raw of matches) {
+        const phone = normalizePhone(raw);
+        if (phone && !phones.includes(phone)) phones.push(phone);
+      }
+    }
+  }
+  for (const link of node.querySelectorAll('a[href^="tel:"], a[href^="callto:"]')) {
+    const href = link.getAttribute('href') || '';
+    const phone = normalizePhone(href.replace(/^(tel|callto):/i, ''));
+    if (phone && !phones.includes(phone)) phones.push(phone);
+  }
+  return phones;
+}
+
+/** SĐT trong bubble hội thoại đang mở — Zalo chỉ lấy tin khách (trắng), bỏ tin mình (xanh/shiper). */
 function readPhoneFromVisibleMessages() {
-  const listSel =
-    '.conversation-list, .conversation-list-item, .body-conver-item, [class*="conversation-list"], .conv-item, .left-nav';
   let found = null;
+
+  if (isZalo()) {
+    // Text / danh thiếp / contact card khách — không quét bubble xanh.
+    const nodes = document.querySelectorAll(
+      [
+        '[data-id="div_ReceivedMsg_Text"]',
+        '[data-id*="ReceivedMsg_Text"]',
+        '[data-id*="ReceivedMsg"]',
+        '[data-id*="ReceivedContact"]',
+        '[data-id*="ContactMsg"]',
+        '.chat-message[data-component="bubble-message"]',
+        '[data-component="bubble-message"]',
+      ].join(', '),
+    );
+    for (const node of nodes) {
+      if (!(node instanceof HTMLElement)) continue;
+      if (node.closest(`#${ROOT_ID}`)) continue;
+      if (node.closest(CHAT_LIST_SEL)) continue;
+      if (isZaloOutgoingMessage(node)) continue;
+      const isReceivedLabel = /Received/i.test(node.getAttribute('data-id') || '');
+      if (!isReceivedLabel && !isZaloCustomerMessage(node)) continue;
+      for (const phone of extractPhonesFromNode(node)) found = phone;
+    }
+    return found;
+  }
+
   for (const node of document.querySelectorAll(MESSAGE_BUBBLE_SELECTOR)) {
     if (!(node instanceof HTMLElement)) continue;
     if (node.closest(`#${ROOT_ID}`)) continue;
-    if (node.closest(listSel)) continue;
-    const text = node.innerText || node.textContent || '';
-    if (text.length > 2000) continue;
-    const matches = text.match(new RegExp(PHONE_RE.source, 'g'));
-    if (!matches) continue;
-    for (const raw of matches) {
-      const phone = normalizePhone(raw);
-      if (phone) found = phone;
-    }
+    if (node.closest(CHAT_LIST_SEL)) continue;
+    for (const phone of extractPhonesFromNode(node)) found = phone;
   }
   return found;
 }
@@ -442,27 +820,76 @@ function postCustomerFill({ phone, name, channel, chatId }) {
   });
 }
 
+function markChatMapTried(channel, chatId) {
+  if (!channel || !chatId) return;
+  chatMapTried.add(chatCacheKey(channel, chatId));
+  if (channel === 'zalo') {
+    for (const id of zaloChatIdCandidates()) chatMapTried.add(chatCacheKey(channel, id));
+  }
+}
+
+function applyMappedPhone(channel, chatId, phone, name) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return;
+  markChatMapTried(channel, chatId);
+  persistChatPhone(channel, chatId, normalized, name || '');
+  postCustomerFill({ phone: normalized, name: name || '', channel, chatId });
+  lastPhone = normalized;
+  lastConvId = chatId;
+  // Giống Pancake: mở chat → tra đơn/SP theo SĐT đã gắn, dù tin SĐT phải cuộn mới thấy.
+  requestLookup(normalized, chatId, name || '');
+}
+
+/** Tra map chat→SĐT đúng một lần khi mở hội thoại — không lặp theo DOM mutation. */
 function requestChatPhoneMap(channel, chatId, name) {
-  const key = chatCacheKey(channel, chatId);
-  if (chatPhoneCache.has(key) || chatLookupPending.has(key)) return;
-  chatLookupPending.add(key);
-  void runtimeSend({ type: 'vdt-lookup-chat-phone', channel, chatId }).then((result) => {
-    chatLookupPending.delete(key);
-    if (!result || !isExtensionAlive()) return;
-    if (selectedConversationId() !== chatId) return;
-    if (result.error === 'auth') {
-      const root = ensureRoot();
-      loginUrl = result.loginUrl || loginUrl;
-      setAuthBanner(root, true);
+  if (!channel || !chatId) return;
+  const triedKey = chatCacheKey(channel, chatId);
+  if (chatMapTried.has(triedKey) || chatLookupPending.has(triedKey)) return;
+
+  const candidates =
+    channel === 'zalo' ? zaloChatIdCandidates() : [chatId];
+  const ids = candidates.length > 0 ? candidates : [chatId];
+
+  for (const id of ids) {
+    const cached = chatPhoneCache.get(chatCacheKey(channel, id));
+    if (cached) {
+      markChatMapTried(channel, chatId);
+      applyMappedPhone(channel, chatId, cached, name || '');
       return;
     }
-    if (!result.ok || !result.found || !result.phone) return;
-    const phone = normalizePhone(result.phone);
-    if (!phone) return;
-    rememberChatPhone(channel, chatId, phone);
-    // Chỉ điền form im lặng — không hiện «Chưa có đơn với…» từ map cũ (có thể lệch).
-    postCustomerFill({ phone, name: name || '', channel, chatId });
-  });
+  }
+
+  chatLookupPending.add(triedKey);
+  markChatMapTried(channel, chatId);
+
+  const root = ensureRoot();
+  setCustomerStatus(root, 'Đang lấy SĐT đã lưu…');
+
+  void (async () => {
+    try {
+      for (const id of ids) {
+        if (!isExtensionAlive()) return;
+        if (selectedConversationId() !== chatId) return;
+        const result = await runtimeSend({ type: 'vdt-lookup-chat-phone', channel, chatId: id });
+        if (!result || !isExtensionAlive()) return;
+        if (result.error === 'auth') {
+          loginUrl = result.loginUrl || loginUrl;
+          setAuthBanner(root, true);
+          setCustomerStatus(root, 'Cần đăng nhập admin để tra đơn.');
+          return;
+        }
+        if (!result.ok || !result.found || !result.phone) continue;
+        if (selectedConversationId() !== chatId) return;
+        applyMappedPhone(channel, chatId, result.phone, name || '');
+        return;
+      }
+      if (selectedConversationId() === chatId) {
+        setCustomerStatus(root, 'Chưa gắn SĐT — cuộn tin nhắn có số hoặc nhập tay.');
+      }
+    } finally {
+      chatLookupPending.delete(triedKey);
+    }
+  })();
 }
 
 function bindResize(root) {
@@ -538,9 +965,573 @@ function setAuthBanner(root, show, message = '') {
 function setCustomerStatus(root, text) {
   const box = customerBox(root);
   if (!(box instanceof HTMLElement)) return;
+  const next = String(text || '');
+  // Tránh nháy DOM khi sync lặp cùng một câu status.
+  if (!box.hidden && box.dataset.state === 'status' && box.dataset.statusText === next) return;
   box.hidden = false;
   box.dataset.state = 'status';
-  box.innerHTML = `<p class="vdt-customer-status">${text}</p>`;
+  box.dataset.statusText = next;
+  box.innerHTML = `<p class="vdt-customer-status">${escapeHtml(next)}</p>`;
+}
+
+function setNoOrderStatus(root, phone) {
+  const box = customerBox(root);
+  if (!(box instanceof HTMLElement)) return;
+  const next = `Chưa có đơn với ${phone}`;
+  if (!box.hidden && box.dataset.state === 'no-order' && box.dataset.statusText === next) return;
+  box.hidden = false;
+  box.dataset.state = 'no-order';
+  box.dataset.statusText = next;
+  box.innerHTML = `
+    <div class="vdt-pending-banner">
+      <p class="vdt-customer-status">${escapeHtml(next)}</p>
+      <button type="button" class="vdt-pending-banner-skip" data-vdt-pending-dismiss-current>Bỏ qua</button>
+    </div>`;
+}
+
+function channelLabel(channel) {
+  if (channel === 'zalo') return 'Zalo';
+  if (channel === 'pancake') return 'Pancake';
+  return String(channel || '');
+}
+
+function formatPendingAge(updatedAt) {
+  const ms = Date.now() - Number(updatedAt || 0);
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return 'vừa xong';
+  if (mins < 60) return `${mins} phút`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} giờ`;
+  return `${Math.floor(hours / 24)} ngày`;
+}
+
+function schedulePendingRefresh(delayMs = 400) {
+  if (!isExtensionAlive()) return;
+  window.clearTimeout(pendingRefreshTimer);
+  pendingRefreshTimer = window.setTimeout(() => {
+    pendingRefreshTimer = 0;
+    void refreshPendingChats();
+  }, delayMs);
+}
+
+function refreshPendingChats() {
+  if (!isExtensionAlive()) return Promise.resolve();
+  if (pendingFetchInflight) return pendingFetchInflight;
+  pendingFetchInflight = runtimeSend({ type: 'vdt-pending-chat-phones' })
+    .then((result) => {
+      pendingFetchInflight = null;
+      if (!isExtensionAlive()) return;
+      if (!result?.ok) return;
+      pendingChatState = {
+        count: Number(result.count) || 0,
+        items: Array.isArray(result.items) ? result.items : [],
+      };
+      renderPendingUi(ensureRoot());
+    })
+    .catch(() => {
+      pendingFetchInflight = null;
+    });
+  return pendingFetchInflight;
+}
+
+function renderPendingUi(root) {
+  const badge = root.querySelector('[data-vdt-pending-badge]');
+  const countEl = root.querySelector('[data-vdt-pending-count]');
+  const panel = root.querySelector('[data-vdt-pending-panel]');
+  const list = root.querySelector('[data-vdt-pending-list]');
+  if (!(badge instanceof HTMLElement) || !(panel instanceof HTMLElement) || !(list instanceof HTMLElement)) {
+    return;
+  }
+
+  const count = pendingChatState.count;
+  const pageChannel = chatChannel();
+  const items = [...pendingChatState.items].sort((a, b) => {
+    const aSame = a.channel === pageChannel ? 0 : 1;
+    const bSame = b.channel === pageChannel ? 0 : 1;
+    if (aSame !== bSame) return aSame - bSame;
+    return (b.updatedAt || 0) - (a.updatedAt || 0);
+  });
+
+  const shown = count > 99 ? '99+' : String(count);
+  if (countEl) countEl.textContent = shown;
+  badge.title = count > 0 ? `${shown} đơn chưa lưu` : 'SĐT chưa có đơn';
+  badge.hidden = count <= 0;
+  badge.setAttribute('aria-expanded', pendingPanelOpen && count > 0 ? 'true' : 'false');
+  panel.hidden = !pendingPanelOpen || count <= 0;
+
+  if (count <= 0) {
+    pendingPanelOpen = false;
+    list.innerHTML = '';
+    return;
+  }
+
+  list.innerHTML = items
+    .map((item) => {
+      const same = item.channel === pageChannel;
+      const age = formatPendingAge(item.updatedAt);
+      const meta = `${channelLabel(item.channel)}${age ? ` · ${age}` : ''}${same ? '' : ' · mở tab khác'}`;
+      return `<li class="vdt-pending-item${same ? ' is-here' : ''}" data-vdt-pending-item data-channel="${escapeAttr(item.channel)}" data-chat-id="${escapeAttr(item.chatId)}" data-phone="${escapeAttr(item.phone)}">
+        <button type="button" class="vdt-pending-open" data-vdt-pending-open>
+          <span class="vdt-pending-phone">${escapeHtml(item.phone)}</span>
+          <span class="vdt-pending-meta">${escapeHtml(meta)}</span>
+        </button>
+        <button type="button" class="vdt-pending-copy" data-vdt-pending-copy title="Sao chép SĐT" aria-label="Sao chép SĐT">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/></svg>
+        </button>
+        <button type="button" class="vdt-pending-skip" data-vdt-pending-dismiss title="Bỏ qua" aria-label="Bỏ qua">×</button>
+      </li>`;
+    })
+    .join('');
+}
+
+function cssEscape(value) {
+  const raw = String(value || '');
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(raw);
+  return raw.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function waitMs(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function asPancakeListItem(el) {
+  if (!(el instanceof HTMLElement)) return null;
+  if (el.closest('#messageCol') && !el.closest('#conversationCol')) return null;
+  if (el.classList.contains('conversation-list-item')) return el;
+  return el.closest('.conversation-list-item');
+}
+
+function activateConversationEl(el) {
+  if (!(el instanceof HTMLElement)) return false;
+  const clickable =
+    asPancakeListItem(el) ||
+    el.closest('.msg-item, .conv-item, .body-conver-item') ||
+    el.querySelector('.conversation-list-item, .msg-item, .conv-item') ||
+    el;
+  if (!(clickable instanceof HTMLElement)) return false;
+  try {
+    clickable.scrollIntoView({ block: 'center', inline: 'nearest' });
+  } catch {
+    /* ignore */
+  }
+  // Pancake (React): ưu tiên click thật + chuỗi pointer/mouse.
+  try {
+    clickable.click();
+  } catch {
+    /* ignore */
+  }
+  for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+    try {
+      clickable.dispatchEvent(
+        new MouseEvent(type, { bubbles: true, cancelable: true, view: window, buttons: 1 }),
+      );
+    } catch {
+      /* ignore */
+    }
+  }
+  const body = clickable.querySelector('.body-conver-item, .media-body, .name-module');
+  if (body instanceof HTMLElement && body !== clickable) {
+    try {
+      body.click();
+    } catch {
+      /* ignore */
+    }
+  }
+  return true;
+}
+
+function pancakeConversationScope() {
+  return document.querySelector('#conversationCol') || document;
+}
+
+function findPancakeConversationEl(chatId, phone) {
+  const scope = pancakeConversationScope();
+  const root = scope instanceof Element ? scope : document;
+  const id = String(chatId || '').trim();
+  if (id) {
+    // Id dạng 1103…_4119… — getElementById an toàn hơn CSS #id (bắt đầu bằng số).
+    const byId = document.getElementById(id);
+    const safeAttr = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const candidates = [
+      asPancakeListItem(byId),
+      byId,
+      root.querySelector(`.conversation-list-item[id="${safeAttr}"]`),
+      root.querySelector(`[class*="list_tags_conv_${safeAttr}"]`)?.closest('.conversation-list-item'),
+      root.querySelector(`[id="${safeAttr}"].conversation-list-item`),
+      root.querySelector(`[id="${safeAttr}"]`),
+    ];
+    for (const el of candidates) {
+      const item = asPancakeListItem(el) || (el instanceof HTMLElement ? el : null);
+      if (item) return item;
+    }
+  }
+  const want = normalizePhone(phone || '');
+  if (!want) return null;
+  for (const item of root.querySelectorAll('.conversation-list-item')) {
+    if (!(item instanceof HTMLElement)) continue;
+    if (item.closest(`#${ROOT_ID}`)) continue;
+    // Ưu tiên snippet preview; fallback toàn dòng.
+    const snippet = item.querySelector('.snippet-wrap, .name-module');
+    const phones = snippet ? extractPhonesFromNode(snippet) : [];
+    const all = phones.length ? phones : extractPhonesFromNode(item);
+    if (all.includes(want)) return item;
+  }
+  return null;
+}
+
+function findZaloConversationEl(chatId, phone) {
+  const id = String(chatId || '').trim();
+  if (id && isStableZaloChatId(id)) {
+    const byAnim = document.querySelector(`.msg-item[anim-data-id="${cssEscape(id)}"]`);
+    if (byAnim instanceof HTMLElement) return byAnim;
+  }
+  const want = normalizePhone(phone || '');
+  if (!want) return null;
+  for (const item of document.querySelectorAll('#conversationList .msg-item, #conversationlist .msg-item')) {
+    if (!(item instanceof HTMLElement)) continue;
+    const phones = extractPhonesFromNode(item);
+    if (phones.includes(want)) return item;
+  }
+  return null;
+}
+
+function findConversationEl(channel, chatId, phone) {
+  if (channel === 'pancake' && isPancake()) return findPancakeConversationEl(chatId, phone);
+  if (channel === 'zalo' && isZalo()) return findZaloConversationEl(chatId, phone);
+  return null;
+}
+
+function conversationListScroller(channel) {
+  if (channel === 'zalo') {
+    return (
+      document.querySelector('#conversationList') ||
+      document.querySelector('#conversationlist') ||
+      document.querySelector('.msg-item')?.closest('[style*="overflow"], .ReactVirtualized, [class*="virtual"]')
+    );
+  }
+  if (channel === 'pancake') {
+    const col = document.querySelector('#conversationCol');
+    // Pancake dùng Ant Design virtual list — phải cuộn đúng .rc-virtual-list-holder.
+    const holder =
+      col?.querySelector('.rc-virtual-list-holder') ||
+      document.querySelector('#conversationCol .rc-virtual-list-holder') ||
+      col?.querySelector('.rc-virtual-list') ||
+      null;
+    if (holder instanceof HTMLElement) return holder;
+    return (
+      document.querySelector('.conversation-list') ||
+      document.querySelector('[class*="conversation-list"]') ||
+      document.querySelector('.conversation-list-item')?.parentElement ||
+      col
+    );
+  }
+  return null;
+}
+
+function vdtOpenChatDebug(...args) {
+  try {
+    if (localStorage.getItem('vdtDebugOpenChat') === '1') {
+      console.info('[vdt-open-chat]', ...args);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function pancakeSearchInput() {
+  const col = document.querySelector('#conversationCol');
+  if (!(col instanceof HTMLElement)) return null;
+  const input =
+    col.querySelector('input[placeholder*="Tìm kiếm" i]') ||
+    col.querySelector('input[placeholder*="Tìm" i]') ||
+    col.querySelector('input[type="search"]') ||
+    col.querySelector('input[placeholder*="Search" i]') ||
+    col.querySelector('.ant-input-affix-wrapper input') ||
+    col.querySelector('input.ant-input') ||
+    col.querySelector('input[type="text"]');
+  return input instanceof HTMLInputElement ? input : null;
+}
+
+function setPancakeSearchValue(input, value) {
+  if (!(input instanceof HTMLInputElement)) return;
+  input.focus();
+  const next = String(value ?? '');
+  const last = input.value;
+  // React controlled input: _valueTracker + native setter.
+  const native = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+  native?.call(input, next);
+  input.value = next;
+  try {
+    const tracker = /** @type {{ setValue?: (v: string) => void } | undefined} */ (input)._valueTracker;
+    tracker?.setValue?.(last);
+  } catch {
+    /* ignore */
+  }
+  input.dispatchEvent(
+    new InputEvent('input', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'insertFromPaste',
+      data: next,
+    }),
+  );
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: next.slice(-1) || '0', code: 'Digit0' }));
+}
+
+function visiblePancakeListItems() {
+  const col = document.querySelector('#conversationCol') || document;
+  return [...col.querySelectorAll('.conversation-list-item')].filter(
+    (el) => el instanceof HTMLElement && !el.closest(`#${ROOT_ID}`),
+  );
+}
+
+/**
+ * Chọn đúng dòng sau khi (có thể) đã search.
+ * Ưu tiên: exact id → còn đúng 1 dòng trong list → đúng 1 dòng có SĐT.
+ */
+function resolvePancakeTarget(chatId, phone, { afterSearch = false } = {}) {
+  const id = String(chatId || '').trim();
+  const want = normalizePhone(phone || '');
+  const items = visiblePancakeListItems();
+
+  if (id) {
+    const byId =
+      asPancakeListItem(document.getElementById(id)) || items.find((item) => item.id === id) || null;
+    if (byId) {
+      vdtOpenChatDebug('resolve: exact id', id);
+      return byId;
+    }
+  }
+
+  if (afterSearch && items.length === 1) {
+    vdtOpenChatDebug('resolve: single row after search', items[0].id, 'wantId', id || null);
+    return items[0];
+  }
+
+  if (!want) {
+    vdtOpenChatDebug('resolve: no phone and id missing', { id, visible: items.length });
+    return null;
+  }
+
+  const phoneHits = items.filter((item) => extractPhonesFromNode(item).includes(want));
+  if (phoneHits.length === 1) {
+    vdtOpenChatDebug('resolve: unique phone hit', want, phoneHits[0].id);
+    return phoneHits[0];
+  }
+
+  vdtOpenChatDebug('resolve: no safe target', {
+    id: id || null,
+    want,
+    afterSearch,
+    visible: items.length,
+    ids: items.slice(0, 8).map((el) => el.id),
+    phoneHits: phoneHits.map((el) => el.id),
+  });
+  return null;
+}
+
+/** Cuộn virtual list chỉ để tìm đúng chatId (không mở theo SĐT). */
+async function scanListForConversationId(channel, chatId) {
+  const id = String(chatId || '').trim();
+  if (!id) return null;
+  const list = conversationListScroller(channel);
+  if (!(list instanceof HTMLElement)) return asPancakeListItem(document.getElementById(id));
+
+  const hitNow = asPancakeListItem(document.getElementById(id));
+  if (hitNow) return hitNow;
+
+  const maxSteps = 25;
+  const step = Math.max(120, Math.floor((list.clientHeight || 400) * 0.6));
+  const startTop = list.scrollTop;
+  list.scrollTop = 0;
+  list.dispatchEvent(new Event('scroll', { bubbles: true }));
+  await waitMs(80);
+  for (let i = 0; i < maxSteps; i += 1) {
+    const found = asPancakeListItem(document.getElementById(id));
+    if (found) {
+      vdtOpenChatDebug('scan-id: found at step', i, id);
+      return found;
+    }
+    if (list.scrollTop + list.clientHeight >= list.scrollHeight - 8) break;
+    list.scrollTop += step;
+    list.dispatchEvent(new Event('scroll', { bubbles: true }));
+    await waitMs(55);
+  }
+  const foundEnd = asPancakeListItem(document.getElementById(id));
+  if (foundEnd) return foundEnd;
+  list.scrollTop = startTop;
+  list.dispatchEvent(new Event('scroll', { bubbles: true }));
+  vdtOpenChatDebug('scan-id: not found', id);
+  return null;
+}
+
+/** Chọn dòng kết quả search: ưu tiên có SĐT khớp, không thì dòng đầu (khi đã lọc). */
+function pickPancakeSearchResultRow(phone) {
+  const want = normalizePhone(phone || '');
+  const items = visiblePancakeListItems();
+  if (!items.length) return null;
+  if (want) {
+    const hit = items.find((item) => extractPhonesFromNode(item).includes(want));
+    if (hit) return hit;
+    // Snippet dạng "...137 288" — khớp đuôi SĐT.
+    const tail = want.slice(-6);
+    const soft = items.find((item) => {
+      const text = String(item.textContent || '').replace(/\D/g, '');
+      return tail && text.includes(tail);
+    });
+    if (soft) return soft;
+  }
+  // Sau khi search thường còn 1 dòng — click dòng đó.
+  if (items.length === 1) return items[0];
+  return items[0] || null;
+}
+
+/** Pancake: điền SĐT → Enter → click item chat trong kết quả. */
+async function pancakeFillSearchAndEnter(phone) {
+  const want = normalizePhone(phone || '') || String(phone || '').trim();
+  if (!want || !isPancake()) return false;
+  const input = pancakeSearchInput();
+  if (!input) {
+    vdtOpenChatDebug('search: no input');
+    return false;
+  }
+
+  vdtOpenChatDebug('search: fill+Enter+click', want);
+  setPancakeSearchValue(input, want);
+  await waitMs(30);
+
+  const enterOpts = {
+    key: 'Enter',
+    code: 'Enter',
+    keyCode: 13,
+    which: 13,
+    bubbles: true,
+    cancelable: true,
+  };
+  input.focus();
+  input.dispatchEvent(new KeyboardEvent('keydown', enterOpts));
+  input.dispatchEvent(new KeyboardEvent('keypress', enterOpts));
+  input.dispatchEvent(new KeyboardEvent('keyup', enterOpts));
+
+  const form = input.closest('form');
+  if (form instanceof HTMLFormElement) {
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  }
+
+  // Đợi Pancake lọc list rồi click đúng item.
+  for (let i = 0; i < 12; i += 1) {
+    await waitMs(i === 0 ? 350 : 150);
+    const row = pickPancakeSearchResultRow(want);
+    if (!row) continue;
+    vdtOpenChatDebug('search: click row', row.id || '(no-id)', 'poll', i);
+    if (activateConversationEl(row)) return true;
+  }
+
+  vdtOpenChatDebug('search: no result row to click', want);
+  return false;
+}
+
+/**
+ * Mở / lọc chat theo kênh hiện tại.
+ * Pancake: điền ô tìm + Enter. Zalo: click list theo id/SĐT.
+ */
+async function tryFocusPendingChat(channel, chatId, phone = '') {
+  if (channel === 'pancake' && !isPancake()) return false;
+  if (channel === 'zalo' && !isZalo()) return false;
+
+  vdtOpenChatDebug('open', { channel, chatId, phone });
+
+  if (channel === 'pancake') {
+    const ok = await pancakeFillSearchAndEnter(phone);
+    if (!ok) vdtOpenChatDebug('open: no search input', { phone });
+    return ok;
+  }
+
+  // Zalo: giữ tìm id / SĐT + cuộn list
+  let el = findConversationEl(channel, chatId, phone);
+  if (el && activateConversationEl(el)) return true;
+  el = await scanListForConversationId(channel, chatId);
+  if (el && activateConversationEl(el)) return true;
+  el = findConversationEl(channel, '', phone);
+  if (el && activateConversationEl(el)) return true;
+  return false;
+}
+
+function applyPendingListResult(result) {
+  if (!result?.ok) return false;
+  pendingChatState = {
+    count: Number(result.count) || 0,
+    items: Array.isArray(result.items) ? result.items : [],
+  };
+  renderPendingUi(ensureRoot());
+  return true;
+}
+
+async function copyPendingPhone(phone) {
+  const value = String(phone || '').trim();
+  if (!value) {
+    showToast('Không có SĐT để sao chép.');
+    return;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+    } else {
+      const input = document.createElement('textarea');
+      input.value = value;
+      input.setAttribute('readonly', '');
+      input.style.cssText = 'position:fixed;left:-9999px;top:0';
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      input.remove();
+    }
+    showToast(`Đã chép ${value}`);
+  } catch {
+    showToast('Không sao chép được SĐT.');
+  }
+}
+
+function dismissPending(channel, chatId) {
+  if (!channel || !chatId) return Promise.resolve();
+  return runtimeSend({ type: 'vdt-dismiss-pending-chat', channel, chatId }).then((result) => {
+    if (!isExtensionAlive()) return;
+    if (!result?.ok) {
+      showToast(result?.error || 'Không bỏ qua được.');
+      return;
+    }
+    applyPendingListResult(result);
+    showToast('Đã bỏ qua.');
+  });
+}
+
+function openPendingItem(channel, chatId, phone) {
+  pendingPanelOpen = false;
+  renderPendingUi(ensureRoot());
+  if (phone) {
+    postCustomerFill({ phone, channel, chatId });
+    lastPhone = '';
+    requestLookup(phone, chatId, '');
+  }
+  const pageChannel = chatChannel();
+  if (channel !== pageChannel) {
+    showToast(`Mở tab ${channelLabel(channel)} rồi chọn chat ${phone || ''}.`.trim());
+    return;
+  }
+  void tryFocusPendingChat(channel, chatId, phone).then((opened) => {
+    if (!isExtensionAlive()) return;
+    if (opened) {
+      scheduleSync(200);
+      return;
+    }
+    showToast(
+      channel === 'pancake'
+        ? 'Không thấy ô tìm hội thoại bên trái.'
+        : 'Không mở được chat — thử tìm SĐT thủ công.',
+    );
+  });
 }
 
 function shortProvince(label) {
@@ -687,7 +1678,7 @@ function renderCustomer(root, customer) {
           ${
             canDelete
               ? `<button type="button" class="vdt-delete" data-vdt-delete-order title="Xóa đơn" aria-label="Xóa đơn" ${customerSaving ? 'disabled' : ''}>
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M7 7l1 13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-13"/><path d="M10 11v6M14 11v6"/></svg>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
                 </button>`
               : ''
           }
@@ -1040,7 +2031,8 @@ function requestLookup(phone, convId, name) {
     customerCanDelete = Boolean(result.canDelete);
     if (!result.found || !result.customer) {
       activeCustomer = null;
-      setCustomerStatus(root, `Chưa có đơn với ${phone}`);
+      setNoOrderStatus(root, phone);
+      schedulePendingRefresh(300);
       postCustomerFill({ phone, name: name || '', channel, chatId: convId });
       return;
     }
@@ -1050,6 +2042,7 @@ function requestLookup(phone, convId, name) {
     customerSaving = false;
     customerDeleteConfirm = false;
     renderCustomer(root, result.customer);
+    schedulePendingRefresh(400);
     postCustomerFill({ phone, name: name || '', channel, chatId: convId });
   });
 }
@@ -1060,65 +2053,101 @@ function syncFromPage() {
   const convId = selectedConversationId();
   const name = readChatName();
   const trustedPhone = readTrustedPhone();
-  const cachedPhone = channel && convId ? chatPhoneCache.get(chatCacheKey(channel, convId)) || null : null;
-  // Header chỉ tra đơn theo SĐT tin cậy (tag/bubble); cache chỉ điền form.
-  const phoneForHeader = trustedPhone;
-  const phoneForFill = trustedPhone || cachedPhone;
+  let cachedPhone = null;
+  if (channel && convId) {
+    cachedPhone = chatPhoneCache.get(chatCacheKey(channel, convId)) || null;
+    if (!cachedPhone && channel === 'zalo') {
+      for (const id of zaloChatIdCandidates()) {
+        cachedPhone = chatPhoneCache.get(chatCacheKey(channel, id)) || null;
+        if (cachedPhone) break;
+      }
+    }
+  }
+  // Pancake: tag SĐT. Zalo: bubble/thread hoặc SĐT đã map — đều đủ để tra đơn.
+  const phoneForHeader = trustedPhone || cachedPhone;
+  const phoneForFill = phoneForHeader;
+  const openedNewChat = Boolean(convId && convId !== lastConvId);
 
-  if (name && (name !== lastName || convId !== lastConvId)) {
-    postCustomerFill({ name, phone: phoneForFill || undefined, channel, chatId: convId });
-    lastName = name;
+  if (openedNewChat) {
+    lastConvId = convId;
+    lastPhone = '';
+    lastName = '';
+    if (channel) chatPhoneSaveAttempted.delete(chatCacheKey(channel, convId));
+    if (channel === 'zalo') {
+      // Đổi hội thoại: cho phép tra map/lưu đúng một lần cho chat mới.
+      stickyZaloChatId = convId;
+      stickyZaloNameKey = readZaloNameChatId();
+      for (const id of zaloChatIdCandidates()) chatPhoneSaveAttempted.delete(chatCacheKey(channel, id));
+    }
+    const box = customerBox(root);
+    if (box instanceof HTMLElement) {
+      box.hidden = true;
+      box.innerHTML = '';
+      delete box.dataset.state;
+      delete box.dataset.statusText;
+    }
   }
 
-  if (trustedPhone && channel && convId) rememberChatPhone(channel, convId, trustedPhone);
-
-  if (!phoneForHeader) {
-    if (convId && channel) {
-      requestChatPhoneMap(channel, convId, name || '');
-      if (convId !== lastConvId) {
-        lastConvId = convId;
-        lastPhone = '';
-        const box = customerBox(root);
-        if (box instanceof HTMLElement) {
-          box.hidden = true;
-          box.innerHTML = '';
-          delete box.dataset.state;
-        }
-      }
-    } else if (!convId) {
-      lastConvId = '';
-      lastPhone = '';
-      lastName = '';
-      const box = customerBox(root);
-      if (box instanceof HTMLElement) {
-        box.hidden = true;
-        box.innerHTML = '';
-        delete box.dataset.state;
-      }
+  if (!convId) {
+    lastConvId = '';
+    lastPhone = '';
+    lastName = '';
+    stickyZaloChatId = '';
+    stickyZaloNameKey = '';
+    const box = customerBox(root);
+    if (box instanceof HTMLElement) {
+      box.hidden = true;
+      box.innerHTML = '';
+      delete box.dataset.state;
+      delete box.dataset.statusText;
     }
     return;
   }
 
-  if (phoneForHeader === lastPhone && convId === lastConvId) return;
+  if (name && (name !== lastName || openedNewChat)) {
+    postCustomerFill({ name, phone: phoneForFill || undefined, channel, chatId: convId });
+    lastName = name;
+  }
+
+  // Lưu khi mới mở chat, lần đầu thấy SĐT, hoặc SĐT khách khác số đã cache (cuộn tới số thật).
+  if (trustedPhone && channel && convId) {
+    const key = chatCacheKey(channel, convId);
+    const cached = chatPhoneCache.get(key);
+    if (openedNewChat || !chatPhonePersisted.has(key) || cached !== trustedPhone) {
+      persistChatPhone(channel, convId, trustedPhone, name || '');
+    }
+  }
+
+  if (!phoneForHeader) {
+    if (channel) requestChatPhoneMap(channel, convId, name || '');
+    return;
+  }
+
+  if (phoneForHeader === lastPhone && !openedNewChat) return;
   lastPhone = phoneForHeader;
-  lastConvId = convId;
+  postCustomerFill({ phone: phoneForHeader, name: name || '', channel, chatId: convId });
   requestLookup(phoneForHeader, convId, name || '');
 }
 
-function scheduleSync() {
+function scheduleSync(delayMs = 280) {
   if (!isExtensionAlive()) return;
   window.clearTimeout(debounceTimer);
   debounceTimer = window.setTimeout(() => {
     if (!isExtensionAlive()) return;
     try {
+      applyHostChromeOffset();
       syncFromPage();
     } catch {
       /* DOM/extension race */
     }
-  }, 280);
+  }, delayMs);
 }
 
+let toastPendingTimer = 0;
+
 function showToast(text) {
+  window.clearTimeout(toastPendingTimer);
+  toastPendingTimer = 0;
   const root = ensureRoot();
   let toast = root.querySelector('[data-vdt-toast]');
   if (!(toast instanceof HTMLElement)) {
@@ -1135,6 +2164,38 @@ function showToast(text) {
       toast.hidden = true;
     }, 2200),
   );
+}
+
+/** Chỉ hiện “Đang…” nếu thao tác kéo dài — tránh nháy toast khi search đã warm. */
+function showToastSoon(text, delayMs = 180) {
+  window.clearTimeout(toastPendingTimer);
+  toastPendingTimer = window.setTimeout(() => {
+    toastPendingTimer = 0;
+    showToast(text);
+  }, delayMs);
+}
+
+function cancelPendingToast() {
+  window.clearTimeout(toastPendingTimer);
+  toastPendingTimer = 0;
+}
+
+/** Nạp sẵn ward_mapping trên SW — lần bấm pin không phải chờ cold start ~1MB. */
+function scheduleLegacyWarmup(delayMs = 0) {
+  if (!isExtensionAlive()) return;
+  const run = () => {
+    if (!isExtensionAlive()) return;
+    void runtimeSend({ type: 'vdt-legacy-warmup' });
+  };
+  if (delayMs <= 0) {
+    if (typeof requestIdleCallback === 'function') {
+      requestIdleCallback(() => run(), { timeout: 2500 });
+    } else {
+      window.setTimeout(run, 400);
+    }
+    return;
+  }
+  window.setTimeout(run, delayMs);
 }
 
 function normalizeMessageText(node) {
@@ -1205,7 +2266,9 @@ async function applyAddressFromChat(address) {
   const chatId = selectedConversationId();
   const phone = readPhoneFromText(address);
   logAddrDebug('pin-click', { address, phone, channel, chatId });
-  if (phone && channel && chatId) rememberChatPhone(channel, chatId, phone);
+  if (phone && channel && chatId) {
+    persistChatPhone(channel, chatId, phone, readChatName() || '');
+  }
   if (phone) {
     postCustomerFill({ phone, channel, chatId });
   }
@@ -1215,8 +2278,11 @@ async function applyAddressFromChat(address) {
   const frame = root.querySelector('.vdt-frame');
   if (frame instanceof HTMLIFrameElement) void preparePosFrame(frame);
 
-  showToast('Đang nhận diện địa chỉ…');
+  // Warm song song; toast chờ chỉ hiện nếu SW còn cold / search > ~180ms.
+  scheduleLegacyWarmup(0);
+  showToastSoon('Đang nhận diện địa chỉ…', 180);
   const data = await legacySearchReliable(address);
+  cancelPendingToast();
   logAddrDebug('search-result', {
     ok: data?.ok,
     ready: data?.ready,
@@ -1247,25 +2313,45 @@ async function applyAddressFromChat(address) {
         newText: hit.newText,
         line,
       });
+      const oldText = typeof hit.oldText === 'string' ? hit.oldText : '';
+      const newText = typeof hit.newText === 'string' ? hit.newText : '';
       postToPos({
         type: 'vdt-fill-address',
         address: composed || address,
         provinceCode: hit.provinceCode,
         wardCode: hit.wardCode,
         line,
+        oldText: oldText || undefined,
+        newText: newText || undefined,
         phone: phone || undefined,
         matched: true,
         channel: channel || undefined,
         chatId: chatId || undefined,
       });
-      showToast(posReady ? `Đã điền: ${hit.newText}` : 'Đã gửi địa chỉ — đợi form tải xong');
+      showToast(
+        posReady
+          ? oldText
+            ? `Đã map: ${newText}`
+            : `Đã điền: ${newText}`
+          : 'Đã gửi địa chỉ — đợi form tải xong',
+      );
       return;
     }
-    // Nhiều kết quả khác nhau → đưa vào ô tìm địa chỉ cũ để chọn.
-    logAddrDebug('need-pick', { count: data.items.length, reason: 'ambiguous' });
+    // Nhiều kết quả khác nhau → điền tạm kết quả đứng đầu + list để đổi (tránh giữ địa chỉ cũ).
+    const line = typeof hit.line === 'string' ? hit.line : '';
+    logAddrDebug('need-pick', {
+      count: data.items.length,
+      reason: 'ambiguous',
+      provisional: { provinceCode: hit.provinceCode, wardCode: hit.wardCode, newText: hit.newText, line },
+    });
     postToPos({
       type: 'vdt-fill-address',
       address,
+      provinceCode: hit.provinceCode,
+      wardCode: hit.wardCode,
+      line,
+      oldText: typeof hit.oldText === 'string' && hit.oldText ? hit.oldText : undefined,
+      newText: typeof hit.newText === 'string' && hit.newText ? hit.newText : undefined,
       phone: phone || undefined,
       matched: false,
       needPick: true,
@@ -1274,7 +2360,7 @@ async function applyAddressFromChat(address) {
       channel: channel || undefined,
       chatId: chatId || undefined,
     });
-    showToast(`Có ${data.items.length} chỗ khớp — chọn trong form`);
+    showToast(`Đã chọn tạm ${hit.newText} — đổi nếu sai`);
     return;
   }
   logAddrDebug('need-pick', {
@@ -1297,10 +2383,18 @@ async function applyAddressFromChat(address) {
 /** Giữ bubble nhỏ nhất chứa địa chỉ (tránh gắn nút chồng lên cha/con). */
 function collectAddressHosts() {
   const candidates = [];
-  for (const node of document.querySelectorAll(MESSAGE_BUBBLE_SELECTOR)) {
+  const nodes = isZalo()
+    ? document.querySelectorAll(
+        '[data-id="div_ReceivedMsg_Text"], [data-id*="ReceivedMsg_Text"], [data-id*="ReceivedMsg"], ' + MESSAGE_BUBBLE_SELECTOR,
+      )
+    : document.querySelectorAll(MESSAGE_BUBBLE_SELECTOR);
+  for (const node of nodes) {
     if (!(node instanceof HTMLElement)) continue;
     if (node.closest(`#${ROOT_ID}`)) continue;
+    if (node.closest(CHAT_LIST_SEL)) continue;
     if (node.closest(`[${ADDR_BTN_ATTR}]`)) continue;
+    // Zalo: không gắn pin / không lấy SĐT từ tin xanh (tin mình / số shiper).
+    if (isZalo() && !isZaloCustomerMessage(node)) continue;
     const text = normalizeMessageText(node);
     if (!looksLikeAddressText(text)) continue;
     candidates.push(node);
@@ -1377,6 +2471,7 @@ function watchChatPages() {
     }
     scheduleSync();
     scheduleAddressScan();
+    scheduleListPhoneScan();
   });
   chatObserver.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
   document.addEventListener(
@@ -1393,12 +2488,32 @@ function watchChatPages() {
       ) {
         scheduleSync();
         scheduleAddressScan();
+        scheduleListPhoneScan(350);
+      }
+    },
+    true,
+  );
+  // Cuộn list ảo hóa — quét lại để bắt SĐT ở dòng mới hiện.
+  document.addEventListener(
+    'scroll',
+    (event) => {
+      if (!isExtensionAlive()) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (
+        target.closest(
+          '#conversationList, #conversationlist, .conversation-list, [class*="conversation-list"], .left-nav',
+        )
+      ) {
+        scheduleListPhoneScan(500);
       }
     },
     true,
   );
   scheduleSync();
   scheduleAddressScan();
+  scheduleListPhoneScan(400);
+  schedulePendingRefresh(300);
 }
 
 function panelFrameUrl(bust = false) {
@@ -1440,15 +2555,26 @@ function ensureRoot() {
 
   root = document.createElement('div');
   root.id = ROOT_ID;
+  applyHostChromeOffset(root);
   root.innerHTML = `
     <div class="vdt-shell" role="complementary" aria-label="Tạo đơn nhanh">
       <div class="vdt-resizer" role="separator" aria-orientation="vertical" aria-label="Kéo chỉnh độ rộng" title="Kéo để chỉnh độ rộng"></div>
       <div class="vdt-bar">
         <strong>Tạo đơn nhanh</strong>
         <div class="vdt-bar-actions">
+          <button type="button" class="vdt-pending-badge" data-vdt-pending-badge hidden title="SĐT chưa có đơn" aria-expanded="false">
+            <span data-vdt-pending-count>0</span> <span data-vdt-pending-label>đơn chưa lưu</span>
+          </button>
           <button type="button" data-vdt-reload title="Tải lại">Tải lại</button>
           <button type="button" data-vdt-collapse title="Thu gọn">Thu</button>
         </div>
+      </div>
+      <div class="vdt-pending-panel" data-vdt-pending-panel hidden>
+        <div class="vdt-pending-head">
+          <span>SĐT chưa có đơn</span>
+          <button type="button" data-vdt-pending-close title="Đóng">Đóng</button>
+        </div>
+        <ul class="vdt-pending-list" data-vdt-pending-list></ul>
       </div>
       <div class="vdt-auth" data-vdt-auth hidden>
         <p data-vdt-auth-text>Chưa đăng nhập admin. Đăng nhập trên trang quản trị một lần — sidebar dùng chung phiên.</p>
@@ -1473,15 +2599,65 @@ function ensureRoot() {
     root.classList.add('is-booting');
     if (desiredOpen) root.classList.add('is-collapsed');
     void preparePosFrame(frame, { forceReload: true });
+    schedulePendingRefresh(200);
   });
   root.querySelector('[data-vdt-login]')?.addEventListener('click', () => {
     void runtimeSend({ type: 'vdt-open-login' });
   });
   root.querySelector('[data-vdt-resync]')?.addEventListener('click', () => {
-    void preparePosFrame(frame, { forceReload: true }).then(() => scheduleSync());
+    void preparePosFrame(frame, { forceReload: true }).then(() => {
+      scheduleSync();
+      schedulePendingRefresh(200);
+    });
+  });
+  root.querySelector('[data-vdt-pending-badge]')?.addEventListener('click', () => {
+    pendingPanelOpen = !pendingPanelOpen;
+    renderPendingUi(root);
+  });
+  root.querySelector('[data-vdt-pending-close]')?.addEventListener('click', () => {
+    pendingPanelOpen = false;
+    renderPendingUi(root);
   });
   root.addEventListener('click', (event) => {
-    const duplicateOrder = event.target instanceof Element ? event.target.closest('[data-vdt-duplicate-order]') : null;
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+
+    const dismissCurrent = target.closest('[data-vdt-pending-dismiss-current]');
+    if (dismissCurrent instanceof HTMLElement) {
+      const channel = chatChannel();
+      const chatId = selectedConversationId();
+      if (channel && chatId) void dismissPending(channel, chatId);
+      return;
+    }
+
+    const copyBtn = target.closest('[data-vdt-pending-copy]');
+    if (copyBtn instanceof HTMLElement) {
+      const row = copyBtn.closest('[data-vdt-pending-item]');
+      if (row instanceof HTMLElement) {
+        void copyPendingPhone(row.dataset.phone || '');
+      }
+      return;
+    }
+
+    const dismissBtn = target.closest('[data-vdt-pending-dismiss]');
+    if (dismissBtn instanceof HTMLElement) {
+      const row = dismissBtn.closest('[data-vdt-pending-item]');
+      if (row instanceof HTMLElement) {
+        void dismissPending(row.dataset.channel || '', row.dataset.chatId || '');
+      }
+      return;
+    }
+
+    const openBtn = target.closest('[data-vdt-pending-open]');
+    if (openBtn instanceof HTMLElement) {
+      const row = openBtn.closest('[data-vdt-pending-item]');
+      if (row instanceof HTMLElement) {
+        openPendingItem(row.dataset.channel || '', row.dataset.chatId || '', row.dataset.phone || '');
+      }
+      return;
+    }
+
+    const duplicateOrder = target.closest('[data-vdt-duplicate-order]');
     if (duplicateOrder instanceof HTMLButtonElement) {
       duplicateActiveOrder();
       return;
@@ -1490,6 +2666,7 @@ function ensureRoot() {
   });
   root.addEventListener('change', handleCustomerCardChange);
   bindResize(root);
+  window.addEventListener('resize', () => applyHostChromeOffset(root), { passive: true });
 
   return root;
 }
@@ -1533,10 +2710,15 @@ async function mount() {
       const phone = typeof data.phone === 'string' ? data.phone.trim() : '';
       if (!phone) return;
       lookupCache.delete(phone);
+      const channel = chatChannel();
+      const chatId = selectedConversationId();
+      const name = readChatName() || lastName || '';
+      if (channel && chatId) persistChatPhone(channel, chatId, phone, name);
       showToast('Đã cập nhật đơn.');
-      if (phone === lastPhone) {
+      schedulePendingRefresh(200);
+      if (phone === lastPhone || chatId === lastConvId) {
         lastPhone = '';
-        requestLookup(phone, lastConvId, lastName || '');
+        requestLookup(phone, chatId || lastConvId, name);
       }
     }
   });
@@ -1544,6 +2726,11 @@ async function mount() {
   const storedPromise = storageGet('sync', [STORAGE_OPEN, STORAGE_WIDTH]);
   const preparePromise = preparePosFrame(frame);
   watchChatPages();
+  // Warm index địa chỉ sớm (idle) — SW MV3 hay ngủ, lần pin đầu sẽ không đợi nạp 1MB.
+  scheduleLegacyWarmup(0);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') scheduleLegacyWarmup(0);
+  });
 
   const stored = await storedPromise;
   if (!isExtensionAlive()) return;
@@ -1558,6 +2745,8 @@ async function mount() {
 
   await preparePromise;
   if (panelReady) revealOverlayIfReady();
+  scheduleListPhoneScan(500);
+  schedulePendingRefresh(400);
 }
 
 installContextGuards();
@@ -1586,9 +2775,18 @@ try {
         lookupCache.clear();
         chatPhoneCache.clear();
         chatLookupPending.clear();
+        chatMapTried.clear();
+        chatPhonePersisted.clear();
+        chatPhoneSaveAttempted.clear();
+        pendingChatState = { count: 0, items: [] };
+        pendingPanelOpen = false;
+        stickyZaloChatId = '';
+        stickyZaloNameKey = '';
         lastPhone = '';
         lastName = '';
+        lastConvId = '';
         scheduleSync();
+        schedulePendingRefresh(300);
         sendResponse({ ok: true });
       });
       return true;
@@ -1599,4 +2797,6 @@ try {
   markExtensionDead();
 }
 
-void mount();
+if (!isPancakePosOrderPage()) {
+  void mount();
+}

@@ -1,0 +1,26 @@
+.vdt-saved-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  white-space: nowrap;
+  vertical-align: middle;
+  user-select: none;
+}
+
+.vdt-saved-badge.is-unsaved {
+  border: 1px solid #f59e0b;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.vdt-saved-badge.is-saved {
+  border: 1px solid #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}

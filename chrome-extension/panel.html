@@ -90,19 +90,36 @@
 
           <div class="address" data-address>
             <p class="label strong">Địa chỉ nhận hàng</p>
+            <div class="address-map" data-address-map hidden>
+              <div class="address-map-head">
+                <span class="address-map-title" data-address-map-title>Đã đổi 3 cấp → 2 cấp</span>
+                <button type="button" class="linkish address-map-close" data-address-map-close>Ẩn</button>
+              </div>
+              <p class="address-map-old" data-address-map-old></p>
+              <p class="address-map-arrow" aria-hidden="true">↓</p>
+              <p class="address-map-new" data-address-map-new></p>
+            </div>
             <div class="pair">
-              <label class="block">
+              <div class="block" data-address-combo="province">
                 <span class="label">Tỉnh / TP</span>
-                <select class="field" data-province required>
-                  <option value="">Đang tải…</option>
-                </select>
-              </label>
-              <label class="block">
+                <button type="button" class="field combo-trigger" data-combo-trigger aria-haspopup="listbox" aria-expanded="false">
+                  <span class="combo-value is-placeholder" data-combo-value>Đang tải…</span>
+                </button>
+                <div class="combo-panel" data-combo-panel hidden>
+                  <input class="field combo-query" type="search" placeholder="Tìm tỉnh/TP…" data-combo-query autocomplete="off" />
+                  <ul class="combo-list" data-combo-list role="listbox"></ul>
+                </div>
+              </div>
+              <div class="block" data-address-combo="ward">
                 <span class="label">Phường / Xã</span>
-                <select class="field" data-ward required disabled>
-                  <option value="">Chọn tỉnh trước</option>
-                </select>
-              </label>
+                <button type="button" class="field combo-trigger" data-combo-trigger aria-haspopup="listbox" aria-expanded="false" disabled>
+                  <span class="combo-value is-placeholder" data-combo-value>Chọn tỉnh trước</span>
+                </button>
+                <div class="combo-panel" data-combo-panel hidden>
+                  <input class="field combo-query" type="search" placeholder="Tìm phường, xã…" data-combo-query autocomplete="off" />
+                  <ul class="combo-list" data-combo-list role="listbox"></ul>
+                </div>
+              </div>
             </div>
             <label class="block mt">
               <span class="label">Số nhà, đường</span>

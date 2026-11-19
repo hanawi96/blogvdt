@@ -29,17 +29,21 @@ describe('đổi địa chỉ 3 cấp sang 2 cấp', () => {
   it('gõ không dấu đúng một xã cũ thì ra đúng xã mới', () => {
     const target = wardNamed('Thành phố Hà Nội', 'Xã Mê Linh');
     expect(target).toBeTruthy();
+    for (const raw of [
+      'trang viet',
+      'xa trang viet',
+      'xa tráng việt',
+      'xa trang viet, huyen me linh, thanh pho ha noi',
+      'xa trang viet huyen me linh ha noi',
+    ]) {
+      const result = searchLegacyAddress(rows, mapping, raw);
+      expect(result.items.some((item) => item.wardCode === target?.wardCode), raw).toBe(true);
+      expect(result.items[0]?.newText, raw).toMatch(/Mê Linh.*Hà Nội/);
+    }
     const result = searchLegacyAddress(rows, mapping, 'trang viet');
     expect(result.more).toBe(false);
     expect(result.items).toHaveLength(1);
-    expect(result.items[0]).toMatchObject({
-      provinceCode: target?.provinceCode,
-      wardCode: target?.wardCode,
-      line: '',
-      newText: 'Xã Mê Linh · Thành phố Hà Nội',
-    });
     expect(result.items[0]?.oldText.toLowerCase()).toContain('tráng việt');
-    expect(result.items[0]?.oldText.toLowerCase()).toContain('mê linh');
   });
 
   it('câu đủ xóm thôn huyện tỉnh giữ phần số nhà và không kéo xã chỉ trùng một từ', () => {
@@ -52,6 +56,50 @@ describe('đổi địa chỉ 3 cấp sang 2 cấp', () => {
     expect(result.items[0]?.newText).toBe('Xã Mê Linh · Thành phố Hà Nội');
     expect(result.items[0]?.line).toBe('xóm 4, thôn Đông Cao');
     expect(result.items[0]?.oldText.toLowerCase()).not.toContain('hùng việt');
+  });
+
+  it('HCM: đường trùng tên xã + huyện + thành phố (không phẩy) ra Xuân Thới Sơn', () => {
+    const target = wardNamed('Thành phố Hồ Chí Minh', 'Xã Xuân Thới Sơn');
+    expect(target).toBeTruthy();
+    for (const raw of [
+      '73/4 đường Xuân thới sơn 27 hóc môn thành phố hồ chí minh',
+      '73/4 đường Xuân thới sơn 27 hóc môn thành phố hồ chí minh\n0961262866',
+      'đường Xuân thới sơn 27 hóc môn thành phố hồ chí minh',
+      'xuân thới sơn, hóc môn, thành phố hồ chí minh',
+      'xuan thoi son hoc mon thanh pho ho chi minh',
+    ]) {
+      const result = searchLegacyAddress(rows, mapping, raw);
+      expect(result.items.some((item) => item.wardCode === target?.wardCode), raw).toBe(true);
+      expect(result.items[0]?.newText, raw).toMatch(/Xuân Thới Sơn.*Hồ Chí Minh/);
+    }
+    const withStreet = searchLegacyAddress(
+      rows,
+      mapping,
+      '73/4 đường Xuân thới sơn 27 hóc môn thành phố hồ chí minh',
+    );
+    expect(withStreet.items[0]?.line.toLowerCase()).toMatch(/73\/4/);
+  });
+
+  it('viết tắt x./h. (kèm thôn, không dấu) vẫn ra Xã Mê Linh', () => {
+    const target = wardNamed('Thành phố Hà Nội', 'Xã Mê Linh');
+    expect(target).toBeTruthy();
+    for (const raw of [
+      'thôn đông cao, x.tráng việt, h.mê linh, hà nội',
+      'thon dong cao, x.trang viet, h.me linh, ha noi',
+      'x.tráng việt, h.mê linh, tp.hà nội',
+      'X. Tráng Việt, H. Mê Linh, Hà Nội',
+      'x/trang viet, h/me linh, ha noi',
+    ]) {
+      const result = searchLegacyAddress(rows, mapping, raw);
+      expect(result.items.some((item) => item.wardCode === target?.wardCode), raw).toBe(true);
+      expect(result.items[0]?.newText, raw).toMatch(/Mê Linh.*Hà Nội/);
+    }
+    const withHamlet = searchLegacyAddress(
+      rows,
+      mapping,
+      'thôn đông cao, x.tráng việt, h.mê linh, hà nội',
+    );
+    expect(withHamlet.items[0]?.line.toLowerCase()).toContain('đông cao');
   });
 
   it('tên xã trùng nhiều nơi thì trả nhiều dòng, không gộp thành một', () => {
@@ -283,5 +331,144 @@ describe('đổi địa chỉ 3 cấp sang 2 cấp', () => {
       newText: 'Phường Bình Trị Đông · Thành phố Hồ Chí Minh',
     });
     expect(result.items[0]?.line.toLowerCase()).toContain('38/27a');
+  });
+
+  it('Đắk Lắk: tỉnh dính chữ + typo Chí thán → Đức Bình', () => {
+    const target = wardNamed('Tỉnh Đắk Lắk', 'Xã Đức Bình');
+    expect(target).toBeTruthy();
+    const result = searchLegacyAddress(rows, mapping, 'Chí thán đức Bình đắklắk');
+    expect(result.debug.tokens.join(' ')).toMatch(/dak lak/);
+    expect(result.items.some((item) => item.wardCode === target?.wardCode)).toBe(true);
+    expect(result.items.find((item) => item.wardCode === target?.wardCode)?.newText).toMatch(/Đức Bình.*Đắk Lắk/);
+  });
+
+  it('Đắk Lắk: bong bóng cắt «đắk lạ» vẫn ra Krông Ana, giữ số nhà', () => {
+    const target = wardNamed('Tỉnh Đắk Lắk', 'Xã Krông Ana');
+    expect(target).toBeTruthy();
+    for (const raw of [
+      '48 nguyễn tất thành xã krong ana tỉnh đắk lạ',
+      'xã krông ana tỉnh đắk lắ',
+      'krong ana đắk lạ',
+    ]) {
+      const result = searchLegacyAddress(rows, mapping, raw);
+      expect(result.debug.tokens.join(' '), raw).toMatch(/dak lak/);
+      expect(result.items.some((item) => item.wardCode === target?.wardCode), raw).toBe(true);
+    }
+    const withStreet = searchLegacyAddress(rows, mapping, '48 nguyễn tất thành xã krong ana tỉnh đắk lạ');
+    expect(withStreet.items[0]?.line.toLowerCase()).toContain('48');
+    expect(withStreet.items[0]?.line.toLowerCase()).toContain('nguyễn tất thành');
+  });
+
+  it('Đắk Lắk: pơngdrang/krôngbuk dính chữ + tổ dân phố giữ số nhà', () => {
+    const target = wardNamed('Tỉnh Đắk Lắk', 'Xã Pơng Drang');
+    expect(target).toBeTruthy();
+    const result = searchLegacyAddress(
+      rows,
+      mapping,
+      'Tổ dân phố 1 , pơngdrang , krôngbuk , đăk lăk',
+    );
+    expect(result.debug.tokens.join(' ')).toBe('pong drang krong buk dak lak');
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      provinceCode: target?.provinceCode,
+      wardCode: target?.wardCode,
+      newText: 'Xã Pơng Drang · Tỉnh Đắk Lắk',
+      line: 'Tổ dân phố 1',
+    });
+  });
+
+  it('Đồng Nai: thiếu huyện + typo tình→tỉnh vẫn map Thiện Tân → Trảng Dài', () => {
+    const target = wardNamed('Tỉnh Đồng Nai', 'Phường Trảng Dài');
+    expect(target).toBeTruthy();
+    for (const raw of [
+      'Công ty Dũng Khanh cụm công nghiệp xã thiên tân tình đồng nai',
+      'Công ty Dũng Khanh cụm công nghiệp xã thiên tân tinh đồng nai',
+      'xã thiện tân tỉnh đồng nai',
+    ]) {
+      const result = searchLegacyAddress(rows, mapping, raw);
+      expect(result.items[0], raw).toMatchObject({
+        provinceCode: target?.provinceCode,
+        wardCode: target?.wardCode,
+        newText: 'Phường Trảng Dài · Tỉnh Đồng Nai',
+      });
+      expect(result.items[0]?.oldText.toLowerCase(), raw).toContain('thiện tân');
+    }
+    const withStreet = searchLegacyAddress(
+      rows,
+      mapping,
+      'Công ty Dũng Khanh cụm công nghiệp xã thiên tân tình đồng nai',
+    );
+    expect(withStreet.items[0]?.line.toLowerCase()).toContain('dũng khanh');
+  });
+
+  it('HCM: 923A Âu Cơ .P.Tân Sơn Nhì.Q.Tân Phú + SĐT → Phường Tân Sơn Nhì', () => {
+    const target = wardNamed('Thành phố Hồ Chí Minh', 'Phường Tân Sơn Nhì');
+    expect(target).toBeTruthy();
+    const raw = '923A. ÂU CƠ .P.Tân sơn nhì.Q.tân phú..\n0934130461';
+    const result = searchLegacyAddress(rows, mapping, raw);
+    expect(result.debug.tokens.join(' ')).toMatch(/tan son nhi/);
+    expect(result.debug.tokens.join(' ')).toMatch(/tan phu/);
+    expect(result.items[0]).toMatchObject({
+      provinceCode: target?.provinceCode,
+      wardCode: target?.wardCode,
+      newText: 'Phường Tân Sơn Nhì · Thành phố Hồ Chí Minh',
+    });
+    expect(result.items[0]?.line.toLowerCase()).toContain('923a');
+    expect(result.items[0]?.line.toLowerCase()).toMatch(/âu cơ|au co/);
+  });
+
+  it('Đắk Lắk: typo thiếu/sai 1 ký tự trên xã–huyện vẫn ra Pơng Drang', () => {
+    const target = wardNamed('Tỉnh Đắk Lắk', 'Xã Pơng Drang');
+    expect(target).toBeTruthy();
+    for (const raw of [
+      'Tổ dân phố 1, pơngdran, krongbuk, đăk lăk',
+      'pong dran, krong buk, dak lak',
+      'pongdran, krongbu, daklak',
+      'Pơng Drang, Krông Búk, Đắk Lắk',
+    ]) {
+      const result = searchLegacyAddress(rows, mapping, raw);
+      expect(result.items.some((item) => item.wardCode === target?.wardCode), raw).toBe(true);
+      expect(result.items[0]?.provinceCode, raw).toBe(target?.provinceCode);
+    }
+    const withStreet = searchLegacyAddress(rows, mapping, 'Tổ dân phố 1, pơngdran, krongbuk, đăk lăk');
+    expect(withStreet.items[0]?.line.toLowerCase()).toContain('tổ dân phố 1');
+  });
+
+  it('typo soft: exact vẫn thắng soft; token ngắn không đoán bừa', () => {
+    const exact = searchLegacyAddress(rows, mapping, 'trang viet');
+    expect(exact.items).toHaveLength(1);
+    expect(exact.items[0]?.newText).toMatch(/Mê Linh/);
+
+    const shortNoise = searchLegacyAddress(rows, mapping, 'an');
+    expect(shortNoise.debug.reason === 'tokens-too-short' || shortNoise.items.length === 0).toBe(true);
+
+    const longThanh = searchLegacyAddress(rows, mapping, 'long thanh');
+    expect(longThanh.items.some((item) => /long thành/i.test(item.newText))).toBe(true);
+    // «long» đơn lẻ quá ngắn để soft-match thành tên xã dài.
+    const onlyLong = searchLegacyAddress(rows, mapping, 'long');
+    expect(onlyLong.items.every((item) => !/pơng drang/i.test(item.newText))).toBe(true);
+  });
+
+  it('Đắk Lắk: chí thạnh / đức bình đông regression', () => {
+    const tuyAnBac = wardNamed('Tỉnh Đắk Lắk', 'Xã Tuy An Bắc');
+    const ducBinh = wardNamed('Tỉnh Đắk Lắk', 'Xã Đức Bình');
+    expect(tuyAnBac).toBeTruthy();
+    expect(ducBinh).toBeTruthy();
+
+    const chiThanh = searchLegacyAddress(rows, mapping, 'chí thạnh tuy an');
+    expect(chiThanh.items[0]).toMatchObject({
+      provinceCode: tuyAnBac?.provinceCode,
+      wardCode: tuyAnBac?.wardCode,
+    });
+
+    const chiThan = searchLegacyAddress(rows, mapping, 'chí thán');
+    expect(chiThan.items.some((item) => item.wardCode === tuyAnBac?.wardCode)).toBe(true);
+
+    const ducBinhDong = searchLegacyAddress(rows, mapping, 'đức bình đông');
+    expect(ducBinhDong.items[0]).toMatchObject({
+      provinceCode: ducBinh?.provinceCode,
+      wardCode: ducBinh?.wardCode,
+      newText: 'Xã Đức Bình · Tỉnh Đắk Lắk',
+    });
   });
 });

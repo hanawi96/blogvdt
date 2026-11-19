@@ -1,12 +1,15 @@
 #vdt-pos-overlay-root {
   all: initial;
   --vdt-width: 400px;
+  /* Pancake header cố định — offset để không bị che (JS set trên host pancake). */
+  --vdt-top: 0px;
   position: fixed !important;
-  top: 0 !important;
+  top: var(--vdt-top) !important;
   right: 0 !important;
   bottom: 0 !important;
   width: var(--vdt-width) !important;
-  z-index: 2147483646 !important;
+  /* Dưới modal/bảng tin Pancake (thường ≥1000); đủ cao để sidebar vẫn trên nội dung chat. */
+  z-index: 900 !important;
   pointer-events: none;
   font-family: "Segoe UI", system-ui, sans-serif;
 }
@@ -115,7 +118,160 @@
 
 #vdt-pos-overlay-root .vdt-bar-actions {
   display: flex;
+  align-items: center;
   gap: 0.35rem;
+}
+
+#vdt-pos-overlay-root .vdt-pending-badge {
+  border: 1px solid #f59e0b;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #9a3412;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.22rem 0.5rem;
+  cursor: pointer;
+  line-height: 1.2;
+  white-space: nowrap;
+  max-width: 9.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#vdt-pos-overlay-root .vdt-pending-badge:hover,
+#vdt-pos-overlay-root .vdt-pending-badge[aria-expanded="true"] {
+  background: #ffedd5;
+}
+
+#vdt-pos-overlay-root .vdt-pending-panel {
+  flex: none;
+  max-height: 22rem;
+  overflow: auto;
+  border-bottom: 1px solid #fde68a;
+  background: #fffbeb;
+}
+
+#vdt-pos-overlay-root .vdt-pending-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem 0.25rem;
+  color: #92400e;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+#vdt-pos-overlay-root .vdt-pending-head button {
+  border: 0;
+  background: transparent;
+  color: #92400e;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+  cursor: pointer;
+  padding: 0.15rem 0.25rem;
+}
+
+#vdt-pos-overlay-root .vdt-pending-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0.35rem 0.45rem;
+}
+
+#vdt-pos-overlay-root .vdt-pending-item {
+  display: flex;
+  align-items: stretch;
+  gap: 0.2rem;
+  margin: 0.15rem 0;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+}
+
+#vdt-pos-overlay-root .vdt-pending-item.is-here {
+  background: #fff7ed;
+}
+
+#vdt-pos-overlay-root .vdt-pending-open {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 0.35rem 0.45rem;
+  cursor: pointer;
+  font: inherit;
+}
+
+#vdt-pos-overlay-root .vdt-pending-phone {
+  color: #9a3412;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+#vdt-pos-overlay-root .vdt-pending-meta {
+  color: #92400e;
+  font-size: 0.68rem;
+  opacity: 0.9;
+}
+
+#vdt-pos-overlay-root .vdt-pending-copy,
+#vdt-pos-overlay-root .vdt-pending-skip {
+  flex: none;
+  width: 1.7rem;
+  border: 0;
+  background: transparent;
+  color: #92400e;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+}
+
+#vdt-pos-overlay-root .vdt-pending-copy svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#vdt-pos-overlay-root .vdt-pending-copy:hover,
+#vdt-pos-overlay-root .vdt-pending-skip:hover {
+  background: #fef3c7;
+}
+
+#vdt-pos-overlay-root .vdt-pending-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+#vdt-pos-overlay-root .vdt-pending-banner-skip {
+  flex: none;
+  border: 1px solid #fbbf24;
+  border-radius: 0.4rem;
+  background: #fff;
+  color: #92400e;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+  padding: 0.25rem 0.45rem;
+  cursor: pointer;
+}
+
+#vdt-pos-overlay-root .vdt-pending-banner-skip:hover {
+  background: #fef3c7;
 }
 
 #vdt-pos-overlay-root .vdt-auth {
@@ -703,7 +859,7 @@ button.vdt-addr-btn {
   top: 50%;
   left: calc(100% + 6px);
   right: auto;
-  z-index: 2147483000;
+  z-index: 5;
   display: inline-grid;
   place-items: center;
   width: 1.55rem;

@@ -6,7 +6,8 @@ import { routes } from '../../lib/routes';
 import { isAdminRole, type AdminRole } from './access';
 
 export const SESSION_COOKIE = 'admin_session';
-export const SESSION_MS = 8 * 60 * 60 * 1000;
+/** ~2 tháng — giảm lần đăng nhập lại; cookie lộ thì dùng được lâu hơn. */
+export const SESSION_MS = 60 * 24 * 60 * 60 * 1000;
 
 export function sessionCookieOptions(secure: boolean) {
   return {

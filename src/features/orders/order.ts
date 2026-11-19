@@ -146,8 +146,13 @@ export function orderOptionLabel(weight: string): string | null {
 
 export function normalizePhone(value: string): string | null {
   const compact = value.replace(/[\s.\-()]/g, '');
-  const local = compact.startsWith('+84') ? `0${compact.slice(3)}` : compact.startsWith('84') && compact.length >= 11 ? `0${compact.slice(2)}` : compact;
-  return /^0\d{9,10}$/.test(local) ? local : null;
+  const local = compact.startsWith('+84')
+    ? `0${compact.slice(3)}`
+    : compact.startsWith('84') && compact.length >= 11
+      ? `0${compact.slice(2)}`
+      : compact;
+  // Mobile VN 10 số (03/05/07/08/09) — loại id/timestamp giả 11 số.
+  return /^0(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)\d{7}$/.test(local) ? local : null;
 }
 
 export function orderDayKey(now: number): string {

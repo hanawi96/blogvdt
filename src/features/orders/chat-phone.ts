@@ -1,11 +1,12 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, notExists, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
-import { chatPhoneMaps } from '../../lib/db/schema';
+import { chatPhoneMaps, orders } from '../../lib/db/schema';
 import { normalizePhone } from './order';
 
 export type ChatChannel = 'pancake' | 'zalo';
 
 const CHAT_ID_MAX = 191;
+const PENDING_LIMIT = 40;
 
 export function isChatChannel(value: string): value is ChatChannel {
   return value === 'pancake' || value === 'zalo';
@@ -32,7 +33,7 @@ export async function getChatPhone(
   return row ? { phone: row.phone, updatedAt: row.updatedAt } : null;
 }
 
-/** Upsert theo PK; bỏ qua ghi nếu SĐT không đổi (giảm I/O khi dữ liệu lớn). */
+/** Upsert theo PK; đổi SĐT thì mở lại trạng thái chờ tạo đơn (xóa dismissed). */
 export async function upsertChatPhone(
   db: AppDb,
   input: { channel: ChatChannel; chatId: string; phone: string },
@@ -54,11 +55,71 @@ export async function upsertChatPhone(
       phone,
       createdAt: now,
       updatedAt: now,
+      dismissedAt: null,
     })
     .onConflictDoUpdate({
       target: [chatPhoneMaps.channel, chatPhoneMaps.chatId],
-      set: { phone, updatedAt: now },
+      set: { phone, updatedAt: now, dismissedAt: null },
     });
 
   return { ok: true, phone, changed: true };
+}
+
+export type PendingChatPhone = {
+  channel: ChatChannel;
+  chatId: string;
+  phone: string;
+  updatedAt: number;
+};
+
+/**
+ * Hội thoại đã gắn SĐT nhưng chưa có đơn chưa hủy với số đó (và chưa «bỏ qua»).
+ * Dùng cho badge extension — Pancake + Zalo.
+ */
+export async function listPendingChatPhones(db: AppDb): Promise<{ count: number; items: PendingChatPhone[] }> {
+  const hasActiveOrder = db
+    .select({ one: sql`1` })
+    .from(orders)
+    .where(and(eq(orders.phone, chatPhoneMaps.phone), ne(orders.status, 'cancelled')));
+
+  const items = await db
+    .select({
+      channel: chatPhoneMaps.channel,
+      chatId: chatPhoneMaps.chatId,
+      phone: chatPhoneMaps.phone,
+      updatedAt: chatPhoneMaps.updatedAt,
+    })
+    .from(chatPhoneMaps)
+    .where(and(isNull(chatPhoneMaps.dismissedAt), notExists(hasActiveOrder)))
+    .orderBy(desc(chatPhoneMaps.updatedAt))
+    .limit(PENDING_LIMIT);
+
+  const countRows = await db
+    .select({ value: sql<number>`count(*)` })
+    .from(chatPhoneMaps)
+    .where(and(isNull(chatPhoneMaps.dismissedAt), notExists(hasActiveOrder)));
+
+  return {
+    count: Number(countRows[0]?.value ?? 0),
+    items: items.map((row) => ({
+      channel: row.channel as ChatChannel,
+      chatId: row.chatId,
+      phone: row.phone,
+      updatedAt: row.updatedAt,
+    })),
+  };
+}
+
+export async function dismissChatPhone(
+  db: AppDb,
+  input: { channel: ChatChannel; chatId: string },
+  now = Date.now(),
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const chatId = normalizeChatId(input.chatId);
+  if (!chatId) return { ok: false, error: 'Thiếu id hội thoại.' };
+  await db
+    .update(chatPhoneMaps)
+    .set({ dismissedAt: now })
+    .where(and(eq(chatPhoneMaps.channel, input.channel), eq(chatPhoneMaps.chatId, chatId)));
+  return { ok: true };
 }
