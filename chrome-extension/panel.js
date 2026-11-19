@@ -6,10 +6,15 @@
   const formError = document.querySelector('[data-form-error]');
   const savedEl = document.querySelector('[data-saved]');
   const submitBtn = document.querySelector('[data-submit]');
+  const sendConfirmBtn = document.querySelector('[data-send-confirm]');
+  const sendConfirmCreateBtn = document.querySelector('[data-send-confirm-create]');
   const createSubmitLabel = 'Tạo đơn hàng';
   const editSubmitLabel = 'Lưu đơn';
-  const submitLabel = submitBtn instanceof HTMLButtonElement ? submitBtn.textContent || createSubmitLabel : createSubmitLabel;
+  const submitLabel = createSubmitLabel;
   let submitting = false;
+  let sendingConfirm = false;
+  /** @type {{ resolve: (value: { ok: boolean, error?: string }) => void } | null} */
+  let confirmWaiter = null;
   /** @type {number | null} */
   let editingOrderId = null;
   let editingOrderCode = '';
@@ -54,6 +59,7 @@
   const discountExtra = document.querySelector('[data-discount-extra]');
   const orderTotal = document.querySelector('[data-order-total]');
   const paySummary = document.querySelector('[data-pay-summary]');
+  const orderGrandTotal = document.querySelector('[data-order-grand-total]');
 
   const payStatesEl = document.querySelector('[data-pay-states]');
   const sourcesEl = document.querySelector('[data-sources]');
@@ -110,37 +116,74 @@
   }
 
   function setFormError(text) {
-    if (!(formError instanceof HTMLElement)) return;
-    formError.hidden = !text;
-    formError.textContent = text || '';
+    const msg = String(text || '').trim();
+    if (formError instanceof HTMLElement) {
+      formError.hidden = !msg;
+      formError.textContent = msg;
+    }
+    // Có lỗi → ẩn banner thành công cũ để không chồng 2–3 thông báo.
+    if (msg && savedEl instanceof HTMLElement) savedEl.hidden = true;
+  }
+
+  function isValidOrderPhone(raw) {
+    const compact = String(raw || '').replace(/[\s.\-()]/g, '');
+    const local = compact.startsWith('+84')
+      ? `0${compact.slice(3)}`
+      : compact.startsWith('84') && compact.length >= 11
+        ? `0${compact.slice(2)}`
+        : compact;
+    return /^0(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)\d{7}$/.test(local);
+  }
+
+  /** Kiểm tra đủ thông tin bắt buộc; nếu thiếu thì báo lỗi + cuộn tới trường. */
+  function requireDraftReady() {
+    const draft = collectDraft();
+    const issue = validateDraft(draft);
+    if (issue) {
+      revealInvalid(issue);
+      return null;
+    }
+    clearFieldAttention();
+    setFormError('');
+    return draft;
   }
 
   let attentionTimer = 0;
-  /** @type {HTMLElement | null} */
-  let issueHintEl = null;
 
   function clearFieldAttention() {
     window.clearTimeout(attentionTimer);
     for (const node of document.querySelectorAll('.is-field-attention, .is-block-attention')) {
       node.classList.remove('is-field-attention', 'is-block-attention');
     }
-    if (issueHintEl) {
-      issueHintEl.remove();
-      issueHintEl = null;
+  }
+
+  function setStatusMessage(text) {
+    const msg = String(text || '').trim();
+    setFormError('');
+    if (!(savedEl instanceof HTMLElement)) return;
+    if (!msg) {
+      savedEl.hidden = true;
+      savedEl.textContent = '';
+      return;
     }
+    savedEl.hidden = false;
+    savedEl.textContent = msg;
   }
 
   /** @param {Element | null | undefined} el */
   function resolveAttentionTarget(el) {
     if (!(el instanceof Element)) return null;
-    if (el.hasAttribute('data-cart-empty') || el === cartEmpty) {
+    if (el.hasAttribute('data-cart-empty') || el === cartEmpty || el === cartEl || el.hasAttribute('data-cart')) {
       return (
-        document.querySelector('[data-section="products"]') ||
         document.querySelector('[data-section="cart"]') ||
+        document.querySelector('[data-section="products"]') ||
         el
       );
     }
     if (el.hasAttribute('data-sources') || el === sourcesEl) {
+      return el.closest('.meta-block') || el;
+    }
+    if (el.hasAttribute('data-pay-states') || el === payStatesEl) {
       return el.closest('.meta-block') || el;
     }
     if (el.closest('.presets')) return el.closest('.presets');
@@ -149,7 +192,7 @@
     return el;
   }
 
-  /** Cuộn tới trường lỗi + pulse rõ; gắn gợi ý ngay cạnh. */
+  /** Cuộn tới trường lỗi + pulse; nội dung lỗi chỉ hiện ở [data-form-error]. */
   function revealInvalid(issue) {
     clearFieldAttention();
     const msg = issue?.msg || 'Thiếu thông tin.';
@@ -167,18 +210,6 @@
       target.closest('.meta-block, .card, .block, .ship-row, .pick-card, .flag-list, .discount') || target;
     if (block instanceof HTMLElement) block.classList.add('is-block-attention');
     target.classList.add('is-field-attention');
-
-    issueHintEl = document.createElement('p');
-    issueHintEl.className = 'field-issue-hint';
-    issueHintEl.setAttribute('role', 'alert');
-    issueHintEl.textContent = msg;
-    if (target.matches('.card, .meta-block')) {
-      const title = target.querySelector('h2, .meta-title');
-      if (title) title.insertAdjacentElement('afterend', issueHintEl);
-      else target.prepend(issueHintEl);
-    } else {
-      target.insertAdjacentElement('afterend', issueHintEl);
-    }
 
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     window.setTimeout(() => {
@@ -200,6 +231,13 @@
     return Number.isInteger(editingOrderId) && editingOrderId > 0;
   }
 
+  function setButtonLabel(button, text) {
+    if (!(button instanceof HTMLButtonElement)) return;
+    const span = button.querySelector('span');
+    if (span) span.textContent = text;
+    else button.textContent = text;
+  }
+
   function paintEditMode() {
     const editing = isEditing();
     show(editBanner, editing);
@@ -209,7 +247,7 @@
         : 'Đang sửa đơn';
     }
     if (submitBtn instanceof HTMLButtonElement && !submitting) {
-      submitBtn.textContent = editing ? editSubmitLabel : submitLabel || createSubmitLabel;
+      setButtonLabel(submitBtn, editing ? editSubmitLabel : submitLabel || createSubmitLabel);
     }
   }
 
@@ -224,10 +262,10 @@
     if (!(submitBtn instanceof HTMLButtonElement)) return;
     submitBtn.disabled = busy;
     if (busy) {
-      submitBtn.textContent = isEditing() ? 'Đang lưu…' : 'Đang tạo…';
+      setButtonLabel(submitBtn, isEditing() ? 'Đang lưu…' : 'Đang tạo…');
       return;
     }
-    submitBtn.textContent = isEditing() ? editSubmitLabel : submitLabel || createSubmitLabel;
+    setButtonLabel(submitBtn, isEditing() ? editSubmitLabel : submitLabel || createSubmitLabel);
   }
 
   async function adminOrigin() {
@@ -300,6 +338,7 @@
       const unitPrice = Math.max(0, Number(line.unitPrice) || 0);
       const name = String(line.productName || '');
       const categorySlug = String(line.categorySlug || '');
+      const catalog = products.find((item) => Number(item.id) === productId);
       return {
         key: `${productId || index}|${weight}|${note}`,
         productId: Number.isInteger(productId) ? productId : 0,
@@ -309,6 +348,7 @@
         note,
         unitPrice,
         categorySlug,
+        coverUrl: String(catalog?.coverUrl || line.coverUrl || ''),
       };
     });
     closePickPanel();
@@ -1367,12 +1407,28 @@
     if (extra instanceof HTMLSelectElement && extra.value !== label) extra.value = label;
   }
 
+  function lineCoverUrl(line) {
+    const direct = String(line?.coverUrl || '').trim();
+    if (direct) return direct;
+    const product = products.find((item) => Number(item.id) === Number(line?.productId));
+    return String(product?.coverUrl || '').trim();
+  }
+
+  function cartLinePhotoHtml(line) {
+    const url = lineCoverUrl(line);
+    if (url) {
+      return `<img class="cart-photo" src="${escapeHtml(url)}" alt="" width="48" height="48" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-fallback="1" />`;
+    }
+    return `<span class="cart-photo is-empty" aria-hidden="true">SP</span>`;
+  }
+
   function addToCart(product, weight, quantity, note) {
     const unitPrice = applyWeightPrice(product.price, weight);
     const key = `${product.id}|${weight}|${note}`;
     const existing = cart.find((line) => line.key === key);
     if (existing) {
       existing.quantity = Math.min(20, existing.quantity + quantity);
+      if (!existing.coverUrl && product.coverUrl) existing.coverUrl = product.coverUrl;
     } else {
       cart.push({
         key,
@@ -1383,38 +1439,102 @@
         note,
         unitPrice,
         categorySlug: product.categorySlug || '',
+        coverUrl: product.coverUrl || '',
       });
     }
     renderCart();
     paintPay();
   }
 
-  function renderCart() {
+  /** @type {{ index: number, field: 'qty' | 'note' } | null} */
+  let cartEdit = null;
+
+  function focusCartEdit() {
+    if (!cartEdit || !(cartEl instanceof HTMLElement)) return;
+    const row = cartEl.querySelector(`[data-cart-index="${cartEdit.index}"]`);
+    if (!(row instanceof HTMLElement)) return;
+    const input =
+      cartEdit.field === 'qty'
+        ? row.querySelector('[data-cart-qty]')
+        : row.querySelector('[data-cart-note]');
+    if (!(input instanceof HTMLInputElement)) return;
+    try {
+      input.focus();
+      input.select();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** @param {{ keepEdit?: boolean }} [opts] */
+  function renderCart(opts = {}) {
     if (!(cartEl instanceof HTMLElement)) return;
+    if (!opts.keepEdit) cartEdit = null;
+    if (cartEdit && (cartEdit.index < 0 || cartEdit.index >= cart.length)) cartEdit = null;
     show(cartEmpty, cart.length === 0);
     cartEl.innerHTML = cart
       .map((line, index) => {
         const sub = [line.weight, formatVnd(line.unitPrice)].filter(Boolean).join(' · ');
+        const editingQty = cartEdit?.index === index && cartEdit.field === 'qty';
+        const editingNote = cartEdit?.index === index && cartEdit.field === 'note';
+        const noteText = String(line.note || '').trim();
+        const qtyBlock = editingQty
+          ? `<div class="qty-box">
+              <button type="button" class="qty-btn" data-cart-dec aria-label="Giảm">−</button>
+              <input class="qty-value" data-cart-qty inputmode="numeric" maxlength="2" value="${line.quantity}" aria-label="Số lượng" />
+              <button type="button" class="qty-btn" data-cart-inc aria-label="Tăng">+</button>
+            </div>`
+          : `<button type="button" class="cart-info cart-info-qty" data-cart-edit-qty title="Bấm để sửa số lượng">SL ×${line.quantity}</button>`;
+        const noteBlock = editingNote
+          ? `<input class="field cart-note-input" data-cart-note maxlength="160" placeholder="Ghi chú dòng" value="${escapeHtml(noteText)}" />`
+          : `<button type="button" class="cart-info cart-info-note${noteText ? '' : ' is-empty'}" data-cart-edit-note title="Bấm để sửa ghi chú">${noteText ? escapeHtml(noteText) : 'Thêm ghi chú'}</button>`;
         return `<li class="cart-item" data-cart-index="${index}">
           <div class="cart-top">
-            <div>
+            ${cartLinePhotoHtml(line)}
+            <div class="cart-copy">
               <div class="cart-name">${escapeHtml(line.name)}</div>
               <div class="cart-sub">${escapeHtml(sub)}</div>
             </div>
             <button type="button" class="cart-remove" data-cart-remove>Xóa</button>
           </div>
           <div class="cart-controls">
-            <div class="qty-box">
-              <button type="button" class="qty-btn" data-cart-dec aria-label="Giảm">−</button>
-              <input class="qty-value" data-cart-qty inputmode="numeric" maxlength="2" value="${line.quantity}" aria-label="Số lượng" />
-              <button type="button" class="qty-btn" data-cart-inc aria-label="Tăng">+</button>
-            </div>
-            <input class="field" data-cart-note maxlength="160" placeholder="Ghi chú dòng" value="${escapeHtml(line.note)}" />
+            ${qtyBlock}
+            ${noteBlock}
             <strong>${escapeHtml(formatVnd(line.unitPrice * line.quantity))}</strong>
           </div>
         </li>`;
       })
       .join('');
+    if (opts.keepEdit && cartEdit) queueMicrotask(() => focusCartEdit());
+  }
+
+  function beginCartEdit(index, field) {
+    if (!Number.isInteger(index) || index < 0 || index >= cart.length) return;
+    if (field !== 'qty' && field !== 'note') return;
+    cartEdit = { index, field };
+    renderCart({ keepEdit: true });
+  }
+
+  function commitCartQty(input, index) {
+    const line = cart[index];
+    if (!line) return;
+    const n = Number(input instanceof HTMLInputElement ? input.value : NaN);
+    line.quantity = Number.isInteger(n) && n >= 1 && n <= 20 ? n : 1;
+  }
+
+  function commitCartNote(input, index) {
+    const line = cart[index];
+    if (!line) return;
+    line.note = String(input instanceof HTMLInputElement ? input.value : '')
+      .trim()
+      .slice(0, 160);
+    line.key = `${line.productId}|${line.weight}|${line.note}`;
+  }
+
+  function endCartEdit(opts = {}) {
+    cartEdit = null;
+    renderCart();
+    if (opts.paint !== false) paintPay();
   }
 
   function cartSubtotal() {
@@ -1426,7 +1546,7 @@
     return (bootstrap.discountChoices || []).find((item) => item.code === discountCode.value) || null;
   }
 
-  function paintPay() {
+  function computePayState() {
     const subtotal = cartSubtotal();
     const codeAmount = quoteDiscount(selectedDiscount(), subtotal);
     const room = Math.max(0, subtotal - codeAmount);
@@ -1450,10 +1570,72 @@
     const ship = free ? 0 : moneyOf(shipFeeEl instanceof HTMLInputElement ? shipFeeEl.value : '');
     const lockedTotal = orderTotal instanceof HTMLInputElement ? moneyOf(orderTotal.value) : 0;
     const payable = compensation ? 0 : lockedTotal > 0 ? lockedTotal + ship : goods + ship;
+    return { subtotal, codeAmount, extra, ship, free, compensation, payable };
+  }
+
+  function compactVnd(amount) {
+    return `${new Intl.NumberFormat('vi-VN').format(Math.max(0, Math.round(amount || 0)))}đ`;
+  }
+
+  function payStateLabel(value) {
+    const found = (bootstrap?.payStates || []).find((item) => item.value === value);
+    if (found?.label) return found.label;
+    if (value === 'cod') return 'Nhận hàng thanh toán';
+    if (value === 'transfer') return 'Chuyển khoản';
+    if (value === 'deposit') return 'Cọc';
+    return 'Nhận hàng thanh toán';
+  }
+
+  function buildConfirmMessages() {
+    writeAddress();
+    const name = nameInput instanceof HTMLInputElement ? nameInput.value.trim() : '';
+    const phone = phoneInput instanceof HTMLInputElement ? phoneInput.value.trim() : '';
+    const address = addressValue instanceof HTMLInputElement ? addressValue.value.trim() : '';
+    const payRadio = document.querySelector('input[name="payState"]:checked');
+    const payValue = payRadio instanceof HTMLInputElement ? payRadio.value : 'cod';
+    const payState = computePayState();
+    const productLines = cart
+      .map((line, index) => {
+        const qty = Number(line.quantity) > 0 ? Number(line.quantity) : 1;
+        const size = String(line.weight || '').trim();
+        const parts = [`${index + 1}. ${line.name}`, `SL: ${qty} chiếc`];
+        if (size) parts.push(`Size: ${size}`);
+        return parts.join('  ·  ');
+      })
+      .join('\n');
+    const totalPart = payState.free
+      ? `${compactVnd(payState.payable)} (Miễn phí vận chuyển)`
+      : payState.ship > 0
+        ? `${compactVnd(payState.payable)} (gồm ship ${compactVnd(payState.ship)})`
+        : compactVnd(payState.payable);
+    const msg1 = [
+      '—— XÁC NHẬN THÔNG TIN ——',
+      '',
+      `- Tên người nhận: ${name}`,
+      `- SĐT: ${phone}`,
+      '',
+      '- Sản phẩm:',
+      productLines || '(chưa có sản phẩm)',
+      '',
+      '- Địa chỉ sau xác nhập:',
+      address || '(chưa có địa chỉ)',
+      '',
+      `- Tổng tiền: ${totalPart}`,
+      `- Thanh toán: ${payStateLabel(payValue)}`,
+    ].join('\n');
+    const msg2 = 'Phiền c kiểm tra và xác nhận thông tin giúp em với nha để em lưu đơn lại chị ha';
+    return [msg1, msg2];
+  }
+
+  function paintPay() {
+    const { subtotal, codeAmount, extra, ship, free, compensation, payable } = computePayState();
     if (paySummary instanceof HTMLElement) {
       paySummary.textContent = compensation
         ? 'Gửi bù · không thu tiền.'
         : `Tạm tính ${formatVnd(subtotal)}${codeAmount ? ` · mã −${formatVnd(codeAmount)}` : ''}${extra ? ` · giảm thêm −${formatVnd(extra)}` : ''}${ship ? ` · ship ${formatVnd(ship)}` : free ? ' · miễn ship' : ''} · thu ${formatVnd(payable)}`;
+    }
+    if (orderGrandTotal instanceof HTMLElement) {
+      orderGrandTotal.textContent = compensation ? '0đ' : compactVnd(payable);
     }
   }
 
@@ -1570,6 +1752,19 @@
       },
       true,
     );
+    cartEl?.addEventListener(
+      'error',
+      (event) => {
+        const img = event.target;
+        if (!(img instanceof HTMLImageElement) || img.dataset.fallback !== '1') return;
+        const span = document.createElement('span');
+        span.className = 'cart-photo is-empty';
+        span.setAttribute('aria-hidden', 'true');
+        span.textContent = 'SP';
+        img.replaceWith(span);
+      },
+      true,
+    );
     cartEl?.addEventListener('click', (event) => {
       const row = event.target instanceof Element ? event.target.closest('[data-cart-index]') : null;
       if (!(row instanceof HTMLElement)) return;
@@ -1578,20 +1773,31 @@
       if (!line) return;
       if (event.target instanceof Element && event.target.closest('[data-cart-remove]')) {
         cart.splice(index, 1);
+        cartEdit = null;
         renderCart();
         renderPickList();
         paintPay();
         return;
       }
+      if (event.target instanceof Element && event.target.closest('[data-cart-edit-qty]')) {
+        beginCartEdit(index, 'qty');
+        return;
+      }
+      if (event.target instanceof Element && event.target.closest('[data-cart-edit-note]')) {
+        beginCartEdit(index, 'note');
+        return;
+      }
       if (event.target instanceof Element && event.target.closest('[data-cart-dec]')) {
         line.quantity = Math.max(1, line.quantity - 1);
-        renderCart();
+        cartEdit = { index, field: 'qty' };
+        renderCart({ keepEdit: true });
         paintPay();
         return;
       }
       if (event.target instanceof Element && event.target.closest('[data-cart-inc]')) {
         line.quantity = Math.min(20, line.quantity + 1);
-        renderCart();
+        cartEdit = { index, field: 'qty' };
+        renderCart({ keepEdit: true });
         paintPay();
       }
     });
@@ -1599,18 +1805,45 @@
       const row = event.target instanceof Element ? event.target.closest('[data-cart-index]') : null;
       if (!(row instanceof HTMLElement)) return;
       const index = Number(row.dataset.cartIndex);
-      const line = cart[index];
-      if (!line) return;
+      if (!cart[index]) return;
       if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-cart-qty')) {
-        const n = Number(event.target.value);
-        line.quantity = Number.isInteger(n) && n >= 1 && n <= 20 ? n : 1;
-        renderCart();
+        commitCartQty(event.target, index);
         paintPay();
       }
-      if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-cart-note')) {
-        line.note = event.target.value.trim().slice(0, 160);
-        line.key = `${line.productId}|${line.weight}|${line.note}`;
+    });
+    cartEl?.addEventListener('keydown', (event) => {
+      if (!(event.target instanceof HTMLInputElement)) return;
+      const row = event.target.closest('[data-cart-index]');
+      if (!(row instanceof HTMLElement)) return;
+      const index = Number(row.dataset.cartIndex);
+      if (!cart[index]) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        endCartEdit();
+        return;
       }
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      if (event.target.hasAttribute('data-cart-qty')) commitCartQty(event.target, index);
+      if (event.target.hasAttribute('data-cart-note')) commitCartNote(event.target, index);
+      endCartEdit();
+    });
+    cartEl?.addEventListener('focusout', (event) => {
+      if (!cartEdit) return;
+      const row = event.target instanceof Element ? event.target.closest('[data-cart-index]') : null;
+      if (!(row instanceof HTMLElement)) return;
+      const index = Number(row.dataset.cartIndex);
+      if (cartEdit.index !== index) return;
+      // Còn focus trong cùng dòng đang sửa (vd. bấm +/-) → giữ chế độ sửa.
+      const next = event.relatedTarget;
+      if (next instanceof Node && row.contains(next)) return;
+      if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-cart-qty')) {
+        commitCartQty(event.target, index);
+      }
+      if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-cart-note')) {
+        commitCartNote(event.target, index);
+      }
+      endCartEdit();
     });
     discountCode?.addEventListener('change', () => paintPay());
     discountExtra?.addEventListener('input', () => {
@@ -1620,6 +1853,18 @@
     orderTotal?.addEventListener('input', () => {
       if (orderTotal instanceof HTMLInputElement) orderTotal.value = groupDigits(orderTotal.value, 9);
       paintPay();
+    });
+
+    const paySection = document.querySelector('[data-section="pay"]');
+    const payToggle = document.querySelector('[data-pay-toggle]');
+    const payHint = document.querySelector('[data-pay-toggle-hint]');
+    const payBody = document.querySelector('[data-discount]');
+    payToggle?.addEventListener('click', () => {
+      if (!(paySection instanceof HTMLElement) || !(payBody instanceof HTMLElement)) return;
+      const open = paySection.classList.toggle('is-collapsed') === false;
+      payBody.hidden = !open;
+      payToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (payHint) payHint.textContent = open ? 'Thu' : 'Mở';
     });
   }
 
@@ -1766,17 +2011,34 @@
   function validateDraft(draft) {
     if (!draft.customerName) return { el: nameInput, msg: 'Nhập họ tên khách.' };
     if (!draft.phone) return { el: phoneInput, msg: 'Nhập số điện thoại.' };
+    if (!isValidOrderPhone(draft.phone)) {
+      return { el: phoneInput, msg: 'Số điện thoại không hợp lệ (cần SĐT Việt Nam 10 số).' };
+    }
     if (!addressSelection.provinceCode) {
       return { el: provinceCombo ? comboParts(provinceCombo).trigger : provinceCombo, msg: 'Chọn tỉnh / thành phố.' };
     }
     if (!addressSelection.wardCode) {
       return { el: wardCombo ? comboParts(wardCombo).trigger : wardCombo, msg: 'Chọn phường / xã.' };
     }
-    if (!(lineInput instanceof HTMLInputElement && lineInput.value.trim())) return { el: lineInput, msg: 'Nhập số nhà, đường.' };
+    if (!(lineInput instanceof HTMLInputElement && lineInput.value.trim())) {
+      return { el: lineInput, msg: 'Nhập số nhà, đường.' };
+    }
     if (!draft.address) return { el: lineInput, msg: 'Địa chỉ chưa hợp lệ.' };
     if (!draft.lines.length) return { el: cartEmpty, msg: 'Thêm ít nhất một sản phẩm.' };
+    for (const line of cart) {
+      const product = products.find((item) => Number(item.id) === Number(line.productId));
+      if (product && needsWeight(product) && !String(line.weight || '').trim()) {
+        return { el: cartEl, msg: `Chọn cân nặng / size cho «${line.name || 'sản phẩm'}».` };
+      }
+      if (!(Number(line.quantity) > 0)) {
+        return { el: cartEl, msg: 'Số lượng sản phẩm phải lớn hơn 0.' };
+      }
+    }
+    if (!draft.payState) return { el: payStatesEl, msg: 'Chọn hình thức thanh toán.' };
     if (!draft.source) return { el: sourcesEl, msg: 'Chọn nguồn khách.' };
-    if (draft.payState === 'deposit' && !moneyOf(draft.depositAmount)) return { el: depositAmount, msg: 'Nhập số tiền cọc.' };
+    if (draft.payState === 'deposit' && !moneyOf(draft.depositAmount)) {
+      return { el: depositAmount, msg: 'Nhập số tiền cọc.' };
+    }
     if (draft.shipLater && !draft.shipOn) return { el: shipOnEl, msg: 'Chọn ngày dự kiến gửi.' };
     return null;
   }
@@ -1883,53 +2145,107 @@
   bindProducts();
   bindMeta();
 
+  function requestSendConfirm(messages) {
+    return new Promise((resolve) => {
+      if (confirmWaiter) {
+        confirmWaiter.resolve({ ok: false, error: 'Đang có lần gửi xác nhận khác.' });
+        confirmWaiter = null;
+      }
+      let settled = false;
+      const timer = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        confirmWaiter = null;
+        resolve({ ok: false, error: 'Hết thời gian chờ gửi tin xác nhận.' });
+      }, 20000);
+      confirmWaiter = {
+        resolve: (value) => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          confirmWaiter = null;
+          resolve(value);
+        },
+      };
+      try {
+        window.parent.postMessage({ source: 'vdt-pos', type: 'vdt-send-confirm', messages }, '*');
+      } catch {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        confirmWaiter = null;
+        resolve({ ok: false, error: 'Không gửi được tin xác nhận.' });
+      }
+    });
+  }
+
+  function setConfirmButtonsBusy(busy, labelConfirm = 'Gửi xác nhận', labelCombo = 'Gửi xác nhận + tạo đơn') {
+    if (sendConfirmBtn instanceof HTMLButtonElement) {
+      sendConfirmBtn.disabled = busy;
+      setButtonLabel(sendConfirmBtn, busy ? 'Đang gửi…' : labelConfirm);
+    }
+    if (sendConfirmCreateBtn instanceof HTMLButtonElement) {
+      sendConfirmCreateBtn.disabled = busy;
+      setButtonLabel(sendConfirmCreateBtn, busy ? 'Đang xử lý…' : labelCombo);
+    }
+  }
+
+  /**
+   * @param {object} draft
+   * @returns {Promise<{ ok: boolean, auth?: boolean, result?: object, error?: string }>}
+   */
+  async function createOrUpdateOrder(draft) {
+    if (!draft.csrf && bootstrap?.csrf) draft.csrf = bootstrap.csrf;
+    const editing = isEditing();
+    const result = editing
+      ? await send('vdt-pos-order-update', { orderId: editingOrderId, payload: draft })
+      : await send('vdt-pos-create', { payload: draft });
+    if (result?.error === 'auth' || (!result?.ok && result?.error === 'auth')) {
+      return { ok: false, auth: true };
+    }
+    if (!result?.ok || typeof result.id !== 'number') {
+      return { ok: false, result };
+    }
+    const phone = draft.phone;
+    await showSaved(result, { updated: editing });
+    if (editing) {
+      clearEditMode({ resetForm: true });
+      try {
+        window.parent.postMessage({ source: 'vdt-pos', type: 'vdt-order-updated', phone }, '*');
+      } catch {
+        /* ignore */
+      }
+    } else {
+      resetAfterCreate();
+    }
+    return { ok: true, result };
+  }
+
   if (form instanceof HTMLFormElement) {
     form.addEventListener('submit', (event) => {
       event.preventDefault();
-      if (submitting) return;
-      const draft = collectDraft();
-      const issue = validateDraft(draft);
-      if (issue) {
-        revealInvalid(issue);
-        return;
-      }
-      clearFieldAttention();
+      if (submitting || sendingConfirm) return;
+      const draft = requireDraftReady();
+      if (!draft) return;
       submitting = true;
-      setFormError('');
       setSubmitBusy(true);
       void (async () => {
         try {
-          if (!draft.csrf && bootstrap?.csrf) draft.csrf = bootstrap.csrf;
-          const editing = isEditing();
-          const result = editing
-            ? await send('vdt-pos-order-update', { orderId: editingOrderId, payload: draft })
-            : await send('vdt-pos-create', { payload: draft });
-          if (result?.error === 'auth' || (!result?.ok && result?.error === 'auth')) {
+          const outcome = await createOrUpdateOrder(draft);
+          if (outcome.auth) {
             show(form, false);
             show(authBox, true);
             if (authText instanceof HTMLElement) {
               authText.textContent = 'Phiên đăng nhập hết hạn. Đăng nhập lại rồi bấm tải lại.';
             }
-            setFormError(editing ? 'Cần đăng nhập admin để sửa đơn.' : 'Cần đăng nhập admin để tạo đơn.');
+            setFormError(isEditing() ? 'Cần đăng nhập admin để sửa đơn.' : 'Cần đăng nhập admin để tạo đơn.');
             return;
           }
-          if (!result?.ok || typeof result.id !== 'number') {
-            const mapped = mapCreateError(result);
+          if (!outcome.ok) {
+            const mapped = mapCreateError(outcome.result);
             revealInvalid(mapped);
             if (/phiên không hợp lệ/i.test(mapped.msg)) void loadBootstrap();
             return;
-          }
-          const phone = draft.phone;
-          await showSaved(result, { updated: editing });
-          if (editing) {
-            clearEditMode({ resetForm: true });
-            try {
-              window.parent.postMessage({ source: 'vdt-pos', type: 'vdt-order-updated', phone }, '*');
-            } catch {
-              /* ignore */
-            }
-          } else {
-            resetAfterCreate();
           }
           setFormError('');
         } catch {
@@ -1948,9 +2264,76 @@
     setFormError('');
   });
 
+  sendConfirmBtn?.addEventListener('click', () => {
+    if (sendingConfirm || submitting) return;
+    const draft = requireDraftReady();
+    if (!draft) return;
+    const messages = buildConfirmMessages();
+    sendingConfirm = true;
+    setConfirmButtonsBusy(true);
+    void requestSendConfirm(messages).then((result) => {
+      sendingConfirm = false;
+      setConfirmButtonsBusy(false);
+      if (!result?.ok) setFormError(result?.error || 'Không gửi được tin xác nhận vào ô chat.');
+      else setStatusMessage('Đã gửi tin xác nhận vào ô chat.');
+    });
+  });
+
+  sendConfirmCreateBtn?.addEventListener('click', () => {
+    if (sendingConfirm || submitting) return;
+    const draft = requireDraftReady();
+    if (!draft) return;
+    const messages = buildConfirmMessages();
+    sendingConfirm = true;
+    submitting = true;
+    setConfirmButtonsBusy(true);
+    setSubmitBusy(true);
+    void (async () => {
+      try {
+        const sent = await requestSendConfirm(messages);
+        if (!sent?.ok) {
+          setFormError(sent?.error || 'Không gửi được tin xác nhận vào ô chat.');
+          return;
+        }
+        const outcome = await createOrUpdateOrder(draft);
+        if (outcome.auth) {
+          show(form, false);
+          show(authBox, true);
+          if (authText instanceof HTMLElement) {
+            authText.textContent = 'Phiên đăng nhập hết hạn. Đăng nhập lại rồi bấm tải lại.';
+          }
+          setFormError('Cần đăng nhập admin để tạo đơn.');
+          return;
+        }
+        if (!outcome.ok) {
+          const mapped = mapCreateError(outcome.result);
+          revealInvalid(mapped);
+          if (/phiên không hợp lệ/i.test(mapped.msg)) void loadBootstrap();
+          setFormError(mapped.msg || 'Đã gửi tin nhưng tạo đơn thất bại.');
+          return;
+        }
+        setFormError('');
+      } catch {
+        setFormError('Không kết nối được. Thử lại.');
+      } finally {
+        sendingConfirm = false;
+        submitting = false;
+        setConfirmButtonsBusy(false);
+        setSubmitBusy(false);
+      }
+    })();
+  });
+
   window.addEventListener('message', (event) => {
     const data = event.data;
     if (!data || data.source !== 'vdt-ext') return;
+    if (data.type === 'vdt-send-confirm-result') {
+      if (confirmWaiter) {
+        confirmWaiter.resolve({ ok: Boolean(data.ok), error: data.error || '' });
+        confirmWaiter = null;
+      }
+      return;
+    }
     if (data.type === 'vdt-ping') {
       notifyReady();
       return;

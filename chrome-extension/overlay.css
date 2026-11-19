@@ -1,3 +1,14 @@
+/* Zalo: chừa chỗ bên phải bằng chiều rộng sidebar — không đè lên box chat. */
+html.vdt-zalo-inset #chatViewContainer {
+  margin-right: var(--vdt-host-inset, 0px) !important;
+  transition: margin-right 0.2s ease;
+  box-sizing: border-box !important;
+}
+
+html.vdt-zalo-inset.vdt-zalo-resizing #chatViewContainer {
+  transition: none;
+}
+
 #vdt-pos-overlay-root {
   all: initial;
   --vdt-width: 400px;

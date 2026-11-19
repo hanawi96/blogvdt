@@ -216,9 +216,12 @@
           </div>
         </section>
 
-        <section class="card" data-section="pay">
-          <h2>Giảm giá &amp; thu</h2>
-          <div class="discount" data-discount>
+        <section class="card is-collapsed" data-section="pay">
+          <button type="button" class="card-toggle" data-pay-toggle aria-expanded="false">
+            <span class="card-toggle-title">Giảm giá &amp; thu</span>
+            <span class="card-toggle-hint" data-pay-toggle-hint>Mở</span>
+          </button>
+          <div class="discount" data-discount hidden>
             <label class="block">
               <span class="label">Mã giảm giá</span>
               <select class="field" data-discount-code>
@@ -240,7 +243,24 @@
         </section>
 
         <div class="submit-bar">
-          <button class="btn btn-primary btn-block" type="submit" data-submit>Tạo đơn hàng</button>
+          <div class="submit-total">
+            <span class="submit-total-label">Tổng đơn</span>
+            <strong class="submit-total-amount" data-order-grand-total>0đ</strong>
+          </div>
+          <div class="submit-actions">
+            <button type="button" class="submit-btn submit-btn-ghost" data-send-confirm title="Gửi 2 tin xác nhận vào ô chat (Pancake / Zalo)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
+              <span>Gửi xác nhận</span>
+            </button>
+            <button type="button" class="submit-btn submit-btn-blue" data-send-confirm-create title="Gửi 2 tin xác nhận rồi tạo đơn (Pancake / Zalo)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
+              <span>Gửi xác nhận + tạo đơn</span>
+            </button>
+            <button type="submit" class="submit-btn submit-btn-green" data-submit>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              <span>Tạo đơn hàng</span>
+            </button>
+          </div>
         </div>
       </form>
     </div>

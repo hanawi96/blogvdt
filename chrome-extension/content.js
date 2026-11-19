@@ -95,6 +95,11 @@ function markExtensionDead() {
   } catch {
     /* ignore */
   }
+  try {
+    clearHostLayoutInset();
+  } catch {
+    /* ignore */
+  }
 }
 
 function isContextInvalidatedError(error) {
@@ -253,6 +258,7 @@ function revealOverlayIfReady() {
   if (!(root instanceof HTMLElement)) return;
   root.classList.remove('is-booting');
   root.classList.toggle('is-collapsed', !desiredOpen);
+  applyHostLayoutInset(root);
   window.clearTimeout(bootRevealTimer);
 }
 
@@ -281,6 +287,37 @@ function clampWidth(value) {
 
 function applyWidth(root, width) {
   root.style.setProperty('--vdt-width', `${clampWidth(width)}px`);
+  applyHostLayoutInset(root);
+}
+
+/** Chiều rộng sidebar đang chiếm trên host (0 nếu thu / đang boot). */
+function currentOverlayInset(root = document.getElementById(ROOT_ID)) {
+  if (!(root instanceof HTMLElement)) return 0;
+  if (root.classList.contains('is-collapsed') || root.classList.contains('is-booting')) return 0;
+  return clampWidth(parseFloat(getComputedStyle(root).getPropertyValue('--vdt-width')) || DEFAULT_WIDTH);
+}
+
+/**
+ * Zalo: thu hẹp #chatViewContainer (margin-right) khi sidebar mở
+ * để tin nhắn không bị che.
+ */
+function applyHostLayoutInset(root = document.getElementById(ROOT_ID)) {
+  if (!isZalo()) return;
+  const px = currentOverlayInset(root);
+  const html = document.documentElement;
+  html.style.setProperty('--vdt-host-inset', `${px}px`);
+  html.classList.toggle('vdt-zalo-inset', px > 0);
+  if (root instanceof HTMLElement) {
+    html.classList.toggle('vdt-zalo-resizing', root.classList.contains('is-resizing'));
+  } else {
+    html.classList.remove('vdt-zalo-resizing');
+  }
+}
+
+function clearHostLayoutInset() {
+  const html = document.documentElement;
+  html.classList.remove('vdt-zalo-inset', 'vdt-zalo-resizing');
+  html.style.removeProperty('--vdt-host-inset');
 }
 
 function normalizePhone(raw) {
@@ -918,6 +955,7 @@ function bindResize(root) {
     if (!dragging) return;
     dragging = false;
     root.classList.remove('is-resizing');
+    applyHostLayoutInset(root);
     handle.releasePointerCapture?.(event.pointerId);
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
@@ -939,6 +977,7 @@ function bindResize(root) {
     startWidth = clampWidth(parseFloat(getComputedStyle(root).getPropertyValue('--vdt-width')) || DEFAULT_WIDTH);
     latest = startWidth;
     root.classList.add('is-resizing');
+    applyHostLayoutInset(root);
     handle.setPointerCapture?.(event.pointerId);
     window.addEventListener('pointermove', onMove, { passive: true });
     window.addEventListener('pointerup', onUp);
@@ -1093,6 +1132,432 @@ function cssEscape(value) {
 
 function waitMs(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function setPancakeComposerText(textarea, text) {
+  if (!(textarea instanceof HTMLTextAreaElement) && !(textarea instanceof HTMLInputElement)) return;
+  const next = String(text || '');
+  const last = textarea.value;
+  const proto = textarea instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const native = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+  native?.call(textarea, next);
+  textarea.value = next;
+  try {
+    const tracker = /** @type {{ setValue?: (v: string) => void } | undefined} */ (textarea)._valueTracker;
+    tracker?.setValue?.(last);
+  } catch {
+    /* ignore */
+  }
+  textarea.dispatchEvent(
+    new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertFromPaste', data: next }),
+  );
+  textarea.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function pancakeReplyComposer() {
+  return (
+    document.querySelector('#replyBoxComposer') ||
+    document.querySelector('.reply-box__text-area textarea') ||
+    document.querySelector('#messageCol textarea') ||
+    document.querySelector('textarea[placeholder*="Trả lời" i]')
+  );
+}
+
+function pancakeSendButton(nearComposer) {
+  const scopes = [];
+  if (nearComposer instanceof Element) {
+    scopes.push(
+      nearComposer.closest('.reply-box') ||
+        nearComposer.closest('#messageCol') ||
+        nearComposer.closest('[class*="reply"]') ||
+        nearComposer.parentElement,
+    );
+  }
+  scopes.push(document.querySelector('#messageCol'), document);
+
+  for (const scope of scopes) {
+    if (!(scope instanceof Element) && scope !== document) continue;
+    const root = scope instanceof Element ? scope : document;
+    const exact =
+      root.querySelector('[aria-label="Gửi tin nhắn"]') ||
+      root.querySelector('.reply-box.btn[role="button"]') ||
+      root.querySelector('.reply-box-actions-container [role="button"]');
+    if (exact instanceof HTMLElement) return exact;
+
+    for (const el of root.querySelectorAll('[role="button"][aria-label], button[aria-label], span[aria-label]')) {
+      if (!(el instanceof HTMLElement)) continue;
+      const label = el.getAttribute('aria-label') || '';
+      if (/gửi\s*tin\s*nhắn/i.test(label) || /^gửi$/i.test(label.trim())) return el;
+    }
+  }
+  return null;
+}
+
+function pressComposerEnter(composer, { ctrl = false } = {}) {
+  if (!(composer instanceof HTMLElement)) return;
+  const opts = {
+    key: 'Enter',
+    code: 'Enter',
+    keyCode: 13,
+    which: 13,
+    bubbles: true,
+    cancelable: true,
+    ctrlKey: Boolean(ctrl),
+    metaKey: Boolean(ctrl),
+  };
+  composer.dispatchEvent(new KeyboardEvent('keydown', opts));
+  composer.dispatchEvent(new KeyboardEvent('keypress', opts));
+  composer.dispatchEvent(new KeyboardEvent('keyup', opts));
+}
+
+function activatePancakeSend(el) {
+  if (!(el instanceof HTMLElement)) return false;
+  try {
+    el.focus?.();
+  } catch {
+    /* ignore */
+  }
+  try {
+    el.click();
+  } catch {
+    /* ignore */
+  }
+  for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+    try {
+      el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, buttons: 1 }));
+    } catch {
+      /* ignore */
+    }
+  }
+  return true;
+}
+
+/**
+ * Điền ô trả lời Pancake + bấm gửi lần lượt từng tin.
+ * @param {string[]} messages
+ */
+async function sendPancakeConfirmMessages(messages) {
+  if (!isPancake()) {
+    return { ok: false, error: 'Chỉ gửi xác nhận trên Pancake (hội thoại đang mở).' };
+  }
+  const list = Array.isArray(messages) ? messages.filter((item) => String(item || '').trim()) : [];
+  if (!list.length) return { ok: false, error: 'Không có nội dung tin xác nhận.' };
+
+  const composer = pancakeReplyComposer();
+  if (!(composer instanceof HTMLTextAreaElement) && !(composer instanceof HTMLInputElement)) {
+    return { ok: false, error: 'Không thấy ô trả lời chat. Mở hội thoại khách trước.' };
+  }
+
+  for (let i = 0; i < list.length; i += 1) {
+    const text = String(list[i] || '').trim();
+    if (!text) continue;
+    composer.focus();
+    setPancakeComposerText(composer, text);
+    await waitMs(180);
+
+    // Nút gửi đôi khi chỉ hiện / enable sau khi có nội dung.
+    let sendBtn = pancakeSendButton(composer);
+    for (let tryFind = 0; !sendBtn && tryFind < 6; tryFind += 1) {
+      await waitMs(100);
+      sendBtn = pancakeSendButton(composer);
+    }
+
+    let sent = false;
+    if (sendBtn instanceof HTMLElement) {
+      sent = activatePancakeSend(sendBtn);
+      await waitMs(200);
+      // Nếu text vẫn còn → thử Enter.
+      if (String(composer.value || '').trim().length > 0) {
+        pressComposerEnter(composer, { ctrl: false });
+        await waitMs(120);
+        pressComposerEnter(composer, { ctrl: true });
+      }
+    } else {
+      pressComposerEnter(composer, { ctrl: false });
+      await waitMs(120);
+      pressComposerEnter(composer, { ctrl: true });
+      sent = true;
+    }
+
+    if (!sent && !(sendBtn instanceof HTMLElement)) {
+      return { ok: false, error: 'Không thấy nút Gửi tin nhắn trên Pancake.' };
+    }
+
+    // Đợi Pancake gửi xong / xóa composer trước tin tiếp.
+    for (let wait = 0; wait < 10; wait += 1) {
+      await waitMs(120);
+      if (!String(composer.value || '').trim()) break;
+    }
+    await waitMs(i === list.length - 1 ? 200 : 500);
+  }
+  return { ok: true };
+}
+
+function zaloRichInput() {
+  return (
+    document.querySelector('#richInput') ||
+    document.querySelector('#chat-input-container-id [contenteditable="true"]') ||
+    document.querySelector('.chat-input-content [contenteditable="true"].rich-input') ||
+    document.querySelector('.chat-input-container [contenteditable="true"]')
+  );
+}
+
+function zaloSendButton(nearComposer) {
+  const scopes = [];
+  if (nearComposer instanceof Element) {
+    scopes.push(
+      nearComposer.closest('#chat-input-container-id') ||
+        nearComposer.closest('.chat-input-container') ||
+        nearComposer.closest('[class*="chat-input"]') ||
+        nearComposer.parentElement,
+    );
+  }
+  scopes.push(document.querySelector('#chat-input-container-id'), document);
+
+  for (const scope of scopes) {
+    if (!(scope instanceof Element) && scope !== document) continue;
+    const root = scope instanceof Element ? scope : document;
+    const exact =
+      root.querySelector('.send-msg-btn:not([data-disabled])') ||
+      root.querySelector('.send-msg-btn') ||
+      root.querySelector('.chat-box-input-button.send-msg-btn') ||
+      root.querySelector('[data-translate-title="STR_SEND"]') ||
+      root.querySelector('[title="Gửi"].chat-box-input-button');
+    if (exact instanceof HTMLElement) return exact;
+
+    for (const el of root.querySelectorAll('[title], [data-translate-title], button, [role="button"]')) {
+      if (!(el instanceof HTMLElement)) continue;
+      const title = el.getAttribute('title') || '';
+      const key = el.getAttribute('data-translate-title') || '';
+      if (key === 'STR_SEND' || /^gửi$/i.test(title.trim())) return el;
+    }
+  }
+  return null;
+}
+
+function zaloComposerText(composer) {
+  if (!(composer instanceof HTMLElement)) return '';
+  return String(composer.innerText || composer.textContent || '')
+    .replace(/\u200b/g, '')
+    .trim();
+}
+
+/** Đặt caret an toàn trong composer — tránh addRange khi node đã detach. */
+function placeZaloCaret(composer, { selectAll = false } = {}) {
+  if (!(composer instanceof HTMLElement) || !composer.isConnected) return false;
+  try {
+    const selection = window.getSelection();
+    if (!selection) return false;
+    const range = document.createRange();
+    if (selectAll && composer.childNodes.length > 0) {
+      range.selectNodeContents(composer);
+    } else if (composer.childNodes.length > 0) {
+      range.selectNodeContents(composer);
+      range.collapse(false);
+    } else {
+      range.setStart(composer, 0);
+      range.collapse(true);
+    }
+    if (!composer.isConnected) return false;
+    if (!(range.startContainer instanceof Node) || !range.startContainer.isConnected) return false;
+    if (!(range.endContainer instanceof Node) || !range.endContainer.isConnected) return false;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function fillZaloComposerDom(composer, text) {
+  if (!(composer instanceof HTMLElement) || !composer.isConnected) return;
+  const lines = String(text || '').split(/\r?\n/);
+  try {
+    composer.replaceChildren();
+    lines.forEach((lineText, index) => {
+      const line = document.createElement('div');
+      if (index === 0) line.id = 'input_line_0';
+      if (lineText) line.textContent = lineText;
+      else line.appendChild(document.createElement('br'));
+      composer.appendChild(line);
+    });
+  } catch {
+    try {
+      composer.textContent = String(text || '');
+    } catch {
+      /* ignore */
+    }
+  }
+  for (const type of ['beforeinput', 'input']) {
+    try {
+      composer.dispatchEvent(
+        new InputEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          inputType: 'insertText',
+          data: String(text || ''),
+        }),
+      );
+    } catch {
+      if (type === 'input') composer.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+  try {
+    composer.dispatchEvent(new Event('change', { bubbles: true }));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Điền #richInput (contenteditable) để Zalo nhận input. */
+function setZaloComposerText(composer, text) {
+  // Luôn lấy node đang gắn document — Zalo hay re-render #richInput.
+  const live =
+    (composer instanceof HTMLElement && composer.isConnected && composer) ||
+    (zaloRichInput() instanceof HTMLElement ? zaloRichInput() : null);
+  if (!(live instanceof HTMLElement) || !live.isConnected) return;
+
+  const next = String(text || '');
+  try {
+    live.focus();
+  } catch {
+    /* ignore */
+  }
+
+  let inserted = false;
+  // 1) Chọn hết + insertText (chỉ khi caret đặt được trong document).
+  if (placeZaloCaret(live, { selectAll: true })) {
+    try {
+      inserted = Boolean(document.execCommand('insertText', false, next));
+    } catch {
+      inserted = false;
+    }
+  }
+
+  // 2) Paste text/plain nếu insertText không ăn.
+  if ((!inserted || zaloComposerText(live) !== next.trim()) && live.isConnected) {
+    try {
+      placeZaloCaret(live, { selectAll: true });
+      const dt = new DataTransfer();
+      dt.setData('text/plain', next);
+      live.dispatchEvent(
+        new ClipboardEvent('paste', {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: dt,
+        }),
+      );
+      inserted = zaloComposerText(live) === next.trim() || zaloComposerText(live).includes(next.slice(0, 24));
+    } catch {
+      inserted = false;
+    }
+  }
+
+  // 3) Fallback DOM + input events — không dùng Selection/addRange.
+  if (!inserted || zaloComposerText(live) !== next.trim()) {
+    fillZaloComposerDom(live, next);
+  }
+}
+
+function activateZaloSend(el) {
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.hasAttribute('data-disabled')) {
+    // Thử bỏ disabled nếu Zalo chỉ gắn attribute UI.
+    try {
+      el.removeAttribute('data-disabled');
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    el.focus?.();
+  } catch {
+    /* ignore */
+  }
+  try {
+    el.click();
+  } catch {
+    /* ignore */
+  }
+  for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+    try {
+      el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, buttons: 1 }));
+    } catch {
+      /* ignore */
+    }
+  }
+  return true;
+}
+
+/**
+ * Điền ô chat Zalo (#richInput) + bấm .send-msg-btn lần lượt từng tin.
+ * @param {string[]} messages
+ */
+async function sendZaloConfirmMessages(messages) {
+  if (!isZalo()) {
+    return { ok: false, error: 'Chỉ gửi xác nhận trên Zalo (hội thoại đang mở).' };
+  }
+  const list = Array.isArray(messages) ? messages.filter((item) => String(item || '').trim()) : [];
+  if (!list.length) return { ok: false, error: 'Không có nội dung tin xác nhận.' };
+
+  if (!(zaloRichInput() instanceof HTMLElement)) {
+    return { ok: false, error: 'Không thấy ô nhập tin Zalo. Mở hội thoại khách trước.' };
+  }
+
+  for (let i = 0; i < list.length; i += 1) {
+    const text = String(list[i] || '').trim();
+    if (!text) continue;
+    const composer = zaloRichInput();
+    if (!(composer instanceof HTMLElement)) {
+      return { ok: false, error: 'Không thấy ô nhập tin Zalo. Mở hội thoại khách trước.' };
+    }
+    setZaloComposerText(composer, text);
+    await waitMs(200);
+
+    const live = zaloRichInput() instanceof HTMLElement ? zaloRichInput() : composer;
+    let sendBtn = zaloSendButton(live);
+    for (let tryFind = 0; tryFind < 8; tryFind += 1) {
+      if (sendBtn instanceof HTMLElement && !sendBtn.hasAttribute('data-disabled')) break;
+      await waitMs(100);
+      sendBtn = zaloSendButton(zaloRichInput() || live);
+    }
+
+    let sent = false;
+    const active = zaloRichInput() instanceof HTMLElement ? zaloRichInput() : live;
+    if (sendBtn instanceof HTMLElement) {
+      sent = activateZaloSend(sendBtn);
+      await waitMs(220);
+      if (zaloComposerText(active).length > 0) {
+        pressComposerEnter(active, { ctrl: false });
+        await waitMs(120);
+        pressComposerEnter(active, { ctrl: true });
+      }
+    } else {
+      pressComposerEnter(active, { ctrl: false });
+      await waitMs(120);
+      pressComposerEnter(active, { ctrl: true });
+      sent = true;
+    }
+
+    if (!sent && !(sendBtn instanceof HTMLElement)) {
+      return { ok: false, error: 'Không thấy nút Gửi trên Zalo.' };
+    }
+
+    for (let wait = 0; wait < 12; wait += 1) {
+      await waitMs(120);
+      const box = zaloRichInput() instanceof HTMLElement ? zaloRichInput() : active;
+      if (!zaloComposerText(box)) break;
+    }
+    await waitMs(i === list.length - 1 ? 200 : 550);
+  }
+  return { ok: true };
+}
+
+/** @param {string[]} messages */
+async function sendConfirmMessages(messages) {
+  if (isPancake()) return sendPancakeConfirmMessages(messages);
+  if (isZalo()) return sendZaloConfirmMessages(messages);
+  return { ok: false, error: 'Chỉ gửi xác nhận khi đang mở hội thoại Pancake hoặc Zalo.' };
 }
 
 function asPancakeListItem(el) {
@@ -2565,7 +3030,6 @@ function ensureRoot() {
           <button type="button" class="vdt-pending-badge" data-vdt-pending-badge hidden title="SĐT chưa có đơn" aria-expanded="false">
             <span data-vdt-pending-count>0</span> <span data-vdt-pending-label>đơn chưa lưu</span>
           </button>
-          <button type="button" data-vdt-reload title="Tải lại">Tải lại</button>
           <button type="button" data-vdt-collapse title="Thu gọn">Thu</button>
         </div>
       </div>
@@ -2593,14 +3057,6 @@ function ensureRoot() {
   const frame = root.querySelector('.vdt-frame');
   root.querySelector('[data-vdt-collapse]')?.addEventListener('click', () => setOpen(false));
   root.querySelector('[data-vdt-expand]')?.addEventListener('click', () => setOpen(true));
-  root.querySelector('[data-vdt-reload]')?.addEventListener('click', () => {
-    panelReady = false;
-    posReady = false;
-    root.classList.add('is-booting');
-    if (desiredOpen) root.classList.add('is-collapsed');
-    void preparePosFrame(frame, { forceReload: true });
-    schedulePendingRefresh(200);
-  });
   root.querySelector('[data-vdt-login]')?.addEventListener('click', () => {
     void runtimeSend({ type: 'vdt-open-login' });
   });
@@ -2666,7 +3122,14 @@ function ensureRoot() {
   });
   root.addEventListener('change', handleCustomerCardChange);
   bindResize(root);
-  window.addEventListener('resize', () => applyHostChromeOffset(root), { passive: true });
+  window.addEventListener(
+    'resize',
+    () => {
+      applyHostChromeOffset(root);
+      applyHostLayoutInset(root);
+    },
+    { passive: true },
+  );
 
   return root;
 }
@@ -2682,6 +3145,7 @@ async function setOpen(open) {
     root.classList.toggle('is-collapsed', !desiredOpen);
     if (panelReady) root.classList.remove('is-booting');
   }
+  applyHostLayoutInset(root);
   await storageSet('sync', { [STORAGE_OPEN]: desiredOpen });
 }
 
@@ -2720,6 +3184,24 @@ async function mount() {
         lastPhone = '';
         requestLookup(phone, chatId || lastConvId, name);
       }
+      return;
+    }
+    if (data.type === 'vdt-send-confirm') {
+      const messages = Array.isArray(data.messages) ? data.messages.map((item) => String(item || '').trim()).filter(Boolean) : [];
+      void sendConfirmMessages(messages).then((result) => {
+        const frame = document.getElementById(ROOT_ID)?.querySelector('.vdt-frame');
+        if (frame instanceof HTMLIFrameElement && frame.contentWindow) {
+          try {
+            frame.contentWindow.postMessage(
+              { source: 'vdt-ext', type: 'vdt-send-confirm-result', ok: Boolean(result?.ok), error: result?.error || '' },
+              '*',
+            );
+          } catch {
+            /* ignore */
+          }
+        }
+        // Lỗi/thành công đã báo trong panel — không toast thêm cho khỏi chồng thông báo.
+      });
     }
   });
 
