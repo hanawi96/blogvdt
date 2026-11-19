@@ -1857,14 +1857,12 @@
 
     const paySection = document.querySelector('[data-section="pay"]');
     const payToggle = document.querySelector('[data-pay-toggle]');
-    const payHint = document.querySelector('[data-pay-toggle-hint]');
     const payBody = document.querySelector('[data-discount]');
     payToggle?.addEventListener('click', () => {
       if (!(paySection instanceof HTMLElement) || !(payBody instanceof HTMLElement)) return;
       const open = paySection.classList.toggle('is-collapsed') === false;
       payBody.hidden = !open;
       payToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-      if (payHint) payHint.textContent = open ? 'Thu' : 'Mở';
     });
   }
 
