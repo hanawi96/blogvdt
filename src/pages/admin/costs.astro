@@ -1,5 +1,6 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
+import AdminPlusIcon from '../../components/admin/AdminPlusIcon.astro';
 import { activityActor } from '../../features/activity/log';
 import { mutationError } from '../../features/auth/session';
 import {
@@ -189,7 +190,7 @@ const activeTab: Tab = adError || notice.startsWith('ad-') ? 'ads' : isTab(reque
 
 <AdminLayout title="Chi phí theo đơn">
   <p slot="lead">Khoản tính một lần cho mỗi đơn và chi phí quảng cáo theo ngày.</p>
-  <button slot="action" class="btn btn-primary" type="button" data-cost-new data-costs-action hidden={activeTab !== 'costs'}>Thêm chi phí</button>
+  <button slot="action" class="btn btn-primary" type="button" data-cost-new data-costs-action hidden={activeTab !== 'costs'}><AdminPlusIcon />Thêm chi phí</button>
   <div data-costs-page data-active-tab={activeTab} data-csrf={session.csrfToken}>
     <div class="settings-tabs" role="tablist" aria-label="Nhóm chi phí">
       <button type="button" role="tab" data-costs-tab="costs" aria-selected={activeTab === 'costs' ? 'true' : 'false'} aria-controls="costs-panel">Chi phí đơn</button>
@@ -208,7 +209,7 @@ const activeTab: Tab = adError || notice.startsWith('ad-') ? 'ads' : isTab(reque
             <section class="cms-empty" data-costs-empty>
               <h2 class="cms-empty-title">Chưa có chi phí theo đơn nào</h2>
               <p class="cms-empty-text">Thêm hộp đựng, ship, thuế… để hệ thống tính lợi nhuận mỗi đơn. Đơn mới sẽ lưu lại các khoản đang bật tại thời điểm đặt.</p>
-              <button class="btn btn-primary" type="button" data-cost-new>Thêm chi phí đầu tiên</button>
+              <button class="btn btn-primary" type="button" data-cost-new><AdminPlusIcon />Thêm chi phí đầu tiên</button>
             </section>
           ) : costs.length > 0 ? (
             <>
@@ -616,7 +617,8 @@ const activeTab: Tab = adError || notice.startsWith('ad-') ? 'ads' : isTab(reque
     btn.className = 'btn btn-primary';
     btn.type = 'button';
     btn.dataset.costNew = '';
-    btn.textContent = 'Thêm chi phí đầu tiên';
+    btn.innerHTML =
+      '<svg class="admin-plus-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>Thêm chi phí đầu tiên';
     empty.append(btn);
     content.append(empty);
     bindNew(empty);

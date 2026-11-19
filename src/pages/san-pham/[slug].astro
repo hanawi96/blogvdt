@@ -1,16 +1,23 @@
 ---
 import DataError from '../../components/public/DataError.astro';
+import FaqSection from '../../components/public/FaqSection.astro';
 import FreeShipBadge from '../../components/public/FreeShipBadge.astro';
 import NotFound from '../../components/public/NotFound.astro';
 import OrderForm from '../../components/public/OrderForm.astro';
 import ProductStory from '../../components/public/ProductStory.astro';
 import QtyStepper from '../../components/public/QtyStepper.astro';
 import { CART_MAX_QUANTITY } from '../../features/cart/cart';
+import { listOrderCosts } from '../../features/costs/order-costs';
 import { getPublicProduct } from '../../features/products/public';
 import { isPubliclySellable } from '../../features/products/status';
 import { requiresWeight, weightChips, weightExtras, weightOptionLabel } from '../../features/products/weight';
 import { getPublicSite } from '../../features/settings/settings';
-import { productShipBadge } from '../../features/shipping/customer-fee';
+import {
+  baseCustomerShippingFee,
+  productShipBadge,
+  resolveCustomerShippingFee,
+  shipGroupOf,
+} from '../../features/shipping/customer-fee';
 import { productViewPayload } from '../../features/tracking/tracking';
 import PublicLayout from '../../layouts/PublicLayout.astro';
 import { redirectHttpResponse } from '../../features/redirects/http';
@@ -25,6 +32,13 @@ const slug = Astro.params.slug ?? '';
 const loaded = await loadProduct();
 if (loaded.http) return loaded.http;
 const visible = loaded.product && isPubliclySellable(loaded.product) ? loaded.product : null;
+const goodsTotal = visible ? visible.price : 0;
+const shipping = visible
+  ? resolveCustomerShippingFee({
+      lines: [{ group: shipGroupOf(visible.categorySlug), lineTotal: goodsTotal }],
+      baseFee: loaded.shipBaseFee,
+    })
+  : null;
 if (!visible) {
   Astro.response.status = loaded.site ? 404 : 503;
   Astro.response.headers.set('Cache-Control', 'no-store');
@@ -51,6 +65,8 @@ const crumbs = visible && loaded.site
   : [];
 const trail = visible && loaded.site ? breadcrumbSchema(origin, crumbs) : null;
 const shipBadge = visible ? productShipBadge(visible.price, visible.categorySlug) : 'none';
+/** Bi/charm bạc: không hiện cam kết vòng dâu và câu chuyện người làm vòng. */
+const showBraceletStory = visible ? shipGroupOf(visible.categorySlug) !== 'silver' : false;
 const jsonLdBlocks = visible && loaded.site
   ? [
       ...(trail ? [jsonLd(trail)] : []),
@@ -81,16 +97,21 @@ async function loadProduct() {
   try {
     const db = createDb(getDbBinding());
     const site = await getPublicSite(db);
-    if (!site) return { site: null, failed: false, product: null, http: null };
-    const product = await getPublicProduct(db, slug);
+    if (!site) return { site: null, failed: false, product: null, http: null, shipBaseFee: 0 };
+    const [product, shipBaseFee] = await Promise.all([
+      getPublicProduct(db, slug),
+      listOrderCosts(db).then((costs) => baseCustomerShippingFee(costs)),
+    ]);
     if (product && !isPubliclySellable(product)) {
       const outcome = await resolvePublicRedirect(db, routes.product(slug));
-      if (outcome?.type === 'redirect') return { site, failed: false, product: null, http: redirectHttpResponse(outcome) };
+      if (outcome?.type === 'redirect') {
+        return { site, failed: false, product: null, http: redirectHttpResponse(outcome), shipBaseFee };
+      }
     }
-    return { site, failed: false, product, http: null };
+    return { site, failed: false, product, http: null, shipBaseFee };
   } catch (error) {
     console.error(JSON.stringify({ event: 'product_public_failed', name: error instanceof Error ? error.name : 'unknown' }));
-    return { site: null, failed: true, product: null, http: null };
+    return { site: null, failed: true, product: null, http: null, shipBaseFee: 0 };
   }
 }
 ---
@@ -148,20 +169,22 @@ async function loadProduct() {
           </ul>
         )}
         <p class="mt-6 whitespace-pre-line leading-relaxed">{visible.description}</p>
-        <section class="commit-box mt-6" aria-label="Cam kết">
-          <p class="commit-title">Cam kết</p>
-          <ul class="commit-list">
-            {commitments.map((item) => (
-              <li>
-                <svg class="commit-icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">
-                  <circle cx="10" cy="10" r="10" fill="currentColor" />
-                  <path d="M6 10.5l2.5 2.5L14 7.5" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
+        {showBraceletStory && (
+          <section class="commit-box mt-6" aria-label="Cam kết">
+            <p class="commit-title">Cam kết</p>
+            <ul class="commit-list">
+              {commitments.map((item) => (
+                <li>
+                  <svg class="commit-icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">
+                    <circle cx="10" cy="10" r="10" fill="currentColor" />
+                    <path d="M6 10.5l2.5 2.5L14 7.5" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {!needsWeight && (
           <form id="cart-add-form" method="post" action={routes.cart} data-cart-form data-cart-from="order">
             <input type="hidden" name="intent" value="add" />
@@ -223,11 +246,18 @@ async function loadProduct() {
             </form>
           </dialog>
         )}
-        <ProductStory />
+        {showBraceletStory && <ProductStory />}
+        {showBraceletStory && <FaqSection class="product-faq home-defer" accordionName="product-faq" />}
         <section id="dat-hang" class="product-order mt-10 rounded-lg bg-surface p-4 sm:p-6" aria-labelledby="order-heading">
           <h2 id="order-heading" class="text-xl font-semibold">Đặt hàng</h2>
           <p class="mt-2 text-muted">Xưởng gọi lại để chốt đơn. Website không thu tiền trực tuyến.</p>
-          <OrderForm product={visible} />
+          <OrderForm
+            product={visible}
+            shipping={shipping}
+            goodsTotal={goodsTotal}
+            shipBaseFee={loaded.shipBaseFee}
+            shipGroup={shipGroupOf(visible.categorySlug)}
+          />
         </section>
         <div class="product-sticky-order" data-product-sticky-order>
           <div class="product-sticky-order-inner">

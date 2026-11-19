@@ -1,5 +1,6 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import AdminPlusIcon from '../../../components/admin/AdminPlusIcon.astro';
 import { hasInboundPostLink, inspectPostLinks, listPostLinkCountsByIds, searchInternalLinks, suggestPosts } from '../../../features/posts/link-lookup';
 import { listPosts, searchPublishedPosts, slugIsTaken, type PostListSort } from '../../../features/posts/posts';
 import RetiredUrlDialog from '../../../components/admin/RetiredUrlDialog.astro';
@@ -130,7 +131,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
 
 <AdminLayout title="Quản lý bài viết">
   <p slot="lead">{status === 'trash' ? 'Bài trong thùng rác vẫn giữ nội dung. Khôi phục sẽ thành bản nháp.' : result ? `${result.libraryTotal} bài trong thư viện` : 'Danh sách bài viết'}</p>
-  <a slot="action" class="btn btn-primary" href={routes.adminPostNew}>Viết bài</a>
+  <a slot="action" class="btn btn-primary" href={routes.adminPostNew}><AdminPlusIcon />Viết bài</a>
   {loadError && <p class="error-text" role="alert">{loadError}</p>}
   {
     result && (
@@ -229,7 +230,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                 <li>Chèn liên kết tới sản phẩm hoặc bài liên quan ngay trong nội dung.</li>
                 <li>Công cụ Kiểm tra SEO rà title, mô tả, ảnh và liên kết giúp bài lên top.</li>
               </ul>
-              <a class="btn btn-primary" href={routes.adminPostNew}>Viết bài đầu tiên</a>
+              <a class="btn btn-primary" href={routes.adminPostNew}><AdminPlusIcon />Viết bài đầu tiên</a>
             </section>
           ) : result.rows.length === 0 ? (
             <p class="post-empty">

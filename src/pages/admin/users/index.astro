@@ -1,5 +1,6 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import AdminPlusIcon from '../../../components/admin/AdminPlusIcon.astro';
 import { activityActor } from '../../../features/activity/log';
 import { isAdminRole, isAdminStatus, ROLE_LABELS, STATUS_LABELS } from '../../../features/auth/access';
 import { mutationError } from '../../../features/auth/session';
@@ -89,7 +90,7 @@ function pageHref(page: number): string {
 
 <AdminLayout title="Người dùng">
   <p slot="lead">{result ? `${result.libraryTotal} tài khoản` : 'Danh sách tài khoản'}</p>
-  <button slot="action" class="btn btn-primary" type="button" data-user-create-open>Thêm tài khoản</button>
+  <button slot="action" class="btn btn-primary" type="button" data-user-create-open><AdminPlusIcon />Thêm tài khoản</button>
   {
     createdOk && (
       <p class="mb-4 text-primary-strong" role="status" data-admin-flash>
@@ -239,7 +240,7 @@ function pageHref(page: number): string {
       </p>
       <div class="category-actions">
         <button class="btn" type="button" data-user-create-cancel>Hủy</button>
-        <button class="btn btn-primary" type="submit">Tạo tài khoản</button>
+        <button class="btn btn-primary" type="submit"><AdminPlusIcon />Tạo tài khoản</button>
       </div>
     </form>
   </dialog>

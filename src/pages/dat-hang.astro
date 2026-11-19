@@ -203,7 +203,17 @@ const shipping = selected
           <section class="mt-8" aria-labelledby="selected-product">
             <h2 id="selected-product" class="text-xl font-semibold">{selected.name}</h2>
             <p class="mt-1 text-primary-strong">{formatVnd(selected.price)}</p>
-            <OrderForm product={selected} values={values} errors={errors} quote={quote} landing={landing} shipping={shipping} goodsTotal={goodsTotal} />
+            <OrderForm
+              product={selected}
+              values={values}
+              errors={errors}
+              quote={quote}
+              landing={landing}
+              shipping={shipping}
+              goodsTotal={goodsTotal}
+              shipBaseFee={shipBaseFee}
+              shipGroup={shipGroupOf(selected.categorySlug)}
+            />
           </section>
         )}
       </main>

@@ -10,7 +10,7 @@ import { mediaMapByIds } from '../media/media';
 import { PRODUCT_MARGIN_HIGH, PRODUCT_MARGIN_LOW, type RecipeLine } from '../materials/costing';
 import { insertRecipe, recipeWrites, validateRecipe } from '../materials/recipes';
 import { normalizeCordType, type CordType } from './cord';
-import { canFeatureProduct, isProductStatus, type ProductStatus } from './status';
+import { isProductStatus, type ProductStatus } from './status';
 
 /** Số sản phẩm mỗi trang danh sách admin. */
 export const PRODUCT_PAGE_SIZE = 20;
@@ -60,7 +60,7 @@ export function productAdminQuery(input: {
   view?: string;
   margin?: string;
   page?: number;
-  notice?: 'deleted' | 'featured-on' | 'featured-off' | 'feature-error';
+  notice?: 'deleted';
   bulk?: { action: ProductBulkAction; count: number } | 'error';
 }): string {
   const params = new URLSearchParams();
@@ -81,9 +81,6 @@ export function productAdminQuery(input: {
   if (margin) params.set('margin', margin);
   if (page) params.set('page', String(page));
   if (input.notice === 'deleted') params.set('deleted', '1');
-  if (input.notice === 'featured-on') params.set('featured', '1');
-  if (input.notice === 'featured-off') params.set('featured', '0');
-  if (input.notice === 'feature-error') params.set('error', 'feature');
   if (input.bulk === 'error') params.set('error', 'bulk');
   else if (input.bulk) {
     params.set('bulk', input.bulk.action);
@@ -124,7 +121,6 @@ export type ProductInput = {
   albumIds: number[];
   recipe: RecipeLine[];
   status: ProductStatus;
-  isFeatured: boolean;
   sortOrder: number;
   stockQty: number;
   rating: number;
@@ -206,7 +202,6 @@ export async function listProducts(
         categoryName: productCategories.name,
         cordType: products.cordType,
         status: products.status,
-        isFeatured: products.isFeatured,
         updatedAt: products.updatedAt,
         coverKey: media.r2Key,
         cardKey: media.cardR2Key,
@@ -237,7 +232,6 @@ export async function listProducts(
         categoryName: row.categoryName ?? '',
         cordType: row.cordType,
         status: row.status,
-        isFeatured: canFeatureProduct(row.status, row.isFeatured),
         updatedAt: row.updatedAt,
         coverUrl: listKey ? routes.media(listKey) : null,
         coverAlt: row.coverAlt ?? '',
@@ -382,27 +376,6 @@ export async function updateProduct(
   return { ok: true };
 }
 
-export async function setProductFeatured(
-  db: AppDb,
-  id: number,
-  featured: boolean,
-  now = Date.now(),
-): Promise<{ ok: true; featured: boolean } | { ok: false; error: string }> {
-  const rows = await db
-    .select({ status: products.status, isFeatured: products.isFeatured })
-    .from(products)
-    .where(eq(products.id, id))
-    .limit(1);
-  const product = rows[0];
-  if (!product) return { ok: false, error: 'Không tìm thấy sản phẩm.' };
-  const next = canFeatureProduct(product.status, featured);
-  if (featured && !next) return { ok: false, error: 'Sản phẩm ngừng bán không được đánh dấu nổi bật.' };
-  if (product.isFeatured !== next) {
-    await db.update(products).set({ isFeatured: next, updatedAt: now }).where(eq(products.id, id));
-  }
-  return { ok: true, featured: next };
-}
-
 export const PRODUCT_BULK_ACTIONS = ['active', 'inactive', 'delete'] as const;
 export type ProductBulkAction = (typeof PRODUCT_BULK_ACTIONS)[number];
 
@@ -414,7 +387,7 @@ export function readProductBulk(form: FormData): { action: ProductBulkAction; id
 }
 
 export async function setProductsStatus(db: AppDb, ids: number[], status: ProductStatus, now = Date.now()): Promise<number> {
-  const values = status === 'active' ? { status, updatedAt: now } : { status, isFeatured: false, updatedAt: now };
+  const values = { status, updatedAt: now };
   const results = await runBatch(
     db,
     idChunks(ids).map((chunk) =>
@@ -464,7 +437,6 @@ function productValues(input: ProductInput, now: number) {
     description: input.description,
     coverMediaId: input.coverMediaId,
     status: input.status,
-    isFeatured: canFeatureProduct(input.status, input.isFeatured),
     sortOrder: input.sortOrder,
     stockQty: input.stockQty,
     rating: input.rating,

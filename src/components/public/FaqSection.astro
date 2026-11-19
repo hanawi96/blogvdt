@@ -1,0 +1,42 @@
+---
+import { FAQ_ITEMS } from '../../features/content/faq';
+
+interface Props {
+  /** id section — mặc định `faq` (anchor footer / home). */
+  id?: string;
+  titleId?: string;
+  /** `name` trên `<details>` để accordion đóng mục khác khi mở. */
+  accordionName?: string;
+  class?: string;
+}
+
+const {
+  id = 'faq',
+  titleId = 'faq-title',
+  accordionName = 'site-faq',
+  class: className = '',
+} = Astro.props;
+---
+
+<section id={id} class:list={['faq-section', className]} aria-labelledby={titleId}>
+  <div class="home-section-intro home-faq-intro">
+    <h2 id={titleId}>
+      Câu hỏi
+      <span class="home-script">mẹ thường hỏi</span>
+    </h2>
+    <div class="home-faq-divider" aria-hidden="true">
+      <span>♥</span>
+    </div>
+    <p>Những thắc mắc phổ biến nhất từ các mẹ về vòng dâu tằm</p>
+  </div>
+  <div class="home-faq">
+    {
+      FAQ_ITEMS.map((item) => (
+        <details class="home-faq-item" name={accordionName}>
+          <summary>{item.q}</summary>
+          <p>{item.a}</p>
+        </details>
+      ))
+    }
+  </div>
+</section>

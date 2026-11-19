@@ -48,7 +48,6 @@ export const routes = {
   adminPostCategory: (id: number) => `/admin/posts/${id}/category`,
   adminProduct: (id: number) => `/admin/products/${id}`,
   adminProductDelete: (id: number) => `/admin/products/${id}/delete`,
-  adminProductFeature: (id: number) => `/admin/products/${id}/feature`,
   adminOrder: (id: number) => `/admin/orders/${id}`,
   adminOrderEdit: (id: number) => `/admin/orders/${id}/edit`,
   adminOrderLines: (id: number) => `/admin/orders/${id}/lines`,

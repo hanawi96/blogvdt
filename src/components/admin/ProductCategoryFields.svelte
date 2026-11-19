@@ -77,5 +77,22 @@
 {/key}
 <div class="category-actions">
   <button class="btn" type="button" data-category-close>Hủy</button>
-  <button class="btn btn-primary" type="submit">{current.id ? 'Cập nhật' : 'Thêm danh mục'}</button>
+  <button class="btn btn-primary" type="submit">
+    {#if !current.id}
+      <svg
+        class="admin-plus-icon"
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke-width="1.5"
+        stroke="currentColor"
+        width="18"
+        height="18"
+        aria-hidden="true"
+      >
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"></path>
+      </svg>
+    {/if}
+    {current.id ? 'Cập nhật' : 'Thêm danh mục'}
+  </button>
 </div>

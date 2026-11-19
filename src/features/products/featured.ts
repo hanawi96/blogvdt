@@ -1,10 +1,11 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { media, productCategories, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { listingMediaKey, MEDIA_CARD_SIZE } from '../media/files';
 import { sellableProductWhere } from './status';
 
+/** Sản phẩm đang bán gợi ý (trang chủ / cuối bài viết). */
 export async function listFeaturedProducts(db: AppDb, limit = 4) {
   const rows = await db
     .select({
@@ -22,7 +23,7 @@ export async function listFeaturedProducts(db: AppDb, limit = 4) {
     .from(products)
     .leftJoin(media, eq(products.coverMediaId, media.id))
     .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
-    .where(and(sellableProductWhere(), eq(products.isFeatured, true)))
+    .where(sellableProductWhere())
     .orderBy(asc(products.sortOrder), asc(products.id))
     .limit(limit);
   return rows.map((row) => {

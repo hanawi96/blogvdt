@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, ne, notExists, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { chatPhoneMaps, orders } from '../../lib/db/schema';
 import { normalizePhone } from './order';
@@ -33,7 +33,41 @@ export async function getChatPhone(
   return row ? { phone: row.phone, updatedAt: row.updatedAt } : null;
 }
 
-/** Upsert theo PK; đổi SĐT thì mở lại trạng thái chờ tạo đơn (xóa dismissed). */
+async function phoneHasActiveOrder(db: AppDb, phone: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: orders.id })
+    .from(orders)
+    .where(and(eq(orders.phone, phone), ne(orders.status, 'cancelled')))
+    .limit(1);
+  return Boolean(rows[0]);
+}
+
+/** Có đơn chưa hủy → tắt badge chờ tạo đơn cho mọi map cùng SĐT. */
+export async function clearChatPhonePendingByPhone(db: AppDb, phone: string): Promise<void> {
+  if (!phone) return;
+  await db
+    .update(chatPhoneMaps)
+    .set({ pending: false })
+    .where(and(eq(chatPhoneMaps.phone, phone), eq(chatPhoneMaps.pending, true)));
+}
+
+/**
+ * Tính lại pending theo dismiss + còn đơn active.
+ * Dùng khi hủy/xóa đơn hoặc đổi SĐT trên đơn.
+ */
+export async function refreshChatPhonePendingByPhone(db: AppDb, phone: string): Promise<void> {
+  if (!phone) return;
+  if (await phoneHasActiveOrder(db, phone)) {
+    await clearChatPhonePendingByPhone(db, phone);
+    return;
+  }
+  await db
+    .update(chatPhoneMaps)
+    .set({ pending: true })
+    .where(and(eq(chatPhoneMaps.phone, phone), isNull(chatPhoneMaps.dismissedAt), eq(chatPhoneMaps.pending, false)));
+}
+
+/** Upsert theo PK; đổi SĐT thì mở lại trạng thái chờ tạo đơn (xóa dismissed), trừ khi đã có đơn. */
 export async function upsertChatPhone(
   db: AppDb,
   input: { channel: ChatChannel; chatId: string; phone: string },
@@ -47,6 +81,8 @@ export async function upsertChatPhone(
   const existing = await getChatPhone(db, input.channel, chatId);
   if (existing?.phone === phone) return { ok: true, phone, changed: false };
 
+  const pending = !(await phoneHasActiveOrder(db, phone));
+
   await db
     .insert(chatPhoneMaps)
     .values({
@@ -56,10 +92,11 @@ export async function upsertChatPhone(
       createdAt: now,
       updatedAt: now,
       dismissedAt: null,
+      pending,
     })
     .onConflictDoUpdate({
       target: [chatPhoneMaps.channel, chatPhoneMaps.chatId],
-      set: { phone, updatedAt: now, dismissedAt: null },
+      set: { phone, updatedAt: now, dismissedAt: null, pending },
     });
 
   return { ok: true, phone, changed: true };
@@ -73,15 +110,10 @@ export type PendingChatPhone = {
 };
 
 /**
- * Hội thoại đã gắn SĐT nhưng chưa có đơn chưa hủy với số đó (và chưa «bỏ qua»).
+ * Hội thoại chờ tạo đơn — đọc cột `pending` (đã materialize), không join orders.
  * Dùng cho badge extension — Pancake + Zalo.
  */
 export async function listPendingChatPhones(db: AppDb): Promise<{ count: number; items: PendingChatPhone[] }> {
-  const hasActiveOrder = db
-    .select({ one: sql`1` })
-    .from(orders)
-    .where(and(eq(orders.phone, chatPhoneMaps.phone), ne(orders.status, 'cancelled')));
-
   const items = await db
     .select({
       channel: chatPhoneMaps.channel,
@@ -90,23 +122,30 @@ export async function listPendingChatPhones(db: AppDb): Promise<{ count: number;
       updatedAt: chatPhoneMaps.updatedAt,
     })
     .from(chatPhoneMaps)
-    .where(and(isNull(chatPhoneMaps.dismissedAt), notExists(hasActiveOrder)))
+    .where(eq(chatPhoneMaps.pending, true))
     .orderBy(desc(chatPhoneMaps.updatedAt))
     .limit(PENDING_LIMIT);
+
+  const mapped = items.map((row) => ({
+    channel: row.channel as ChatChannel,
+    chatId: row.chatId,
+    phone: row.phone,
+    updatedAt: row.updatedAt,
+  }));
+
+  // Dưới limit → count = số dòng trả về; đủ limit mới đếm thêm (vẫn chỉ quét pending=1).
+  if (mapped.length < PENDING_LIMIT) {
+    return { count: mapped.length, items: mapped };
+  }
 
   const countRows = await db
     .select({ value: sql<number>`count(*)` })
     .from(chatPhoneMaps)
-    .where(and(isNull(chatPhoneMaps.dismissedAt), notExists(hasActiveOrder)));
+    .where(eq(chatPhoneMaps.pending, true));
 
   return {
-    count: Number(countRows[0]?.value ?? 0),
-    items: items.map((row) => ({
-      channel: row.channel as ChatChannel,
-      chatId: row.chatId,
-      phone: row.phone,
-      updatedAt: row.updatedAt,
-    })),
+    count: Number(countRows[0]?.value ?? mapped.length),
+    items: mapped,
   };
 }
 
@@ -119,7 +158,7 @@ export async function dismissChatPhone(
   if (!chatId) return { ok: false, error: 'Thiếu id hội thoại.' };
   await db
     .update(chatPhoneMaps)
-    .set({ dismissedAt: now })
+    .set({ dismissedAt: now, pending: false })
     .where(and(eq(chatPhoneMaps.channel, input.channel), eq(chatPhoneMaps.chatId, chatId)));
   return { ok: true };
 }

@@ -15,3 +15,12 @@ describe('chat-phone helpers', () => {
     expect(normalizeChatId('x'.repeat(200))?.length).toBe(191);
   });
 });
+
+describe('chat-phone pending materialize', () => {
+  it('PENDING_LIMIT và export sync helpers tồn tại (smoke import)', async () => {
+    const mod = await import('./chat-phone');
+    expect(typeof mod.clearChatPhonePendingByPhone).toBe('function');
+    expect(typeof mod.refreshChatPhonePendingByPhone).toBe('function');
+    expect(typeof mod.listPendingChatPhones).toBe('function');
+  });
+});

@@ -176,7 +176,7 @@ async function selectProducts(db: AppDb, pattern: string, limit: number, offset:
     .leftJoin(media, eq(products.coverMediaId, media.id))
     .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
     .where(productWhere(pattern))
-    .orderBy(desc(products.isFeatured), asc(products.sortOrder), asc(products.name))
+    .orderBy(asc(products.sortOrder), asc(products.name))
     .limit(limit)
     .offset(offset);
 }

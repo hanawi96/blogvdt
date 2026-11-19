@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { isTagRobots, tagDeleteWarning, tagRedirect } from './tags';
+import {
+  isTagRobots,
+  readTagBulkIds,
+  TAG_BULK_MAX,
+  tagAdminQuery,
+  tagBulkDeleteWarning,
+  tagDeleteWarning,
+  tagRedirect,
+} from './tags';
 import { parseTagIds, sameTagIds } from './post-tags';
 
 describe('thẻ bài viết', () => {
@@ -17,6 +25,35 @@ describe('thẻ bài viết', () => {
     expect(tagDeleteWarning(3)).toContain('3 bài viết');
     expect(tagDeleteWarning(3)).toContain('giữ lại');
     expect(tagDeleteWarning(3)).not.toMatch(/xóa bài/i);
+  });
+
+  it('cảnh báo xóa hàng loạt', () => {
+    expect(tagBulkDeleteWarning(0)).toContain('Chọn thẻ');
+    expect(tagBulkDeleteWarning(1)).toContain('1 thẻ');
+    expect(tagBulkDeleteWarning(4)).toContain('4 thẻ');
+    expect(tagBulkDeleteWarning(4)).toContain('giữ lại');
+  });
+
+  it('đọc id checkbox hàng loạt: lọc trùng, bỏ ID sai, từ chối rỗng và quá giới hạn', () => {
+    const form = new FormData();
+    for (const id of ['3', '3', '7', 'abc', '-1', '2.5', '0']) form.append('ids', id);
+    expect(readTagBulkIds(form)).toEqual([3, 7]);
+
+    expect(readTagBulkIds(new FormData())).toBe(null);
+
+    const many = new FormData();
+    for (let id = 1; id <= TAG_BULK_MAX + 1; id += 1) many.append('ids', String(id));
+    expect(readTagBulkIds(many)).toBe(null);
+
+    const exact = new FormData();
+    for (let id = 1; id <= TAG_BULK_MAX; id += 1) exact.append('ids', String(id));
+    expect(readTagBulkIds(exact)).toHaveLength(TAG_BULK_MAX);
+  });
+
+  it('ghép URL danh sách thẻ sau thao tác hàng loạt', () => {
+    expect(tagAdminQuery({ query: 'dâu', bulk: { count: 2 } })).toBe('/admin/tags?q=d%C3%A2u&bulk=delete&n=2');
+    expect(tagAdminQuery({ bulk: 'error' })).toBe('/admin/tags?error=bulk');
+    expect(tagAdminQuery({ saved: true })).toBe('/admin/tags?saved=1');
   });
 
   it('robots chỉ nhận index | noindex', () => {

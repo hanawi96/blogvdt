@@ -297,41 +297,21 @@ const canToggleSort = status !== 'shipped';
                     <input type="hidden" name="intent" value="fulfill" />
                     <input type="hidden" name="id" value={order.id} />
                     <label class="sr-only" for={`order-fulfill-${order.id}`}>Trạng thái giao {order.code}</label>
-                    {fulfill === 'shipped' ? (
-                      <div class="order-shipped-pill">
-                        <span class="order-shipped-pill-icon" aria-hidden="true">
-                          <svg viewBox="0 0 24 24" width="14" height="14">
-                            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M3.5 8.5 12 4l8.5 4.5v7L12 20l-8.5-4.5v-7zM12 12l8.5-4.5M12 12v8M12 12 3.5 7.5M8 6.2l8 4.2" />
-                          </svg>
-                        </span>
-                        <select
-                          id={`order-fulfill-${order.id}`}
-                          class="order-shipped-select"
-                          name="fulfill"
-                          data-fulfill={fulfill}
-                          data-fulfill-select
-                        >
-                          {FULFILL_STATUSES.map((item) => (
-                            <option value={item} selected={fulfill === item}>
-                              {item === 'shipped' ? orderShippedAgoLabel(order.shippedAt, listNow) : FULFILL_STATUS_LABELS[item]}
-                            </option>
-                          ))}
-                        </select>
-                        <span class="order-shipped-pill-caret" aria-hidden="true">▾</span>
-                      </div>
-                    ) : (
-                      <select
-                        id={`order-fulfill-${order.id}`}
-                        class="order-status-select"
-                        name="fulfill"
-                        data-fulfill={fulfill}
-                        data-fulfill-select
-                      >
-                        {FULFILL_STATUSES.map((item) => (
-                          <option value={item} selected={fulfill === item}>{FULFILL_STATUS_LABELS[item]}</option>
-                        ))}
-                      </select>
-                    )}
+                    <select
+                      id={`order-fulfill-${order.id}`}
+                      class="order-status-select"
+                      name="fulfill"
+                      data-fulfill={fulfill}
+                      data-fulfill-select
+                    >
+                      {FULFILL_STATUSES.map((item) => (
+                        <option value={item} selected={fulfill === item}>
+                          {item === 'shipped' && fulfill === 'shipped'
+                            ? orderShippedAgoLabel(order.shippedAt, listNow)
+                            : FULFILL_STATUS_LABELS[item]}
+                        </option>
+                      ))}
+                    </select>
                   </form>
                 ) : (
                   <span class="order-badge" data-status={order.status}>

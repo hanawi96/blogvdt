@@ -1,4 +1,4 @@
-import { and, asc, count, eq, like, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, like, ne, or, sql } from 'drizzle-orm';
 import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
 import { slugRedirectQueries } from '../../lib/db/redirects';
@@ -8,6 +8,9 @@ import { slugify } from './slug';
 
 export const TAG_ROBOTS = ['index', 'noindex'] as const;
 export type TagRobots = (typeof TAG_ROBOTS)[number];
+
+/** Giới hạn chọn xóa hàng loạt (khớp danh sách thường; tránh payload quá lớn). */
+export const TAG_BULK_MAX = 50;
 
 export type TagInput = {
   id?: number;
@@ -168,6 +171,26 @@ export async function deleteTag(db: AppDb, id: number, actor?: ActivityActor, no
   ]);
 }
 
+/** Đọc id checkbox hàng loạt; null nếu không hợp lệ hoặc vượt giới hạn. */
+export function readTagBulkIds(form: FormData): number[] | null {
+  const ids = [...new Set(form.getAll('ids').map(Number))].filter((id) => Number.isInteger(id) && id > 0);
+  if (ids.length === 0 || ids.length > TAG_BULK_MAX) return null;
+  return ids;
+}
+
+/** Xóa nhiều thẻ một lần; cascade bỏ liên kết bài. Trả số thẻ thực sự xóa. */
+export async function deleteTags(db: AppDb, ids: number[], actor?: ActivityActor, now = Date.now()): Promise<number> {
+  if (ids.length === 0) return 0;
+  const rows = await db.select({ id: tags.id, name: tags.name }).from(tags).where(inArray(tags.id, ids));
+  if (rows.length === 0) return 0;
+  const foundIds = rows.map((row) => row.id);
+  await commitWrites(db, [
+    db.delete(tags).where(inArray(tags.id, foundIds)),
+    ...(actor ? rows.map((row) => tagLog(db, actor, 'tag.delete', row.id, row.name, now)) : []),
+  ]);
+  return rows.length;
+}
+
 export function tagRedirect(oldSlug: string, newSlug: string): { from: string; to: string } | null {
   if (!oldSlug || oldSlug === newSlug) return null;
   return { from: routes.tag(oldSlug), to: routes.tag(newSlug) };
@@ -177,6 +200,26 @@ export function tagDeleteWarning(postCount: number): string {
   if (postCount <= 0) return 'Xóa thẻ này?';
   const label = postCount === 1 ? '1 bài viết' : `${postCount} bài viết`;
   return `Thẻ này đang gắn với ${label}. Bài viết được giữ lại và chỉ bỏ liên kết thẻ. Xóa thẻ?`;
+}
+
+export function tagBulkDeleteWarning(count: number): string {
+  if (count <= 0) return 'Chọn thẻ cần xóa.';
+  const label = count === 1 ? '1 thẻ' : `${count} thẻ`;
+  return `Xóa ${label} đã chọn? Bài viết được giữ lại và chỉ bỏ liên kết thẻ.`;
+}
+
+export function tagAdminQuery(input: { query?: string; bulk?: { count: number } | 'error'; saved?: boolean } = {}): string {
+  const params = new URLSearchParams();
+  const query = (input.query ?? '').trim().slice(0, 80);
+  if (query) params.set('q', query);
+  if (input.saved) params.set('saved', '1');
+  if (input.bulk === 'error') params.set('error', 'bulk');
+  else if (input.bulk) {
+    params.set('bulk', 'delete');
+    params.set('n', String(input.bulk.count));
+  }
+  const text = params.toString();
+  return text ? `${routes.adminTags}?${text}` : routes.adminTags;
 }
 
 function tagLog(

@@ -66,6 +66,9 @@ let pendingPanelOpen = false;
 let pendingFetchInflight = null;
 let pendingRefreshTimer = 0;
 let listPhoneScanTimer = 0;
+/** Sàn tối thiểu giữa 2 lần kéo badge pending — giảm load D1. */
+const PENDING_MIN_INTERVAL_MS = 5000;
+let lastPendingFetchAt = 0;
 
 function isExtensionAlive() {
   if (extensionDead) return false;
@@ -1084,15 +1087,18 @@ function formatPendingAge(updatedAt) {
 function schedulePendingRefresh(delayMs = 400) {
   if (!isExtensionAlive()) return;
   window.clearTimeout(pendingRefreshTimer);
+  const elapsed = Date.now() - lastPendingFetchAt;
+  const wait = Math.max(delayMs, PENDING_MIN_INTERVAL_MS - elapsed);
   pendingRefreshTimer = window.setTimeout(() => {
     pendingRefreshTimer = 0;
     void refreshPendingChats();
-  }, delayMs);
+  }, Math.max(0, wait));
 }
 
 function refreshPendingChats() {
   if (!isExtensionAlive()) return Promise.resolve();
   if (pendingFetchInflight) return pendingFetchInflight;
+  lastPendingFetchAt = Date.now();
   pendingFetchInflight = runtimeSend({ type: 'vdt-pending-chat-phones' })
     .then((result) => {
       pendingFetchInflight = null;

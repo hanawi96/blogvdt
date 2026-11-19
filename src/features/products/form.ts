@@ -3,7 +3,7 @@ import { fieldErrors, type FieldErrors } from '../../lib/validation/errors';
 import { parseRecipe } from '../materials/costing';
 import { CORD_TYPES, isCordType } from './cord';
 import type { ProductInput } from './products';
-import { canFeatureProduct, isProductStatus } from './status';
+import { isProductStatus } from './status';
 
 export { CORD_TYPES, CORD_TYPE_LABELS, cordTypeLabel, productCardName } from './cord';
 
@@ -79,7 +79,6 @@ export function parseProductForm(form: FormData): { ok: true; input: ProductInpu
       albumIds,
       recipe: recipe.lines,
       status: parsed.data.status,
-      isFeatured: canFeatureProduct(parsed.data.status, form.get('featured') === '1'),
       sortOrder: Number(parsed.data.sortOrder),
       stockQty: stockQty.value,
       rating: rating.value,

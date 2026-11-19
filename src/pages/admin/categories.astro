@@ -1,4 +1,5 @@
 ---
+import AdminPlusIcon from '../../components/admin/AdminPlusIcon.astro';
 import SearchPreview from '../../components/admin/SearchPreview.astro';
 import SlugField from '../../components/admin/SlugField.svelte';
 import AdminLayout from '../../layouts/AdminLayout.astro';
@@ -131,7 +132,10 @@ const bannerError = slugError || nameError ? '' : formError;
         <span class="seo-hint" data-seo-duplicate-note>{duplicateNote}</span>
       </label>
       <div class="category-actions">
-        <button class="btn btn-primary" type="submit">{editingId ? 'Cập nhật' : 'Thêm danh mục'}</button>
+        <button class="btn btn-primary" type="submit">
+          {!editingId && <AdminPlusIcon />}
+          {editingId ? 'Cập nhật' : 'Thêm danh mục'}
+        </button>
         {editingId && <a class="btn" href={routes.adminCategories}>Hủy</a>}
       </div>
     </form>

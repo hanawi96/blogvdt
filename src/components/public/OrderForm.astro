@@ -4,6 +4,7 @@ import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
 import { requiresWeight, weightChips, weightExtras, weightOptionLabel, type WeightScale } from '../../features/products/weight';
 import DiscountCodeField from './DiscountCodeField.astro';
 import PaymentField from './PaymentField.astro';
+import type { ShipGroup } from '../../features/shipping/customer-fee';
 import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
 import type { FieldErrors } from '../../lib/validation/errors';
@@ -28,6 +29,9 @@ interface Props {
   landing?: string;
   shipping?: { free: boolean; fee: number } | null;
   goodsTotal?: number;
+  /** Phí ship gốc (trước miễn ship) — dùng cập nhật live khi đổi SL/cân nặng. */
+  shipBaseFee?: number;
+  shipGroup?: ShipGroup;
 }
 
 const {
@@ -38,6 +42,8 @@ const {
   landing = '',
   shipping = null,
   goodsTotal = 0,
+  shipBaseFee = 0,
+  shipGroup = 'other',
 } = Astro.props;
 const chips = weightChips(product.weightScale);
 const extras = weightExtras(product.weightScale);
@@ -46,6 +52,7 @@ const hasWeight = requiresWeight(product.weightScale);
 const extraSelected = extras.includes(values.weight);
 const goodsPayable = quote?.totalPrice ?? goodsTotal;
 const payable = goodsPayable + (shipping?.fee ?? 0);
+const showSummary = Boolean(shipping) && (goodsTotal > 0 || (typeof product.price === 'number' && product.price > 0));
 ---
 
 <form class="mt-6" method="post" action={routes.checkout} data-order-form>
@@ -125,33 +132,43 @@ const payable = goodsPayable + (shipping?.fee ?? 0);
   </label>
   <DiscountCodeField id="discount-code" value={values.discountCode} error={errors.discountCode} quote={quote} />
   {
-    shipping && goodsTotal > 0 && (
-      <div class="cart-sum-stack">
-        <div class="cart-sum">
-          <span>Tạm tính</span>
-          <strong>{formatVnd(goodsTotal)}</strong>
-        </div>
-        {quote && quote.discountAmount > 0 && (
-          <div class="cart-sum cart-sum-muted">
-            <span>Giảm giá</span>
-            <strong>−{formatVnd(quote.discountAmount)}</strong>
+    showSummary && shipping && (
+      <>
+        <div
+          class="cart-sum-stack"
+          data-order-ship
+          data-ship-base={shipBaseFee}
+          data-ship-group={shipGroup}
+          data-discount-amount={quote?.discountAmount ?? 0}
+        >
+          <div class="cart-sum">
+            <span>Tạm tính</span>
+            <strong data-order-goods>{formatVnd(goodsTotal)}</strong>
           </div>
-        )}
-        <div class="cart-sum cart-sum-muted">
-          <span>Phí vận chuyển</span>
-          <strong>{shipping.free ? 'Miễn phí' : formatVnd(shipping.fee)}</strong>
+          {quote && quote.discountAmount > 0 && (
+            <div class="cart-sum cart-sum-muted" data-order-discount-row>
+              <span>Giảm giá</span>
+              <strong data-order-discount>−{formatVnd(quote.discountAmount)}</strong>
+            </div>
+          )}
+          <div class="cart-sum cart-sum-muted">
+            <span>Phí vận chuyển</span>
+            <strong data-order-ship-fee>{shipping.free ? 'Miễn phí' : formatVnd(shipping.fee)}</strong>
+          </div>
+          <div class="cart-sum">
+            <span>Phải trả</span>
+            <strong data-order-total>{formatVnd(payable)}</strong>
+          </div>
         </div>
-        <div class="cart-sum">
-          <span>Phải trả</span>
-          <strong>{formatVnd(payable)}</strong>
-        </div>
-      </div>
+        <p class="cart-sum-note">Nhận hàng kiểm tra hàng thoải mái, ưng ý thì mới thanh toán.</p>
+      </>
     )
   }
   <button class="btn btn-primary mt-6 w-full" type="submit">Gửi đơn</button>
 </form>
 <script>
   import { applyWeightPrice, weightSurchargeLabel } from '../../features/products/weight';
+  import { resolveCustomerShippingFee, type ShipGroup } from '../../features/shipping/customer-fee';
 
   const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
 
@@ -159,6 +176,11 @@ const payable = goodsPayable + (shipping?.fee ?? 0);
     const amountEl = form.querySelector('[data-payable-amount][data-unit-price]');
     const quantity = form.querySelector('#quantity');
     const basePrice = amountEl instanceof HTMLElement ? Number(amountEl.dataset.unitPrice) || 0 : 0;
+    const shipRoot = form.querySelector('[data-order-ship]');
+    const shipBase = shipRoot instanceof HTMLElement ? Number(shipRoot.dataset.shipBase || '0') : 0;
+    const shipGroup = (shipRoot instanceof HTMLElement ? shipRoot.dataset.shipGroup || 'other' : 'other') as ShipGroup;
+    const discountAmount =
+      shipRoot instanceof HTMLElement ? Math.max(0, Number(shipRoot.dataset.discountAmount || '0') || 0) : 0;
 
     // ----- Cân nặng: nút "Cân nặng khác" + dropdown 16kg–70kg -----
     const field = form.querySelector('[data-weight-field]');
@@ -174,7 +196,7 @@ const payable = goodsPayable + (shipping?.fee ?? 0);
       return '';
     };
 
-    // Đồng bộ số tiền hiển thị, phụ thu và QR theo cân nặng + số lượng.
+    // Đồng bộ số tiền hiển thị, phụ thu, phí ship và QR theo cân nặng + số lượng.
     const sync = () => {
       const weight = selectedWeight();
       const unit = basePrice > 0 ? applyWeightPrice(basePrice, weight) : 0;
@@ -188,11 +210,25 @@ const payable = goodsPayable + (shipping?.fee ?? 0);
           note.textContent = '';
         }
       }
-      if (amountEl instanceof HTMLElement && quantity instanceof HTMLInputElement) {
-        const count = Number(quantity.value);
-        const amount = Number.isInteger(count) && count >= 1 ? unit * count : unit;
-        amountEl.dataset.payableAmount = String(amount > 0 ? amount : unit);
+      const count = quantity instanceof HTMLInputElement ? Number(quantity.value) : 1;
+      const qty = Number.isInteger(count) && count >= 1 ? count : 1;
+      const goods = unit > 0 ? unit * qty : 0;
+      const afterDiscount = Math.max(0, goods - discountAmount);
+      const shipping = resolveCustomerShippingFee({
+        lines: [{ group: shipGroup, lineTotal: afterDiscount > 0 ? afterDiscount : goods }],
+        baseFee: shipBase,
+      });
+      const payable = afterDiscount + shipping.fee;
+      if (amountEl instanceof HTMLElement) {
+        amountEl.dataset.payableAmount = String(payable > 0 ? payable : unit);
       }
+      if (!(shipRoot instanceof HTMLElement)) return;
+      const goodsOut = shipRoot.querySelector('[data-order-goods]');
+      if (goodsOut) goodsOut.textContent = money.format(goods);
+      const shipFeeOut = shipRoot.querySelector('[data-order-ship-fee]');
+      if (shipFeeOut) shipFeeOut.textContent = shipping.free ? 'Miễn phí' : money.format(shipping.fee);
+      const totalOut = shipRoot.querySelector('[data-order-total]');
+      if (totalOut) totalOut.textContent = money.format(payable);
     };
 
     if (moreBtn instanceof HTMLButtonElement && extraWrap instanceof HTMLElement) {
@@ -240,6 +276,9 @@ const payable = goodsPayable + (shipping?.fee ?? 0);
     }
 
     quantity?.addEventListener('input', sync);
+    form.querySelectorAll('[data-qty-dec], [data-qty-inc]').forEach((button) => {
+      button.addEventListener('click', () => window.requestAnimationFrame(sync));
+    });
     sync();
 
     form.addEventListener('submit', (event) => {

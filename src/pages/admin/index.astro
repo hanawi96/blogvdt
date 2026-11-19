@@ -1,5 +1,6 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
+import AdminPlusIcon from '../../components/admin/AdminPlusIcon.astro';
 import OrdersTrendChart from '../../components/admin/OrdersTrendChart.svelte';
 import { getDashboardOverview } from '../../features/dashboard/stats';
 import { OVERVIEW_DAYS } from '../../features/dashboard/metrics';
@@ -31,8 +32,8 @@ const sourceMax = dashboard && dashboard.admin ? Math.max(1, ...dashboard.source
 <AdminLayout title="Tổng quan">
   <p slot="lead">Số liệu {OVERVIEW_DAYS} ngày gần nhất và tổng quan vận hành.</p>
   <div slot="action" class="dash-quick">
-    <a class="btn btn-primary" href={routes.adminPostNew}>Viết bài</a>
-    {admin && <a class="btn" href={routes.adminProductNew}>Thêm sản phẩm</a>}
+    <a class="btn btn-primary" href={routes.adminPostNew}><AdminPlusIcon />Viết bài</a>
+    {admin && <a class="btn" href={routes.adminProductNew}><AdminPlusIcon />Thêm sản phẩm</a>}
     {admin && <a class="btn" href={routes.adminOrders}>Đơn hàng</a>}
     <a class="btn" href={routes.home} target="_blank" rel="noopener">Xem website</a>
   </div>

@@ -1,5 +1,6 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
+import AdminPlusIcon from '../../components/admin/AdminPlusIcon.astro';
 import { activityActor } from '../../features/activity/log';
 import { mutationError } from '../../features/auth/session';
 import {
@@ -200,7 +201,10 @@ function windowText(row: DiscountCode): string {
         <span>Đang bật</span>
       </label>
       <div class="category-actions">
-        <button class="btn btn-primary" type="submit">{values.id ? 'Cập nhật' : 'Thêm mã'}</button>
+        <button class="btn btn-primary" type="submit">
+          {!values.id && <AdminPlusIcon />}
+          {values.id ? 'Cập nhật' : 'Thêm mã'}
+        </button>
         {values.id && <a class="btn" href={listHref}>Hủy</a>}
       </div>
     </form>

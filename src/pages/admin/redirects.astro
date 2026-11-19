@@ -1,4 +1,5 @@
 ---
+import AdminPlusIcon from '../../components/admin/AdminPlusIcon.astro';
 import PublishedPostPicker from '../../components/admin/PublishedPostPicker.astro';
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { activityActor } from '../../features/activity/log';
@@ -153,7 +154,10 @@ function codeLabel(code: number): string {
         <span>Đang bật</span>
       </label>
       <div class="category-actions">
-        <button class="btn btn-primary" type="submit">{editingId ? 'Cập nhật' : 'Thêm chuyển hướng'}</button>
+        <button class="btn btn-primary" type="submit">
+          {!editingId && <AdminPlusIcon />}
+          {editingId ? 'Cập nhật' : 'Thêm chuyển hướng'}
+        </button>
         {editingId && <a class="btn" href={listHref}>Hủy</a>}
       </div>
     </form>

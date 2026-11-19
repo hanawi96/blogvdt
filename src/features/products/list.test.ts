@@ -11,7 +11,7 @@ import {
   productListView,
   readProductBulk,
 } from './products';
-import { canFeatureProduct, isPubliclySellable } from './status';
+import { isPubliclySellable } from './status';
 
 describe('danh sách sản phẩm', () => {
   it('chỉ nhận các kiểu sắp xếp đã định', () => {
@@ -53,8 +53,8 @@ describe('danh sách sản phẩm', () => {
     expect(productListCord('elastic')).toBe('elastic');
     expect(productListCord('Dây co giãn')).toBe('elastic');
     expect(productListCord('Chun')).toBe('');
-    expect(productAdminQuery({ status: 'archived', sort: 'random', notice: 'feature-error' })).toBe(
-      '/admin/products?error=feature',
+    expect(productAdminQuery({ status: 'archived', sort: 'random', notice: 'deleted' })).toBe(
+      '/admin/products?deleted=1',
     );
   });
 
@@ -92,9 +92,7 @@ describe('danh sách sản phẩm', () => {
     expect(isPubliclySellable({ status: 'inactive', categoryStatus: 'active' })).toBe(false);
   });
 
-  it('không cho sản phẩm ngừng bán được đánh dấu nổi bật', () => {
-    expect(canFeatureProduct('inactive', true)).toBe(false);
-    expect(canFeatureProduct('active', true)).toBe(true);
+  it('nhận form sản phẩm ngừng bán và SEO', () => {
     const form = new FormData();
     form.set('name', 'Vòng mẫu');
     form.set('slug', 'vong-mau');
@@ -105,9 +103,8 @@ describe('danh sách sản phẩm', () => {
     form.set('sortOrder', '0');
     form.set('seoTitle', 'Tiêu đề SEO');
     form.set('metaDescription', 'Mô tả SEO');
-    form.set('featured', '1');
     const parsed = parseProductForm(form);
-    expect(parsed.ok && parsed.input.isFeatured).toBe(false);
+    expect(parsed.ok && parsed.input.status).toBe('inactive');
     expect(parsed.ok && parsed.input.seoTitle).toBe('Tiêu đề SEO');
     expect(parsed.ok && parsed.input.comparePrice).toBe(null);
     expect(parsed.ok && parsed.input.categoryId).toBe(null);
@@ -126,6 +123,10 @@ describe('danh sách sản phẩm', () => {
     const elastic = productForm();
     elastic.set('cordType', 'elastic');
     expect(parseProductForm(elastic).ok).toBe(true);
+    const other = productForm();
+    other.set('cordType', 'other');
+    const otherParsed = parseProductForm(other);
+    expect(otherParsed.ok && otherParsed.input.cordType).toBe('other');
     const unknown = productForm();
     unknown.set('cordType', 'Chun');
     const rejected = parseProductForm(unknown);

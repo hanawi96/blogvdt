@@ -7,7 +7,6 @@ const FLASH_PARAMS = [
   'u',
   'saved',
   'deleted',
-  'featured',
   'bulk',
   'trashed',
   'purged',

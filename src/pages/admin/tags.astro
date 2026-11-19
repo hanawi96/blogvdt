@@ -1,4 +1,5 @@
 ---
+import AdminPlusIcon from '../../components/admin/AdminPlusIcon.astro';
 import SearchPreview from '../../components/admin/SearchPreview.astro';
 import SlugField from '../../components/admin/SlugField.svelte';
 import AdminLayout from '../../layouts/AdminLayout.astro';
@@ -6,7 +7,18 @@ import { activityActor } from '../../features/activity/log';
 import { mutationError } from '../../features/auth/session';
 import { lengthNote, metaDuplicateNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
 import { listMetaCorpus } from '../../features/posts/posts';
-import { deleteTag, getTagById, listTags, saveTag, tagDeleteWarning } from '../../features/posts/tags';
+import {
+  deleteTag,
+  deleteTags,
+  getTagById,
+  listTags,
+  readTagBulkIds,
+  saveTag,
+  TAG_BULK_MAX,
+  tagAdminQuery,
+  tagBulkDeleteWarning,
+  tagDeleteWarning,
+} from '../../features/posts/tags';
 import { getPublicSite } from '../../features/settings/settings';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
@@ -45,10 +57,23 @@ if (Astro.request.method === 'POST') {
     const idValue = Number(form.get('id'));
     const id = Number.isInteger(idValue) && idValue > 0 ? idValue : undefined;
     const actor = await activityActor(db, session.userId);
+    if (intent === 'bulk-delete') {
+      if (wantsJson) return json({ ok: false, error: 'Không xóa thẻ từ trình soạn bài.' }, 405);
+      const queryValue = typeof form.get('q') === 'string' ? String(form.get('q')) : '';
+      const ids = readTagBulkIds(form);
+      if (!ids) return Astro.redirect(tagAdminQuery({ query: queryValue, bulk: 'error' }), 303);
+      try {
+        const count = await deleteTags(db, ids, actor);
+        return Astro.redirect(tagAdminQuery({ query: queryValue, bulk: { count } }), 303);
+      } catch (failure) {
+        console.error(JSON.stringify({ event: 'tag_bulk_failed', name: failure instanceof Error ? failure.name : 'unknown' }));
+        return Astro.redirect(tagAdminQuery({ query: queryValue, bulk: 'error' }), 303);
+      }
+    }
     if (intent === 'delete' && id) {
       if (wantsJson) return json({ ok: false, error: 'Không xóa thẻ từ trình soạn bài.' }, 405);
       await deleteTag(db, id, actor);
-      return Astro.redirect(routes.adminTags, 303);
+      return Astro.redirect(tagAdminQuery({ query: typeof form.get('q') === 'string' ? String(form.get('q')) : '' }), 303);
     }
     name = String(form.get('name') ?? '');
     slug = String(form.get('slug') ?? '');
@@ -79,6 +104,14 @@ const [tagRows, allTags] = await Promise.all([
 ]);
 const corpusTags = allTags ?? tagRows;
 const saved = Astro.url.searchParams.get('saved') === '1';
+const bulkError = Astro.url.searchParams.get('error') === 'bulk';
+const bulkCount = Math.max(0, Number(Astro.url.searchParams.get('n')) || 0);
+const bulkNotice =
+  Astro.url.searchParams.get('bulk') === 'delete'
+    ? bulkCount > 0
+      ? `Đã xóa ${bulkCount} thẻ.`
+      : 'Không có thẻ nào được xóa.'
+    : '';
 const editId = Number(Astro.url.searchParams.get('edit') ?? '');
 let editing = tagRows.find((tag) => tag.id === editId) ?? null;
 if (Astro.request.method !== 'POST' && editId > 0 && !editing) {
@@ -113,6 +146,8 @@ const bannerError = slugError || nameError ? '' : formError;
 
 <AdminLayout title="Thẻ">
   {saved && !formError && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>Đã lưu thẻ.</p>}
+  {bulkNotice && !formError && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>{bulkNotice}</p>}
+  {bulkError && <p class="error-text mb-4" role="alert" data-admin-flash>Không thực hiện được thao tác hàng loạt. Chọn tối đa {TAG_BULK_MAX} thẻ rồi thử lại.</p>}
   {bannerError && <p class="error-text mb-4" role="alert">{bannerError}</p>}
   <div class="tag-manage">
     <form class="category-panel tag-form" method="post" data-busy>
@@ -173,11 +208,14 @@ const bannerError = slugError || nameError ? '' : formError;
         <span class="seo-hint" data-seo-duplicate-note>{duplicateNote}</span>
       </label>
       <div class="category-actions">
-        <button class="btn btn-primary" type="submit">{editingId ? 'Cập nhật' : 'Thêm thẻ'}</button>
+        <button class="btn btn-primary" type="submit">
+          {!editingId && <AdminPlusIcon />}
+          {editingId ? 'Cập nhật' : 'Thêm thẻ'}
+        </button>
         {editingId && <a class="btn" href={routes.adminTags}>Hủy</a>}
       </div>
     </form>
-    <section class="category-panel tag-list-panel">
+    <section class="category-panel tag-list-panel" data-tag-results>
       <div class="category-list-head">
         <h2 class="category-panel-title">Danh sách</h2>
         <form method="get" class="tag-search" role="search">
@@ -189,59 +227,188 @@ const bannerError = slugError || nameError ? '' : formError;
         tagRows.length === 0 ? (
           <p class="post-empty">{query.trim() ? 'Không có thẻ khớp tìm kiếm.' : 'Chưa có thẻ.'}</p>
         ) : (
-          <div data-tag-list>
-            <table class="post-table">
-              <thead>
-                <tr>
-                  <th>Thẻ</th>
-                  <th>Số bài</th>
-                  <th>SEO</th>
-                  <th>Thao tác</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tagRows.map((tag) => (
-                  <tr class:list={[editingId === String(tag.id) && 'is-current']}>
-                    <td class="category-list-name" data-label="Thẻ">
-                      <div class="category-list-main">
-                        <a class="post-title" href={`${routes.adminTags}?edit=${tag.id}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}`}>{tag.name}</a>
-                        <p class="category-list-slug">{routes.tag(tag.slug)}</p>
-                      </div>
-                    </td>
-                    <td class="category-list-count" data-label="Số bài">
-                      {tag.postCount === 0 ? 'Chưa có bài' : tag.postCount === 1 ? '1 bài' : `${tag.postCount} bài`}
-                    </td>
-                    <td class="category-list-seo" data-label="SEO">
-                      <span class:list={['tag-seo', tag.robots === 'index' ? 'is-index' : 'is-noindex']}>
-                        {tag.robots === 'index' ? 'Index' : 'Noindex'}
-                      </span>
-                    </td>
-                    <td class="category-list-ops" data-label="Thao tác">
-                      <div class="post-actions">
-                        <a class="category-list-edit" href={`${routes.adminTags}?edit=${tag.id}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}`}>Sửa</a>
-                        <span class="post-actions-sep" aria-hidden="true">|</span>
-                        <form
-                          method="post"
-                          data-busy
-                          data-confirm-title={`Xóa “${tag.name}”?`}
-                          data-confirm={tagDeleteWarning(tag.postCount)}
-                          data-confirm-ok="Xóa"
-                          data-confirm-tone="danger"
-                        >
-                          <input type="hidden" name="csrf" value={session.csrfToken} />
-                          <input type="hidden" name="intent" value="delete" />
-                          <input type="hidden" name="id" value={tag.id} />
-                          <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
-                        </form>
-                      </div>
-                    </td>
+          <>
+            <form
+              id="tag-bulk"
+              class="bulk-bar"
+              method="post"
+              aria-label="Thao tác hàng loạt"
+              data-tag-bulk
+              data-confirm-title="Xóa thẻ đã chọn?"
+              data-confirm={tagBulkDeleteWarning(1)}
+              data-confirm-ok="Xóa"
+              data-confirm-tone="danger"
+              hidden
+            >
+              <input type="hidden" name="csrf" value={session.csrfToken} />
+              <input type="hidden" name="intent" value="bulk-delete" />
+              <input type="hidden" name="q" value={query} />
+              <span class="bulk-count" aria-live="polite" data-bulk-count>Đã chọn 0</span>
+              <button class="bulk-link" type="button" data-bulk-pick-all>Chọn tất cả</button>
+              <button class="btn btn-accent" type="submit" data-bulk-delete>Xóa</button>
+              <button class="bulk-link" type="button" data-bulk-clear>Bỏ chọn</button>
+              <span class="error-text" role="alert" data-bulk-error hidden></span>
+            </form>
+            <div data-tag-list>
+              <table class="post-table tag-table">
+                <thead>
+                  <tr>
+                    <th class="product-check">
+                      <input type="checkbox" aria-label="Chọn tất cả thẻ đang hiện" data-bulk-all />
+                    </th>
+                    <th>Thẻ</th>
+                    <th>Số bài</th>
+                    <th>SEO</th>
+                    <th>Thao tác</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {tagRows.map((tag) => (
+                    <tr class:list={[editingId === String(tag.id) && 'is-current']} data-tag-item>
+                      <td class="product-check">
+                        <input type="checkbox" form="tag-bulk" name="ids" value={tag.id} aria-label={`Chọn ${tag.name}`} />
+                      </td>
+                      <td class="category-list-name" data-label="Thẻ">
+                        <div class="category-list-main">
+                          <a class="post-title" href={`${routes.adminTags}?edit=${tag.id}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}`}>{tag.name}</a>
+                          <p class="category-list-slug">{routes.tag(tag.slug)}</p>
+                        </div>
+                      </td>
+                      <td class="category-list-count" data-label="Số bài">
+                        {tag.postCount === 0 ? 'Chưa có bài' : tag.postCount === 1 ? '1 bài' : `${tag.postCount} bài`}
+                      </td>
+                      <td class="category-list-seo" data-label="SEO">
+                        <span class:list={['tag-seo', tag.robots === 'index' ? 'is-index' : 'is-noindex']}>
+                          {tag.robots === 'index' ? 'Index' : 'Noindex'}
+                        </span>
+                      </td>
+                      <td class="category-list-ops" data-label="Thao tác">
+                        <div class="post-actions">
+                          <a class="category-list-edit" href={`${routes.adminTags}?edit=${tag.id}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}`}>Sửa</a>
+                          <span class="post-actions-sep" aria-hidden="true">|</span>
+                          <form
+                            method="post"
+                            data-busy
+                            data-confirm-title={`Xóa “${tag.name}”?`}
+                            data-confirm={tagDeleteWarning(tag.postCount)}
+                            data-confirm-ok="Xóa"
+                            data-confirm-tone="danger"
+                          >
+                            <input type="hidden" name="csrf" value={session.csrfToken} />
+                            <input type="hidden" name="intent" value="delete" />
+                            <input type="hidden" name="id" value={tag.id} />
+                            {query.trim() && <input type="hidden" name="q" value={query} />}
+                            <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                          </form>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )
       }
     </section>
   </div>
 </AdminLayout>
+
+<script define:vars={{ tagBulkMax: TAG_BULK_MAX }}>
+  const results = document.querySelector('[data-tag-results]');
+
+  function rowBoxes() {
+    return [...(results?.querySelectorAll('input[name="ids"]') ?? [])].filter(
+      (node) => node instanceof HTMLInputElement,
+    );
+  }
+
+  function syncSelection() {
+    const boxes = rowBoxes();
+    const picked = boxes.filter((box) => box.checked).length;
+    const allChecked = boxes.length > 0 && boxes.every((box) => box.checked);
+    const all = results?.querySelector('[data-bulk-all]');
+    if (all instanceof HTMLInputElement) {
+      all.checked = allChecked;
+      all.indeterminate = picked > 0 && !allChecked;
+    }
+    const bar = results?.querySelector('[data-tag-bulk]');
+    if (!(bar instanceof HTMLFormElement)) return;
+    bar.hidden = picked === 0;
+    const count = bar.querySelector('[data-bulk-count]');
+    if (count) count.textContent = `Đã chọn ${picked}`;
+    const pickAll = bar.querySelector('[data-bulk-pick-all]');
+    if (pickAll instanceof HTMLButtonElement) pickAll.hidden = allChecked;
+    const error = bar.querySelector('[data-bulk-error]');
+    if (error instanceof HTMLElement && picked === 0) error.hidden = true;
+    if (picked > 0) {
+      const label = picked === 1 ? '1 thẻ' : `${picked} thẻ`;
+      bar.dataset.confirm = `Xóa ${label} đã chọn? Bài viết được giữ lại và chỉ bỏ liên kết thẻ.`;
+      bar.dataset.confirmTitle = 'Xóa thẻ đã chọn?';
+      bar.dataset.confirmOk = `Xóa ${picked} thẻ`;
+      bar.dataset.confirmTone = 'danger';
+    }
+  }
+
+  function pick(checked) {
+    for (const box of rowBoxes()) box.checked = checked;
+    syncSelection();
+  }
+
+  function showBulkError(message) {
+    const error = results?.querySelector('[data-bulk-error]');
+    if (!(error instanceof HTMLElement)) return;
+    error.hidden = false;
+    error.textContent = message;
+  }
+
+  let anchor = null;
+
+  results?.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+
+    if (target instanceof HTMLInputElement && target.name === 'ids') {
+      if (event.shiftKey && anchor && anchor !== target && anchor.isConnected) {
+        const boxes = rowBoxes();
+        const from = boxes.indexOf(anchor);
+        const to = boxes.indexOf(target);
+        if (from >= 0 && to >= 0) {
+          for (const box of boxes.slice(Math.min(from, to), Math.max(from, to) + 1)) box.checked = target.checked;
+        }
+      }
+      anchor = target;
+      return;
+    }
+
+    if (target.closest('[data-bulk-pick-all]')) return pick(true);
+    if (target.closest('[data-bulk-clear]')) return pick(false);
+  });
+
+  results?.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.hasAttribute('data-bulk-all')) return pick(target.checked);
+    if (target.name === 'ids') syncSelection();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+    if (rowBoxes().some((box) => box.checked)) pick(false);
+  });
+
+  results?.addEventListener('submit', (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || !form.hasAttribute('data-tag-bulk') || event.defaultPrevented) return;
+    const picked = rowBoxes().filter((box) => box.checked).length;
+    if (picked === 0) {
+      event.preventDefault();
+      showBulkError('Chọn ít nhất một thẻ.');
+      return;
+    }
+    if (picked > tagBulkMax) {
+      event.preventDefault();
+      showBulkError(`Chọn tối đa ${tagBulkMax} thẻ.`);
+    }
+  });
+</script>

@@ -18,10 +18,6 @@ export function isProductStatus(value: string): value is ProductStatus {
   return PRODUCT_STATUSES.some((status) => status === value);
 }
 
-export function canFeatureProduct(status: string, requested: boolean): boolean {
-  return status === 'active' && requested;
-}
-
 /** SP đang bán và danh mục (nếu có) đang bật. Query phải leftJoin productCategories. */
 export function sellableProductWhere(): SQL {
   return and(

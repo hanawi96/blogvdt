@@ -9,6 +9,7 @@ import { normalizeDiscountCode } from '../discounts/quote';
 import { resolveProvinceCode } from '../address/provinces';
 import { encodeCostLines, listOrderCosts, snapshotOrderCosts } from '../costs/order-costs';
 import { baseCustomerShippingFee, resolveCustomerShippingFee, shipGroupOf } from '../shipping/customer-fee';
+import { clearChatPhonePendingByPhone, refreshChatPhonePendingByPhone } from './chat-phone';
 import { upsertCustomer } from './customers';
 import {
   formatOrderCode,
@@ -705,9 +706,13 @@ export async function updateOrderStatus(
       restoreDiscountQuery(db, current.discountCode, now),
       db.update(orders).set({ status, discountRestored: 1, updatedAt: now, ...shipPatch }).where(eq(orders.id, id)),
     ]);
-    return { ok: true, updatedAt: now };
+  } else {
+    await db.update(orders).set({ status, updatedAt: now, ...shipPatch }).where(eq(orders.id, id));
   }
-  await db.update(orders).set({ status, updatedAt: now, ...shipPatch }).where(eq(orders.id, id));
+  // Hủy đơn / mở lại từ hủy → tính lại badge chat-phone theo SĐT.
+  if (current.status === 'cancelled' || status === 'cancelled') {
+    await refreshChatPhonePendingByPhone(db, current.phone);
+  }
   return { ok: true, updatedAt: now };
 }
 
@@ -722,6 +727,7 @@ export async function deleteOrder(
   const rows = await db
     .select({
       code: orders.code,
+      phone: orders.phone,
       discountCode: orders.discountCode,
       discountAmount: orders.discountAmount,
       discountRestored: orders.discountRestored,
@@ -755,6 +761,7 @@ export async function deleteOrder(
         ]
       : []),
   ]);
+  await refreshChatPhonePendingByPhone(db, current.phone);
   return { ok: true };
 }
 
@@ -808,6 +815,7 @@ export async function updateStaffOrderCustomer(
     { phone: parsed.phone, name: parsed.customerName, address: parsed.address },
     now,
   );
+  const previousPhone = current.phone;
   await db
     .update(orders)
     .set({
@@ -820,6 +828,12 @@ export async function updateStaffOrderCustomer(
       updatedAt: now,
     })
     .where(eq(orders.id, id));
+  if (previousPhone !== parsed.phone) {
+    await refreshChatPhonePendingByPhone(db, previousPhone);
+    await refreshChatPhonePendingByPhone(db, parsed.phone);
+  } else if (current.status !== 'cancelled') {
+    await clearChatPhonePendingByPhone(db, parsed.phone);
+  }
   return { ok: true };
 }
 
@@ -987,6 +1001,7 @@ export async function placeOrder(
           createdAt: now,
           updatedAt: now,
         });
+        await clearChatPhonePendingByPhone(db, draft.phone);
         return { ok: true, code };
       } catch (error) {
         if (!isUniqueViolation(error)) throw error;
@@ -1112,6 +1127,7 @@ export async function placeCartOrder(
           await db.delete(orders).where(eq(orders.id, orderId));
           throw error;
         }
+        await clearChatPhonePendingByPhone(db, draft.phone);
         return { ok: true, code };
       } catch (error) {
         if (!isUniqueViolation(error)) throw error;
@@ -1254,6 +1270,7 @@ export async function createStaffOrder(
         await db.delete(orders).where(eq(orders.id, orderId));
         throw error;
       }
+      await clearChatPhonePendingByPhone(db, draft.phone);
       return { ok: true, id: orderId };
     } catch (error) {
       if (!isUniqueViolation(error)) {
@@ -1358,6 +1375,12 @@ export async function updateStaffOrder(
   } catch (error) {
     await releaseDiscountSlot(db, slot.id, now);
     throw error;
+  }
+  if (current.phone !== draft.phone) {
+    await refreshChatPhonePendingByPhone(db, current.phone);
+    await refreshChatPhonePendingByPhone(db, draft.phone);
+  } else if (current.status !== 'cancelled') {
+    await clearChatPhonePendingByPhone(db, draft.phone);
   }
   return { ok: true };
 }

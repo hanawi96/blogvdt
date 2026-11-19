@@ -20,7 +20,6 @@ interface Values {
   coverMediaId: string;
   album: string[];
   status: string;
-  featured: boolean;
   sortOrder: string;
   stockQty: string;
   rating: string;
@@ -113,11 +112,6 @@ const { csrf, action, values, errors, formError, categories, photos, recipeOptio
     {errors.description && <span class="error-text">{errors.description}</span>}
   </label>
   <input type="hidden" name="sortOrder" value={values.sortOrder} />
-  <label class="mt-4 flex items-center gap-2">
-    <input type="checkbox" name="featured" value="1" checked={values.featured} data-product-featured />
-    <span class="font-semibold">Hiện ở trang chủ</span>
-  </label>
-  <p class="mt-1 text-sm text-muted">Chỉ sản phẩm đang bán mới được đánh dấu nổi bật.</p>
   <label class="mt-4 block">
     <span class="mb-1 block font-semibold">SEO title</span>
     <input class="field" name="seoTitle" maxlength="180" value={values.seoTitle} />
@@ -130,7 +124,7 @@ const { csrf, action, values, errors, formError, categories, photos, recipeOptio
   </label>
   <label class="mt-4 block">
     <span class="mb-1 block font-semibold">Trạng thái</span>
-    <select class="field" name="status" data-product-status>
+    <select class="field" name="status">
       <option value="active" selected={values.status === 'active'}>{PRODUCT_STATUS_LABELS.active}</option>
       <option value="inactive" selected={values.status === 'inactive'}>{PRODUCT_STATUS_LABELS.inactive}</option>
     </select>
@@ -173,17 +167,6 @@ const { csrf, action, values, errors, formError, categories, photos, recipeOptio
     };
     ratingInput.addEventListener('change', clampRating);
     ratingInput.addEventListener('blur', clampRating);
-  }
-  const status = document.querySelector('[data-product-status]');
-  const featured = document.querySelector('[data-product-featured]');
-  if (status instanceof HTMLSelectElement && featured instanceof HTMLInputElement) {
-    const syncFeatured = () => {
-      const inactive = status.value === 'inactive';
-      featured.disabled = inactive;
-      if (inactive) featured.checked = false;
-    };
-    status.addEventListener('change', syncFeatured);
-    syncFeatured();
   }
   for (const node of document.querySelectorAll('#product-form input[name="cordType"]')) {
     if (!(node instanceof HTMLInputElement)) continue;
