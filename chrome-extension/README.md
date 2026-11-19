@@ -12,7 +12,7 @@ Sidebar **nổi bên phải** trên Pancake / Zalo. UI là `panel.html` (HTML/CS
 ## Dùng
 
 1. Đăng nhập admin **một lần** trên tab thường (`/admin`)
-2. Mở Pancake/Zalo → sidebar hiện form tạo đơn
+2. Mở đúng `https://pancake.vn/vongdautambyvui` hoặc `https://chat.zalo.me/` → sidebar hiện form tạo đơn
 3. Nếu chưa có phiên: nút **Mở đăng nhập** trong panel
 
 ## Kiến trúc (v1.9)

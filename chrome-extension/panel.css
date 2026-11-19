@@ -426,6 +426,11 @@ body {
   scroll-margin-bottom: 8.25rem;
 }
 
+[data-section='products'],
+[data-section='cart'] {
+  scroll-margin-top: 0.35rem;
+}
+
 .is-field-attention {
   border-color: var(--accent-strong) !important;
   outline: 2px solid color-mix(in srgb, var(--accent-strong) 70%, transparent) !important;
@@ -694,6 +699,7 @@ body {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
   background: color-mix(in srgb, var(--canvas) 72%, #fff);
   box-shadow: 0 4px 14px color-mix(in srgb, var(--ink) 6%, transparent);
+  scroll-margin-top: 0.15rem;
 }
 
 .pick-card.is-added:not(.is-open) {

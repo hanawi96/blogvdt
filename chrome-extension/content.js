@@ -338,20 +338,37 @@ function dayLabel(timestamp) {
   return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' }).format(new Date(timestamp));
 }
 
+function pageHost() {
+  return location.hostname.replace(/^www\./i, '').toLowerCase();
+}
+
 function isPancake() {
-  return location.hostname.includes('pancake.vn');
+  return pageHost() === 'pancake.vn' || pageHost().endsWith('.pancake.vn');
 }
 
 function isZalo() {
-  return location.hostname.includes('zalo.me');
+  return pageHost() === 'chat.zalo.me' || pageHost().endsWith('.zalo.me');
 }
 
-/** List đơn pos.pancake.vn — không gắn sidebar (badge riêng trong pos-order-badges.js). */
-function isPancakePosOrderPage() {
-  return (
-    /\.pancake\.vn$/i.test(location.hostname) &&
-    /\/shop\/[^/]+\/order(?:\/|$|\?)/i.test(`${location.pathname}${location.search}`)
-  );
+/** Chỉ hiện sidebar trên page inbox đã chọn — không gắn mọi trang pancake.vn. */
+function isAllowedOverlayPage() {
+  const host = pageHost();
+  if (host === 'chat.zalo.me') return true;
+  if (host === 'pancake.vn') return /^\/vongdautambyvui(?:\/|$)/i.test(location.pathname);
+  return false;
+}
+
+function tearDownOverlayShell() {
+  try {
+    document.getElementById(ROOT_ID)?.remove();
+  } catch {
+    /* ignore */
+  }
+  try {
+    clearHostLayoutInset();
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Chiều cao header cố định Pancake — sidebar bắt đầu dưới thanh tím. */
@@ -3149,13 +3166,31 @@ async function setOpen(open) {
   await storageSet('sync', { [STORAGE_OPEN]: desiredOpen });
 }
 
+let overlayMountStarted = false;
+
 async function mount() {
-  if (!isExtensionAlive()) return;
+  if (!isExtensionAlive() || !isAllowedOverlayPage()) return;
   // Shell dựng sớm nhưng ẩn (is-booting) đến khi panel báo sẵn sàng + có form.
   const root = ensureRoot();
   const frame = root.querySelector('.vdt-frame');
   root.classList.add('is-booting');
   root.classList.add('is-collapsed');
+
+  if (overlayMountStarted) {
+    const stored = await storageGet('sync', [STORAGE_OPEN, STORAGE_WIDTH]);
+    if (!isExtensionAlive() || !isAllowedOverlayPage()) {
+      tearDownOverlayShell();
+      return;
+    }
+    applyWidth(root, stored[STORAGE_WIDTH] ?? DEFAULT_WIDTH);
+    desiredOpen = stored[STORAGE_OPEN] !== false;
+    await preparePosFrame(frame);
+    if (panelReady) revealOverlayIfReady();
+    scheduleListPhoneScan(500);
+    schedulePendingRefresh(400);
+    return;
+  }
+  overlayMountStarted = true;
 
   window.addEventListener('message', (event) => {
     if (!isExtensionAlive()) return;
@@ -3279,6 +3314,39 @@ try {
   markExtensionDead();
 }
 
-if (!isPancakePosOrderPage()) {
+function syncOverlayPageGate() {
+  if (!isExtensionAlive()) return;
+  if (!isAllowedOverlayPage()) {
+    tearDownOverlayShell();
+    return;
+  }
+  if (!document.getElementById(ROOT_ID)) void mount();
+}
+
+function installOverlayPageGate() {
+  let href = location.href;
+  const tick = () => {
+    if (location.href === href) return;
+    href = location.href;
+    syncOverlayPageGate();
+  };
+  window.addEventListener('popstate', tick);
+  try {
+    const wrap = (fn) =>
+      function patchedHistory(...args) {
+        const result = fn.apply(this, args);
+        queuePromise.resolve().then(tick);
+        return result;
+      };
+    history.pushState = wrap(history.pushState.bind(history));
+    history.replaceState = wrap(history.replaceState.bind(history));
+  } catch {
+    /* ignore */
+  }
+  window.setInterval(tick, 1200);
+}
+
+installOverlayPageGate();
+if (isAllowedOverlayPage()) {
   void mount();
 }

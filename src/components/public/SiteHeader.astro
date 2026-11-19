@@ -184,13 +184,45 @@ function current(href: string): boolean {
     paint(lines);
   }
 
-  function flash(button: HTMLButtonElement, text: string) {
-    const previous = button.dataset.label || button.textContent || 'Thêm vào giỏ';
-    button.dataset.label = previous;
-    button.textContent = text;
-    window.setTimeout(() => {
-      button.textContent = button.dataset.label || previous;
-    }, 1200);
+  function showCartToast(message: string, tone: 'ok' | 'err' = 'ok') {
+    let toast = document.querySelector('[data-cart-toast]');
+    if (!(toast instanceof HTMLElement)) {
+      toast = document.createElement('div');
+      toast.className = 'cart-toast';
+      toast.setAttribute('data-cart-toast', '');
+      toast.setAttribute('role', 'status');
+      toast.setAttribute('aria-live', 'polite');
+      document.body.append(toast);
+    }
+    window.clearTimeout(Number(toast.dataset.hideTimer || 0));
+    window.clearTimeout(Number(toast.dataset.clearTimer || 0));
+    toast.textContent = message;
+    toast.dataset.tone = tone;
+    toast.hidden = false;
+    toast.removeAttribute('data-open');
+    void toast.offsetWidth;
+    toast.dataset.open = '1';
+    toast.dataset.hideTimer = String(
+      window.setTimeout(() => {
+        toast.removeAttribute('data-open');
+        toast.dataset.clearTimer = String(
+          window.setTimeout(() => {
+            toast.hidden = true;
+          }, 280),
+        );
+      }, 2200),
+    );
+  }
+
+  function bumpCart() {
+    document.querySelectorAll('[data-cart-link]').forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+      node.classList.remove('is-cart-bump');
+      void node.offsetWidth;
+      node.classList.add('is-cart-bump');
+      const clear = () => node.classList.remove('is-cart-bump');
+      node.addEventListener('animationend', clear, { once: true });
+    });
   }
 
   const nav = document.querySelector('[data-site-nav]');
@@ -680,15 +712,14 @@ function current(href: string): boolean {
     }
     const data = new FormData(node);
     const weight = String(data.get('weight') ?? '').trim();
-    const button = node.querySelector('button[type="submit"]');
     const notice = node.querySelector('.add-error');
     const warn = (message: string) => {
       event.preventDefault();
       if (notice instanceof HTMLElement) {
         notice.textContent = message;
         notice.hidden = false;
-      } else if (button instanceof HTMLButtonElement) {
-        flash(button, message);
+      } else {
+        showCartToast(message, 'err');
       }
     };
     if (node.dataset.requiresWeight === 'true' && weight.length === 0) return warn('Chọn cân nặng');
@@ -700,7 +731,7 @@ function current(href: string): boolean {
       quantity: Number.isInteger(quantity) ? quantity : 1,
     });
     if (!result.ok) {
-      if (button instanceof HTMLButtonElement) flash(button, 'Giỏ đã đầy');
+      showCartToast('Giỏ đã đầy', 'err');
       return;
     }
     store(result.lines);
@@ -742,6 +773,8 @@ function current(href: string): boolean {
       node.reset();
       if (notice instanceof HTMLElement) notice.hidden = true;
     }
-    if (button instanceof HTMLButtonElement) flash(button, 'Đã thêm');
+    const qty = Number.isInteger(quantity) ? quantity : 1;
+    showCartToast(qty > 1 ? `Đã thêm ${qty} chiếc vào giỏ` : 'Đã thêm vào giỏ');
+    bumpCart();
   });
 </script>

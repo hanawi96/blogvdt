@@ -333,7 +333,7 @@ async function ensureDefaults() {
 
 async function notifySessionTabs() {
   const tabs = await chrome.tabs.query({
-    url: ['https://pancake.vn/*', 'https://*.pancake.vn/*', 'https://chat.zalo.me/*'],
+    url: ['https://pancake.vn/vongdautambyvui*', 'https://chat.zalo.me/*'],
   });
   for (const tab of tabs) {
     if (!tab.id) continue;

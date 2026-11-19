@@ -1639,6 +1639,26 @@
     }
   }
 
+  /** Đưa box Sản phẩm lên đầu panel + card vừa mở lên đầu list. */
+  function scrollOpenedPickToTop(card) {
+    if (!(card instanceof HTMLElement) || !(pickList instanceof HTMLElement)) return;
+    const section =
+      card.closest('[data-section="products"]') || document.querySelector('[data-section="products"]');
+    if (section instanceof HTMLElement) {
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    const listRect = pickList.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const nextTop = pickList.scrollTop + (cardRect.top - listRect.top);
+    pickList.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' });
+  }
+
+  function scrollCartSectionIntoView() {
+    const section = document.querySelector('[data-section="cart"]');
+    if (!(section instanceof HTMLElement)) return;
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   function bindProducts() {
     pickCats?.addEventListener('click', (event) => {
       const button = event.target instanceof Element ? event.target.closest('[data-cat]') : null;
@@ -1663,13 +1683,14 @@
         if (!product) return;
         if (pendingProduct && Number(pendingProduct.id) === Number(product.id)) {
           closePickPanel();
-        } else {
-          openPickPanel(product);
+          renderPickList();
+          return;
         }
+        openPickPanel(product);
         renderPickList();
         const opened = pickList.querySelector('.pick-card.is-open');
         if (opened instanceof HTMLElement) {
-          opened.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          requestAnimationFrame(() => scrollOpenedPickToTop(opened));
         }
         return;
       }
@@ -1721,6 +1742,7 @@
         closePickPanel();
         renderPickList();
         setFormError('');
+        requestAnimationFrame(() => scrollCartSectionIntoView());
       }
     });
 
