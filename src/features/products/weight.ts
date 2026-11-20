@@ -2,10 +2,15 @@
 // Thêm thang mới (vd người lớn) chỉ cần bổ sung vào WEIGHT_SCALES; UI và giỏ hàng tự dùng.
 // 'none' nghĩa là danh mục không cần chọn cân nặng (thêm thẳng vào giỏ).
 
+/** Chip UI cho mẹ chưa sinh — dễ chọn; khi ghi đơn/DB map sang WEIGHT_UNBORN_STORED. */
+export const WEIGHT_UNBORN_LABEL = 'Chưa sinh';
+/** Cân nặng thực lưu khi chọn «Chưa sinh» (bé mới sinh ~3kg). */
+export const WEIGHT_UNBORN_STORED = '3kg';
+
 // Mốc chip bấm nhanh (tới 15kg). WEIGHT_SCALES giữ nguyên các nơi render chip sẵn có.
 export const WEIGHT_SCALES = {
   none: [],
-  baby: ['Chưa sinh', '3kg', '4kg', '5kg', '6kg', '7kg', '8kg', '9kg', '10kg', '11kg', '12kg', '13kg', '14kg', '15kg'],
+  baby: [WEIGHT_UNBORN_LABEL, '3kg', '4kg', '5kg', '6kg', '7kg', '8kg', '9kg', '10kg', '11kg', '12kg', '13kg', '14kg', '15kg'],
 } as const;
 
 // Mốc cân nặng lớn nằm trong dropdown "Cân nặng khác" (16kg…70kg). Vòng to hơn nên cộng phụ thu nguyên liệu.
@@ -52,9 +57,18 @@ export function weightExtras(scale: WeightScale): readonly string[] {
   return scale === 'baby' ? BABY_EXTRAS : [];
 }
 
+/**
+ * Chuẩn hóa cân nặng trước khi lưu đơn/DB.
+ * «Chưa sinh» chỉ là nhãn UI — lưu thành 3kg để xưởng làm vòng đúng size sơ sinh.
+ */
+export function normalizeWeightForStorage(weight: string): string {
+  const value = weight.trim();
+  return value === WEIGHT_UNBORN_LABEL ? WEIGHT_UNBORN_STORED : value;
+}
+
 /** Số kg đọc được từ nhãn, ví dụ "16kg" -> 16; nhãn chữ như "Chưa sinh" -> null. */
 function weightKg(weight: string): number | null {
-  const match = weight.trim().match(/^(\d{1,3})\s*kg$/i);
+  const match = normalizeWeightForStorage(weight).match(/^(\d{1,3})\s*kg$/i);
   if (!match) return null;
   const kg = Number(match[1]);
   return Number.isInteger(kg) && kg > 0 ? kg : null;

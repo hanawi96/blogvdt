@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { applyWeightPrice, isValidWeight, weightChips, weightExtras, weightOptionLabel, weightPriceFactor, weightSurchargeLabel, weightSurchargePercent } from './weight';
+import {
+  applyWeightPrice,
+  isValidWeight,
+  normalizeWeightForStorage,
+  WEIGHT_UNBORN_LABEL,
+  WEIGHT_UNBORN_STORED,
+  weightChips,
+  weightExtras,
+  weightOptionLabel,
+  weightPriceFactor,
+  weightSurchargeLabel,
+  weightSurchargePercent,
+} from './weight';
 
 describe('phụ thu theo cân nặng', () => {
   it('phần trăm phụ thu theo cân nặng + giá gốc', () => {
@@ -65,7 +77,7 @@ describe('phụ thu theo cân nặng', () => {
 
   it('chip tới 15kg, extras 16–70kg', () => {
     const chips = weightChips('baby');
-    expect(chips[0]).toBe('Chưa sinh');
+    expect(chips[0]).toBe(WEIGHT_UNBORN_LABEL);
     expect(chips[chips.length - 1]).toBe('15kg');
     expect(chips).not.toContain('16kg');
     const extras = weightExtras('baby');
@@ -73,5 +85,14 @@ describe('phụ thu theo cân nặng', () => {
     expect(extras[extras.length - 1]).toBe('70kg');
     expect(extras.length).toBe(55);
     expect(weightExtras('none')).toEqual([]);
+  });
+
+  it('«Chưa sinh» chuẩn hóa thành 3kg khi lưu', () => {
+    expect(normalizeWeightForStorage(WEIGHT_UNBORN_LABEL)).toBe(WEIGHT_UNBORN_STORED);
+    expect(normalizeWeightForStorage('  Chưa sinh  ')).toBe('3kg');
+    expect(normalizeWeightForStorage('3kg')).toBe('3kg');
+    expect(normalizeWeightForStorage('5kg')).toBe('5kg');
+    expect(applyWeightPrice(200000, WEIGHT_UNBORN_LABEL)).toBe(200000);
+    expect(applyWeightPrice(200000, '3kg')).toBe(200000);
   });
 });

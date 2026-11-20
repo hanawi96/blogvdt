@@ -69,19 +69,35 @@ export function recipeWrites(db: AppDb, productId: number, lines: readonly Recip
 }
 
 // Giá vốn theo công thức. Truyền productIds để chỉ tính các sản phẩm đang hiện (vd. một trang list).
-// Không truyền ids → mọi sản phẩm có công thức (dùng cho tổng hợp đơn hàng). D1 giới hạn ~100 tham số.
+// Không truyền ids → mọi sản phẩm có công thức (dùng cho tổng hợp đơn hàng). D1 giới hạn ~100 tham số → chia lô.
+const PRODUCT_COST_CHUNK = 90;
+
 export async function loadProductCosts(db: AppDb, productIds?: readonly number[]): Promise<Map<number, number>> {
   if (productIds && productIds.length === 0) return new Map();
-  const ids = productIds ? [...new Set(productIds.filter((id) => Number.isInteger(id) && id > 0))].slice(0, 100) : null;
+  const ids = productIds
+    ? [...new Set(productIds.filter((id) => Number.isInteger(id) && id > 0))]
+    : null;
   if (ids && ids.length === 0) return new Map();
-  const rows = await db
-    .select({
-      productId: productMaterials.productId,
-      cost: sql<number>`sum(${productMaterials.quantity} * ${materials.unitCost})`.mapWith(Number),
-    })
-    .from(productMaterials)
-    .innerJoin(materials, eq(materials.id, productMaterials.materialId))
-    .where(ids ? inArray(productMaterials.productId, ids) : undefined)
-    .groupBy(productMaterials.productId);
-  return new Map(rows.map((row) => [row.productId, row.cost]));
+
+  async function costsFor(chunk: number[] | null): Promise<Map<number, number>> {
+    const rows = await db
+      .select({
+        productId: productMaterials.productId,
+        cost: sql<number>`sum(${productMaterials.quantity} * ${materials.unitCost})`.mapWith(Number),
+      })
+      .from(productMaterials)
+      .innerJoin(materials, eq(materials.id, productMaterials.materialId))
+      .where(chunk ? inArray(productMaterials.productId, chunk) : undefined)
+      .groupBy(productMaterials.productId);
+    return new Map(rows.map((row) => [row.productId, row.cost]));
+  }
+
+  if (!ids) return costsFor(null);
+
+  const out = new Map<number, number>();
+  for (let i = 0; i < ids.length; i += PRODUCT_COST_CHUNK) {
+    const part = await costsFor(ids.slice(i, i + PRODUCT_COST_CHUNK));
+    for (const [productId, cost] of part) out.set(productId, cost);
+  }
+  return out;
 }

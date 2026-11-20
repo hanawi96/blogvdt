@@ -311,6 +311,10 @@ async function listPendingChatPhones() {
   return adminFetchJson('/admin/orders/chat-phone-pending');
 }
 
+async function posTodayStats() {
+  return adminFetchJson('/admin/orders/pos-today-stats');
+}
+
 async function dismissPendingChatPhone(channel, chatId) {
   if (typeof channel !== 'string' || typeof chatId !== 'string') {
     return { ok: false, error: 'Thiếu kênh hoặc chat.' };
@@ -468,6 +472,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message?.type === 'vdt-pending-chat-phones') {
     listPendingChatPhones().then(sendResponse);
+    return true;
+  }
+  if (message?.type === 'vdt-pos-today-stats') {
+    posTodayStats().then(sendResponse);
     return true;
   }
   if (

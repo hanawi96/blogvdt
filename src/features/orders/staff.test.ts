@@ -97,14 +97,15 @@ describe('đơn nhân viên nhập', () => {
     expect(remainingAfterDeposit(550_000, 50_000)).toBe(500_000);
   });
 
-  it('tổng gõ tay là số khách phải trả, không vượt tạm tính', () => {
+  it('tổng gõ tay: giảm khi thấp hơn tạm tính; cho phép cao hơn (thu nợ)', () => {
     expect(settleStaffTotal(50_000, 0, '45.000')).toEqual({ ok: true, totalPrice: 45_000, discountAmount: 5_000 });
     expect(settleStaffTotal(50_000, 10_000, '')).toEqual({ ok: true, totalPrice: 40_000, discountAmount: 10_000 });
     expect(settleStaffTotal(50_000, 10_000, '', '5.000')).toEqual({ ok: true, totalPrice: 35_000, discountAmount: 15_000 });
     expect(settleStaffTotal(50_000, 10_000, '', '100.000')).toEqual({ ok: true, totalPrice: 0, discountAmount: 50_000 });
     expect(settleStaffTotal(50_000, 10_000, '30.000')).toEqual({ ok: true, totalPrice: 30_000, discountAmount: 20_000 });
     expect(settleStaffTotal(50_000, 0, '50000')).toEqual({ ok: true, totalPrice: 50_000, discountAmount: 0 });
-    expect(settleStaffTotal(50_000, 0, '60000').ok).toBe(false);
+    expect(settleStaffTotal(50_000, 0, '60000')).toEqual({ ok: true, totalPrice: 60_000, discountAmount: 0 });
+    expect(settleStaffTotal(50_000, 10_000, '60000')).toEqual({ ok: true, totalPrice: 60_000, discountAmount: 0 });
     expect(settleStaffTotal(50_000, 10_000, '45.000').ok).toBe(false);
     expect(settleStaffTotal(50_000, 0, 'abc').ok).toBe(false);
     expect(settleStaffTotal(50_000, 0, '', 'abc').ok).toBe(false);
@@ -170,6 +171,25 @@ describe('đơn nhân viên nhập', () => {
     const priced = priceStaffLines([{ ...line('', '1', ''), note: '  Gói riêng  ' }], catalog, []);
     expect(priced.ok && priced.lines[0]?.note).toBe('Gói riêng');
     expect(priceStaffLines([{ ...line('', '1', ''), note: 'x'.repeat(161) }], catalog, []).ok).toBe(false);
+  });
+
+  it('dòng tùy chỉnh bắt giá vốn và giữ productId gốc', () => {
+    expect(priceStaffLines([{ ...line('', '1', ''), custom: '1', name: 'Mix bạc' }], catalog, []).ok).toBe(false);
+    expect(priceStaffLines([{ ...line('', '1', ''), custom: '1', unitCost: 'abc' }], catalog, []).ok).toBe(false);
+    const priced = priceStaffLines(
+      [{ ...line('', '7', '4kg', '2'), custom: true, unitCost: '55.000', name: 'Vòng + bi', price: '180000' }],
+      catalog,
+      [],
+    );
+    expect(priced.ok && priced.lines[0]).toMatchObject({
+      productId: 7,
+      productName: 'Vòng + bi',
+      unitPrice: 180000,
+      quantity: 2,
+      unitCost: 55000,
+      optionLabel: '4kg',
+      lineTotal: 360000,
+    });
   });
 
   it('nhận diện gửi sau còn xa và badge đến hạn', () => {

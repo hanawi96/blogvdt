@@ -46,6 +46,8 @@ function readLines(raw: unknown): StaffLineInput[] | null {
       price: asString(row.price),
       name: asString(row.name),
       note: asString(row.note),
+      custom: row.custom === true || row.custom === '1' || row.custom === 'on' ? '1' : '',
+      unitCost: asString(row.unitCost),
     });
   }
   return lines;

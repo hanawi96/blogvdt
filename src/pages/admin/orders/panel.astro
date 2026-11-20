@@ -25,7 +25,7 @@ const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
 
 const query = Astro.url.searchParams.get('q') ?? '';
-const status = orderListStatus(Astro.url.searchParams.get('status'));
+const status = orderListStatus(Astro.url.searchParams.get('status'), query);
 const source = orderListSource(Astro.url.searchParams.get('source'));
 const payment = orderListPayment(Astro.url.searchParams.get('payment'));
 const from = Astro.url.searchParams.get('from') ?? '';

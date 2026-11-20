@@ -53,6 +53,7 @@ const items: { href: string; label: string; icon: NavIcon }[] = [
     : []),
   { href: routes.adminMedia, label: 'Thư viện ảnh', icon: 'media' },
   { href: routes.adminFeedback, label: 'Feedback', icon: 'media' },
+  { href: routes.adminProductComments, label: 'Bình luận SP', icon: 'posts' },
   ...(isAdmin
     ? [
         { href: routes.adminSeo, label: 'Kiểm tra SEO', icon: 'seo' as const },

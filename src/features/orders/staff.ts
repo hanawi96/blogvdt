@@ -16,6 +16,8 @@ export type StaffPricedLine = {
   optionLabel: string | null;
   note: string | null;
   lineTotal: number;
+  /** Giá vốn ghi đè khi dòng tùy chỉnh (clone từ mẫu). */
+  unitCost?: number;
 };
 
 export const STAFF_MAX_LINES = CART_MAX_LINES;
@@ -36,6 +38,9 @@ export type StaffLineInput = {
   price?: string;
   name?: string;
   note?: string;
+  /** true / '1' / 'on' → dòng tùy chỉnh, bắt buộc unitCost. */
+  custom?: boolean | string;
+  unitCost?: string;
 };
 
 export type StoredOrderLine = {
@@ -119,18 +124,27 @@ export function readStaffLineInputs(form: FormData): StaffLineInput[] | null {
   const prices = texts(form, 'linePrice');
   const names = texts(form, 'lineName');
   const notes = texts(form, 'lineNote');
+  const customs = texts(form, 'lineCustom');
+  const unitCosts = texts(form, 'lineUnitCost');
   if (slots.length === 0 || productIds.length !== slots.length || weights.length !== slots.length || quantities.length !== slots.length || names.length !== slots.length) return null;
   if (prices.length !== 0 && prices.length !== slots.length) return null;
   if (notes.length !== 0 && notes.length !== slots.length) return null;
-  return slots.map((slot, index) => ({
-    slot,
-    productId: productIds[index] ?? '',
-    weight: weights[index] ?? '',
-    quantity: quantities[index] ?? '',
-    price: prices[index] ?? '',
-    name: names[index] ?? '',
-    note: notes[index] ?? '',
-  }));
+  if (customs.length !== 0 && customs.length !== slots.length) return null;
+  if (unitCosts.length !== 0 && unitCosts.length !== slots.length) return null;
+  return slots.map((slot, index) => {
+    const customRaw = customs[index] ?? '';
+    const custom = customRaw === '1' || customRaw === 'on' ? '1' : '';
+    return {
+      slot,
+      productId: productIds[index] ?? '',
+      weight: weights[index] ?? '',
+      quantity: quantities[index] ?? '',
+      price: prices[index] ?? '',
+      name: names[index] ?? '',
+      note: notes[index] ?? '',
+      ...(custom ? { custom, unitCost: unitCosts[index] ?? '' } : {}),
+    };
+  });
 }
 
 const LINE_NAME_MAX = 160;
@@ -164,6 +178,10 @@ export function priceStaffLines(
     if (weight.length > 40) return lineError(index, 'Cân nặng không hợp lệ.');
     const note = readLineNote(input.note);
     if (note === 'bad') return lineError(index, `Lưu ý sản phẩm tối đa ${LINE_NOTE_MAX} ký tự.`);
+    const custom = isCustomFlag(input.custom);
+    const unitCost = readCustomUnitCost(input.unitCost, custom);
+    if (unitCost === 'bad') return lineError(index, 'Dòng tùy chỉnh cần giá vốn từ 0 đến 99.999.999.');
+    if (unitCost === 'required') return lineError(index, 'Dòng tùy chỉnh cần nhập giá vốn.');
     const storedLine = takeStored(stored, input.slot, used);
     if (storedLine && storedLine.productId === productId && (storedLine.optionLabel ?? '') === weight) {
       const named = readLineName(input.name, storedLine.productName);
@@ -180,6 +198,7 @@ export function priceStaffLines(
         optionLabel: storedLine.optionLabel,
         note,
         lineTotal,
+        ...(typeof unitCost === 'number' ? { unitCost } : {}),
       });
       continue;
     }
@@ -203,6 +222,7 @@ export function priceStaffLines(
       optionLabel: orderOptionLabel(weight),
       note,
       lineTotal,
+      ...(typeof unitCost === 'number' ? { unitCost } : {}),
     });
   }
   const subtotal = lines.reduce((sum, line) => sum + line.lineTotal, 0);
@@ -210,7 +230,9 @@ export function priceStaffLines(
   return { ok: true, lines };
 }
 
-// Ô tổng để trống thì lấy tạm tính trừ mã và giảm thêm. Gõ tổng thì phần chênh sau mã là giảm thêm.
+// Ô tổng để trống thì lấy tạm tính trừ mã và giảm thêm.
+// Gõ tổng ≤ tạm tính: phần chênh là giảm (discountAmount = subtotal − total).
+// Gõ tổng > tạm tính: cho phép (vd. thu nợ cũ); discountAmount = 0 — phần dư vào lợi nhuận qua totalPrice.
 export function settleStaffTotal(
   subtotal: number,
   codeDiscount: number,
@@ -224,7 +246,8 @@ export function settleStaffTotal(
     if (!/^\d{1,9}$/.test(totalText)) return { ok: false, error: 'Tổng tiền là số từ 0 đến 999.999.999.' };
     const totalPrice = Number(totalText);
     if (!Number.isSafeInteger(totalPrice) || totalPrice > MONEY_MAX) return { ok: false, error: 'Tổng tiền quá lớn.' };
-    if (totalPrice > subtotal) return { ok: false, error: 'Tổng tiền lớn hơn tạm tính. Hãy tăng đơn giá.' };
+    // Cao hơn tạm tính: bỏ mã/giảm, giữ đúng số thu — lãi = total − giá vốn.
+    if (totalPrice > subtotal) return { ok: true, totalPrice, discountAmount: 0 };
     if (totalPrice > room) return { ok: false, error: 'Tổng tiền lớn hơn số sau mã giảm giá.' };
     return { ok: true, totalPrice, discountAmount: subtotal - totalPrice };
   }
@@ -539,6 +562,23 @@ function readUnitPrice(raw: string | undefined, fallback: number): number | 'bad
   if (!/^\d{1,8}$/.test(text)) return 'bad';
   const price = Number(text);
   return Number.isSafeInteger(price) ? price : 'bad';
+}
+
+function isCustomFlag(value: boolean | string | undefined): boolean {
+  return value === true || value === 'on' || value === '1';
+}
+
+/** Custom bắt buộc nhập vốn ≥ 0; không custom thì bỏ qua unitCost. */
+function readCustomUnitCost(
+  raw: string | undefined,
+  custom: boolean,
+): number | 'bad' | 'required' | undefined {
+  if (!custom) return undefined;
+  const text = (raw ?? '').trim().replace(/[.\s]/g, '');
+  if (!text) return 'required';
+  if (!/^\d{1,8}$/.test(text)) return 'bad';
+  const cost = Number(text);
+  return Number.isSafeInteger(cost) && cost >= 0 ? cost : 'bad';
 }
 
 function checked(value: string): boolean {

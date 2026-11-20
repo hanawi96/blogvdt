@@ -4,10 +4,12 @@ import FaqSection from '../../components/public/FaqSection.astro';
 import FreeShipBadge from '../../components/public/FreeShipBadge.astro';
 import NotFound from '../../components/public/NotFound.astro';
 import OrderForm from '../../components/public/OrderForm.astro';
+import ProductComments from '../../components/public/ProductComments.svelte';
 import ProductStory from '../../components/public/ProductStory.astro';
 import QtyStepper from '../../components/public/QtyStepper.astro';
 import { CART_MAX_QUANTITY } from '../../features/cart/cart';
 import { listOrderCosts } from '../../features/costs/order-costs';
+import { listPublicCommentThreads } from '../../features/product-comments/comments';
 import { getPublicProduct } from '../../features/products/public';
 import { isPubliclySellable } from '../../features/products/status';
 import { requiresWeight, weightChips, weightExtras, weightOptionLabel } from '../../features/products/weight';
@@ -32,6 +34,7 @@ const slug = Astro.params.slug ?? '';
 const loaded = await loadProduct();
 if (loaded.http) return loaded.http;
 const visible = loaded.product && isPubliclySellable(loaded.product) ? loaded.product : null;
+const commentThreads = visible ? loaded.comments : [];
 const goodsTotal = visible ? visible.price : 0;
 const shipping = visible
   ? resolveCustomerShippingFee({
@@ -97,7 +100,7 @@ async function loadProduct() {
   try {
     const db = createDb(getDbBinding());
     const site = await getPublicSite(db);
-    if (!site) return { site: null, failed: false, product: null, http: null, shipBaseFee: 0 };
+    if (!site) return { site: null, failed: false, product: null, http: null, shipBaseFee: 0, comments: [] };
     const [product, shipBaseFee] = await Promise.all([
       getPublicProduct(db, slug),
       listOrderCosts(db).then((costs) => baseCustomerShippingFee(costs)),
@@ -105,13 +108,15 @@ async function loadProduct() {
     if (product && !isPubliclySellable(product)) {
       const outcome = await resolvePublicRedirect(db, routes.product(slug));
       if (outcome?.type === 'redirect') {
-        return { site, failed: false, product: null, http: redirectHttpResponse(outcome), shipBaseFee };
+        return { site, failed: false, product: null, http: redirectHttpResponse(outcome), shipBaseFee, comments: [] };
       }
     }
-    return { site, failed: false, product, http: null, shipBaseFee };
+    const comments =
+      product && isPubliclySellable(product) ? await listPublicCommentThreads(db, product.id) : [];
+    return { site, failed: false, product, http: null, shipBaseFee, comments };
   } catch (error) {
     console.error(JSON.stringify({ event: 'product_public_failed', name: error instanceof Error ? error.name : 'unknown' }));
-    return { site: null, failed: true, product: null, http: null, shipBaseFee: 0 };
+    return { site: null, failed: true, product: null, http: null, shipBaseFee: 0, comments: [] };
   }
 }
 ---
@@ -248,7 +253,21 @@ async function loadProduct() {
         )}
         {showBraceletStory && <ProductStory />}
         {showBraceletStory && <FaqSection class="product-faq home-defer" accordionName="product-faq" />}
-        <section id="dat-hang" class="product-order mt-10 rounded-lg bg-surface p-4 sm:p-6" aria-labelledby="order-heading">
+        <ProductComments client:load productId={visible.id} threads={commentThreads} />
+        <style is:inline>
+          /* Chặn nháy form đặt hàng trước khi CSS bundle kịp. */
+          #dat-hang[data-order-panel]:not([data-open]) {
+            display: none !important;
+          }
+        </style>
+        <section
+          id="dat-hang"
+          class="product-order mt-10 rounded-lg bg-surface p-4 sm:p-6"
+          aria-labelledby="order-heading"
+          data-order-panel
+          hidden
+          inert
+        >
           <h2 id="order-heading" class="text-xl font-semibold">Đặt hàng</h2>
           <p class="mt-2 text-muted">Xưởng gọi lại để chốt đơn. Website không thu tiền trực tuyến.</p>
           <OrderForm
@@ -259,6 +278,13 @@ async function loadProduct() {
             shipGroup={shipGroupOf(visible.categorySlug)}
           />
         </section>
+        <noscript>
+          <style>
+            #dat-hang[data-order-panel] {
+              display: block !important;
+            }
+          </style>
+        </noscript>
         <div class="product-sticky-order" data-product-sticky-order>
           <div class="product-sticky-order-inner">
             <p class="product-sticky-order-price">{formatVnd(visible.price)}</p>
@@ -278,29 +304,58 @@ async function loadProduct() {
   }
 </PublicLayout>
 <script>
-  // Cuộn mượt tới #dat-hang; sticky ẩn khi form đặt hàng đã nằm trong khung nhìn.
+  // Box đặt hàng ẩn mặc định; bấm CTA mới hiện + cuộn tới. Sticky ẩn khi form đã trong khung nhìn.
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  function scrollToOrder(anchor: HTMLAnchorElement, event: Event) {
-    const target = document.getElementById(anchor.dataset.scrollTo || '');
-    if (!target) return;
-    event.preventDefault();
-    target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
-    const field = target.querySelector('input, select, textarea, button');
-    if (field instanceof HTMLElement) window.setTimeout(() => field.focus({ preventScroll: true }), reduceMotion ? 0 : 450);
+  const orderBox = document.getElementById('dat-hang');
+  const sticky = document.querySelector('[data-product-sticky-order]');
+
+  function focusOrderField(target: HTMLElement) {
+    const field = target.querySelector('input:not([type="hidden"]), select, textarea, button');
+    if (field instanceof HTMLElement) {
+      window.setTimeout(() => field.focus({ preventScroll: true }), reduceMotion ? 0 : 450);
+    }
   }
+
+  function revealOrder(scroll: boolean) {
+    if (!(orderBox instanceof HTMLElement)) return;
+    const wasClosed = !orderBox.hasAttribute('data-open');
+    if (wasClosed) {
+      orderBox.setAttribute('data-open', '');
+      orderBox.removeAttribute('hidden');
+      orderBox.removeAttribute('inert');
+    }
+    if (!scroll) return;
+    const run = () => {
+      orderBox.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+      focusOrderField(orderBox);
+    };
+    if (wasClosed) requestAnimationFrame(() => requestAnimationFrame(run));
+    else run();
+  }
+
+  function onOrderCta(anchor: HTMLAnchorElement, event: Event) {
+    if (anchor.dataset.scrollTo !== 'dat-hang') return;
+    event.preventDefault();
+    revealOrder(true);
+    if (location.hash !== '#dat-hang') history.replaceState(null, '', '#dat-hang');
+  }
+
   document.querySelectorAll('[data-scroll-to]').forEach((node) => {
     if (node instanceof HTMLAnchorElement) {
-      node.addEventListener('click', (event) => scrollToOrder(node, event));
+      node.addEventListener('click', (event) => onOrderCta(node, event));
     }
   });
-  const sticky = document.querySelector('[data-product-sticky-order]');
-  const orderBox = document.getElementById('dat-hang');
-  if (sticky instanceof HTMLElement && orderBox) {
-    const sync = (orderVisible: boolean) => {
-      sticky.classList.toggle('is-away', orderVisible);
-      sticky.setAttribute('aria-hidden', orderVisible ? 'true' : 'false');
-      sticky.toggleAttribute('inert', orderVisible);
-      document.documentElement.classList.toggle('has-product-sticky-order', !orderVisible);
+
+  if (location.hash === '#dat-hang') revealOrder(true);
+
+  if (sticky instanceof HTMLElement && orderBox instanceof HTMLElement) {
+    const sync = (orderInView: boolean) => {
+      const open = orderBox.hasAttribute('data-open');
+      const away = open && orderInView;
+      sticky.classList.toggle('is-away', away);
+      sticky.setAttribute('aria-hidden', away ? 'true' : 'false');
+      sticky.toggleAttribute('inert', away);
+      document.documentElement.classList.toggle('has-product-sticky-order', !away);
     };
     document.documentElement.classList.add('has-product-sticky-order');
     if ('IntersectionObserver' in window) {

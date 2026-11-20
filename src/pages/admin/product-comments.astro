@@ -1,0 +1,107 @@
+---
+import ProductCommentsManager from '../../components/admin/ProductCommentsManager.svelte';
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { mutationError } from '../../features/auth/session';
+import {
+  createShopReply,
+  deleteComment,
+  listAdminComments,
+  parseCommentImage,
+  resolveShopReplyTarget,
+  setCommentStatus,
+} from '../../features/product-comments/comments';
+import { parseCommentStatus, readCommentPage } from '../../features/product-comments/parse';
+import { createDb } from '../../lib/db/client';
+import { getDbBinding, optionalMediaBucket } from '../../lib/cloudflare/env';
+import { routes } from '../../lib/routes';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+
+const db = createDb(getDbBinding());
+const status = parseCommentStatus(Astro.url.searchParams.get('status'));
+const page = readCommentPage(Astro.url.searchParams.get('page'));
+const wantsJson = Astro.request.headers.get('accept')?.includes('application/json') ?? false;
+const jsonHeaders = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
+
+function json(body: unknown, statusCode = 200) {
+  return new Response(JSON.stringify(body), { status: statusCode, headers: jsonHeaders });
+}
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const blocked = mutationError(Astro.request, session, form);
+  if (blocked) {
+    if (wantsJson) return json({ ok: false, error: blocked }, 403);
+    return Astro.redirect(`${routes.adminProductComments}?error=1`, 303);
+  }
+
+  const intent = String(form.get('intent') ?? '');
+  const id = Number(form.get('id'));
+
+  if (intent === 'approve' || intent === 'hide') {
+    const result = await setCommentStatus(db, id, intent === 'approve' ? 'approved' : 'hidden');
+    if (!result.ok) {
+      if (wantsJson) return json({ ok: false, error: result.error }, 422);
+      return Astro.redirect(`${routes.adminProductComments}?error=1`, 303);
+    }
+    if (wantsJson) return json({ ok: true });
+    return Astro.redirect(`${routes.adminProductComments}?status=${status}&page=${page}&saved=1`, 303);
+  }
+
+  if (intent === 'delete') {
+    const result = await deleteComment(db, optionalMediaBucket(), id);
+    if (!result.ok) {
+      if (wantsJson) return json({ ok: false, error: result.error }, 422);
+      return Astro.redirect(`${routes.adminProductComments}?error=1`, 303);
+    }
+    if (wantsJson) return json({ ok: true });
+    return Astro.redirect(`${routes.adminProductComments}?status=${status}&page=${page}&saved=1`, 303);
+  }
+
+  if (intent === 'reply') {
+    const parentId = Number(form.get('parentId'));
+    const target = await resolveShopReplyTarget(db, parentId);
+    if (!target.ok) {
+      if (wantsJson) return json({ ok: false, error: target.error }, 422);
+      return Astro.redirect(`${routes.adminProductComments}?error=1`, 303);
+    }
+    const imageField = form.get('image');
+    const imageFile = imageField instanceof File && imageField.size > 0 ? imageField : null;
+    const parsedImage = await parseCommentImage(imageFile);
+    if (!parsedImage.ok) {
+      if (wantsJson) return json({ ok: false, error: parsedImage.error }, 422);
+      return Astro.redirect(`${routes.adminProductComments}?error=1`, 303);
+    }
+    const result = await createShopReply(db, optionalMediaBucket(), {
+      productId: target.productId,
+      parentId: target.parentId,
+      authorName: session.displayName,
+      body: String(form.get('body') ?? ''),
+      image: parsedImage.image,
+    });
+    if (!result.ok) {
+      if (wantsJson) return json({ ok: false, error: result.error }, 422);
+      return Astro.redirect(`${routes.adminProductComments}?error=1`, 303);
+    }
+    if (wantsJson) return json({ ok: true, id: result.id }, 201);
+    return Astro.redirect(`${routes.adminProductComments}?status=approved&saved=1`, 303);
+  }
+
+  if (wantsJson) return json({ ok: false, error: 'Thao tác không hợp lệ.' }, 400);
+  return Astro.redirect(routes.adminProductComments, 303);
+}
+
+const list = await listAdminComments(db, { status, page });
+---
+
+<AdminLayout title="Bình luận sản phẩm">
+  <ProductCommentsManager
+    client:load
+    csrf={session.csrfToken}
+    comments={list.comments}
+    page={list.page}
+    pageCount={list.pageCount}
+    status={status}
+  />
+</AdminLayout>

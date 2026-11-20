@@ -139,4 +139,22 @@ describe('ảnh chụp chi phí lúc đặt', () => {
     expect(shot.missing).toEqual(['Vòng lạ']);
     expect(shot.costGoods).toBeNull();
   });
+
+  it('unitCost ghi đè công thức — dòng tùy chỉnh vẫn có lãi', () => {
+    const shot = costSnapshotOf(
+      [
+        { name: 'Vòng A + bi bạc', productId: 1, quantity: 1, unitCost: 55000 },
+        { name: 'Vòng trơn', productId: 1, quantity: 1 },
+      ],
+      new Map([[1, 40000]]),
+      costs,
+      200000,
+    );
+    expect(shot.missing).toEqual([]);
+    expect(shot.costGoods).toBe(95000);
+    expect(shot.goods).toEqual([
+      { name: 'Vòng A + bi bạc', quantity: 1, unitCost: 55000, amount: 55000 },
+      { name: 'Vòng trơn', quantity: 1, unitCost: 40000, amount: 40000 },
+    ]);
+  });
 });

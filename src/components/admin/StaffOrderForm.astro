@@ -299,6 +299,54 @@ const {
   }
 </form>
 
+<div class="staff-custom-modal" data-staff-custom-modal hidden>
+  <button type="button" class="staff-custom-modal-backdrop" data-staff-custom-close aria-label="Đóng"></button>
+  <div class="staff-custom-modal-sheet" role="dialog" aria-modal="true" aria-labelledby="staff-custom-modal-title">
+    <div class="staff-custom-modal-head">
+      <h3 id="staff-custom-modal-title">Sản phẩm tùy chỉnh</h3>
+      <button type="button" class="staff-custom-modal-x" data-staff-custom-close aria-label="Đóng">×</button>
+    </div>
+    <p class="od-note" data-staff-custom-base></p>
+    <form class="staff-custom-modal-form" data-staff-custom-form autocomplete="off">
+      <label class="block">
+        <span class="od-label">Tên trên đơn</span>
+        <input class="field" maxlength="160" data-staff-custom-name required />
+      </label>
+      <div class="staff-custom-modal-pair">
+        <label class="block">
+          <span class="od-label">Giá bán</span>
+          <input class="field" inputmode="numeric" maxlength="11" data-staff-custom-price required />
+        </label>
+        <label class="block">
+          <span class="od-label">Giá vốn</span>
+          <input class="field" inputmode="numeric" maxlength="11" data-staff-custom-cost required />
+        </label>
+      </div>
+      <div class="staff-custom-modal-row">
+        <div class="staff-qty-stepper" data-staff-custom-qty-stepper>
+          <button class="staff-qty-btn" type="button" data-staff-custom-qty-dec aria-label="Giảm số lượng">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+          </button>
+          <input class="field staff-qty-input" type="number" min="1" max="20" value="1" inputmode="numeric" data-staff-custom-qty aria-label="Số lượng" />
+          <button class="staff-qty-btn" type="button" data-staff-custom-qty-inc aria-label="Tăng số lượng">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          </button>
+        </div>
+        <input class="field" maxlength="160" placeholder="Lưu ý sản phẩm…" data-staff-custom-note />
+      </div>
+      <div class="staff-custom-modal-weight" data-staff-custom-weight hidden>
+        <span class="od-label">Cân nặng</span>
+        <div class="staff-pick-weights" data-staff-custom-chips></div>
+      </div>
+      <p class="error-text" data-staff-custom-error hidden role="alert"></p>
+      <div class="staff-custom-modal-actions">
+        <button type="button" class="btn" data-staff-custom-close>Hủy</button>
+        <button type="submit" class="btn btn-primary">Thêm vào đơn</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
   const root = document.querySelector('.staff-picker');
   const lineEditor = document.querySelector('[data-order-lines]');
@@ -453,6 +501,169 @@ const {
       collapse(row);
     }
 
+    function groupMoney(value: string) {
+      const raw = value.replace(/\D/g, '').slice(0, 8);
+      if (!raw) return '';
+      return raw.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    }
+
+    function moneyDigits(value: string) {
+      const text = value.replace(/\D/g, '');
+      if (!text) return null;
+      const amount = Number(text);
+      return Number.isSafeInteger(amount) ? amount : null;
+    }
+
+    const customModal = document.querySelector('[data-staff-custom-modal]');
+    /** @type {HTMLElement | null} */
+    let customSource: HTMLElement | null = null;
+    let customWeight = '';
+
+    function customEls() {
+      return {
+        root: customModal,
+        form: document.querySelector('[data-staff-custom-form]'),
+        base: document.querySelector('[data-staff-custom-base]'),
+        name: document.querySelector('[data-staff-custom-name]'),
+        price: document.querySelector('[data-staff-custom-price]'),
+        cost: document.querySelector('[data-staff-custom-cost]'),
+        qty: document.querySelector('[data-staff-custom-qty]'),
+        note: document.querySelector('[data-staff-custom-note]'),
+        weightBox: document.querySelector('[data-staff-custom-weight]'),
+        chips: document.querySelector('[data-staff-custom-chips]'),
+        error: document.querySelector('[data-staff-custom-error]'),
+      };
+    }
+
+    function setCustomError(text: string) {
+      const { error } = customEls();
+      const msg = String(text || '').trim();
+      if (error instanceof HTMLElement) {
+        error.hidden = !msg;
+        error.textContent = msg;
+      }
+    }
+
+    function paintCustomChips(row: HTMLElement) {
+      const { chips, weightBox } = customEls();
+      const weigh = needsWeight(row);
+      if (weightBox instanceof HTMLElement) weightBox.hidden = !weigh;
+      if (!(chips instanceof HTMLElement)) return;
+      chips.replaceChildren();
+      if (!weigh) {
+        customWeight = '';
+        return;
+      }
+      for (const button of row.querySelectorAll<HTMLButtonElement>('[data-weight-choice]')) {
+        const label = button.dataset.weightChoice ?? '';
+        if (!label) continue;
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'category-preset';
+        chip.dataset.staffCustomChip = label;
+        chip.setAttribute('aria-pressed', String(label === customWeight));
+        chip.innerHTML = '<span></span>';
+        const span = chip.querySelector('span');
+        if (span) span.textContent = label;
+        chips.appendChild(chip);
+      }
+    }
+
+    function openCustomModal(row: HTMLElement) {
+      if (room() <= 0) {
+        if (limit instanceof HTMLElement) limit.hidden = false;
+        return;
+      }
+      customSource = row;
+      customWeight = '';
+      const els = customEls();
+      const name = row.dataset.name ?? '';
+      const price = row.dataset.price ?? '';
+      const unitCost = row.dataset.unitCost ?? '';
+      if (els.base instanceof HTMLElement) els.base.textContent = name ? `Mẫu gốc: ${name}` : '';
+      if (els.name instanceof HTMLInputElement) els.name.value = name;
+      if (els.price instanceof HTMLInputElement) els.price.value = groupMoney(price);
+      if (els.cost instanceof HTMLInputElement) els.cost.value = groupMoney(unitCost);
+      if (els.qty instanceof HTMLInputElement) els.qty.value = '1';
+      if (els.note instanceof HTMLInputElement) els.note.value = '';
+      setCustomError('');
+      paintCustomChips(row);
+      if (els.root instanceof HTMLElement) els.root.hidden = false;
+      queueMicrotask(() => {
+        if (els.name instanceof HTMLInputElement) {
+          els.name.focus();
+          els.name.select();
+        }
+      });
+    }
+
+    function closeCustomModal() {
+      customSource = null;
+      customWeight = '';
+      const { root: modal } = customEls();
+      if (modal instanceof HTMLElement) modal.hidden = true;
+      setCustomError('');
+    }
+
+    function commitCustomModal() {
+      if (!(customSource instanceof HTMLElement)) return false;
+      if (room() <= 0) {
+        setCustomError(`Một đơn tối đa ${editor.dataset.max || '8'} mẫu.`);
+        return false;
+      }
+      const els = customEls();
+      const name = els.name instanceof HTMLInputElement ? els.name.value.replace(/\s+/g, ' ').trim() : '';
+      if (!name) {
+        setCustomError('Nhập tên sản phẩm.');
+        return false;
+      }
+      const unitPrice = moneyDigits(els.price instanceof HTMLInputElement ? els.price.value : '');
+      if (unitPrice === null) {
+        setCustomError('Giá bán không hợp lệ.');
+        return false;
+      }
+      const costRaw = els.cost instanceof HTMLInputElement ? els.cost.value.trim() : '';
+      if (!costRaw) {
+        setCustomError('Nhập giá vốn cho dòng tùy chỉnh.');
+        return false;
+      }
+      const unitCost = moneyDigits(costRaw);
+      if (unitCost === null) {
+        setCustomError('Giá vốn không hợp lệ.');
+        return false;
+      }
+      if (needsWeight(customSource) && !customWeight) {
+        setCustomError('Chọn cân nặng cho bé.');
+        return false;
+      }
+      const qty = els.qty instanceof HTMLInputElement ? els.qty.value : '1';
+      const note = els.note instanceof HTMLInputElement ? els.note.value.trim().slice(0, 160) : '';
+      const cover =
+        customSource.querySelector('.staff-pick-photo') instanceof HTMLImageElement
+          ? customSource.querySelector<HTMLImageElement>('.staff-pick-photo')?.src ?? ''
+          : '';
+      const source = customSource;
+      document.dispatchEvent(
+        new CustomEvent('staff-add-product', {
+          detail: {
+            id: source.dataset.id ?? '',
+            weight: customWeight,
+            quantity: qty,
+            note,
+            cover,
+            focus: true,
+            custom: true,
+            name,
+            price: String(unitPrice),
+            unitCost: String(unitCost),
+          },
+        }),
+      );
+      closeCustomModal();
+      collapse(source);
+      return true;
+    }
+
     function apply() {
       const needle = fold(text.trim());
       const hotOnly = category === 'hot' && needle === '';
@@ -510,9 +721,57 @@ const {
         addRow(row);
         return;
       }
+      if (button.hasAttribute('data-pick-custom')) {
+        openCustomModal(row);
+        return;
+      }
       if (button.hasAttribute('data-pick-toggle')) {
         if (row.dataset.selected === '1') collapse(row);
         else expand(row);
+      }
+    });
+
+    customModal?.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('[data-staff-custom-close]')) {
+        closeCustomModal();
+        return;
+      }
+      const chip = target.closest('[data-staff-custom-chip]');
+      if (chip instanceof HTMLElement) {
+        customWeight = chip.getAttribute('data-staff-custom-chip') || '';
+        for (const item of customModal.querySelectorAll('[data-staff-custom-chip]')) {
+          item.setAttribute('aria-pressed', String(item === chip));
+        }
+        return;
+      }
+      const els = customEls();
+      if (target.closest('[data-staff-custom-qty-dec]') && els.qty instanceof HTMLInputElement) {
+        const next = Math.max(1, Number(els.qty.value || '1') - 1);
+        els.qty.value = String(next);
+        return;
+      }
+      if (target.closest('[data-staff-custom-qty-inc]') && els.qty instanceof HTMLInputElement) {
+        const next = Math.min(20, Number(els.qty.value || '1') + 1);
+        els.qty.value = String(next);
+      }
+    });
+
+    customEls().form?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      commitCustomModal();
+    });
+    for (const field of [customEls().price, customEls().cost]) {
+      field?.addEventListener('input', () => {
+        if (field instanceof HTMLInputElement) field.value = groupMoney(field.value);
+      });
+    }
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      if (customModal instanceof HTMLElement && !customModal.hidden) {
+        event.preventDefault();
+        closeCustomModal();
       }
     });
 

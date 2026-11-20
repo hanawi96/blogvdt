@@ -11,7 +11,7 @@ import { ORDER_SOURCES } from '../../../features/orders/staff';
 import { isFulfillStatus, ORDER_LIST_FILTERS } from '../../../features/orders/status';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
-import { formatOrderDateFilterLabel, vnLastNDaysRange, vnMonthRange, vnTodayParts, vnYesterdayRange } from '../../../lib/datetime';
+import { formatOrderDateFilterLabel, vnLastNDaysRange, vnMonthRange, vnTodayParts, vnTodayRange, vnYesterdayRange } from '../../../lib/datetime';
 import { formatVnd } from '../../../lib/money';
 import { routes } from '../../../lib/routes';
 
@@ -19,7 +19,7 @@ const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
 
 const query = Astro.url.searchParams.get('q') ?? '';
-const status = orderListStatus(Astro.url.searchParams.get('status'));
+const status = orderListStatus(Astro.url.searchParams.get('status'), query);
 const source = orderListSource(Astro.url.searchParams.get('source'));
 const payment = orderListPayment(Astro.url.searchParams.get('payment'));
 const from = Astro.url.searchParams.get('from') ?? '';
@@ -34,10 +34,12 @@ const monthQuick = Array.from({ length: vnToday.month }, (_, index) => {
   const span = vnMonthRange(vnToday.year, month)!;
   return { month, from: span.from, to: span.to };
 });
+const todayQuick = vnTodayRange();
 const yesterdayQuick = vnYesterdayRange();
 const last7Quick = vnLastNDaysRange(7)!;
 const last30Quick = vnLastNDaysRange(30)!;
 const dateQuick = [
+  { label: 'Hôm nay', from: todayQuick.from, to: todayQuick.to },
   { label: 'Hôm qua', from: yesterdayQuick.from, to: yesterdayQuick.to },
   { label: '7 ngày qua', from: last7Quick.from, to: last7Quick.to },
   { label: '30 ngày qua', from: last30Quick.from, to: last30Quick.to },
@@ -464,6 +466,30 @@ const shippedPanelHref =
   const cache = new Map<string, string>();
   const inflight = new Map<string, Promise<string>>();
   let navSeq = 0;
+  /** Gom chip thẻ tên: bấm lần lượt → clipboard nhiều dòng. */
+  const tagNoteBatch: { id: string; text: string }[] = [];
+  const tagNoteBatchIds = new Set<string>();
+  function syncTagNoteBatchUi() {
+    if (!(board instanceof HTMLElement)) return;
+    for (const chip of board.querySelectorAll('[data-tag-note-copy]')) {
+      if (!(chip instanceof HTMLElement)) continue;
+      const id = chip.dataset.orderId ?? '';
+      if (id && tagNoteBatchIds.has(id)) {
+        chip.dataset.copied = '1';
+        chip.title = `Đã gom (${tagNoteBatch.length}) — bấm chip khác để thêm`;
+      } else {
+        delete chip.dataset.copied;
+        chip.title = chip.dataset.text
+          ? 'Bấm để gom copy (nhiều chip = nhiều dòng)'
+          : 'Bấm để copy';
+      }
+    }
+  }
+  function clearTagNoteBatch() {
+    tagNoteBatch.length = 0;
+    tagNoteBatchIds.clear();
+    syncTagNoteBatchUi();
+  }
 
   function pageUrl(params: URLSearchParams): string {
     const text = params.toString();
@@ -572,8 +598,13 @@ const shippedPanelHref =
     const tagToggle = form.querySelector('[data-order-tag-toggle]');
     const label = form.querySelector('[data-order-date-label]');
     const trigger = form.querySelector('[data-order-date-open]');
-    if (q instanceof HTMLInputElement) q.value = params.get('q') ?? '';
-    if (status instanceof HTMLSelectElement) status.value = params.get('status') ?? 'unshipped';
+    const qVal = params.get('q') ?? '';
+    if (q instanceof HTMLInputElement) q.value = qVal;
+    if (status instanceof HTMLSelectElement) {
+      const rawStatus = params.get('status');
+      // Khớp server: có ô tìm mà URL không có status → «Tất cả».
+      status.value = rawStatus || (qVal.trim() ? 'all' : 'unshipped');
+    }
     if (source instanceof HTMLSelectElement) source.value = params.get('source') ?? '';
     if (payment instanceof HTMLSelectElement) payment.value = params.get('payment') ?? '';
     const fromVal = params.get('from') ?? '';
@@ -603,7 +634,8 @@ const shippedPanelHref =
           return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
         };
         const yesterday = shift(vnToday, -1);
-        if (fromVal === yesterday && toVal === yesterday) label.textContent = 'Hôm qua';
+        if (fromVal === vnToday && toVal === vnToday) label.textContent = 'Hôm nay';
+        else if (fromVal === yesterday && toVal === yesterday) label.textContent = 'Hôm qua';
         else if (fromVal === shift(vnToday, -6) && toVal === vnToday) label.textContent = '7 ngày qua';
         else if (fromVal === shift(vnToday, -29) && toVal === vnToday) label.textContent = '30 ngày qua';
         else if (fromVal === toVal) {
@@ -667,6 +699,7 @@ const shippedPanelHref =
       if (opts.push) history.pushState({ orderSoft: true }, '', listHref);
       schedulePrefetch();
       restoreSelection?.();
+      syncTagNoteBatchUi();
     } catch {
       location.assign(listHref);
     } finally {
@@ -684,13 +717,21 @@ const shippedPanelHref =
       if (next === `${location.pathname}${location.search}`) return;
       cache.clear();
       clearSelection?.();
+      clearTagNoteBatch();
       void softNavigate(next, { push: true, params });
     };
     goSearch = go;
     if (input instanceof HTMLInputElement) {
       input.addEventListener('input', () => {
         window.clearTimeout(timer);
-        timer = window.setTimeout(go, 300);
+        timer = window.setTimeout(() => {
+          // Có ô tìm → «Tất cả trạng thái» (tránh sót đơn đã gửi); xóa tìm → về «Chưa gửi hàng».
+          const statusSelect = form.querySelector('select[name="status"]');
+          if (statusSelect instanceof HTMLSelectElement) {
+            statusSelect.value = input.value.trim() ? 'all' : 'unshipped';
+          }
+          go();
+        }, 300);
       });
     }
     form.addEventListener('change', (event) => {
@@ -718,6 +759,7 @@ const shippedPanelHref =
       window.clearTimeout(timer);
       cache.clear();
       clearSelection?.();
+      clearTagNoteBatch();
       void softNavigate(LIST, { push: true, params: new URLSearchParams() });
     });
 
@@ -738,24 +780,22 @@ const shippedPanelHref =
       go();
     });
 
-    // Chip thẻ tên: copy từng lưu ý hoặc copy tất cả (panel re-render → delegation).
-    const flashCopied = (el: HTMLElement, label: string) => {
-      const prev = el.dataset.copiedPrev ?? el.textContent ?? '';
-      if (el.dataset.copied !== '1') el.dataset.copiedPrev = el.textContent ?? '';
-      el.dataset.copied = '1';
-      el.textContent = label;
-      window.setTimeout(() => {
-        if (el.dataset.copied !== '1') return;
-        delete el.dataset.copied;
-        el.textContent = el.dataset.copiedPrev ?? prev;
-      }, 1200);
-    };
+    // Chip thẻ tên: bấm lần lượt → gom nhiều lưu ý (mỗi chip một dòng) vào clipboard.
     board?.addEventListener('click', (event) => {
       const el = event.target instanceof Element ? event.target : null;
       const one = el?.closest('[data-tag-note-copy]');
       if (!(one instanceof HTMLElement)) return;
-      const text = one.dataset.text ?? one.textContent ?? '';
-      void navigator.clipboard?.writeText(text).then(() => flashCopied(one, 'Đã copy'));
+      const text = (one.dataset.text ?? '').trim();
+      const id = (one.dataset.orderId ?? '').trim() || text;
+      if (!text || !id) return;
+      if (!tagNoteBatchIds.has(id)) {
+        tagNoteBatchIds.add(id);
+        tagNoteBatch.push({ id, text });
+      }
+      const payload = tagNoteBatch.map((item) => item.text).join('\n');
+      void navigator.clipboard?.writeText(payload).then(() => {
+        syncTagNoteBatchUi();
+      });
     });
 
     const statusSelect = form.querySelector('select[name="status"]');

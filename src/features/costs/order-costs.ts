@@ -46,15 +46,33 @@ export function extraCostOf(costs: ReadonlyArray<{ kind: OrderCostKind; value: n
   return costs.reduce((sum, cost) => sum + (cost.kind === 'percent' ? Math.round((orderTotal * cost.value) / 10_000) : cost.value), 0);
 }
 
+type CostableLine = {
+  productId: number | null;
+  quantity: number;
+  /** Ghi đè vốn dòng (SP tùy chỉnh); không có thì lấy công thức theo productId. */
+  unitCost?: number | null;
+};
+
+function resolveLineUnitCost(
+  line: CostableLine,
+  costByProduct: ReadonlyMap<number, number>,
+): number | undefined {
+  if (typeof line.unitCost === 'number' && Number.isInteger(line.unitCost) && line.unitCost >= 0) {
+    return line.unitCost;
+  }
+  if (line.productId === null) return undefined;
+  return costByProduct.get(line.productId);
+}
+
 // Giá vốn cả đơn = tổng (giá vốn sản phẩm x số lượng). Thiếu công thức ở bất kỳ dòng nào thì chưa biết giá vốn (null).
 export function goodsCostOf(
-  lines: ReadonlyArray<{ productId: number | null; quantity: number }>,
+  lines: ReadonlyArray<CostableLine>,
   costByProduct: ReadonlyMap<number, number>,
 ): number | null {
   if (lines.length === 0) return null;
   let total = 0;
   for (const line of lines) {
-    const unit = line.productId === null ? undefined : costByProduct.get(line.productId);
+    const unit = resolveLineUnitCost(line, costByProduct);
     if (unit === undefined) return null;
     total += unit * line.quantity;
   }
@@ -89,7 +107,7 @@ export type OrderCostSnapshot = {
 };
 
 export function costSnapshotOf(
-  lines: ReadonlyArray<{ name: string; productId: number | null; quantity: number }>,
+  lines: ReadonlyArray<{ name: string; productId: number | null; quantity: number; unitCost?: number | null }>,
   costByProduct: ReadonlyMap<number, number>,
   costs: ReadonlyArray<{ name: string; kind: OrderCostKind; value: number; active: boolean }>,
   payable: number,
@@ -97,7 +115,7 @@ export function costSnapshotOf(
   const missing: string[] = [];
   const goods: GoodsCostLine[] = [];
   for (const line of lines) {
-    const unitCost = line.productId === null ? undefined : costByProduct.get(line.productId);
+    const unitCost = resolveLineUnitCost(line, costByProduct);
     if (unitCost === undefined) missing.push(line.name);
     else goods.push({ name: line.name, quantity: line.quantity, unitCost, amount: unitCost * line.quantity });
   }
@@ -177,7 +195,7 @@ export async function listOrderCosts(db: AppDb): Promise<OrderCost[]> {
 // Chụp chi phí tại thời điểm đặt đơn. Lỗi đọc chi phí không được làm mất đơn của khách: trả null, đơn vẫn lưu.
 export async function snapshotOrderCosts(
   db: AppDb,
-  lines: ReadonlyArray<{ name: string; productId: number | null; quantity: number }>,
+  lines: ReadonlyArray<{ name: string; productId: number | null; quantity: number; unitCost?: number | null }>,
   payable: number,
 ): Promise<OrderCostSnapshot | null> {
   try {

@@ -44,21 +44,27 @@ const weightPresets = weightOptions('baby').filter((label) => label.endsWith('kg
               data-name={product.name}
               data-id={product.id}
               data-price={product.price}
+              data-unit-cost={product.unitCost ?? ''}
               data-weigh={requiresWeight(product.weightScale) ? '1' : '0'}
             >
-              <button class="staff-pick-toggle" type="button" data-pick-toggle aria-pressed="false">
-                {product.coverUrl ? (
-                  <img class="staff-pick-photo" src={product.coverUrl} alt="" width="52" height="52" loading="lazy" decoding="async" />
-                ) : (
-                  <span class="staff-pick-photo" aria-hidden="true"></span>
-                )}
-                <span class="staff-pick-copy">
-                  <span class="staff-pick-name">{product.name}</span>
-                  <span class="staff-pick-meta">
-                    {product.categoryName || 'Khác'} · {formatVnd(product.price)} · Đã bán {product.sold}
+              <div class="staff-pick-head">
+                <button class="staff-pick-toggle" type="button" data-pick-toggle aria-pressed="false">
+                  {product.coverUrl ? (
+                    <img class="staff-pick-photo" src={product.coverUrl} alt="" width="52" height="52" loading="lazy" decoding="async" />
+                  ) : (
+                    <span class="staff-pick-photo" aria-hidden="true"></span>
+                  )}
+                  <span class="staff-pick-copy">
+                    <span class="staff-pick-name">{product.name}</span>
+                    <span class="staff-pick-meta">
+                      {product.categoryName || 'Khác'} · {formatVnd(product.price)} · Đã bán {product.sold}
+                    </span>
                   </span>
-                </span>
-              </button>
+                </button>
+                <button class="staff-pick-clone" type="button" data-pick-custom title="Tùy chỉnh từ mẫu này" aria-label="Tùy chỉnh từ mẫu này">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                </button>
+              </div>
               <div class="staff-pick-panel" data-pick-panel hidden>
                 {requiresWeight(product.weightScale) && (
                   <div class="staff-pick-weights" data-weights>

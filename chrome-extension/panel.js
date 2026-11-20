@@ -24,9 +24,6 @@
 
   const nameInput = document.querySelector('[data-customer-name]');
   const phoneInput = document.querySelector('[data-customer-phone]');
-  const lookupInput = document.querySelector('[data-lookup-phone]');
-  const lookupRun = document.querySelector('[data-lookup-run]');
-  const lookupResult = document.querySelector('[data-lookup-result]');
 
   const addressRoot = document.querySelector('[data-address]');
   const addressMap = document.querySelector('[data-address-map]');
@@ -84,6 +81,19 @@
   let readyNotified = false;
   /** Kênh host: zalo | pancake | '' */
   let hostChannel = '';
+  /** Chat đang mở trên host — đổi chat thì ẩn banner tạo đơn. */
+  let hostChatId = '';
+  /** Timer ẩn banner thành công (tạo/lưu đơn). */
+  let savedHideTimer = 0;
+  /** Draft POS theo chat — chrome.storage.local. */
+  const POS_DRAFTS_KEY = 'posDrafts';
+  const POS_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  const POS_DRAFT_MAX = 50;
+  const POS_DRAFT_SAVE_MS = 400;
+  const POS_DRAFT_PROTECT_MS = 4000;
+  let draftSaveTimer = 0;
+  let draftRestoredAt = 0;
+  let suppressDraftSave = false;
   /** Giá trị nguồn vừa auto-gán — không đè nếu nhân viên đã đổi tay. */
   let autoSource = '';
   let legacyTimer = 0;
@@ -104,9 +114,11 @@
   let pendingQty = 1;
   let pendingNote = '';
   let extraOpen = false;
-  /** @type {Array<{key: string, productId: number, name: string, weight: string, quantity: number, note: string, unitPrice: number, categorySlug: string}>} */
+  /** @type {Array<{key: string, productId: number, name: string, weight: string, quantity: number, note: string, unitPrice: number, categorySlug: string, coverUrl?: string, custom?: boolean, unitCost?: number}>} */
   let cart = [];
   let defaultShipFee = '';
+  /** @type {null | { product: object, editIndex: number | null, weight: string, qty: number, note: string, name: string, price: string, unitCost: string, extraOpen: boolean }} */
+  let customDraft = null;
 
   function show(el, on) {
     if (el instanceof HTMLElement) el.hidden = !on;
@@ -119,6 +131,25 @@
     }
   }
 
+  function clearSavedBanner() {
+    window.clearTimeout(savedHideTimer);
+    savedHideTimer = 0;
+    if (!(savedEl instanceof HTMLElement)) return;
+    savedEl.hidden = true;
+    savedEl.textContent = '';
+  }
+
+  function scheduleHideSaved(ms = 2000) {
+    window.clearTimeout(savedHideTimer);
+    savedHideTimer = window.setTimeout(() => {
+      savedHideTimer = 0;
+      if (savedEl instanceof HTMLElement) {
+        savedEl.hidden = true;
+        savedEl.textContent = '';
+      }
+    }, ms);
+  }
+
   function setFormError(text) {
     const msg = String(text || '').trim();
     if (formError instanceof HTMLElement) {
@@ -126,7 +157,7 @@
       formError.textContent = msg;
     }
     // Có lỗi → ẩn banner thành công cũ để không chồng 2–3 thông báo.
-    if (msg && savedEl instanceof HTMLElement) savedEl.hidden = true;
+    if (msg) clearSavedBanner();
   }
 
   /** Chuẩn hóa/kiểm tra mobile VN — khớp content.js / order.ts. */
@@ -142,6 +173,301 @@
 
   function isValidOrderPhone(raw) {
     return Boolean(normalizeOrderPhone(raw));
+  }
+
+  function draftStorageKey(channel, chatId) {
+    const ch = String(channel || '').trim();
+    const id = String(chatId || '').trim();
+    if (!ch || !id) return '';
+    return `${ch}:${id}`;
+  }
+
+  function draftProtectActive() {
+    return Date.now() - draftRestoredAt < POS_DRAFT_PROTECT_MS;
+  }
+
+  async function readDraftMap() {
+    try {
+      const stored = await chrome.storage.local.get([POS_DRAFTS_KEY]);
+      const map = stored?.[POS_DRAFTS_KEY];
+      return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
+    } catch {
+      return {};
+    }
+  }
+
+  async function writeDraftMap(map) {
+    try {
+      await chrome.storage.local.set({ [POS_DRAFTS_KEY]: map });
+    } catch {
+      /* quota / extension reload */
+    }
+  }
+
+  function pruneDraftMap(map, now = Date.now()) {
+    /** @type {Array<[string, object]>} */
+    const entries = Object.entries(map || {}).filter(([, draft]) => {
+      if (!draft || typeof draft !== 'object') return false;
+      const updatedAt = Number(draft.updatedAt) || 0;
+      return now - updatedAt <= POS_DRAFT_TTL_MS;
+    });
+    entries.sort((a, b) => (Number(b[1].updatedAt) || 0) - (Number(a[1].updatedAt) || 0));
+    const next = {};
+    for (const [key, draft] of entries.slice(0, POS_DRAFT_MAX)) next[key] = draft;
+    return next;
+  }
+
+  function buildDraftPayload() {
+    writeAddress();
+    const pay = document.querySelector('input[name="payState"]:checked');
+    const source = document.querySelector('input[name="source"]:checked');
+    const noteEl = document.querySelector('[data-note]');
+    return {
+      channel: hostChannel,
+      chatId: hostChatId,
+      updatedAt: Date.now(),
+      customerName: nameInput instanceof HTMLInputElement ? nameInput.value.trim() : '',
+      phone: phoneInput instanceof HTMLInputElement ? phoneInput.value.trim() : '',
+      note: noteEl instanceof HTMLInputElement ? noteEl.value.trim() : '',
+      addressSelection: {
+        provinceCode: addressSelection.provinceCode || '',
+        wardCode: addressSelection.wardCode || '',
+      },
+      line: lineInput instanceof HTMLInputElement ? lineInput.value.trim() : '',
+      cart: cart.map((line) => ({
+        productId: Number(line.productId) || 0,
+        name: String(line.name || ''),
+        weight: String(line.weight || ''),
+        quantity: Number(line.quantity) || 1,
+        note: String(line.note || ''),
+        unitPrice: Number(line.unitPrice) || 0,
+        coverUrl: String(line.coverUrl || ''),
+        categorySlug: String(line.categorySlug || ''),
+        custom: Boolean(line.custom),
+        unitCost: line.custom ? Math.max(0, Number(line.unitCost) || 0) : undefined,
+      })),
+      discountCode: discountCode instanceof HTMLSelectElement ? discountCode.value : '',
+      discountExtra: discountExtra instanceof HTMLInputElement ? discountExtra.value : '',
+      orderTotal: orderTotal instanceof HTMLInputElement ? orderTotal.value : '',
+      payState: pay instanceof HTMLInputElement ? pay.value : 'cod',
+      source: source instanceof HTMLInputElement ? source.value : '',
+      priority: priorityEl instanceof HTMLInputElement && priorityEl.checked,
+      compensation: compensationEl instanceof HTMLInputElement && compensationEl.checked,
+      shipLater: shipLaterEl instanceof HTMLInputElement && shipLaterEl.checked,
+      shipOn: shipOnEl instanceof HTMLInputElement ? shipOnEl.value : '',
+      shippingFee: shipFeeEl instanceof HTMLInputElement ? shipFeeEl.value : '',
+      freeShip: freeShipEl instanceof HTMLInputElement && freeShipEl.checked,
+      depositAmount: depositAmount instanceof HTMLInputElement ? depositAmount.value : '',
+    };
+  }
+
+  function draftWorthSaving(payload) {
+    if (!payload) return false;
+    // Chỉ lưu khi có nội dung đơn — tên/SĐT host fill không đủ để giữ draft.
+    if (Array.isArray(payload.cart) && payload.cart.length > 0) return true;
+    if (String(payload.line || '').trim()) return true;
+    if (payload.addressSelection?.provinceCode) return true;
+    if (String(payload.note || '').trim()) return true;
+    if (String(payload.orderTotal || '').replace(/\D/g, '')) return true;
+    if (String(payload.discountCode || '').trim() || String(payload.discountExtra || '').replace(/\D/g, '')) return true;
+    if (payload.priority || payload.compensation || payload.shipLater || payload.freeShip) return true;
+    return false;
+  }
+
+  async function saveCurrentDraft({ force = false } = {}) {
+    if (suppressDraftSave && !force) return;
+    if (isEditing()) return;
+    const key = draftStorageKey(hostChannel, hostChatId);
+    if (!key) return;
+    const payload = buildDraftPayload();
+    const map = pruneDraftMap(await readDraftMap());
+    if (!draftWorthSaving(payload)) {
+      if (map[key]) {
+        delete map[key];
+        await writeDraftMap(map);
+      }
+      return;
+    }
+    map[key] = payload;
+    await writeDraftMap(pruneDraftMap(map));
+  }
+
+  function scheduleDraftSave() {
+    if (suppressDraftSave || isEditing()) return;
+    if (!draftStorageKey(hostChannel, hostChatId)) return;
+    window.clearTimeout(draftSaveTimer);
+    draftSaveTimer = window.setTimeout(() => {
+      draftSaveTimer = 0;
+      void saveCurrentDraft();
+    }, POS_DRAFT_SAVE_MS);
+  }
+
+  async function loadDraft(channel, chatId) {
+    const key = draftStorageKey(channel, chatId);
+    if (!key) return null;
+    const map = pruneDraftMap(await readDraftMap());
+    const draft = map[key];
+    if (!draft || typeof draft !== 'object') return null;
+    if (!draftWorthSaving(draft)) return null;
+    return draft;
+  }
+
+  async function clearDraft(channel, chatId) {
+    const key = draftStorageKey(channel, chatId);
+    if (!key) return;
+    window.clearTimeout(draftSaveTimer);
+    draftSaveTimer = 0;
+    const map = await readDraftMap();
+    if (!map[key]) return;
+    delete map[key];
+    await writeDraftMap(map);
+  }
+
+  function resetFormForChatSwitch() {
+    suppressDraftSave = true;
+    try {
+      cart = [];
+      cartEdit = null;
+      closePickPanel();
+      if (nameInput instanceof HTMLInputElement) nameInput.value = '';
+      if (phoneInput instanceof HTMLInputElement) phoneInput.value = '';
+      if (lineInput instanceof HTMLInputElement) lineInput.value = '';
+      addressSelection.provinceCode = '';
+      addressSelection.wardCode = '';
+      fillProvinces();
+      writeAddress();
+      clearAddressMap();
+      const noteEl = document.querySelector('[data-note]');
+      if (noteEl instanceof HTMLInputElement) noteEl.value = '';
+      if (discountCode instanceof HTMLSelectElement) discountCode.value = '';
+      if (discountExtra instanceof HTMLInputElement) discountExtra.value = '';
+      if (orderTotal instanceof HTMLInputElement) {
+        orderTotal.value = '';
+        delete orderTotal.dataset.lock;
+      }
+      if (depositAmount instanceof HTMLInputElement) depositAmount.value = '';
+      if (shipOnEl instanceof HTMLInputElement) shipOnEl.value = '';
+      if (legacyInput instanceof HTMLInputElement) legacyInput.value = '';
+      closeLegacyList();
+      setLegacyHint('');
+      setMetaFlags({
+        payState: 'cod',
+        source: sourceForChannel(hostChannel) || '',
+        priority: false,
+        compensation: false,
+        shipLater: false,
+        shipOn: '',
+        freeShip: false,
+        shippingFee: defaultShipFee || '',
+        depositAmount: '',
+      });
+      if (sourceForChannel(hostChannel)) autoSource = sourceForChannel(hostChannel);
+      renderCart();
+      renderPickList();
+      paintPay();
+    } finally {
+      suppressDraftSave = false;
+    }
+  }
+
+  async function applyDraftToForm(draft) {
+    if (!draft || typeof draft !== 'object') return;
+    suppressDraftSave = true;
+    try {
+      await ensureAddressRows().catch(() => null);
+      if (nameInput instanceof HTMLInputElement) nameInput.value = String(draft.customerName || '').slice(0, 80);
+      if (phoneInput instanceof HTMLInputElement) phoneInput.value = String(draft.phone || '');
+      const noteEl = document.querySelector('[data-note]');
+      if (noteEl instanceof HTMLInputElement) noteEl.value = String(draft.note || '').slice(0, 500);
+      const provinceCode = String(draft.addressSelection?.provinceCode || '');
+      const wardCode = String(draft.addressSelection?.wardCode || '');
+      const line = String(draft.line || '');
+      if (provinceCode) {
+        applyAddress({ provinceCode, wardCode, line, keepLine: false });
+      } else {
+        applyAddress({ provinceCode: '', wardCode: '', line, keepLine: false });
+      }
+      cart = (Array.isArray(draft.cart) ? draft.cart : []).map((lineItem, index) => {
+        const productId = Number(lineItem.productId) || 0;
+        const weight = String(lineItem.weight || '');
+        const note = String(lineItem.note || '');
+        const quantity = Math.max(1, Math.min(20, Number(lineItem.quantity) || 1));
+        const unitPrice = Math.max(0, Number(lineItem.unitPrice) || 0);
+        const custom = Boolean(lineItem.custom);
+        const unitCost = custom ? Math.max(0, Number(lineItem.unitCost) || 0) : undefined;
+        const catalog = products.find((item) => Number(item.id) === productId);
+        const name = String(lineItem.name || catalog?.name || '');
+        const priced = unitPrice || Number(catalog?.price) || 0;
+        return {
+          key: cartLineKey({ productId, weight, note, name, unitPrice: priced, unitCost, custom }, index),
+          productId,
+          name,
+          weight,
+          quantity,
+          note,
+          unitPrice: priced,
+          coverUrl: String(lineItem.coverUrl || catalog?.coverUrl || ''),
+          categorySlug: String(lineItem.categorySlug || catalog?.categorySlug || ''),
+          ...(custom ? { custom: true, unitCost: unitCost ?? 0 } : {}),
+        };
+      });
+      if (discountCode instanceof HTMLSelectElement) discountCode.value = String(draft.discountCode || '');
+      if (discountExtra instanceof HTMLInputElement) discountExtra.value = String(draft.discountExtra || '');
+      if (orderTotal instanceof HTMLInputElement) {
+        orderTotal.value = String(draft.orderTotal || '');
+        if (orderTotal.value) orderTotal.dataset.lock = '1';
+        else delete orderTotal.dataset.lock;
+      }
+      setMetaFlags({
+        payState: draft.payState || 'cod',
+        source: draft.source || sourceForChannel(hostChannel) || '',
+        priority: Boolean(draft.priority),
+        compensation: Boolean(draft.compensation),
+        shipLater: Boolean(draft.shipLater),
+        shipOn: draft.shipOn || '',
+        freeShip: Boolean(draft.freeShip),
+        shippingFee: draft.shippingFee || '',
+        depositAmount: draft.depositAmount || '',
+      });
+      closePickPanel();
+      renderCart();
+      renderPickList();
+      paintPay();
+      draftRestoredAt = Date.now();
+    } finally {
+      suppressDraftSave = false;
+    }
+  }
+
+  /**
+   * Đổi hội thoại: lưu draft cũ → khôi phục draft mới hoặc form trống + fill host.
+   * @returns {Promise<boolean>} true nếu đã restore draft (fill chỉ nên đè field trống)
+   */
+  async function switchChatContext(channel, chatId) {
+    const nextChannel = String(channel || hostChannel || '').trim();
+    const nextChatId = String(chatId || '').trim();
+    if (!nextChatId) return false;
+    if (nextChatId === hostChatId && nextChannel === hostChannel) return draftProtectActive();
+
+    if (hostChatId && !isEditing()) {
+      window.clearTimeout(draftSaveTimer);
+      draftSaveTimer = 0;
+      await saveCurrentDraft({ force: true });
+    }
+    clearSavedBanner();
+    hostChannel = nextChannel;
+    hostChatId = nextChatId;
+
+    if (isEditing()) return false;
+
+    const draft = await loadDraft(nextChannel, nextChatId);
+    if (draft) {
+      await applyDraftToForm(draft);
+      return true;
+    }
+    resetFormForChatSwitch();
+    applyChannelSource(nextChannel, { force: true });
+    return false;
   }
 
   /** Kiểm tra đủ thông tin bắt buộc; nếu thiếu thì báo lỗi + cuộn tới trường. */
@@ -170,6 +496,8 @@
     const msg = String(text || '').trim();
     setFormError('');
     if (!(savedEl instanceof HTMLElement)) return;
+    window.clearTimeout(savedHideTimer);
+    savedHideTimer = 0;
     if (!msg) {
       savedEl.hidden = true;
       savedEl.textContent = '';
@@ -308,6 +636,8 @@
     const total = result.total ? ` · ${result.total}` : '';
     const path = typeof result.url === 'string' ? result.url : `/admin/orders/${result.id}`;
     const href = path.startsWith('http') ? path : `${origin}${path.startsWith('/') ? '' : '/'}${path}`;
+    window.clearTimeout(savedHideTimer);
+    savedHideTimer = 0;
     savedEl.hidden = false;
     savedEl.innerHTML = '';
     savedEl.append(updated ? 'Đã lưu đơn ' : 'Đã tạo đơn ');
@@ -317,6 +647,7 @@
     link.rel = 'noreferrer';
     link.textContent = code;
     savedEl.append(link, updated ? `${total}.` : `${total}. Tiếp tục đơn mới bên dưới.`);
+    scheduleHideSaved(2000);
   }
 
   function sourceForChannel(channel) {
@@ -373,7 +704,6 @@
     if (!order || typeof order !== 'object') return;
     if (nameInput instanceof HTMLInputElement) nameInput.value = String(order.customerName || '').slice(0, 80);
     if (phoneInput instanceof HTMLInputElement) phoneInput.value = String(order.phone || '');
-    if (lookupInput instanceof HTMLInputElement) lookupInput.value = String(order.phone || '');
     const noteEl = document.querySelector('[data-note]');
     if (noteEl instanceof HTMLInputElement) noteEl.value = String(order.note || '').slice(0, 500);
     applyComposedAddress(String(order.address || ''));
@@ -405,10 +735,12 @@
     if (discountExtra instanceof HTMLInputElement) discountExtra.value = '';
     if (orderTotal instanceof HTMLInputElement) {
       orderTotal.value = groupDigits(String(order.totalPrice || ''), 9);
+      if (orderTotal.value) orderTotal.dataset.lock = '1';
+      else delete orderTotal.dataset.lock;
     }
     setMetaFlags(order.flags);
     paintPay();
-    if (savedEl instanceof HTMLElement) savedEl.hidden = true;
+    clearSavedBanner();
     setFormError('');
     form?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -469,6 +801,8 @@
     if (discountExtra instanceof HTMLInputElement) discountExtra.value = '';
     paintPay();
     setFormError('');
+    window.clearTimeout(savedHideTimer);
+    savedHideTimer = 0;
     if (savedEl instanceof HTMLElement) {
       savedEl.hidden = false;
       savedEl.textContent = `Đã nhân bản từ ${order.code || 'đơn gốc'} — chỉnh rồi bấm Tạo đơn hàng.`;
@@ -490,7 +824,6 @@
     clearAddressMap();
     const noteEl = document.querySelector('[data-note]');
     if (noteEl instanceof HTMLInputElement) noteEl.value = '';
-    setLookupNote('');
     setLegacyHint('');
     if (legacyInput instanceof HTMLInputElement) legacyInput.value = '';
     closeLegacyList();
@@ -510,12 +843,6 @@
       return { el: null, msg: result.error || 'Thông tin thanh toán/giao chưa hợp lệ.' };
     }
     return { el: null, msg: result?.error || 'Không tạo được đơn. Thử lại.' };
-  }
-
-  function setLookupNote(text) {
-    if (!(lookupResult instanceof HTMLElement)) return;
-    lookupResult.hidden = !text;
-    lookupResult.textContent = text || '';
   }
 
   function setLegacyHint(text) {
@@ -723,9 +1050,14 @@
     return weightScaleMap.get(scale) || weightScaleMap.get('baby') || { scale: 'none', chips: [], extras: [] };
   }
 
+  /** Extension không hiện chip «Chưa sinh». */
+  function uiWeightChips(chips) {
+    return (Array.isArray(chips) ? chips : []).filter((label) => label !== 'Chưa sinh');
+  }
+
   function needsWeight(product) {
     const scale = scaleOf(product);
-    return (scale.chips?.length || 0) + (scale.extras?.length || 0) > 0;
+    return uiWeightChips(scale.chips).length + (scale.extras?.length || 0) > 0;
   }
 
   async function loadAddressRows() {
@@ -951,40 +1283,6 @@
       }
       closeAllAddressCombos();
     });
-  }
-
-  async function runLookup() {
-    const phone =
-      lookupInput instanceof HTMLInputElement
-        ? lookupInput.value.trim()
-        : phoneInput instanceof HTMLInputElement
-          ? phoneInput.value.trim()
-          : '';
-    if (!phone) {
-      setLookupNote('Nhập số điện thoại để tra.');
-      return;
-    }
-    setLookupNote('Đang tra…');
-    const result = await send('vdt-lookup-phone', { phone });
-    if (result?.error === 'auth') {
-      setLookupNote('Cần đăng nhập admin để tra đơn.');
-      return;
-    }
-    if (!result?.ok) {
-      setLookupNote(result?.error || 'Không tra được khách.');
-      return;
-    }
-    if (!result.found || !result.customer) {
-      setLookupNote(`Chưa có đơn với ${phone}`);
-      if (phoneInput instanceof HTMLInputElement) phoneInput.value = phone;
-      return;
-    }
-    const customer = result.customer;
-    if (nameInput instanceof HTMLInputElement && customer.customerName) nameInput.value = customer.customerName;
-    if (phoneInput instanceof HTMLInputElement) phoneInput.value = customer.phone || phone;
-    if (lookupInput instanceof HTMLInputElement) lookupInput.value = customer.phone || phone;
-    if (customer.address) applyComposedAddress(customer.address);
-    setLookupNote(customer.orderCount ? `Có ${customer.orderCount} đơn · ${customer.customerName || phone}` : `Đã điền · ${customer.customerName || phone}`);
   }
 
   function closeLegacyList() {
@@ -1346,7 +1644,7 @@
 
   function stepWeight(delta) {
     if (!pendingProduct || !needsWeight(pendingProduct)) return;
-    const chips = scaleOf(pendingProduct).chips || [];
+    const chips = uiWeightChips(scaleOf(pendingProduct).chips);
     if (!chips.length) return;
     const idx = chips.indexOf(pendingWeight);
     if (delta < 0) {
@@ -1364,7 +1662,7 @@
   function renderPickPanel(product) {
     const weigh = needsWeight(product);
     const scale = scaleOf(product);
-    const chips = scale.chips || [];
+    const chips = uiWeightChips(scale.chips);
     const extras = scale.extras || [];
     const noteQtyRow = `<div class="pick-panel-top">
       <div class="qty-box qty-box-compact">
@@ -1426,18 +1724,27 @@
           ? `<img class="pick-photo" src="${escapeHtml(product.coverUrl)}" alt="" width="72" height="72" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-fallback="1" />`
           : `<span class="pick-photo is-empty" aria-hidden="true">SP</span>`;
         return `<div class="pick-card${open ? ' is-open' : ''}${added ? ' is-added' : ''}" data-pick-card="${product.id}">
-          <button type="button" class="pick-item" data-pick-toggle="${product.id}" aria-expanded="${open ? 'true' : 'false'}">
-            ${photo}
-            <span class="pick-copy">
-              <span class="pick-name">${escapeHtml(product.name)}</span>
-              <span class="pick-meta">
-                <span class="pick-price">${escapeHtml(formatVnd(product.price))}</span>
-                <span class="pick-sold">Lượt bán ${escapeHtml(soldLabel)}</span>
-                ${added ? '<span class="pick-added">đã thêm</span>' : ''}
+          <div class="pick-row">
+            <button type="button" class="pick-item" data-pick-toggle="${product.id}" aria-expanded="${open ? 'true' : 'false'}">
+              ${photo}
+              <span class="pick-copy">
+                <span class="pick-name">${escapeHtml(product.name)}</span>
+                <span class="pick-meta">
+                  <span class="pick-price">${escapeHtml(formatVnd(product.price))}</span>
+                  <span class="pick-sold">Lượt bán ${escapeHtml(soldLabel)}</span>
+                  ${added ? '<span class="pick-added">đã thêm</span>' : ''}
+                </span>
               </span>
-            </span>
-            <span class="pick-chevron" aria-hidden="true"></span>
-          </button>
+            </button>
+            <div class="pick-actions">
+              <button type="button" class="pick-action" data-pick-toggle="${product.id}" aria-expanded="${open ? 'true' : 'false'}" title="${open ? 'Thu gọn' : 'Chọn cân / số lượng'}" aria-label="${open ? 'Thu gọn' : 'Chọn cân / số lượng'}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <button type="button" class="pick-action" data-pick-custom="${product.id}" title="Tùy chỉnh từ mẫu này" aria-label="Tùy chỉnh từ mẫu này">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
+          </div>
           ${open ? renderPickPanel(product) : ''}
         </div>`;
       })
@@ -1469,10 +1776,17 @@
     return `<span class="cart-photo is-empty" aria-hidden="true">SP</span>`;
   }
 
+  function cartLineKey(line, index = 0) {
+    if (line.custom) {
+      return `custom|${line.productId || index}|${line.weight || ''}|${line.note || ''}|${line.name || ''}|${line.unitPrice || 0}|${line.unitCost ?? ''}`;
+    }
+    return `${line.productId || index}|${line.weight || ''}|${line.note || ''}`;
+  }
+
   function addToCart(product, weight, quantity, note) {
     const unitPrice = applyWeightPrice(product.price, weight);
-    const key = `${product.id}|${weight}|${note}`;
-    const existing = cart.find((line) => line.key === key);
+    const key = cartLineKey({ productId: product.id, weight, note });
+    const existing = cart.find((line) => line.key === key && !line.custom);
     if (existing) {
       existing.quantity = Math.min(20, existing.quantity + quantity);
       if (!existing.coverUrl && product.coverUrl) existing.coverUrl = product.coverUrl;
@@ -1489,8 +1803,36 @@
         coverUrl: product.coverUrl || '',
       });
     }
+    unlockOrderTotal();
     renderCart();
     paintPay();
+    scheduleDraftSave();
+  }
+
+  function addCustomToCart(product, values, editIndex = null) {
+    const line = {
+      productId: product.id,
+      name: values.name,
+      weight: values.weight,
+      quantity: values.quantity,
+      note: values.note,
+      unitPrice: values.unitPrice,
+      unitCost: values.unitCost,
+      custom: true,
+      categorySlug: product.categorySlug || '',
+      coverUrl: product.coverUrl || '',
+      key: '',
+    };
+    line.key = cartLineKey(line);
+    if (Number.isInteger(editIndex) && editIndex !== null && editIndex >= 0 && editIndex < cart.length) {
+      cart[editIndex] = { ...cart[editIndex], ...line, coverUrl: cart[editIndex].coverUrl || line.coverUrl };
+    } else {
+      cart.push(line);
+    }
+    unlockOrderTotal();
+    renderCart();
+    paintPay();
+    scheduleDraftSave();
   }
 
   /** @type {{ index: number, field: 'qty' | 'note' | 'weight', extraOpen?: boolean } | null} */
@@ -1520,10 +1862,11 @@
 
   function renderCartWeightEditor(line, product) {
     const scale = scaleOf(product);
-    const chips = scale.chips || [];
+    const allChips = Array.isArray(scale.chips) ? scale.chips : [];
+    const chips = uiWeightChips(allChips);
     const extras = scale.extras || [];
     const weight = String(line.weight || '').trim();
-    const extraOpen = Boolean(cartEdit?.extraOpen) || (weight && extras.includes(weight) && !chips.includes(weight));
+    const extraOpen = Boolean(cartEdit?.extraOpen) || (weight && extras.includes(weight) && !allChips.includes(weight));
     return `<div class="cart-weight-editor" data-cart-weight-editor>
       <div class="chips pick-chips">
         ${chips
@@ -1590,7 +1933,10 @@
           <div class="cart-top">
             ${cartLinePhotoHtml(line)}
             <div class="cart-copy">
-              <div class="cart-name">${escapeHtml(line.name)}</div>
+              <div class="cart-name">
+                <span>${escapeHtml(line.name)}</span>
+                ${line.custom ? '<button type="button" class="cart-custom-badge" data-cart-edit-custom title="Sửa sản phẩm tùy chỉnh">Tùy chỉnh</button>' : ''}
+              </div>
               <div class="cart-sub">${subHtml}</div>
             </div>
             <button type="button" class="cart-remove" data-cart-remove>Xóa</button>
@@ -1633,8 +1979,8 @@
     if (!product || !needsWeight(product)) return false;
     const next = String(weight || '').trim();
     line.weight = next;
-    line.unitPrice = applyWeightPrice(product.price, next);
-    line.key = `${line.productId}|${line.weight}|${line.note}`;
+    if (!line.custom) line.unitPrice = applyWeightPrice(product.price, next);
+    line.key = cartLineKey(line);
     return true;
   }
 
@@ -1651,17 +1997,23 @@
     line.note = String(input instanceof HTMLInputElement ? input.value : '')
       .trim()
       .slice(0, 160);
-    line.key = `${line.productId}|${line.weight}|${line.note}`;
+    line.key = cartLineKey(line);
   }
 
   function endCartEdit(opts = {}) {
     cartEdit = null;
+    unlockOrderTotal();
     renderCart();
     if (opts.paint !== false) paintPay();
+    scheduleDraftSave();
   }
 
   function cartSubtotal() {
     return cart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
+  }
+
+  function unlockOrderTotal() {
+    if (orderTotal instanceof HTMLInputElement) delete orderTotal.dataset.lock;
   }
 
   function selectedDiscount() {
@@ -1673,7 +2025,22 @@
     const subtotal = cartSubtotal();
     const codeAmount = quoteDiscount(selectedDiscount(), subtotal);
     const room = Math.max(0, subtotal - codeAmount);
-    const extra = Math.min(room, moneyOf(discountExtra instanceof HTMLInputElement ? discountExtra.value : ''));
+    let extra = Math.min(room, moneyOf(discountExtra instanceof HTMLInputElement ? discountExtra.value : ''));
+    const locked = orderTotal instanceof HTMLInputElement && orderTotal.dataset.lock === '1';
+    // Giống admin: đổi giỏ thì tổng tự tính lại; chỉ giữ số gõ tay khi đang khóa.
+    if (locked && orderTotal instanceof HTMLInputElement) {
+      const shown = moneyOf(orderTotal.value);
+      if (shown > subtotal) extra = 0;
+      else extra = Math.max(0, room - shown);
+    } else if (orderTotal instanceof HTMLInputElement) {
+      orderTotal.value = room - extra > 0 ? groupDigits(String(room - extra), 9) : '';
+    }
+    if (
+      discountExtra instanceof HTMLInputElement &&
+      !(locked && orderTotal instanceof HTMLInputElement && moneyOf(orderTotal.value) > subtotal)
+    ) {
+      discountExtra.value = extra > 0 ? groupDigits(String(extra), 8) : '';
+    }
     const goods = Math.max(0, room - extra);
     const shipLines = cart.map((line) => ({
       group: shipGroupOf(line.categorySlug),
@@ -1691,8 +2058,9 @@
       else if (!shipFeeEl.value && defaultShipFee) shipFeeEl.value = defaultShipFee;
     }
     const ship = free ? 0 : moneyOf(shipFeeEl instanceof HTMLInputElement ? shipFeeEl.value : '');
-    const lockedTotal = orderTotal instanceof HTMLInputElement ? moneyOf(orderTotal.value) : 0;
-    const payable = compensation ? 0 : lockedTotal > 0 ? lockedTotal + ship : goods + ship;
+    const lockedTotal = locked && orderTotal instanceof HTMLInputElement ? moneyOf(orderTotal.value) : 0;
+    const base = locked && lockedTotal > 0 ? lockedTotal : goods;
+    const payable = compensation ? 0 : base + ship;
     return { subtotal, codeAmount, extra, ship, free, compensation, payable };
   }
 
@@ -1791,6 +2159,230 @@
     }
   }
 
+  function customModalEls() {
+    return {
+      root: document.querySelector('[data-custom-modal]'),
+      form: document.querySelector('[data-custom-form]'),
+      base: document.querySelector('[data-custom-base]'),
+      name: document.querySelector('[data-custom-name]'),
+      price: document.querySelector('[data-custom-price]'),
+      cost: document.querySelector('[data-custom-cost]'),
+      qty: document.querySelector('[data-custom-qty]'),
+      note: document.querySelector('[data-custom-note]'),
+      weightBox: document.querySelector('[data-custom-weight]'),
+      chips: document.querySelector('[data-custom-chips]'),
+      extraWrap: document.querySelector('[data-custom-extra-wrap]'),
+      extra: document.querySelector('[data-custom-extra]'),
+      error: document.querySelector('[data-custom-error]'),
+      submit: document.querySelector('[data-custom-submit]'),
+    };
+  }
+
+  function setCustomError(text) {
+    const { error } = customModalEls();
+    const msg = String(text || '').trim();
+    if (error instanceof HTMLElement) {
+      error.hidden = !msg;
+      error.textContent = msg;
+    }
+  }
+
+  function renderCustomWeightUi() {
+    if (!customDraft) return;
+    const { weightBox, chips, extraWrap, extra } = customModalEls();
+    const product = customDraft.product;
+    const weigh = needsWeight(product);
+    if (weightBox instanceof HTMLElement) weightBox.hidden = !weigh;
+    if (!weigh) {
+      customDraft.weight = '';
+      return;
+    }
+    const scale = scaleOf(product);
+    const chipList = uiWeightChips(scale.chips);
+    const extras = scale.extras || [];
+    const weight = customDraft.weight;
+    if (chips instanceof HTMLElement) {
+      chips.innerHTML = `
+        ${chipList
+          .map(
+            (label) =>
+              `<button type="button" class="chip" data-custom-chip="${escapeHtml(label)}" aria-pressed="${label === weight}">${escapeHtml(label)}</button>`,
+          )
+          .join('')}
+        ${
+          extras.length
+            ? `<button type="button" class="chip weight-extra-toggle" data-custom-extra-toggle aria-expanded="${customDraft.extraOpen}" title="Cân nặng khác" aria-label="Cân nặng khác">+</button>`
+            : ''
+        }`;
+    }
+    if (extraWrap instanceof HTMLElement) extraWrap.hidden = !customDraft.extraOpen;
+    if (extra instanceof HTMLSelectElement) {
+      extra.innerHTML = `<option value="">Chọn…</option>${extras
+        .map((label) => `<option value="${escapeHtml(label)}" ${label === weight ? 'selected' : ''}>${escapeHtml(label)}</option>`)
+        .join('')}`;
+    }
+  }
+
+  function openCustomModal(product, editIndex = null) {
+    if (!product) return;
+    closePickPanel();
+    renderPickList();
+    const existing = Number.isInteger(editIndex) && editIndex !== null ? cart[editIndex] : null;
+    const baseCost = product.unitCost == null || product.unitCost === '' ? '' : groupDigits(String(product.unitCost), 8);
+    const weight = existing ? String(existing.weight || '') : '';
+    const scale = scaleOf(product);
+    const extras = scale.extras || [];
+    const chips = scale.chips || [];
+    customDraft = {
+      product,
+      editIndex: Number.isInteger(editIndex) ? editIndex : null,
+      weight,
+      qty: existing ? Math.max(1, Number(existing.quantity) || 1) : 1,
+      note: existing ? String(existing.note || '') : '',
+      name: existing ? String(existing.name || product.name) : String(product.name || ''),
+      price: groupDigits(String(existing ? existing.unitPrice : applyWeightPrice(product.price, weight)), 8),
+      unitCost: existing && existing.custom ? groupDigits(String(existing.unitCost ?? ''), 8) : baseCost,
+      extraOpen: Boolean(weight && extras.includes(weight) && !chips.includes(weight)),
+    };
+    const els = customModalEls();
+    if (els.base instanceof HTMLElement) els.base.textContent = `Mẫu gốc: ${product.name}`;
+    if (els.name instanceof HTMLInputElement) els.name.value = customDraft.name;
+    if (els.price instanceof HTMLInputElement) els.price.value = customDraft.price;
+    if (els.cost instanceof HTMLInputElement) els.cost.value = customDraft.unitCost;
+    if (els.qty instanceof HTMLInputElement) els.qty.value = String(customDraft.qty);
+    if (els.note instanceof HTMLInputElement) els.note.value = customDraft.note;
+    if (els.submit instanceof HTMLButtonElement) {
+      els.submit.textContent = customDraft.editIndex != null ? 'Cập nhật dòng' : 'Thêm vào đơn';
+    }
+    setCustomError('');
+    renderCustomWeightUi();
+    if (els.root instanceof HTMLElement) els.root.hidden = false;
+    queueMicrotask(() => {
+      if (els.name instanceof HTMLInputElement) {
+        try {
+          els.name.focus();
+          els.name.select();
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+  }
+
+  function closeCustomModal() {
+    customDraft = null;
+    const { root } = customModalEls();
+    if (root instanceof HTMLElement) root.hidden = true;
+    setCustomError('');
+  }
+
+  function commitCustomModal() {
+    if (!customDraft) return false;
+    const els = customModalEls();
+    const name = els.name instanceof HTMLInputElement ? els.name.value.replace(/\s+/g, ' ').trim() : '';
+    if (!name) {
+      setCustomError('Nhập tên sản phẩm.');
+      return false;
+    }
+    const unitPrice = moneyOf(els.price instanceof HTMLInputElement ? els.price.value : '');
+    if (!Number.isInteger(unitPrice) || unitPrice < 0) {
+      setCustomError('Giá bán không hợp lệ.');
+      return false;
+    }
+    const costRaw = els.cost instanceof HTMLInputElement ? els.cost.value.trim() : '';
+    if (!costRaw) {
+      setCustomError('Nhập giá vốn cho dòng tùy chỉnh.');
+      return false;
+    }
+    const unitCost = moneyOf(costRaw);
+    if (!Number.isInteger(unitCost) || unitCost < 0) {
+      setCustomError('Giá vốn không hợp lệ.');
+      return false;
+    }
+    const quantity = clampPickQty(els.qty instanceof HTMLInputElement ? els.qty.value : customDraft.qty);
+    const note = els.note instanceof HTMLInputElement ? els.note.value.trim().slice(0, 160) : '';
+    const weight = String(customDraft.weight || '').trim();
+    if (needsWeight(customDraft.product) && !weight) {
+      setCustomError('Chọn cân nặng cho bé.');
+      return false;
+    }
+    addCustomToCart(
+      customDraft.product,
+      { name, unitPrice, unitCost, quantity, note, weight },
+      customDraft.editIndex,
+    );
+    closeCustomModal();
+    setFormError('');
+    requestAnimationFrame(() => scrollCartSectionIntoView());
+    return true;
+  }
+
+  function bindCustomModal() {
+    const { root, form, price, cost, qty } = customModalEls();
+    root?.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('[data-custom-close]')) {
+        closeCustomModal();
+        return;
+      }
+      if (!customDraft) return;
+      const chip = target.closest('[data-custom-chip]');
+      if (chip instanceof HTMLElement) {
+        customDraft.weight = chip.getAttribute('data-custom-chip') || '';
+        customDraft.extraOpen = false;
+        renderCustomWeightUi();
+        return;
+      }
+      if (target.closest('[data-custom-extra-toggle]')) {
+        customDraft.extraOpen = !customDraft.extraOpen;
+        renderCustomWeightUi();
+        return;
+      }
+      if (target.closest('[data-custom-qty-dec]')) {
+        customDraft.qty = clampPickQty(customDraft.qty - 1);
+        if (qty instanceof HTMLInputElement) qty.value = String(customDraft.qty);
+        return;
+      }
+      if (target.closest('[data-custom-qty-inc]')) {
+        customDraft.qty = clampPickQty(customDraft.qty + 1);
+        if (qty instanceof HTMLInputElement) qty.value = String(customDraft.qty);
+      }
+    });
+    form?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      commitCustomModal();
+    });
+    form?.addEventListener('change', (event) => {
+      if (!(event.target instanceof HTMLSelectElement) || !customDraft) return;
+      if (event.target.hasAttribute('data-custom-extra') && event.target.value) {
+        customDraft.weight = event.target.value;
+        renderCustomWeightUi();
+      }
+    });
+    const moneyInput = (el) => {
+      el?.addEventListener('input', () => {
+        if (!(el instanceof HTMLInputElement)) return;
+        el.value = groupDigits(el.value, 8);
+      });
+    };
+    moneyInput(price);
+    moneyInput(cost);
+    qty?.addEventListener('change', () => {
+      if (!(qty instanceof HTMLInputElement) || !customDraft) return;
+      customDraft.qty = clampPickQty(qty.value);
+      qty.value = String(customDraft.qty);
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      const modal = customModalEls().root;
+      if (modal instanceof HTMLElement && !modal.hidden) {
+        event.preventDefault();
+        closeCustomModal();
+      }
+    });
+  }
+
   function bindProducts() {
     document.querySelector('[data-scroll-products]')?.addEventListener('click', () => {
       scrollProductsSectionIntoView();
@@ -1810,6 +2402,13 @@
     pickList?.addEventListener('click', (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
+
+      const customBtn = target.closest('[data-pick-custom]');
+      if (customBtn instanceof HTMLElement) {
+        const product = products.find((item) => String(item.id) === customBtn.getAttribute('data-pick-custom'));
+        if (product) openCustomModal(product, null);
+        return;
+      }
 
       const toggle = target.closest('[data-pick-toggle]');
       if (toggle instanceof HTMLElement) {
@@ -1932,9 +2531,16 @@
       if (event.target instanceof Element && event.target.closest('[data-cart-remove]')) {
         cart.splice(index, 1);
         cartEdit = null;
+        unlockOrderTotal();
         renderCart();
         renderPickList();
         paintPay();
+        scheduleDraftSave();
+        return;
+      }
+      if (event.target instanceof Element && event.target.closest('[data-cart-edit-custom]')) {
+        const product = cartLineProduct(line);
+        if (product && line.custom) openCustomModal(product, index);
         return;
       }
       if (event.target instanceof Element && event.target.closest('[data-cart-edit-qty]')) {
@@ -1970,6 +2576,7 @@
       if (event.target instanceof Element && event.target.closest('[data-cart-dec]')) {
         line.quantity = Math.max(1, line.quantity - 1);
         cartEdit = { index, field: 'qty' };
+        unlockOrderTotal();
         renderCart({ keepEdit: true });
         paintPay();
         return;
@@ -1977,6 +2584,7 @@
       if (event.target instanceof Element && event.target.closest('[data-cart-inc]')) {
         line.quantity = Math.min(20, line.quantity + 1);
         cartEdit = { index, field: 'qty' };
+        unlockOrderTotal();
         renderCart({ keepEdit: true });
         paintPay();
       }
@@ -2030,13 +2638,20 @@
       if (event.target.hasAttribute('data-cart-note')) commitCartNote(event.target, index);
       endCartEdit();
     });
-    discountCode?.addEventListener('change', () => paintPay());
+    discountCode?.addEventListener('change', () => {
+      unlockOrderTotal();
+      paintPay();
+    });
     discountExtra?.addEventListener('input', () => {
       if (discountExtra instanceof HTMLInputElement) discountExtra.value = groupDigits(discountExtra.value);
+      unlockOrderTotal();
       paintPay();
     });
     orderTotal?.addEventListener('input', () => {
-      if (orderTotal instanceof HTMLInputElement) orderTotal.value = groupDigits(orderTotal.value, 9);
+      if (orderTotal instanceof HTMLInputElement) {
+        orderTotal.value = groupDigits(orderTotal.value, 9);
+        orderTotal.dataset.lock = '1';
+      }
       paintPay();
     });
 
@@ -2179,6 +2794,12 @@
         price: String(line.unitPrice),
         name: line.name,
         note: line.note,
+        ...(line.custom
+          ? {
+              custom: true,
+              unitCost: String(Math.max(0, Number(line.unitCost) || 0)),
+            }
+          : {}),
       })),
       discountCode: discountCode instanceof HTMLSelectElement ? discountCode.value : '',
       discountExtra: discountExtra instanceof HTMLInputElement ? discountExtra.value : '',
@@ -2219,6 +2840,12 @@
       }
       if (!(Number(line.quantity) > 0)) {
         return { el: cartEl, msg: 'Số lượng sản phẩm phải lớn hơn 0.' };
+      }
+      if (line.custom) {
+        const cost = Number(line.unitCost);
+        if (!Number.isInteger(cost) || cost < 0) {
+          return { el: cartEl, msg: `Nhập giá vốn cho «${line.name || 'sản phẩm tùy chỉnh'}».` };
+        }
       }
     }
     if (!draft.payState) return { el: payStatesEl, msg: 'Chọn hình thức thanh toán.' };
@@ -2319,18 +2946,15 @@
 
   document.querySelector('[data-login]')?.addEventListener('click', () => void send('vdt-open-login'));
   document.querySelector('[data-retry]')?.addEventListener('click', () => void loadBootstrap());
-  lookupRun?.addEventListener('click', () => void runLookup());
-  lookupInput?.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      void runLookup();
-    }
-  });
 
   bindAddress();
   bindLegacy();
   bindProducts();
+  bindCustomModal();
   bindMeta();
+
+  form?.addEventListener('input', () => scheduleDraftSave());
+  form?.addEventListener('change', () => scheduleDraftSave());
 
   function requestSendConfirm(messages) {
     return new Promise((resolve) => {
@@ -2394,6 +3018,9 @@
       return { ok: false, result };
     }
     const phone = draft.phone;
+    const draftChannel = hostChannel;
+    const draftChatId = hostChatId;
+    await clearDraft(draftChannel, draftChatId);
     await showSaved(result, { updated: editing });
     if (editing) {
       clearEditMode({ resetForm: true });
@@ -2477,18 +3104,16 @@
     if (sendingConfirm || submitting) return;
     const draft = requireDraftReady();
     if (!draft) return;
+    // Giữ nội dung tin trước khi reset form sau tạo đơn.
     const messages = buildConfirmMessages();
+    const wasEditing = isEditing();
     sendingConfirm = true;
     submitting = true;
     setConfirmButtonsBusy(true);
     setSubmitBusy(true);
     void (async () => {
       try {
-        const sent = await requestSendConfirm(messages);
-        if (!sent?.ok) {
-          setFormError(sent?.error || 'Không gửi được tin xác nhận vào ô chat.');
-          return;
-        }
+        // Ưu tiên ghi DB — không để lỗi DOM/gửi chat chặn tạo đơn.
         const outcome = await createOrUpdateOrder(draft);
         if (outcome.auth) {
           show(form, false);
@@ -2496,14 +3121,22 @@
           if (authText instanceof HTMLElement) {
             authText.textContent = 'Phiên đăng nhập hết hạn. Đăng nhập lại rồi bấm tải lại.';
           }
-          setFormError('Cần đăng nhập admin để tạo đơn.');
+          setFormError(wasEditing ? 'Cần đăng nhập admin để sửa đơn.' : 'Cần đăng nhập admin để tạo đơn.');
           return;
         }
         if (!outcome.ok) {
           const mapped = mapCreateError(outcome.result);
           revealInvalid(mapped);
           if (/phiên không hợp lệ/i.test(mapped.msg)) void loadBootstrap();
-          setFormError(mapped.msg || 'Đã gửi tin nhưng tạo đơn thất bại.');
+          setFormError(mapped.msg || (wasEditing ? 'Không lưu được đơn.' : 'Không tạo được đơn.'));
+          return;
+        }
+
+        const sent = await requestSendConfirm(messages);
+        if (!sent?.ok) {
+          setStatusMessage(
+            `Đã ${wasEditing ? 'lưu' : 'tạo'} đơn nhưng không gửi được tin xác nhận: ${sent?.error || 'thử Gửi xác nhận lại.'}`,
+          );
           return;
         }
         setFormError('');
@@ -2541,24 +3174,40 @@
       return;
     }
     if (data.type === 'vdt-host-channel') {
+      if (typeof data.channel === 'string' && data.channel.trim()) hostChannel = data.channel.trim();
       applyChannelSource(typeof data.channel === 'string' ? data.channel : '');
       return;
     }
     if (data.type === 'vdt-fill-customer' || data.type === 'vdt-fill-phone') {
-      if (typeof data.name === 'string' && nameInput instanceof HTMLInputElement && data.name.trim()) {
-        nameInput.value = data.name.replace(/\s+/g, ' ').trim().slice(0, 80);
-      }
-      if (typeof data.phone === 'string' && data.phone.trim()) {
-        if (phoneInput instanceof HTMLInputElement) phoneInput.value = data.phone.trim();
-        if (lookupInput instanceof HTMLInputElement) lookupInput.value = data.phone.trim();
-      }
-      if (typeof data.channel === 'string') applyChannelSource(data.channel);
+      const nextChatId = typeof data.chatId === 'string' ? data.chatId.trim() : '';
+      const nextChannel = typeof data.channel === 'string' ? data.channel.trim() : hostChannel;
+      void (async () => {
+        const restored = nextChatId ? await switchChatContext(nextChannel, nextChatId) : false;
+        const protect = restored || draftProtectActive();
+        if (typeof data.name === 'string' && data.name.trim() && nameInput instanceof HTMLInputElement) {
+          if (!protect || !nameInput.value.trim()) {
+            nameInput.value = data.name.replace(/\s+/g, ' ').trim().slice(0, 80);
+          }
+        }
+        if (typeof data.phone === 'string' && data.phone.trim() && phoneInput instanceof HTMLInputElement) {
+          if (!protect || !phoneInput.value.trim()) {
+            phoneInput.value = data.phone.trim();
+          }
+        }
+        if (typeof data.channel === 'string') applyChannelSource(data.channel);
+        if (!restored) scheduleDraftSave();
+      })();
       return;
     }
     if (data.type === 'vdt-fill-address') {
+      if (draftProtectActive() && addressSelection.provinceCode) {
+        // Vừa restore draft — không đè địa chỉ đã lưu.
+        return;
+      }
       if (typeof data.phone === 'string' && data.phone.trim()) {
-        if (phoneInput instanceof HTMLInputElement) phoneInput.value = data.phone.trim();
-        if (lookupInput instanceof HTMLInputElement) lookupInput.value = data.phone.trim();
+        if (phoneInput instanceof HTMLInputElement && (!draftProtectActive() || !phoneInput.value.trim())) {
+          phoneInput.value = data.phone.trim();
+        }
       }
       const hasCodes =
         typeof data.provinceCode === 'string' &&
@@ -2596,6 +3245,7 @@
             addressCard.classList.add('is-block-attention');
             window.setTimeout(() => addressCard.classList.remove('is-block-attention'), 1600);
           }
+          scheduleDraftSave();
           return;
         }
       } else if (typeof data.address === 'string' && data.address.trim()) {
@@ -2666,6 +3316,7 @@
           }
         }
       }
+      scheduleDraftSave();
     }
   });
 

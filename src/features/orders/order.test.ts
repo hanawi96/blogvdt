@@ -85,6 +85,14 @@ describe('đơn hàng', () => {
     expect(orderListStatus('new')).toBe('unshipped');
   });
 
+  it('có ô tìm và không chỉ định status → mặc định tất cả trạng thái', () => {
+    expect(orderListStatus(null, '0886815229')).toBe('');
+    expect(orderListStatus(undefined, 'VD20261119-0001')).toBe('');
+    expect(orderListStatus(null, '  ')).toBe('unshipped');
+    expect(orderListStatus('unshipped', '0886815229')).toBe('unshipped');
+    expect(orderListStatus('shipped', '0886815229')).toBe('shipped');
+  });
+
   it('bộ lọc list chỉ nhận nguồn khách hợp lệ', () => {
     expect(isOrderSource('zalo')).toBe(true);
     expect(isOrderSource('web')).toBe(true);
@@ -364,6 +372,6 @@ describe('đơn hàng', () => {
     if (!bad.ok) expect(bad.errors.weight0).toBeTruthy();
 
     const good = parseCartOrder({ ...valid, lines: [{ slug: 'vong-cho-be', quantity: 1, weight: 'Chưa sinh' }] }, catalog);
-    expect(good.ok && good.single?.optionLabel).toBe('Chưa sinh');
+    expect(good.ok && good.single?.optionLabel).toBe('3kg');
   });
 });

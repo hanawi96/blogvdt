@@ -1,6 +1,12 @@
 import { cartSummary, type CartLine } from '../cart/cart';
 import { SLUG_PATTERN } from '../posts/slug';
-import { applyWeightPrice, isValidWeight, requiresWeight, type WeightScale } from '../products/weight';
+import {
+  applyWeightPrice,
+  isValidWeight,
+  normalizeWeightForStorage,
+  requiresWeight,
+  type WeightScale,
+} from '../products/weight';
 import { DEFAULT_PAYMENT_METHOD, isPaymentMethod, paymentLabel, type PaymentMethod } from './payment';
 import { calendarRange } from '../../lib/datetime';
 import type { FieldErrors } from '../../lib/validation/errors';
@@ -139,8 +145,9 @@ export type CartOrderDraft = {
 };
 
 // Nhãn bổ sung lưu kèm đơn: hiện chỉ còn cân nặng của bé (nếu có).
+// «Chưa sinh» (UI) → «3kg» khi ghi DB.
 export function orderOptionLabel(weight: string): string | null {
-  const value = weight.trim();
+  const value = normalizeWeightForStorage(weight);
   return value.length > 0 ? value : null;
 }
 

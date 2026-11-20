@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm';
-import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+  type AnySQLiteColumn,
+  check,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 
 export const adminUsers = sqliteTable(
   'admin_users',
@@ -689,6 +698,35 @@ export const seoHealthIssues = sqliteTable(
   (table) => [
     index('seo_health_issues_filter_idx').on(table.runId, table.severity, table.code, table.postId),
     check('seo_health_issues_severity_check', sql`${table.severity} in ('error', 'warning')`),
+  ],
+);
+
+/** Bình luận sản phẩm (guest + shop), duyệt trước khi hiện công khai. */
+export const productComments = sqliteTable(
+  'product_comments',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    productId: integer('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    /** Null = bình luận gốc; nếu có thì phải trỏ comment gốc (1 cấp). */
+    parentId: integer('parent_id').references((): AnySQLiteColumn => productComments.id, { onDelete: 'cascade' }),
+    authorName: text('author_name').notNull(),
+    authorKind: text('author_kind').notNull().default('guest'),
+    body: text('body').notNull(),
+    r2Key: text('r2_key'),
+    imageWidth: integer('image_width'),
+    imageHeight: integer('image_height'),
+    status: text('status').notNull().default('pending'),
+    ipHash: text('ip_hash'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => [
+    index('product_comments_product_public_idx').on(table.productId, table.status, table.parentId, table.id),
+    index('product_comments_admin_list_idx').on(table.status, table.createdAt, table.id),
+    index('product_comments_rate_idx').on(table.ipHash, table.createdAt),
+    check('product_comments_author_kind_check', sql`${table.authorKind} IN ('guest', 'shop')`),
+    check('product_comments_status_check', sql`${table.status} IN ('pending', 'approved', 'hidden')`),
   ],
 );
 

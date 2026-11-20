@@ -78,6 +78,10 @@ function keptPrice(line: StaffLineInput): number | null {
 function coverOf(line: StaffLineInput): string {
   return choiceOf(line.productId)?.coverUrl ?? '';
 }
+
+function isCustomLine(line: StaffLineInput): boolean {
+  return line.custom === true || line.custom === '1' || line.custom === 'on';
+}
 ---
 
 <div
@@ -104,10 +108,15 @@ function coverOf(line: StaffLineInput): string {
         const priceAmount = Number(priceText.replace(/\D/g, ''));
         const priceLabel = priceText && Number.isSafeInteger(priceAmount) ? formatVnd(priceAmount) : formatVnd(0);
         const cover = coverOf(line);
+        const custom = isCustomLine(line);
+        const costText = custom ? (line.unitCost?.trim() || '') : '';
+        const costAmount = Number(costText.replace(/\D/g, ''));
+        const costLabel = costText && Number.isSafeInteger(costAmount) ? formatVnd(costAmount) : formatVnd(0);
         return (
           <li
             class="staff-line"
             data-line
+            data-custom={custom ? '1' : undefined}
             data-keep={source ? '1' : undefined}
             data-frozen-product={source ? (source.productId ? String(source.productId) : 'none') : undefined}
             data-frozen-weight={source ? (source.optionLabel ?? '') : undefined}
@@ -115,6 +124,7 @@ function coverOf(line: StaffLineInput): string {
           >
             <input type="hidden" name="lineSlot" value={line.slot} />
             <input type="hidden" name="lineProduct" data-product value={line.productId} />
+            <input type="hidden" name="lineCustom" data-line-custom value={custom ? '1' : ''} />
             {cart ? (
               <div class="staff-line-card">
                 <div class="staff-line-photo-wrap">
@@ -136,6 +146,7 @@ function coverOf(line: StaffLineInput): string {
                     <label class="staff-line-name" data-name-field hidden={pickProduct}>
                       <span class="sr-only">Sản phẩm</span>
                       <input class="field staff-line-name-input" name="lineName" data-line-name maxlength="160" autocomplete="off" value={name} hidden={pickProduct} />
+                      {custom && <span class="staff-line-custom-badge" data-custom-badge>Tùy chỉnh</span>}
                     </label>
                     <button class="staff-line-remove" type="button" data-remove-line aria-label="Xóa sản phẩm" hidden={lines.length < 2 && !allowEmpty}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
@@ -177,9 +188,16 @@ function coverOf(line: StaffLineInput): string {
                         </button>
                       </div>
                     </div>
-                    <div class="staff-line-price">
-                      <button class="staff-money-text" type="button" data-money-text>{priceLabel}</button>
-                      <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value={priceText} hidden />
+                    <div class="staff-line-money-col">
+                      <div class="staff-line-price">
+                        <button class="staff-money-text" type="button" data-money-text>{priceLabel}</button>
+                        <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value={priceText} hidden />
+                      </div>
+                      <div class="staff-line-cost" data-cost-field hidden={!custom}>
+                        <span class="od-label">Vốn</span>
+                        <button class="staff-money-text" type="button" data-money-text>{costLabel}</button>
+                        <input class="field" name="lineUnitCost" data-line-cost inputmode="numeric" maxlength="8" autocomplete="off" value={costText} hidden={!custom} />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -200,6 +218,7 @@ function coverOf(line: StaffLineInput): string {
                 <label data-name-field hidden={pickProduct}>
                   <span class="od-label">Sản phẩm</span>
                   <input class="field" name="lineName" data-line-name maxlength="160" autocomplete="off" value={name} hidden={pickProduct} />
+                  {custom && <span class="staff-line-custom-badge" data-custom-badge>Tùy chỉnh</span>}
                 </label>
                 <label data-weight-field hidden={labels.length === 0}>
                   <span class="od-label">Cân nặng</span>
@@ -221,6 +240,11 @@ function coverOf(line: StaffLineInput): string {
                   <button class="staff-money-text" type="button" data-money-text>{priceLabel}</button>
                   <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value={priceText} hidden />
                 </div>
+                <div class="staff-line-cost" data-cost-field hidden={!custom}>
+                  <span class="od-label">Giá vốn</span>
+                  <button class="staff-money-text" type="button" data-money-text>{costLabel}</button>
+                  <input class="field" name="lineUnitCost" data-line-cost inputmode="numeric" maxlength="8" autocomplete="off" value={costText} hidden={!custom} />
+                </div>
                 <input type="hidden" name="lineNote" value={line.note ?? ''} />
               </>
             )}
@@ -233,6 +257,7 @@ function coverOf(line: StaffLineInput): string {
     <li class="staff-line" data-line>
       <input type="hidden" name="lineSlot" value="" />
       <input type="hidden" name="lineProduct" data-product value="" />
+      <input type="hidden" name="lineCustom" data-line-custom value="" />
       {cart ? (
         <div class="staff-line-card">
           <div class="staff-line-photo-wrap">
@@ -250,6 +275,7 @@ function coverOf(line: StaffLineInput): string {
               <label class="staff-line-name" data-name-field hidden>
                 <span class="sr-only">Sản phẩm</span>
                 <input class="field staff-line-name-input" name="lineName" data-line-name maxlength="160" autocomplete="off" value="" hidden />
+                <span class="staff-line-custom-badge" data-custom-badge hidden>Tùy chỉnh</span>
               </label>
               <button class="staff-line-remove" type="button" data-remove-line aria-label="Xóa sản phẩm">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
@@ -271,9 +297,16 @@ function coverOf(line: StaffLineInput): string {
                   </button>
                 </div>
               </div>
-              <div class="staff-line-price">
-                <button class="staff-money-text" type="button" data-money-text>{formatVnd(0)}</button>
-                <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value="" hidden />
+              <div class="staff-line-money-col">
+                <div class="staff-line-price">
+                  <button class="staff-money-text" type="button" data-money-text>{formatVnd(0)}</button>
+                  <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value="" hidden />
+                </div>
+                <div class="staff-line-cost" data-cost-field hidden>
+                  <span class="od-label">Vốn</span>
+                  <button class="staff-money-text" type="button" data-money-text>{formatVnd(0)}</button>
+                  <input class="field" name="lineUnitCost" data-line-cost inputmode="numeric" maxlength="8" autocomplete="off" value="" hidden />
+                </div>
               </div>
             </div>
           </div>
@@ -294,6 +327,7 @@ function coverOf(line: StaffLineInput): string {
           <label data-name-field hidden>
             <span class="od-label">Sản phẩm</span>
             <input class="field" name="lineName" data-line-name maxlength="160" autocomplete="off" value="" hidden />
+            <span class="staff-line-custom-badge" data-custom-badge hidden>Tùy chỉnh</span>
           </label>
           <label data-weight-field hidden>
             <span class="od-label">Cân nặng</span>
@@ -313,6 +347,11 @@ function coverOf(line: StaffLineInput): string {
           <div class="staff-line-price">
             <button class="staff-money-text" type="button" data-money-text>{formatVnd(0)}</button>
             <input class="field" name="linePrice" data-line-price inputmode="numeric" maxlength="8" autocomplete="off" value="" hidden />
+          </div>
+          <div class="staff-line-cost" data-cost-field hidden>
+            <span class="od-label">Giá vốn</span>
+            <button class="staff-money-text" type="button" data-money-text>{formatVnd(0)}</button>
+            <input class="field" name="lineUnitCost" data-line-cost inputmode="numeric" maxlength="8" autocomplete="off" value="" hidden />
           </div>
           <input type="hidden" name="lineNote" value="" />
         </>
@@ -467,9 +506,31 @@ function coverOf(line: StaffLineInput): string {
     }
 
     function moneyButton(input: HTMLInputElement): HTMLElement | null {
-      const scope = input.closest('[data-staff-extra], .staff-line-price, .staff-pay-total') ?? input.parentElement;
+      const scope = input.closest('[data-staff-extra], .staff-line-price, .staff-line-cost, .staff-pay-total') ?? input.parentElement;
       const node = scope?.querySelector('[data-money-text]');
       return node instanceof HTMLElement ? node : null;
+    }
+
+    function isCustomRow(row: HTMLElement): boolean {
+      const flag = row.querySelector('[data-line-custom]');
+      return (flag instanceof HTMLInputElement && flag.value === '1') || row.dataset.custom === '1';
+    }
+
+    function setCustomRow(row: HTMLElement, on: boolean, unitCost = '') {
+      const flag = row.querySelector('[data-line-custom]');
+      const costField = row.querySelector('[data-cost-field]');
+      const costInput = row.querySelector('[data-line-cost]');
+      const badge = row.querySelector('[data-custom-badge]');
+      if (flag instanceof HTMLInputElement) flag.value = on ? '1' : '';
+      if (on) row.dataset.custom = '1';
+      else delete row.dataset.custom;
+      if (costField instanceof HTMLElement) costField.hidden = !on;
+      if (costInput instanceof HTMLInputElement) {
+        costInput.hidden = !on;
+        costInput.value = on ? groupDigits(String(unitCost).replace(/\D/g, ''), 8) : '';
+        paintMoneyText(costInput);
+      }
+      if (badge instanceof HTMLElement) badge.hidden = !on;
     }
 
     function extraEditPanel(): HTMLElement | null {
@@ -557,6 +618,7 @@ function coverOf(line: StaffLineInput): string {
     }
 
     function fillPrice(row: HTMLElement) {
+      if (isCustomRow(row)) return;
       const input = row.querySelector('[data-line-price]');
       if (!(input instanceof HTMLInputElement)) return;
       const amount = unitOf(row);
@@ -626,7 +688,8 @@ function coverOf(line: StaffLineInput): string {
         let over = '';
         if (locked && totalInput instanceof HTMLInputElement) {
           const shownTotal = digits(totalInput.value);
-          if (shownTotal > subtotal) over = 'Tổng lớn hơn tạm tính. Hãy tăng đơn giá.';
+          // Tổng > tạm tính: thu thêm (vd. nợ cũ) — không cảnh báo, không tính giảm thêm.
+          if (shownTotal > subtotal) extra = 0;
           else if (shownTotal > room) over = 'Tổng lớn hơn số sau mã giảm giá.';
           else extra = room - shownTotal;
         } else {
@@ -770,6 +833,7 @@ function coverOf(line: StaffLineInput): string {
     function findMergeRow(productId: string, weightValue: string, note: string): HTMLElement | null {
       if (!productId) return null;
       for (const row of rows()) {
+        if (isCustomRow(row)) continue;
         const product = row.querySelector('[data-product]');
         const weight = weightControl(row);
         const noteInput = row.querySelector('[data-line-note]') ?? row.querySelector('input[name="lineNote"]');
@@ -798,7 +862,15 @@ function coverOf(line: StaffLineInput): string {
       productId: string,
       weightValue = '',
       focus = true,
-      extras: { quantity?: string; note?: string; cover?: string } = {},
+      extras: {
+        quantity?: string;
+        note?: string;
+        cover?: string;
+        custom?: boolean;
+        name?: string;
+        price?: string;
+        unitCost?: string;
+      } = {},
     ): boolean {
       if (!(list instanceof HTMLElement) || !(template instanceof HTMLTemplateElement) || rows().length >= max) return false;
       const source = template.content.querySelector('[data-line]');
@@ -809,11 +881,23 @@ function coverOf(line: StaffLineInput): string {
       const weight = weightControl(copy);
       const qty = copy.querySelector('[data-qty]');
       const note = copy.querySelector('[data-line-note]') ?? copy.querySelector('input[name="lineNote"]');
+      const nameInput = copy.querySelector('[data-line-name]');
+      const priceInput = copy.querySelector('[data-line-price]');
       if (productId) {
         revealName(copy, productId);
         refill(copy, weightValue);
         if (weight && weightValue) weight.value = weightValue;
-        fillPrice(copy);
+        if (extras.custom) {
+          setCustomRow(copy, true, extras.unitCost ?? '');
+          if (nameInput instanceof HTMLInputElement && extras.name) nameInput.value = extras.name;
+          if (priceInput instanceof HTMLInputElement) {
+            priceInput.value = groupDigits(String(extras.price ?? '').replace(/\D/g, ''), 8);
+            closeMoney(priceInput);
+          }
+        } else {
+          setCustomRow(copy, false);
+          fillPrice(copy);
+        }
         if (extras.cover) setCover(copy, extras.cover);
       }
       if (qty instanceof HTMLInputElement && extras.quantity) qty.value = extras.quantity;
@@ -856,7 +940,12 @@ function coverOf(line: StaffLineInput): string {
         paintPay();
         return;
       }
-      if (target.matches('[data-line-price]') || target.matches('[data-qty]') || target.matches('[data-discount-extra]')) {
+      if (
+        target.matches('[data-line-price]') ||
+        target.matches('[data-line-cost]') ||
+        target.matches('[data-qty]') ||
+        target.matches('[data-discount-extra]')
+      ) {
         unlockTotal();
         paintPay();
       }
@@ -871,7 +960,13 @@ function coverOf(line: StaffLineInput): string {
     root.addEventListener('keydown', (event) => {
       const target = event.target;
       if (!(target instanceof HTMLInputElement)) return;
-      if (!target.matches('[data-line-price]') && !target.matches('[data-order-total]') && !target.matches('[data-discount-extra]')) return;
+      if (
+        !target.matches('[data-line-price]') &&
+        !target.matches('[data-line-cost]') &&
+        !target.matches('[data-order-total]') &&
+        !target.matches('[data-discount-extra]')
+      )
+        return;
       if (event.key === 'Enter') {
         event.preventDefault();
         target.blur();
@@ -885,7 +980,13 @@ function coverOf(line: StaffLineInput): string {
     root.addEventListener('focusout', (event) => {
       const target = event.target;
       if (!(target instanceof HTMLInputElement)) return;
-      if (!target.matches('[data-line-price]') && !target.matches('[data-order-total]') && !target.matches('[data-discount-extra]')) return;
+      if (
+        !target.matches('[data-line-price]') &&
+        !target.matches('[data-line-cost]') &&
+        !target.matches('[data-order-total]') &&
+        !target.matches('[data-discount-extra]')
+      )
+        return;
       if (target.matches('[data-discount-extra]')) {
         const next = event.relatedTarget;
         if (next instanceof Node && target.closest('[data-staff-extra]')?.contains(next)) return;
@@ -903,7 +1004,7 @@ function coverOf(line: StaffLineInput): string {
       const button = event.target instanceof Element ? event.target.closest('button') : null;
       if (!(button instanceof HTMLButtonElement)) return;
       if (button.hasAttribute('data-money-text')) {
-        const scope = button.closest('[data-staff-extra], .staff-line-price, .staff-pay-total') ?? button.parentElement;
+        const scope = button.closest('[data-staff-extra], .staff-line-price, .staff-line-cost, .staff-pay-total') ?? button.parentElement;
         const input = scope?.querySelector('input');
         if (input instanceof HTMLInputElement) editMoney(input);
         return;
@@ -953,11 +1054,17 @@ function coverOf(line: StaffLineInput): string {
         const quantity = 'quantity' in detail && typeof detail.quantity === 'string' ? detail.quantity : undefined;
         const note = 'note' in detail && typeof detail.note === 'string' ? detail.note : undefined;
         const cover = 'cover' in detail && typeof detail.cover === 'string' ? detail.cover : undefined;
+        const custom = 'custom' in detail && detail.custom === true;
+        const name = 'name' in detail && typeof detail.name === 'string' ? detail.name : undefined;
+        const price = 'price' in detail && typeof detail.price === 'string' ? detail.price : undefined;
+        const unitCost = 'unitCost' in detail && typeof detail.unitCost === 'string' ? detail.unitCost : undefined;
         // Cùng sản phẩm + cùng cân + cùng lưu ý: gộp vào dòng sẵn có thay vì tạo dòng mới.
         const addQty = quantity && /^\d+$/.test(quantity) ? Number(quantity) : 1;
-        const existing = findMergeRow(detail.id, weight, note ?? '');
-        if (existing && mergeIntoRow(existing, addQty)) return;
-        appendLine(detail.id, weight, focus, { quantity, note, cover });
+        if (!custom) {
+          const existing = findMergeRow(detail.id, weight, note ?? '');
+          if (existing && mergeIntoRow(existing, addQty)) return;
+        }
+        appendLine(detail.id, weight, focus, { quantity, note, cover, custom, name, price, unitCost });
       }
     });
 

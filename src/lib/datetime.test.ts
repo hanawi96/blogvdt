@@ -6,6 +6,7 @@ import {
   vnLastNDaysRange,
   vnMonthRange,
   vnTodayParts,
+  vnTodayRange,
   vnTodayStartMs,
   vnYesterdayRange,
 } from './datetime';
@@ -39,7 +40,8 @@ describe('vn calendar helpers', () => {
     expect(vnMonthRange(2026, 12, now)).toBeNull();
   });
 
-  it('vnYesterdayRange và vnLastNDaysRange', () => {
+  it('vnTodayRange, vnYesterdayRange và vnLastNDaysRange', () => {
+    expect(vnTodayRange(now)).toEqual({ from: '2026-11-09', to: '2026-11-09' });
     expect(vnYesterdayRange(now)).toEqual({ from: '2026-11-08', to: '2026-11-08' });
     expect(vnLastNDaysRange(7, now)).toEqual({ from: '2026-11-03', to: '2026-11-09' });
     expect(vnLastNDaysRange(30, now)).toEqual({ from: '2026-10-11', to: '2026-11-09' });
@@ -48,6 +50,7 @@ describe('vn calendar helpers', () => {
 
   it('formatOrderDateFilterLabel', () => {
     expect(formatOrderDateFilterLabel('', '', now)).toBe('Chọn ngày');
+    expect(formatOrderDateFilterLabel('2026-11-09', '2026-11-09', now)).toBe('Hôm nay');
     expect(formatOrderDateFilterLabel('2026-11-08', '2026-11-08', now)).toBe('Hôm qua');
     expect(formatOrderDateFilterLabel('2026-11-03', '2026-11-09', now)).toBe('7 ngày qua');
     expect(formatOrderDateFilterLabel('2026-10-11', '2026-11-09', now)).toBe('30 ngày qua');

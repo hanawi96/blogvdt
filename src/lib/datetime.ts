@@ -55,6 +55,12 @@ export function vnTodayStartMs(now = Date.now()): number {
   return Date.parse(`${vnYmd(vnTodayParts(now))}T00:00:00+07:00`);
 }
 
+/** Một ngày: hôm nay theo lịch VN. */
+export function vnTodayRange(now = Date.now()): { from: string; to: string } {
+  const day = vnYmd(vnTodayParts(now));
+  return { from: day, to: day };
+}
+
 /** Một ngày: hôm qua theo lịch VN. */
 export function vnYesterdayRange(now = Date.now()): { from: string; to: string } {
   const day = vnYmd(vnAddDays(vnTodayParts(now), -1));
@@ -118,6 +124,8 @@ export function formatOrderDateFilterLabel(from: string, to: string, now = Date.
   const start = from || to;
   const end = to || from;
   if (from && to) {
+    const today = vnTodayRange(now);
+    if (from === today.from && to === today.to) return 'Hôm nay';
     const yesterday = vnYesterdayRange(now);
     if (from === yesterday.from && to === yesterday.to) return 'Hôm qua';
     const last7 = vnLastNDaysRange(7, now);

@@ -27,11 +27,6 @@
       <form class="panel-form" data-form hidden autocomplete="off" novalidate>
         <section class="card" data-section="customer">
           <h2>Khách hàng</h2>
-          <div class="lookup-row">
-            <input class="field" type="search" inputmode="tel" maxlength="20" placeholder="Dán SĐT tra đơn…" data-lookup-phone />
-            <button class="btn" type="button" data-lookup-run>Tra</button>
-          </div>
-          <p class="note" data-lookup-result hidden></p>
           <div class="pair">
             <label class="block">
               <span class="label">Họ tên</span>
@@ -274,6 +269,56 @@
           </div>
         </div>
       </form>
+
+      <div class="custom-modal" data-custom-modal hidden>
+        <button type="button" class="custom-modal-backdrop" data-custom-close aria-label="Đóng"></button>
+        <div class="custom-modal-sheet" role="dialog" aria-modal="true" aria-labelledby="custom-modal-title">
+          <div class="custom-modal-head">
+            <h3 id="custom-modal-title">Sản phẩm tùy chỉnh</h3>
+            <button type="button" class="custom-modal-x" data-custom-close aria-label="Đóng">×</button>
+          </div>
+          <p class="custom-modal-base" data-custom-base></p>
+          <form class="custom-modal-form" data-custom-form autocomplete="off">
+            <label class="block">
+              <span class="label">Tên trên đơn</span>
+              <input class="field" name="name" maxlength="160" data-custom-name required />
+            </label>
+            <div class="pair">
+              <label class="block">
+                <span class="label">Giá bán</span>
+                <input class="field" name="price" inputmode="numeric" maxlength="11" data-custom-price required />
+              </label>
+              <label class="block">
+                <span class="label">Giá vốn</span>
+                <input class="field" name="unitCost" inputmode="numeric" maxlength="11" data-custom-cost required />
+              </label>
+            </div>
+            <div class="custom-modal-row">
+              <div class="qty-box qty-box-compact">
+                <button type="button" class="qty-btn" data-custom-qty-dec aria-label="Giảm số lượng">−</button>
+                <input class="qty-value" type="text" inputmode="numeric" maxlength="2" value="1" data-custom-qty aria-label="Số lượng" />
+                <button type="button" class="qty-btn" data-custom-qty-inc aria-label="Tăng số lượng">+</button>
+              </div>
+              <input class="field pick-note" maxlength="160" placeholder="Lưu ý sản phẩm…" data-custom-note />
+            </div>
+            <div class="custom-modal-weight" data-custom-weight hidden>
+              <span class="label">Cân nặng</span>
+              <div class="chips pick-chips" data-custom-chips></div>
+              <label class="weight-extra-field" data-custom-extra-wrap hidden>
+                <span class="label">Cân nặng khác</span>
+                <select class="field" data-custom-extra>
+                  <option value="">Chọn…</option>
+                </select>
+              </label>
+            </div>
+            <p class="panel-error custom-modal-error" data-custom-error hidden role="alert"></p>
+            <div class="custom-modal-actions">
+              <button type="button" class="btn" data-custom-close>Hủy</button>
+              <button type="submit" class="btn btn-primary" data-custom-submit>Thêm vào đơn</button>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
     <script src="panel.js"></script>
   </body>

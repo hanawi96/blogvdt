@@ -166,8 +166,9 @@ const canToggleSort = status !== 'shipped';
             class="order-day-chip order-tag-note-chip"
             type="button"
             data-tag-note-copy
+            data-order-id={String(tagNote.orderId)}
             data-text={tagNote.text}
-            title={`Đơn ${tagNote.code} — bấm để copy`}
+            title={`Đơn ${tagNote.code} — bấm để gom copy (nhiều chip = nhiều dòng)`}
           >
             <svg class="order-tag-note-icon" xmlns="http://www.w3.org/2000/svg" viewBox="-10 -224 495 495" aria-hidden="true">
               <path d="M162-124c-40 0-72 32-72 72s32 72 72 72 72-32 72-72-32-72-72-72zm36 72c0 20-16 36-36 36s-36-16-36-36 16-36 36-36 36 16 36 36zM72-214c-40 0-72 32-72 72V20c0 19 8 37 21 51l162 162c28 28 74 28 102 0L447 71c28-28 28-74 0-102L285-193c-14-13-32-21-51-21H72zm-36 72c0-20 16-36 36-36h162c10 0 19 4 26 11L422-5c14 14 14 36 0 50L260 207c-15 15-37 15-51 0L47 45c-7-6-11-15-11-25v-162z" fill="currentColor" />

@@ -12,7 +12,6 @@ const PHONE_RE = /(?:\+?84|0)(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)\d{7}/;
  * Luôn đưa qua normalizePhone — regex chỉ để bắt ứng viên.
  */
 const PHONE_RE_LOOSE_SRC = String.raw`(?:\+?84[\s.\-()]*)?(?:0[\s.\-()]*)?(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9\d)(?:[\s.\-()]*\d){7}`;
-const PHONE_RE_LOOSE = new RegExp(PHONE_RE_LOOSE_SRC);
 
 /** @type {Map<string, object>} */
 const lookupCache = new Map();
@@ -69,6 +68,13 @@ let listPhoneScanTimer = 0;
 /** Sàn tối thiểu giữa 2 lần kéo badge pending — giảm load D1. */
 const PENDING_MIN_INTERVAL_MS = 5000;
 let lastPendingFetchAt = 0;
+/** Doanh thu / số đơn tạo hôm nay (header). */
+let todayStatsState = { orders: 0, revenue: 0, profit: 0, ready: false };
+/** @type {Promise<void> | null} */
+let todayStatsFetchInflight = null;
+let todayStatsRefreshTimer = 0;
+let todayStatsPollTimer = 0;
+const TODAY_STATS_POLL_MS = 60_000;
 
 function isExtensionAlive() {
   if (extensionDead) return false;
@@ -92,6 +98,8 @@ function markExtensionDead() {
   window.clearTimeout(bootRevealTimer);
   window.clearTimeout(pendingRefreshTimer);
   window.clearTimeout(listPhoneScanTimer);
+  window.clearTimeout(todayStatsRefreshTimer);
+  window.clearTimeout(todayStatsPollTimer);
   try {
     chatObserver?.disconnect();
   } catch {
@@ -338,6 +346,46 @@ function normalizePhone(raw) {
   if (digits.length === 9 && bodyOk.test(digits)) digits = `0${digits}`;
   if (digits.length === 10 && digits.startsWith('0') && bodyOk.test(digits.slice(1))) return digits;
   return null;
+}
+
+/**
+ * Từ chối SĐT nằm trong dãy số dài hơn (vd. STK 19034579387036 → không bắt 0903457938).
+ * @param {string} text
+ * @param {number} index
+ * @param {number} length
+ */
+function isDigitBoundedPhoneMatch(text, index, length) {
+  if (index < 0 || length < 1) return false;
+  if (index > 0 && /\d/.test(text[index - 1] || '')) return false;
+  const end = index + length;
+  if (end < text.length && /\d/.test(text[end] || '')) return false;
+  return true;
+}
+
+/**
+ * Bắt SĐT trong text tự do — có boundary chữ số để tránh STK/mã dài.
+ * @param {string} text
+ * @returns {string[]}
+ */
+function extractPhonesFromText(text) {
+  /** @type {string[]} */
+  const phones = [];
+  const raw = String(text || '');
+  if (!raw || raw.length > 4000) return phones;
+
+  const collect = (source) => {
+    for (const match of raw.matchAll(new RegExp(source, 'g'))) {
+      const chunk = match[0];
+      const index = match.index ?? -1;
+      if (!isDigitBoundedPhoneMatch(raw, index, chunk.length)) continue;
+      const phone = normalizePhone(chunk);
+      if (phone && !phones.includes(phone)) phones.push(phone);
+    }
+  };
+
+  collect(PHONE_RE_LOOSE_SRC);
+  if (!phones.length) collect(PHONE_RE.source);
+  return phones;
 }
 
 function money(amount) {
@@ -754,10 +802,7 @@ function readPancakePhone() {
     '.cross-channel-phone__number, .cross-channel-phone.phone-tag, .cross-channel-phone.phone-tag-trusted',
   );
   for (const node of nodes) {
-    const text = node.textContent || '';
-    const match = text.match(PHONE_RE_LOOSE) || text.match(PHONE_RE);
-    if (!match) continue;
-    const phone = normalizePhone(match[0]);
+    const phone = extractPhonesFromText(node.textContent || '')[0];
     if (phone) return phone;
   }
   return null;
@@ -805,15 +850,8 @@ function extractPhonesFromNode(node) {
   const phones = [];
   if (!(node instanceof HTMLElement)) return phones;
   const text = node.innerText || node.textContent || '';
-  if (text && text.length <= 4000) {
-    // Ưu tiên regex lỏng (có dấu cách); fallback dính liền. Tạo RegExp mới mỗi lần (tránh lastIndex).
-    const matches = text.match(new RegExp(PHONE_RE_LOOSE_SRC, 'g')) || text.match(new RegExp(PHONE_RE.source, 'g'));
-    if (matches) {
-      for (const raw of matches) {
-        const phone = normalizePhone(raw);
-        if (phone && !phones.includes(phone)) phones.push(phone);
-      }
-    }
+  for (const phone of extractPhonesFromText(text)) {
+    if (!phones.includes(phone)) phones.push(phone);
   }
   for (const link of node.querySelectorAll('a[href^="tel:"], a[href^="callto:"]')) {
     const href = link.getAttribute('href') || '';
@@ -1063,7 +1101,11 @@ function setNoOrderStatus(root, phone) {
   box.innerHTML = `
     <div class="vdt-pending-banner">
       <p class="vdt-customer-status">${escapeHtml(next)}</p>
-      <button type="button" class="vdt-pending-banner-skip" data-vdt-pending-dismiss-current>Bỏ qua</button>
+      <button type="button" class="vdt-pending-banner-skip" data-vdt-pending-dismiss-current title="Bỏ qua" aria-label="Bỏ qua">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+        </svg>
+      </button>
     </div>`;
 }
 
@@ -1114,6 +1156,101 @@ function refreshPendingChats() {
       pendingFetchInflight = null;
     });
   return pendingFetchInflight;
+}
+
+function formatTodayMoney(amount) {
+  const n = Math.round(Number(amount) || 0);
+  const text = `${new Intl.NumberFormat('vi-VN').format(Math.abs(n))}đ`;
+  return n < 0 ? `−${text}` : text;
+}
+
+function renderTodayStatsUi(root = ensureRoot()) {
+  const el = root.querySelector('[data-vdt-today-stats]');
+  if (!(el instanceof HTMLElement)) return;
+  if (!todayStatsState.ready) {
+    el.hidden = true;
+    el.replaceChildren();
+    el.removeAttribute('title');
+    return;
+  }
+  const orders = Math.max(0, Math.floor(Number(todayStatsState.orders) || 0));
+  const revenue = formatTodayMoney(Math.max(0, Number(todayStatsState.revenue) || 0));
+  const profitNum = Math.round(Number(todayStatsState.profit) || 0);
+  const profit = formatTodayMoney(profitNum);
+  const profitTone = profitNum < 0 ? 'neg' : profitNum > 0 ? 'pos' : 'zero';
+  el.hidden = false;
+  el.title = `Hôm nay: ${revenue} doanh thu / ${profit} lãi / ${orders} đơn (không tính hủy · gửi bù; lãi trên đơn có đủ giá vốn)`;
+  el.replaceChildren();
+  const mkMetric = (kind, text, tone) => {
+    const span = document.createElement('span');
+    span.className = 'vdt-today-metric';
+    span.dataset.kind = kind;
+    if (tone) span.dataset.tone = tone;
+    span.textContent = text;
+    return span;
+  };
+  const mkSep = () => {
+    const sep = document.createElement('span');
+    sep.className = 'vdt-today-sep';
+    sep.setAttribute('aria-hidden', 'true');
+    sep.textContent = '/';
+    return sep;
+  };
+  el.append(
+    mkMetric('revenue', revenue),
+    mkSep(),
+    mkMetric('profit', profit, profitTone),
+    mkSep(),
+    mkMetric('orders', `${orders} đơn`),
+  );
+}
+
+function scheduleTodayStatsRefresh(delayMs = 300) {
+  if (!isExtensionAlive()) return;
+  window.clearTimeout(todayStatsRefreshTimer);
+  todayStatsRefreshTimer = window.setTimeout(() => {
+    todayStatsRefreshTimer = 0;
+    void refreshTodayStats();
+  }, Math.max(0, delayMs));
+}
+
+function refreshTodayStats() {
+  if (!isExtensionAlive()) return Promise.resolve();
+  if (todayStatsFetchInflight) return todayStatsFetchInflight;
+  todayStatsFetchInflight = runtimeSend({ type: 'vdt-pos-today-stats' })
+    .then((result) => {
+      todayStatsFetchInflight = null;
+      if (!isExtensionAlive()) return;
+      if (!result?.ok) {
+        if (result?.error === 'auth') {
+          todayStatsState = { orders: 0, revenue: 0, profit: 0, ready: false };
+          renderTodayStatsUi();
+        }
+        return;
+      }
+      todayStatsState = {
+        orders: Number(result.orders) || 0,
+        revenue: Number(result.revenue) || 0,
+        profit: Number(result.profit) || 0,
+        ready: true,
+      };
+      renderTodayStatsUi();
+    })
+    .catch(() => {
+      todayStatsFetchInflight = null;
+    });
+  return todayStatsFetchInflight;
+}
+
+function syncTodayStatsPolling() {
+  window.clearTimeout(todayStatsPollTimer);
+  todayStatsPollTimer = 0;
+  if (!isExtensionAlive() || !desiredOpen) return;
+  todayStatsPollTimer = window.setTimeout(() => {
+    todayStatsPollTimer = 0;
+    if (!isExtensionAlive() || !desiredOpen) return;
+    void refreshTodayStats().finally(() => syncTodayStatsPolling());
+  }, TODAY_STATS_POLL_MS);
 }
 
 function renderPendingUi(root) {
@@ -1874,29 +2011,33 @@ async function scanListForConversationId(channel, chatId) {
   return null;
 }
 
-/** Chọn dòng kết quả search: ưu tiên có SĐT khớp, không thì dòng đầu (khi đã lọc). */
-function pickPancakeSearchResultRow(phone) {
+/**
+ * Chọn dòng kết quả search.
+ * Ưu tiên chatId → đúng 1 dòng có SĐT đứng độc lập → đúng 1 dòng list.
+ * Không click bừa dòng đầu khi nhiều kết quả (tránh STK chứa chuỗi SĐT).
+ */
+function pickPancakeSearchResultRow(phone, chatId = '') {
   const want = normalizePhone(phone || '');
+  const id = String(chatId || '').trim();
   const items = visiblePancakeListItems();
   if (!items.length) return null;
-  if (want) {
-    const hit = items.find((item) => extractPhonesFromNode(item).includes(want));
-    if (hit) return hit;
-    // Snippet dạng "...137 288" — khớp đuôi SĐT.
-    const tail = want.slice(-6);
-    const soft = items.find((item) => {
-      const text = String(item.textContent || '').replace(/\D/g, '');
-      return tail && text.includes(tail);
-    });
-    if (soft) return soft;
+
+  if (id) {
+    const byId = resolvePancakeTarget(id, want || '', { afterSearch: true });
+    if (byId) return byId;
   }
-  // Sau khi search thường còn 1 dòng — click dòng đó.
+
+  if (want) {
+    const phoneHits = items.filter((item) => extractPhonesFromNode(item).includes(want));
+    if (phoneHits.length === 1) return phoneHits[0];
+  }
+
   if (items.length === 1) return items[0];
-  return items[0] || null;
+  return null;
 }
 
 /** Pancake: điền SĐT → Enter → click item chat trong kết quả. */
-async function pancakeFillSearchAndEnter(phone) {
+async function pancakeFillSearchAndEnter(phone, chatId = '') {
   const want = normalizePhone(phone || '') || String(phone || '').trim();
   if (!want || !isPancake()) return false;
   const input = pancakeSearchInput();
@@ -1905,7 +2046,7 @@ async function pancakeFillSearchAndEnter(phone) {
     return false;
   }
 
-  vdtOpenChatDebug('search: fill+Enter+click', want);
+  vdtOpenChatDebug('search: fill+Enter+click', want, 'chatId', chatId || null);
   setPancakeSearchValue(input, want);
   await waitMs(30);
 
@@ -1930,19 +2071,20 @@ async function pancakeFillSearchAndEnter(phone) {
   // Đợi Pancake lọc list rồi click đúng item.
   for (let i = 0; i < 12; i += 1) {
     await waitMs(i === 0 ? 350 : 150);
-    const row = pickPancakeSearchResultRow(want);
+    const row = pickPancakeSearchResultRow(want, chatId);
     if (!row) continue;
     vdtOpenChatDebug('search: click row', row.id || '(no-id)', 'poll', i);
     if (activateConversationEl(row)) return true;
   }
 
-  vdtOpenChatDebug('search: no result row to click', want);
+  vdtOpenChatDebug('search: no safe result row', want, 'chatId', chatId || null);
   return false;
 }
 
 /**
  * Mở / lọc chat theo kênh hiện tại.
- * Pancake: điền ô tìm + Enter. Zalo: click list theo id/SĐT.
+ * Pancake: ưu tiên chatId (DOM + cuộn list), mới fallback search SĐT.
+ * Zalo: click list theo id/SĐT.
  */
 async function tryFocusPendingChat(channel, chatId, phone = '') {
   if (channel === 'pancake' && !isPancake()) return false;
@@ -1951,8 +2093,22 @@ async function tryFocusPendingChat(channel, chatId, phone = '') {
   vdtOpenChatDebug('open', { channel, chatId, phone });
 
   if (channel === 'pancake') {
-    const ok = await pancakeFillSearchAndEnter(phone);
-    if (!ok) vdtOpenChatDebug('open: no search input', { phone });
+    let el = findPancakeConversationEl(chatId, '');
+    if (el && activateConversationEl(el)) {
+      vdtOpenChatDebug('open: pancake by visible id', chatId);
+      return true;
+    }
+    el = await scanListForConversationId(channel, chatId);
+    if (el && activateConversationEl(el)) {
+      vdtOpenChatDebug('open: pancake by scanned id', chatId);
+      return true;
+    }
+    if (!phone) {
+      vdtOpenChatDebug('open: pancake id miss and no phone', { chatId });
+      return false;
+    }
+    const ok = await pancakeFillSearchAndEnter(phone, chatId);
+    if (!ok) vdtOpenChatDebug('open: pancake search miss', { chatId, phone });
     return ok;
   }
 
@@ -2072,11 +2228,17 @@ function clampLineQty(raw) {
   return Math.min(20, n);
 }
 
+/** Extension không hiện chip «Chưa sinh». */
+function uiWeightChips(chips) {
+  return (Array.isArray(chips) ? chips : []).filter((label) => label !== 'Chưa sinh');
+}
+
 function renderLineEditor(line, index, editable) {
   const open = customerEditUi && customerEditUi.lineIndex === index ? customerEditUi : null;
   const weight = String(line.weight || '').trim();
   const qty = clampLineQty(line.quantity);
-  const chips = Array.isArray(line.chips) ? line.chips : [];
+  const allChips = Array.isArray(line.chips) ? line.chips : [];
+  const chips = uiWeightChips(allChips);
   const extras = Array.isArray(line.extras) ? line.extras : [];
   const needsWeight = chips.length + extras.length > 0;
   const weightPill = needsWeight
@@ -2092,7 +2254,7 @@ function renderLineEditor(line, index, editable) {
 
   let editor = '';
   if (editable && open?.mode === 'weight' && needsWeight) {
-    const extraOpen = Boolean(open.extraOpen) || (weight && extras.includes(weight) && !chips.includes(weight));
+    const extraOpen = Boolean(open.extraOpen) || (weight && extras.includes(weight) && !allChips.includes(weight));
     editor = `<div class="vdt-line-editor" data-vdt-line-editor="${index}">
       <div class="vdt-weight-chips">
         ${chips
@@ -2787,9 +2949,7 @@ function looksLikeAddressText(raw) {
 }
 
 function readPhoneFromText(text) {
-  const raw = String(text || '');
-  const match = raw.match(PHONE_RE_LOOSE) || raw.match(PHONE_RE);
-  return match ? normalizePhone(match[0]) : null;
+  return extractPhonesFromText(text)[0] || null;
 }
 
 function legacySearchOnce(query) {
@@ -3121,11 +3281,16 @@ function ensureRoot() {
       <div class="vdt-resizer" role="separator" aria-orientation="vertical" aria-label="Kéo chỉnh độ rộng" title="Kéo để chỉnh độ rộng"></div>
       <div class="vdt-bar">
         <strong>Tạo đơn nhanh</strong>
+        <div class="vdt-today-stats" data-vdt-today-stats hidden aria-live="polite"></div>
         <div class="vdt-bar-actions">
           <button type="button" class="vdt-pending-badge" data-vdt-pending-badge hidden title="SĐT chưa có đơn" aria-expanded="false">
             <span data-vdt-pending-count>0</span> <span data-vdt-pending-label>đơn chưa lưu</span>
           </button>
-          <button type="button" data-vdt-collapse title="Thu gọn">Thu</button>
+          <button type="button" class="vdt-collapse" data-vdt-collapse title="Thu gọn" aria-label="Thu gọn">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+          </button>
         </div>
       </div>
       <div class="vdt-pending-panel" data-vdt-pending-panel hidden>
@@ -3242,6 +3407,13 @@ async function setOpen(open) {
   }
   applyHostLayoutInset(root);
   await storageSet('sync', { [STORAGE_OPEN]: desiredOpen });
+  if (desiredOpen) {
+    scheduleTodayStatsRefresh(200);
+    syncTodayStatsPolling();
+  } else {
+    window.clearTimeout(todayStatsPollTimer);
+    todayStatsPollTimer = 0;
+  }
 }
 
 let overlayMountStarted = false;
@@ -3266,6 +3438,8 @@ async function mount() {
     if (panelReady) revealOverlayIfReady();
     scheduleListPhoneScan(500);
     schedulePendingRefresh(400);
+    scheduleTodayStatsRefresh(400);
+    if (desiredOpen) syncTodayStatsPolling();
     return;
   }
   overlayMountStarted = true;
@@ -3295,6 +3469,7 @@ async function mount() {
       const name = readChatName() || lastName || '';
       if (channel && chatId) persistChatPhone(channel, chatId, phone, name);
       schedulePendingRefresh(200);
+      scheduleTodayStatsRefresh(150);
       // Luôn tra lại để hiện card đơn vừa tạo/sửa — không phụ thuộc lastPhone.
       lastPhone = '';
       requestLookup(phone, chatId || lastConvId, name);
@@ -3343,6 +3518,8 @@ async function mount() {
   if (panelReady) revealOverlayIfReady();
   scheduleListPhoneScan(500);
   schedulePendingRefresh(400);
+  scheduleTodayStatsRefresh(400);
+  if (desiredOpen) syncTodayStatsPolling();
 }
 
 installContextGuards();
@@ -3383,6 +3560,7 @@ try {
         lastConvId = '';
         scheduleSync();
         schedulePendingRefresh(300);
+        scheduleTodayStatsRefresh(300);
         sendResponse({ ok: true });
       });
       return true;

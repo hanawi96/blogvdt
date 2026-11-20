@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNotNull, ne, notExists, or, sql } from 'drizzl
 import type { AppDb } from '../../lib/db/client';
 import { media, orderItems, orders, productCategories, productMedia, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
+import { loadProductCosts } from '../materials/recipes';
 import { listingMediaKey } from '../media/files';
 import { isPubliclySellable, sellableProductWhere } from './status';
 import { readWeightScale } from './weight';
@@ -167,6 +168,8 @@ export type StaffPickerProduct = {
   sold: number;
   coverUrl: string | null;
   coverAlt: string;
+  /** Giá vốn công thức; null nếu chưa có — dùng prefill modal SP tùy chỉnh. */
+  unitCost: number | null;
 };
 
 export type StaffPickerCategory = { id: number; name: string };
@@ -222,9 +225,14 @@ export async function listStaffPickerProducts(db: AppDb): Promise<{ products: St
     if (row.productId == null) continue;
     soldByProduct.set(row.productId, (soldByProduct.get(row.productId) ?? 0) + Number(row.sold));
   }
+  const costs = await loadProductCosts(
+    db,
+    rows.map((row) => row.id),
+  );
   const listed: StaffPickerProduct[] = rows
     .map((row) => {
       const listKey = listingMediaKey(row.coverKey, row.cardKey);
+      const unitCost = costs.get(row.id);
       return {
         id: row.id,
         name: row.name,
@@ -237,6 +245,7 @@ export async function listStaffPickerProducts(db: AppDb): Promise<{ products: St
         sold: (soldByProduct.get(row.id) ?? 0) + Math.max(0, row.soldBase || 0),
         coverUrl: listKey ? routes.media(listKey) : null,
         coverAlt: row.coverAlt ?? '',
+        unitCost: unitCost === undefined ? null : unitCost,
       };
     })
     .sort((a, b) => b.sold - a.sold || a.name.localeCompare(b.name, 'vi'));

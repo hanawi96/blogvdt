@@ -15,6 +15,7 @@ import {
   formatOrderCode,
   isRecentDuplicate,
   isUniqueViolation,
+  normalizePhone,
   ORDER_IP_LIMIT,
   ORDER_IP_WINDOW_MS,
   orderDayKey,
@@ -76,20 +77,19 @@ export function orderListSort(value: string | null | undefined): OrderSort {
   return value === 'newest' ? 'newest' : 'oldest';
 }
 
-/** Có ô tìm → luôn đơn mới nhất trước; tab đã gửi theo ngày gửi; còn lại theo sort (+ ưu tiên). */
-function orderListOrderBy(filters: OrderListFilters) {
-  const term = orderSearchTerm(filters.query);
-  if (term.phone || term.text) return [desc(orders.createdAt), desc(orders.id)] as const;
-  if (filters.status === 'shipped') return [desc(orders.shippedAt), desc(orders.id)] as const;
-  if (filters.sort === 'newest') return [desc(orders.priority), desc(orders.createdAt), desc(orders.id)] as const;
-  return [desc(orders.priority), asc(orders.createdAt), asc(orders.id)] as const;
-}
-
-/** Mặc định «Chưa gửi hàng» (chưa gửi / gửi sau đến hạn / chờ gửi lại). `all` / `''` = mọi trạng thái. */
-export function orderListStatus(value: string | null | undefined): OrderListStatus {
+/**
+ * Trạng thái list.
+ * Không tìm → mặc định «Chưa gửi hàng». Có ô tìm và không chỉ định status → «Tất cả»
+ * (tránh sót đơn đã gửi khi tra SĐT/mã). `status` tường minh trên URL vẫn được tôn trọng.
+ */
+export function orderListStatus(value: string | null | undefined, query?: string): OrderListStatus {
   if (value === 'processing') return 'processing';
   if (value === 'all' || value === '') return '';
   if (value && isOrderListFilter(value)) return value;
+  if (query !== undefined) {
+    const term = orderSearchTerm(query);
+    if (term.phone || term.text) return '';
+  }
   return 'unshipped';
 }
 
@@ -127,6 +127,39 @@ export function orderMatchesTheTenTag(input: {
   const noteHit = (note: string | null) => (note ?? '').toLowerCase().includes(ORDER_TAG_THE_TEN_MATCH.note);
   if (nameHit(input.productName) || noteHit(input.note)) return true;
   return input.items.some((item) => nameHit(item.productName) || noteHit(item.note));
+}
+
+/**
+ * Khớp thẻ tên trên SQL (tên SP «thẻ tên» / lưu ý đơn hoặc dòng SP có «thẻ»).
+ * Dùng chung cho WHERE bộ lọc và ORDER BY ưu tiên thứ 2.
+ */
+function orderTheTenMatchSql() {
+  const nameLike = `%${ORDER_TAG_THE_TEN_MATCH.productName}%`;
+  const noteLike = `%${ORDER_TAG_THE_TEN_MATCH.note}%`;
+  return sql`(
+    ${orders.productName} like ${nameLike}
+    or ifnull(${orders.note}, '') like ${noteLike}
+    or exists (
+      select 1 from order_items as oi
+      where oi.order_id = ${orders.id}
+        and (
+          oi.product_name like ${nameLike}
+          or ifnull(oi.note, '') like ${noteLike}
+        )
+    )
+  )`;
+}
+
+/** Có ô tìm → luôn đơn mới nhất trước; tab đã gửi theo ngày gửi; còn lại: ưu tiên → thẻ tên → ngày đặt. */
+function orderListOrderBy(filters: OrderListFilters) {
+  const term = orderSearchTerm(filters.query);
+  if (term.phone || term.text) return [desc(orders.createdAt), desc(orders.id)] as const;
+  if (filters.status === 'shipped') return [desc(orders.shippedAt), desc(orders.id)] as const;
+  const theTenBoost = sql`case when ${orderTheTenMatchSql()} then 1 else 0 end`;
+  if (filters.sort === 'newest') {
+    return [desc(orders.priority), desc(theTenBoost), desc(orders.createdAt), desc(orders.id)] as const;
+  }
+  return [desc(orders.priority), desc(theTenBoost), asc(orders.createdAt), asc(orders.id)] as const;
 }
 
 export function orderAdminQuery(input: {
@@ -246,52 +279,48 @@ export type OrderDayBucket = {
 /** Giới hạn id lấy cho chip chọn theo ngày (tránh payload lớn). */
 const ORDER_DAY_SCAN_MAX = 500;
 
+/** Mã đơn dạng VD20261119-0001 — khớp exact để dùng unique index. */
+const ORDER_CODE_SEARCH_RE = /^VD\d{8}-\d{4}$/i;
+
 function orderListWhere(filters: OrderListFilters) {
   const term = orderSearchTerm(filters.query);
   const shared = [];
-  if (term.phone) shared.push(like(orders.phone, `%${term.phone}%`));
-  else if (term.text) {
-    const textLike = `%${term.text}%`;
-    shared.push(
-      or(
-        like(orders.code, textLike),
-        like(orders.customerName, textLike),
-        like(orders.phone, textLike),
-        like(orders.productName, textLike),
-        like(orders.note, textLike),
-        like(orders.internalNote, textLike),
-        sql`exists (
-          select 1 from order_items as oi
-          where oi.order_id = ${orders.id}
-            and (
-              oi.product_name like ${textLike}
-              or ifnull(oi.note, '') like ${textLike}
-            )
-        )`,
-      ),
-    );
+  if (term.phone) {
+    // SĐT chuẩn → eq (index); chuỗi số chưa đủ → prefix LIKE (vẫn dùng được index, tránh %…%).
+    const exact = normalizePhone(term.phone);
+    shared.push(exact ? eq(orders.phone, exact) : like(orders.phone, `${term.phone}%`));
+  } else if (term.text) {
+    const code = term.text.toUpperCase();
+    if (ORDER_CODE_SEARCH_RE.test(code)) {
+      shared.push(eq(orders.code, code));
+    } else {
+      const textLike = `%${term.text}%`;
+      shared.push(
+        or(
+          like(orders.code, textLike),
+          like(orders.customerName, textLike),
+          like(orders.phone, textLike),
+          like(orders.productName, textLike),
+          like(orders.note, textLike),
+          like(orders.internalNote, textLike),
+          sql`exists (
+            select 1 from order_items as oi
+            where oi.order_id = ${orders.id}
+              and (
+                oi.product_name like ${textLike}
+                or ifnull(oi.note, '') like ${textLike}
+              )
+          )`,
+        ),
+      );
+    }
   }
   if (filters.start !== null) shared.push(gte(orders.createdAt, filters.start));
   if (filters.end !== null) shared.push(lt(orders.createdAt, filters.end));
   if (filters.source) shared.push(eq(orders.source, filters.source));
   if (filters.payment) shared.push(eq(orders.paymentMethod, filters.payment));
   if (filters.tag === ORDER_TAG_THE_TEN) {
-    const nameLike = `%${ORDER_TAG_THE_TEN_MATCH.productName}%`;
-    const noteLike = `%${ORDER_TAG_THE_TEN_MATCH.note}%`;
-    shared.push(
-      or(
-        like(orders.productName, nameLike),
-        like(orders.note, noteLike),
-        sql`exists (
-          select 1 from order_items as oi
-          where oi.order_id = ${orders.id}
-            and (
-              oi.product_name like ${nameLike}
-              or ifnull(oi.note, '') like ${noteLike}
-            )
-        )`,
-      ),
-    );
+    shared.push(orderTheTenMatchSql());
   }
   const conditions = [...shared];
   const openShip = notInArray(orders.status, ['shipped', 'completed', 'cancelled']);
@@ -1196,7 +1225,12 @@ export async function createStaffOrder(
   const totalPrice = collected.totalPrice;
   const snapshot = await snapshotOrderCosts(
     db,
-    draft.lines.map((line) => ({ name: line.productName, productId: line.productId, quantity: line.quantity })),
+    draft.lines.map((line) => ({
+      name: line.productName,
+      productId: line.productId,
+      quantity: line.quantity,
+      unitCost: line.unitCost,
+    })),
     totalPrice,
   );
   const day = orderDayKey(now);
@@ -1321,7 +1355,12 @@ export async function updateStaffOrder(
   const totalPrice = collected.totalPrice;
   const snapshot = await snapshotOrderCosts(
     db,
-    draft.lines.map((line) => ({ name: line.productName, productId: line.productId, quantity: line.quantity })),
+    draft.lines.map((line) => ({
+      name: line.productName,
+      productId: line.productId,
+      quantity: line.quantity,
+      unitCost: line.unitCost,
+    })),
     totalPrice,
   );
   if (!snapshot) return { ok: false, error: 'Chưa tính lại được chi phí. Thử lại.' };
@@ -1415,7 +1454,12 @@ export async function updateStaffOrderLines(
   const totalPrice = collected.totalPrice;
   const snapshot = await snapshotOrderCosts(
     db,
-    lines.map((line) => ({ name: line.productName, productId: line.productId, quantity: line.quantity })),
+    lines.map((line) => ({
+      name: line.productName,
+      productId: line.productId,
+      quantity: line.quantity,
+      unitCost: line.unitCost,
+    })),
     totalPrice,
   );
   if (!snapshot) return { ok: false, error: 'Chưa tính lại được chi phí. Thử lại.' };

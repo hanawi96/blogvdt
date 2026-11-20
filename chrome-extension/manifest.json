@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Vòng Dâu Tằm — Tạo đơn",
   "description": "Sidebar tạo đơn nổi trên Pancake và Zalo.",
-  "version": "1.10.3",
+  "version": "1.10.4",
   "permissions": [
     "sidePanel",
     "storage",
