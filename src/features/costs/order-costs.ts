@@ -97,7 +97,7 @@ export type GoodsCostLine = {
   quantity: number;
   unitCost: number;
   amount: number;
-  /** Nguyên liệu tạo nên giá vốn SP (không có khi dòng tùy chỉnh ghi đè vốn). */
+  /** Nguyên liệu tạo nên giá vốn SP lúc chụp đơn (không có khi dòng tùy chỉnh ghi đè vốn / đơn cũ). */
   materials?: GoodsMaterialLine[];
 };
 export type ExtraCostLine = { name: string; kind: OrderCostKind; rate: number; amount: number };

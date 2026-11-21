@@ -1467,6 +1467,7 @@ const shippedPanelHref =
     collection: ProfitCollection;
     costGoods: number | null;
     goods: ProfitGoodsLine[];
+    hasGoodsMaterials: boolean;
     packaging: { total: number | null; lines: ProfitExtraLine[] };
     taxes: ProfitExtraLine[];
     displayShippingCost: number;
@@ -1549,12 +1550,15 @@ const shippedPanelHref =
 
     const costRows: string[] = [];
     if (data.hasLines && data.goods.length > 0) {
+      const goodsCaption = data.hasGoodsMaterials
+        ? 'Theo sản phẩm trong đơn (giá lúc đặt)'
+        : 'Theo sản phẩm trong đơn — đơn cũ chưa lưu chi tiết nguyên liệu';
       costRows.push(`<details class="order-profit-sheet-details">
         <summary>
           <span class="order-profit-sheet-label">Giá vốn sản phẩm</span>
           ${profitMoney(data.costGoods, 'cost')}
         </summary>
-        <p class="order-profit-sheet-details-caption">Theo sản phẩm trong đơn</p>
+        <p class="order-profit-sheet-details-caption">${escapeProfitText(goodsCaption)}</p>
         ${profitNestedLines(
           data.goods.map((line) => ({
             name: line.name,
@@ -1645,6 +1649,7 @@ const shippedPanelHref =
       collection?: ProfitCollection;
       costGoods?: number | null;
       goods?: ProfitGoodsLine[];
+      hasGoodsMaterials?: boolean;
       packaging?: { total?: number | null; lines?: ProfitExtraLine[] };
       taxes?: ProfitExtraLine[];
       displayShippingCost?: number;
@@ -1699,9 +1704,18 @@ const shippedPanelHref =
                     typeof mat.amount === 'number',
                 )
               : undefined;
-            return [{ name: line.name, quantity: line.quantity, unitCost: line.unitCost, amount: line.amount, ...(materials && materials.length > 0 ? { materials } : {}) }];
+            return [
+              {
+                name: line.name,
+                quantity: line.quantity,
+                unitCost: line.unitCost,
+                amount: line.amount,
+                ...(materials && materials.length > 0 ? { materials } : {}),
+              },
+            ];
           })
         : [],
+      hasGoodsMaterials: payload.hasGoodsMaterials === true,
       packaging: {
         total: typeof payload.packaging?.total === 'number' ? payload.packaging.total : payload.packaging?.total === null ? null : 0,
         lines: Array.isArray(payload.packaging?.lines) ? payload.packaging.lines : [],

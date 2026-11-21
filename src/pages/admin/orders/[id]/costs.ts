@@ -1,20 +1,17 @@
 import type { APIRoute } from 'astro';
-import { asc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import {
   formatPercentBp,
   isShippingOrderCost,
-  materialsForOrderLine,
   orderProfit,
   orderShippingCost,
   parseCostLines,
-  type GoodsCostLine,
 } from '../../../../features/costs/order-costs';
-import { loadProductRecipeParts } from '../../../../features/materials/recipes';
 import { spxCodForOrder } from '../../../../features/orders/spx-export';
 import { collectionLabel, remainingAfterDeposit } from '../../../../features/orders/staff';
 import { createDb } from '../../../../lib/db/client';
 import { getDbBinding } from '../../../../lib/cloudflare/env';
-import { orderItems, orders } from '../../../../lib/db/schema';
+import { orders } from '../../../../lib/db/schema';
 import { routes } from '../../../../lib/routes';
 
 export const prerender = false;
@@ -29,49 +26,6 @@ function json(data: unknown, status = 200) {
 function parseOrderId(raw: string | undefined): number | null {
   const id = Number(raw);
   return Number.isInteger(id) && id > 0 ? id : null;
-}
-
-async function enrichGoodsMaterials(
-  db: ReturnType<typeof createDb>,
-  orderId: number,
-  order: { productId: number | null; productName: string; quantity: number },
-  goods: GoodsCostLine[],
-): Promise<GoodsCostLine[]> {
-  if (goods.length === 0 || goods.every((line) => line.materials && line.materials.length > 0)) return goods;
-
-  const itemRows = await db
-    .select({
-      productId: orderItems.productId,
-      productName: orderItems.productName,
-      quantity: orderItems.quantity,
-    })
-    .from(orderItems)
-    .where(eq(orderItems.orderId, orderId))
-    .orderBy(asc(orderItems.sortOrder), asc(orderItems.id));
-
-  const sources =
-    itemRows.length > 0
-      ? itemRows
-      : order.productId !== null || order.productName
-        ? [{ productId: order.productId, productName: order.productName, quantity: order.quantity }]
-        : [];
-
-  const productIds = sources.flatMap((row) => (row.productId !== null ? [row.productId] : []));
-  if (productIds.length === 0) return goods;
-  const recipes = await loadProductRecipeParts(db, productIds);
-  const used = new Set<number>();
-
-  return goods.map((line) => {
-    if (line.materials && line.materials.length > 0) return line;
-    const index = sources.findIndex(
-      (row, i) => !used.has(i) && row.productName === line.name && row.quantity === line.quantity && row.productId !== null,
-    );
-    if (index < 0) return line;
-    used.add(index);
-    const productId = sources[index]!.productId!;
-    const materials = materialsForOrderLine(recipes.get(productId), line.quantity);
-    return materials ? { ...line, materials } : line;
-  });
 }
 
 export const GET: APIRoute = async ({ params, locals, url }) => {
@@ -100,9 +54,6 @@ export const GET: APIRoute = async ({ params, locals, url }) => {
         payState: orders.payState,
         depositAmount: orders.depositAmount,
         compensation: orders.compensation,
-        productId: orders.productId,
-        productName: orders.productName,
-        quantity: orders.quantity,
       })
       .from(orders)
       .where(eq(orders.id, orderId))
@@ -110,7 +61,9 @@ export const GET: APIRoute = async ({ params, locals, url }) => {
     const row = rows[0];
     if (!row) return json({ ok: false, error: 'Không tìm thấy đơn hàng.' }, 404);
 
+    // Chỉ dùng ảnh chụp lúc đặt — không lấy công thức/giá NL hiện tại.
     const parsed = parseCostLines(row.costLines);
+    const goods = parsed?.goods ?? [];
     const extraRaw = parsed?.extra ?? [];
     const displayShippingCost = orderShippingCost(row.shippingCost, extraRaw);
     const extras = extraRaw
@@ -163,7 +116,7 @@ export const GET: APIRoute = async ({ params, locals, url }) => {
             ? { kind: 'paid' as const, payLabel, depositAmount: 0, collectAmount: 0 }
             : { kind: 'cod' as const, payLabel, depositAmount: 0, collectAmount: cod.amount };
 
-    const goods = await enrichGoodsMaterials(db, orderId, row, parsed?.goods ?? []);
+    const hasGoodsMaterials = goods.some((line) => Array.isArray(line.materials) && line.materials.length > 0);
 
     return json({
       ok: true,
@@ -183,6 +136,7 @@ export const GET: APIRoute = async ({ params, locals, url }) => {
       profit,
       marginPercent,
       goods,
+      hasGoodsMaterials,
       missing: parsed?.missing ?? [],
       hasLines: parsed !== null,
     });
