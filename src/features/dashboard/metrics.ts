@@ -1,20 +1,30 @@
 import { vnAddDays, vnTodayParts, vnYmd, type VnDayParts } from '../../lib/datetime';
-import { routes } from '../../lib/routes';
 
 export const OVERVIEW_DAYS = 7;
 export const DAY_MS = 24 * 60 * 60 * 1000;
-/** Đơn mới quá ngưỡng này mà chưa xác nhận thì cảnh báo; bài nháp quá ngưỡng này gọi là "để lâu". */
-export const AGED_ORDER_MS = DAY_MS;
-export const OLD_DRAFT_MS = 30 * DAY_MS;
 
-/** Giữ helper kỳ cũ cho test; overview cố định 7 ngày. */
+/** Giữ helper kỳ cũ cho test; KPI overview cố định 7 ngày. */
 export const DASHBOARD_PERIODS = [7, 30, 90] as const;
 export type DashboardPeriod = (typeof DASHBOARD_PERIODS)[number];
 export const DEFAULT_PERIOD: DashboardPeriod = 7;
 
+/** Kỳ lọc biểu đồ xu hướng trên tổng quan. */
+export const CHART_RANGES = ['today', '7', '30'] as const;
+export type ChartRange = (typeof CHART_RANGES)[number];
+export const DEFAULT_CHART_RANGE: ChartRange = '7';
+export const CHART_RANGE_OPTIONS: ReadonlyArray<{ value: ChartRange; label: string }> = [
+  { value: 'today', label: 'Hôm nay' },
+  { value: '7', label: '7 ngày' },
+  { value: '30', label: '30 ngày' },
+];
+
 export function readPeriod(value: string | null): DashboardPeriod {
   const days = Number(value);
   return DASHBOARD_PERIODS.find((period) => period === days) ?? DEFAULT_PERIOD;
+}
+
+export function readChartRange(value: string | null): ChartRange {
+  return CHART_RANGES.find((range) => range === value) ?? DEFAULT_CHART_RANGE;
 }
 
 export function periodRange(days: DashboardPeriod, now: number): { start: number; previousStart: number } {
@@ -30,32 +40,126 @@ function vnMidnight(parts: VnDayParts): number {
   return Date.parse(`${vnYmd(parts)}T00:00:00+07:00`);
 }
 
-/** 7 ngày lịch VN gần nhất (gồm hôm nay) vs 7 ngày liền trước. */
-export function overviewWindows(now = Date.now()): {
+const HOURS_24 = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, '0'));
+
+/** N ngày lịch VN gần nhất (gồm hôm nay) vs N ngày liền trước. */
+export function dayWindows(
+  days: 7 | 30,
+  now = Date.now(),
+): {
   currentStart: number;
   previousStart: number;
   currentDays: string[];
   previousDays: string[];
 } {
   const today = vnTodayParts(now);
-  const currentFrom = vnAddDays(today, -(OVERVIEW_DAYS - 1));
+  const currentFrom = vnAddDays(today, -(days - 1));
   const previousTo = vnAddDays(currentFrom, -1);
-  const previousFrom = vnAddDays(previousTo, -(OVERVIEW_DAYS - 1));
+  const previousFrom = vnAddDays(previousTo, -(days - 1));
   return {
     currentStart: vnMidnight(currentFrom),
     previousStart: vnMidnight(previousFrom),
-    currentDays: dayList(currentFrom, OVERVIEW_DAYS),
-    previousDays: dayList(previousFrom, OVERVIEW_DAYS),
+    currentDays: dayList(currentFrom, days),
+    previousDays: dayList(previousFrom, days),
   };
 }
 
-/** Điền 0 cho ngày thiếu; giữ đúng thứ tự `days`. */
+/** 7 ngày lịch VN gần nhất — dùng cho KPI/top danh sách. */
+export function overviewWindows(now = Date.now()) {
+  return dayWindows(OVERVIEW_DAYS, now);
+}
+
+/** Hôm nay theo giờ VN vs hôm qua (24 mốc 00–23). */
+export function todayHourWindows(now = Date.now()): {
+  currentStart: number;
+  previousStart: number;
+  currentDay: string;
+  previousDay: string;
+  hours: string[];
+  labels: string[];
+} {
+  const today = vnTodayParts(now);
+  const yesterday = vnAddDays(today, -1);
+  return {
+    currentStart: vnMidnight(today),
+    previousStart: vnMidnight(yesterday),
+    currentDay: vnYmd(today),
+    previousDay: vnYmd(yesterday),
+    hours: HOURS_24,
+    labels: HOURS_24.map((hour) => `${Number(hour)}h`),
+  };
+}
+
+export function chartLegend(range: ChartRange): { current: string; previous: string } {
+  if (range === 'today') return { current: 'Hôm nay', previous: 'Hôm qua' };
+  if (range === '7') return { current: '7 ngày gần nhất', previous: '7 ngày trước đó' };
+  return { current: '30 ngày gần nhất', previous: '30 ngày trước đó' };
+}
+
+export type ChartSeries = {
+  labels: string[];
+  orders: { current: number[]; previous: number[] };
+  revenue: { current: number[]; previous: number[] };
+  legend: { current: string; previous: string };
+  grain: 'hour' | 'day';
+};
+
+export type DashboardRankItem = {
+  name: string;
+  orders: number;
+  revenue: number;
+};
+
+export type DashboardTopProduct = {
+  productId: number;
+  name: string;
+  sold: number;
+  imageUrl: string | null;
+  imageAlt: string;
+};
+
+/** Top tỉnh / nguồn / sản phẩm theo cùng kỳ lọc biểu đồ. */
+export type DashboardBreakdown = {
+  provinces: DashboardRankItem[];
+  sources: DashboardRankItem[];
+  topProducts: DashboardTopProduct[];
+};
+
+export function chartEmptyHint(range: ChartRange): string {
+  if (range === 'today') return 'Chưa có đơn hôm nay.';
+  if (range === '7') return 'Chưa có đơn trong 7 ngày gần nhất.';
+  return 'Chưa có đơn trong 30 ngày gần nhất.';
+}
+
+export function kpiTitle(range: ChartRange): string {
+  if (range === 'today') return 'Chỉ số hôm nay';
+  if (range === '7') return 'Chỉ số 7 ngày gần nhất';
+  return 'Chỉ số 30 ngày gần nhất';
+}
+
+export type DashboardKpi = {
+  orders: number;
+  revenue: number;
+  profit: number;
+  costedOrders: number;
+  deltas: {
+    orders: { text: string; tone: DeltaTone };
+    revenue: { text: string; tone: DeltaTone };
+    profit: { text: string; tone: DeltaTone };
+  };
+};
+
+export function dayChartLabels(days: readonly string[]): string[] {
+  return days.map((day) => `${day.slice(8, 10)}/${day.slice(5, 7)}`);
+}
+
+/** Điền 0 cho khóa thiếu; giữ đúng thứ tự `keys`. */
 export function fillDailySeries(
-  days: readonly string[],
+  keys: readonly string[],
   rows: ReadonlyArray<{ day: string; value: number }>,
 ): number[] {
   const map = new Map(rows.map((row) => [row.day, row.value]));
-  return days.map((day) => map.get(day) ?? 0);
+  return keys.map((key) => map.get(key) ?? 0);
 }
 
 export function percentChange(current: number, previous: number): number | null {
@@ -80,118 +184,6 @@ export function describeDelta(change: number | null, invert = false): { text: st
   const up = change > 0;
   const text = `${up ? '+' : '−'}${Math.abs(change)}% so với kỳ trước`;
   return { text, tone: up !== invert ? 'good' : 'bad' };
-}
-
-export function timeAgo(at: number, now: number): string {
-  const diff = Math.max(0, now - at);
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return 'Vừa xong';
-  if (minutes < 60) return `${minutes} phút trước`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} giờ trước`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days} ngày trước`;
-  return '';
-}
-
-export type ActionItem = {
-  key: string;
-  label: string;
-  count: number | null;
-  detail: string;
-  href: string;
-  tone: 'warn' | 'info';
-};
-
-export type ActionInput = {
-  admin: boolean;
-  newOrders: number;
-  agedNewOrders: number;
-  processingOrders: number;
-  productsNoCover: number;
-  productsNoCategory: number;
-  drafts: number;
-  oldDrafts: number;
-  publishedPosts: number;
-  seo: { state: 'none' | 'checked'; errors: number };
-};
-
-export function buildActionItems(input: ActionInput): ActionItem[] {
-  const items: ActionItem[] = [];
-  if (input.admin) {
-    if (input.newOrders > 0) {
-      items.push({
-        key: 'new-orders',
-        label: 'Đơn mới chờ xác nhận',
-        count: input.newOrders,
-        detail: input.agedNewOrders > 0 ? `${input.agedNewOrders} đơn đã chờ hơn 24 giờ` : 'Gọi khách để xác nhận đơn',
-        href: `${routes.adminOrders}?status=new`,
-        tone: input.agedNewOrders > 0 ? 'warn' : 'info',
-      });
-    }
-    if (input.processingOrders > 0) {
-      items.push({
-        key: 'processing-orders',
-        label: 'Đơn đang xử lý',
-        count: input.processingOrders,
-        detail: 'Đã xác nhận, đang chuẩn bị hoặc đã gửi, chưa hoàn thành',
-        href: `${routes.adminOrders}?status=processing`,
-        tone: 'info',
-      });
-    }
-    if (input.productsNoCover > 0) {
-      items.push({
-        key: 'products-no-cover',
-        label: 'Sản phẩm đang bán chưa có ảnh',
-        count: input.productsNoCover,
-        detail: 'Khách khó chọn khi sản phẩm không có ảnh',
-        href: `${routes.adminProducts}?status=active`,
-        tone: 'warn',
-      });
-    }
-    if (input.productsNoCategory > 0) {
-      items.push({
-        key: 'products-no-category',
-        label: 'Sản phẩm đang bán chưa có danh mục',
-        count: input.productsNoCategory,
-        detail: 'Cân nặng đang tính theo thang mặc định (bé)',
-        href: `${routes.adminProducts}?status=active`,
-        tone: 'warn',
-      });
-    }
-  }
-  if (input.drafts > 0) {
-    items.push({
-      key: 'drafts',
-      label: 'Bài nháp chưa xuất bản',
-      count: input.drafts,
-      detail: input.oldDrafts > 0 ? `${input.oldDrafts} bài chưa sửa hơn 30 ngày` : 'Hoàn thiện và xuất bản khi sẵn sàng',
-      href: `${routes.adminPosts}?status=draft`,
-      tone: 'info',
-    });
-  }
-  if (input.admin) {
-    if (input.seo.state === 'checked' && input.seo.errors > 0) {
-      items.push({
-        key: 'seo-errors',
-        label: 'Lỗi SEO nghiêm trọng',
-        count: input.seo.errors,
-        detail: 'Xem chi tiết trong trang kiểm tra SEO',
-        href: routes.adminSeo,
-        tone: 'warn',
-      });
-    } else if (input.seo.state === 'none' && input.publishedPosts > 0) {
-      items.push({
-        key: 'seo-unchecked',
-        label: 'Chưa có kết quả kiểm tra SEO',
-        count: null,
-        detail: 'Chạy kiểm tra để biết bài nào cần sửa',
-        href: routes.adminSeo,
-        tone: 'info',
-      });
-    }
-  }
-  return items;
 }
 
 export function mergeTopProducts(

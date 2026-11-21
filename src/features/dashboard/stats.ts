@@ -1,20 +1,27 @@
-import { and, count, desc, eq, gte, inArray, isNotNull, ne, sql } from 'drizzle-orm';
+import { and, count, eq, gte, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { routes } from '../../lib/routes';
-import { media, orderItems, orders, posts, products, seoHealthIssues, seoHealthRuns } from '../../lib/db/schema';
+import { media, orderItems, orders, posts, products } from '../../lib/db/schema';
 import { provinceLabel } from '../address/provinces';
 import { notTrashed } from '../posts/visibility';
 import { sourceLabel } from '../orders/staff';
 import {
-  AGED_ORDER_MS,
-  OLD_DRAFT_MS,
   OVERVIEW_DAYS,
-  buildActionItems,
+  chartLegend,
+  dayChartLabels,
+  dayWindows,
   describeDelta,
   fillDailySeries,
   mergeTopProducts,
   overviewWindows,
   percentChange,
+  todayHourWindows,
+  type ChartRange,
+  type ChartSeries,
+  type DashboardBreakdown,
+  type DashboardKpi,
+  type DashboardRankItem,
+  type DashboardTopProduct,
 } from './metrics';
 
 const TOP_PRODUCTS = 10;
@@ -24,75 +31,25 @@ const num = (expression: ReturnType<typeof sql>) => sql<number>`coalesce(${expre
 
 /** Ngày lịch VN từ created_at (ms). */
 const dayVn = sql<string>`strftime('%Y-%m-%d', ${orders.createdAt} / 1000, 'unixepoch', '+7 hours')`;
+/** Giờ 00–23 theo lịch VN. */
+const hourVn = sql<string>`strftime('%H', ${orders.createdAt} / 1000, 'unixepoch', '+7 hours')`;
 
 const live = sql`${orders.status} <> 'cancelled'`;
 const revenueOk = sql`${orders.status} <> 'cancelled' AND ${orders.compensation} = 0`;
 const costed = sql`${orders.costGoods} is not null and ${orders.costExtra} is not null`;
 const profitExpr = sql`${orders.totalPrice} - ${orders.costGoods} - ${orders.costExtra} - coalesce(${orders.shippingCost}, 0)`;
 
-async function loadPosts(db: AppDb, now: number) {
+async function loadPosts(db: AppDb) {
   const rows = await db
     .select({
       total: count(),
       published: num(sql`sum(case when ${posts.status} = 'published' then 1 else 0 end)`),
       drafts: num(sql`sum(case when ${posts.status} = 'draft' then 1 else 0 end)`),
-      oldDrafts: num(sql`sum(case when ${posts.status} = 'draft' and ${posts.updatedAt} < ${now - OLD_DRAFT_MS} then 1 else 0 end)`),
     })
     .from(posts)
     .where(notTrashed());
   const row = rows[0];
-  return { total: row?.total ?? 0, published: row?.published ?? 0, drafts: row?.drafts ?? 0, oldDrafts: row?.oldDrafts ?? 0 };
-}
-
-async function loadProducts(db: AppDb) {
-  const rows = await db
-    .select({
-      active: num(sql`sum(case when ${products.status} = 'active' then 1 else 0 end)`),
-      noCover: num(sql`sum(case when ${products.status} = 'active' and ${products.coverMediaId} is null then 1 else 0 end)`),
-      noCategory: num(sql`sum(case when ${products.status} = 'active' and ${products.categoryId} is null then 1 else 0 end)`),
-    })
-    .from(products);
-  const row = rows[0];
-  return { active: row?.active ?? 0, noCover: row?.noCover ?? 0, noCategory: row?.noCategory ?? 0 };
-}
-
-async function loadStatusCounts(db: AppDb, now: number) {
-  const rows = await db
-    .select({
-      status: orders.status,
-      value: count(),
-      aged: num(sql`sum(case when ${orders.createdAt} < ${now - AGED_ORDER_MS} then 1 else 0 end)`),
-    })
-    .from(orders)
-    .groupBy(orders.status);
-  let newOrders = 0;
-  let agedNewOrders = 0;
-  let processing = 0;
-  for (const row of rows) {
-    if (row.status === 'new') {
-      newOrders += row.value;
-      agedNewOrders += row.aged;
-    }
-    if (row.status === 'confirmed' || row.status === 'preparing' || row.status === 'shipped') processing += row.value;
-  }
-  return { newOrders, agedNewOrders, processing };
-}
-
-async function loadSeo(db: AppDb): Promise<{ state: 'none' | 'checked'; errors: number }> {
-  const runs = await db.select({ id: seoHealthRuns.id }).from(seoHealthRuns).orderBy(desc(seoHealthRuns.id)).limit(1);
-  const run = runs[0];
-  if (!run) return { state: 'none', errors: 0 };
-  const rows = await db
-    .select({ value: count() })
-    .from(seoHealthIssues)
-    .where(
-      and(
-        eq(seoHealthIssues.runId, run.id),
-        eq(seoHealthIssues.severity, 'error'),
-        sql`(${seoHealthIssues.postId} is null or exists (select 1 from posts where posts.id = ${seoHealthIssues.postId} and posts.status = 'published' and posts.deleted_at is null))`,
-      ),
-    );
-  return { state: 'checked', errors: rows[0]?.value ?? 0 };
+  return { total: row?.total ?? 0, published: row?.published ?? 0, drafts: row?.drafts ?? 0 };
 }
 
 /** KPI 7 ngày + kỳ trước trong một query trên cửa sổ 14 ngày. */
@@ -123,7 +80,7 @@ async function loadPeriodKpi(db: AppDb, currentStart: number, previousStart: num
   };
 }
 
-/** Một query: số đơn + doanh thu theo ngày (cửa sổ 14 ngày). */
+/** Một query: số đơn + doanh thu theo ngày. */
 async function loadDailySeries(db: AppDb, previousStart: number) {
   return db
     .select({
@@ -134,6 +91,73 @@ async function loadDailySeries(db: AppDb, previousStart: number) {
     .from(orders)
     .where(gte(orders.createdAt, previousStart))
     .groupBy(dayVn);
+}
+
+/** Số đơn + doanh thu theo giờ (VN) trong cửa sổ hôm qua → hôm nay. */
+async function loadHourlySeries(db: AppDb, previousStart: number) {
+  return db
+    .select({
+      day: dayVn,
+      hour: hourVn,
+      orders: num(sql`sum(case when ${live} then 1 else 0 end)`),
+      revenue: num(sql`sum(case when ${revenueOk} then ${orders.totalPrice} else 0 end)`),
+    })
+    .from(orders)
+    .where(gte(orders.createdAt, previousStart))
+    .groupBy(dayVn, hourVn);
+}
+
+function buildDayChart(
+  range: Extract<ChartRange, '7' | '30'>,
+  windows: ReturnType<typeof dayWindows>,
+  seriesRows: Awaited<ReturnType<typeof loadDailySeries>>,
+): ChartSeries {
+  const orderRows = seriesRows.map((row) => ({ day: row.day, value: row.orders }));
+  const revenueRows = seriesRows.map((row) => ({ day: row.day, value: row.revenue }));
+  return {
+    labels: dayChartLabels(windows.currentDays),
+    orders: {
+      current: fillDailySeries(windows.currentDays, orderRows),
+      previous: fillDailySeries(windows.previousDays, orderRows),
+    },
+    revenue: {
+      current: fillDailySeries(windows.currentDays, revenueRows),
+      previous: fillDailySeries(windows.previousDays, revenueRows),
+    },
+    legend: chartLegend(range),
+    grain: 'day',
+  };
+}
+
+function buildTodayChart(
+  windows: ReturnType<typeof todayHourWindows>,
+  seriesRows: Awaited<ReturnType<typeof loadHourlySeries>>,
+): ChartSeries {
+  const currentOrders = seriesRows
+    .filter((row) => row.day === windows.currentDay)
+    .map((row) => ({ day: row.hour, value: row.orders }));
+  const previousOrders = seriesRows
+    .filter((row) => row.day === windows.previousDay)
+    .map((row) => ({ day: row.hour, value: row.orders }));
+  const currentRevenue = seriesRows
+    .filter((row) => row.day === windows.currentDay)
+    .map((row) => ({ day: row.hour, value: row.revenue }));
+  const previousRevenue = seriesRows
+    .filter((row) => row.day === windows.previousDay)
+    .map((row) => ({ day: row.hour, value: row.revenue }));
+  return {
+    labels: windows.labels,
+    orders: {
+      current: fillDailySeries(windows.hours, currentOrders),
+      previous: fillDailySeries(windows.hours, previousOrders),
+    },
+    revenue: {
+      current: fillDailySeries(windows.hours, currentRevenue),
+      previous: fillDailySeries(windows.hours, previousRevenue),
+    },
+    legend: chartLegend('today'),
+    grain: 'hour',
+  };
 }
 
 async function loadTopProvinces(db: AppDb, start: number) {
@@ -150,15 +174,16 @@ async function loadTopProvinces(db: AppDb, start: number) {
     .limit(TOP_PROVINCES);
   return rows
     .filter((row) => row.ordersCount > 0)
-    .map((row) => ({
-      provinceCode: row.provinceCode,
-      name: provinceLabel(row.provinceCode),
-      orders: row.ordersCount,
-      revenue: row.revenue,
-    }));
+    .map(
+      (row): DashboardRankItem => ({
+        name: provinceLabel(row.provinceCode),
+        orders: row.ordersCount,
+        revenue: row.revenue,
+      }),
+    );
 }
 
-async function loadBySource(db: AppDb, start: number) {
+async function loadBySource(db: AppDb, start: number): Promise<DashboardRankItem[]> {
   const rows = await db
     .select({
       source: orders.source,
@@ -172,14 +197,13 @@ async function loadBySource(db: AppDb, start: number) {
   return rows
     .filter((row) => row.ordersCount > 0)
     .map((row) => ({
-      source: row.source,
       name: sourceLabel(row.source) || 'Khác',
       orders: row.ordersCount,
       revenue: row.revenue,
     }));
 }
 
-async function loadTopProducts(db: AppDb, start: number) {
+async function loadTopProducts(db: AppDb, start: number): Promise<DashboardTopProduct[]> {
   const inRange = and(gte(orders.createdAt, start), ne(orders.status, 'cancelled'));
   const legacyOnly = sql`not exists (select 1 from order_items where order_items.order_id = ${orders.id})`;
   const [single, many] = await Promise.all([
@@ -226,134 +250,81 @@ async function loadTopProducts(db: AppDb, start: number) {
   });
 }
 
-/** Lifetime: tránh double-count — đơn có order_items chỉ đếm items; đơn legacy (không có item) đếm orders.quantity; cộng sold_base. */
-async function loadLifetimeSales(db: AppDb) {
-  const [orderAgg, itemQty, legacyQty, baseQty] = await Promise.all([
-    db
-      .select({
-        ordersCount: num(sql`sum(case when ${live} then 1 else 0 end)`),
-        revenue: num(sql`sum(case when ${revenueOk} then ${orders.totalPrice} else 0 end)`),
-      })
-      .from(orders),
-    db
-      .select({ sold: num(sql`sum(${orderItems.quantity})`) })
-      .from(orderItems)
-      .innerJoin(orders, eq(orders.id, orderItems.orderId))
-      .where(ne(orders.status, 'cancelled')),
-    db
-      .select({ sold: num(sql`sum(${orders.quantity})`) })
-      .from(orders)
-      .where(
-        and(
-          ne(orders.status, 'cancelled'),
-          sql`not exists (select 1 from order_items where order_items.order_id = ${orders.id})`,
-        ),
-      ),
-    db.select({ sold: num(sql`sum(${products.soldBase})`) }).from(products),
+async function loadBreakdown(db: AppDb, start: number): Promise<DashboardBreakdown> {
+  const [provinces, sources, topProducts] = await Promise.all([
+    loadTopProvinces(db, start),
+    loadBySource(db, start),
+    loadTopProducts(db, start),
   ]);
+  return { provinces, sources, topProducts };
+}
+
+function buildKpi(raw: Awaited<ReturnType<typeof loadPeriodKpi>>): DashboardKpi {
   return {
-    orders: orderAgg[0]?.ordersCount ?? 0,
-    revenue: orderAgg[0]?.revenue ?? 0,
-    soldQty: (itemQty[0]?.sold ?? 0) + (legacyQty[0]?.sold ?? 0) + (baseQty[0]?.sold ?? 0),
+    orders: raw.curOrders,
+    revenue: raw.curRevenue,
+    profit: raw.curProfit,
+    costedOrders: raw.curCosted,
+    deltas: {
+      orders: describeDelta(percentChange(raw.curOrders, raw.prevOrders)),
+      revenue: describeDelta(percentChange(raw.curRevenue, raw.prevRevenue)),
+      profit: describeDelta(percentChange(raw.curProfit, raw.prevProfit)),
+    },
   };
 }
 
 export async function getDashboardOverview(db: AppDb, options: { admin: boolean; now?: number }) {
   const now = options.now ?? Date.now();
   const windows = overviewWindows(now);
+  const win30 = dayWindows(30, now);
+  const winToday = todayHourWindows(now);
 
   if (!options.admin) {
-    const postStats = await loadPosts(db, now);
+    const postStats = await loadPosts(db);
     return {
       admin: false as const,
       posts: postStats,
-      actions: buildActionItems({
-        admin: false,
-        newOrders: 0,
-        agedNewOrders: 0,
-        processingOrders: 0,
-        productsNoCover: 0,
-        productsNoCategory: 0,
-        drafts: postStats.drafts,
-        oldDrafts: postStats.oldDrafts,
-        publishedPosts: postStats.published,
-        seo: { state: 'none', errors: 0 },
-      }),
     };
   }
 
-  const [postStats, productStats, statusCounts, seo, kpiRaw, seriesRows, provinces, sources, topProducts, lifetime] =
-    await Promise.all([
-      loadPosts(db, now),
-      loadProducts(db),
-      loadStatusCounts(db, now),
-      loadSeo(db),
-      loadPeriodKpi(db, windows.currentStart, windows.previousStart),
-      loadDailySeries(db, windows.previousStart),
-      loadTopProvinces(db, windows.currentStart),
-      loadBySource(db, windows.currentStart),
-      loadTopProducts(db, windows.currentStart),
-      loadLifetimeSales(db),
-    ]);
-
-  const orderRows = seriesRows.map((row) => ({ day: row.day, value: row.orders }));
-  const revenueRows = seriesRows.map((row) => ({ day: row.day, value: row.revenue }));
-  const labels = windows.currentDays.map((day) => `${day.slice(8, 10)}/${day.slice(5, 7)}`);
+  const [
+    kpiToday,
+    kpi7,
+    kpi30,
+    dailyRows,
+    hourlyRows,
+    breakdownToday,
+    breakdown7,
+    breakdown30,
+  ] = await Promise.all([
+    loadPeriodKpi(db, winToday.currentStart, winToday.previousStart),
+    loadPeriodKpi(db, windows.currentStart, windows.previousStart),
+    loadPeriodKpi(db, win30.currentStart, win30.previousStart),
+    loadDailySeries(db, win30.previousStart),
+    loadHourlySeries(db, winToday.previousStart),
+    loadBreakdown(db, winToday.currentStart),
+    loadBreakdown(db, windows.currentStart),
+    loadBreakdown(db, win30.currentStart),
+  ]);
 
   return {
     admin: true as const,
     days: OVERVIEW_DAYS,
-    posts: postStats,
-    kpi: {
-      orders: kpiRaw.curOrders,
-      revenue: kpiRaw.curRevenue,
-      profit: kpiRaw.curProfit,
-      costedOrders: kpiRaw.curCosted,
-      changes: {
-        orders: percentChange(kpiRaw.curOrders, kpiRaw.prevOrders),
-        revenue: percentChange(kpiRaw.curRevenue, kpiRaw.prevRevenue),
-        profit: percentChange(kpiRaw.curProfit, kpiRaw.prevProfit),
-      },
-      deltas: {
-        orders: describeDelta(percentChange(kpiRaw.curOrders, kpiRaw.prevOrders)),
-        revenue: describeDelta(percentChange(kpiRaw.curRevenue, kpiRaw.prevRevenue)),
-        profit: describeDelta(percentChange(kpiRaw.curProfit, kpiRaw.prevProfit)),
-      },
-    },
-    chart: {
-      labels,
-      orders: {
-        current: fillDailySeries(windows.currentDays, orderRows),
-        previous: fillDailySeries(windows.previousDays, orderRows),
-      },
-      revenue: {
-        current: fillDailySeries(windows.currentDays, revenueRows),
-        previous: fillDailySeries(windows.previousDays, revenueRows),
-      },
-    },
-    provinces,
-    sources,
-    topProducts,
-    lifetime: {
-      products: productStats.active,
-      publishedPosts: postStats.published,
-      drafts: postStats.drafts,
-      soldQty: lifetime.soldQty,
-      revenue: lifetime.revenue,
-      orders: lifetime.orders,
-    },
-    actions: buildActionItems({
-      admin: true,
-      newOrders: statusCounts.newOrders,
-      agedNewOrders: statusCounts.agedNewOrders,
-      processingOrders: statusCounts.processing,
-      productsNoCover: productStats.noCover,
-      productsNoCategory: productStats.noCategory,
-      drafts: postStats.drafts,
-      oldDrafts: postStats.oldDrafts,
-      publishedPosts: postStats.published,
-      seo,
-    }),
+    kpis: {
+      today: buildKpi(kpiToday),
+      '7': buildKpi(kpi7),
+      '30': buildKpi(kpi30),
+    } satisfies Record<ChartRange, DashboardKpi>,
+    charts: {
+      today: buildTodayChart(winToday, hourlyRows),
+      '7': buildDayChart('7', windows, dailyRows),
+      '30': buildDayChart('30', win30, dailyRows),
+    } satisfies Record<ChartRange, ChartSeries>,
+    breakdowns: {
+      today: breakdownToday,
+      '7': breakdown7,
+      '30': breakdown30,
+    } satisfies Record<ChartRange, DashboardBreakdown>,
   };
 }
 

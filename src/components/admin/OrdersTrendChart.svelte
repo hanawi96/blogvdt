@@ -8,9 +8,19 @@
     /** count = số đơn; money = doanh thu VND */
     unit?: 'count' | 'money';
     label?: string;
+    legendCurrent?: string;
+    legendPrevious?: string;
   };
 
-  let { labels, current, previous, unit = 'count', label = 'Biểu đồ' }: Props = $props();
+  let {
+    labels,
+    current,
+    previous,
+    unit = 'count',
+    label = 'Biểu đồ',
+    legendCurrent = 'Kỳ hiện tại',
+    legendPrevious = 'Kỳ trước',
+  }: Props = $props();
 
   let hover = $state<number | null>(null);
 
@@ -37,6 +47,20 @@
       });
     return { current: map(current), previous: map(previous), step };
   });
+
+  /** Khi nhiều điểm, chỉ hiện một phần nhãn trục X để tránh chồng. */
+  const labelStep = $derived.by(() => {
+    const n = labels.length;
+    if (n <= 8) return 1;
+    if (n <= 16) return 2;
+    if (n <= 24) return 3;
+    return Math.ceil(n / 10);
+  });
+
+  function showLabel(index: number): boolean {
+    const last = labels.length - 1;
+    return index === 0 || index === last || index % labelStep === 0;
+  }
 
   function pathOf(pts: { x: number; y: number }[]): string {
     if (pts.length === 0) return '';
@@ -95,7 +119,9 @@
         onpointerenter={() => (hover = index)}
         onpointerleave={() => (hover = null)}
       />
-      <text class="trend-label" x={pt.x} y={height - 8} text-anchor="middle">{labels[index]}</text>
+      {#if showLabel(index)}
+        <text class="trend-label" x={pt.x} y={height - 8} text-anchor="middle">{labels[index]}</text>
+      {/if}
     {/each}
 
     {#if hover !== null && points.current[hover] && points.previous[hover]}
@@ -113,7 +139,7 @@
   </svg>
 
   <ul class="trend-legend">
-    <li><span class="trend-swatch is-cur"></span>7 ngày gần nhất</li>
-    <li><span class="trend-swatch is-prev"></span>7 ngày trước đó</li>
+    <li><span class="trend-swatch is-cur"></span>{legendCurrent}</li>
+    <li><span class="trend-swatch is-prev"></span>{legendPrevious}</li>
   </ul>
 </div>

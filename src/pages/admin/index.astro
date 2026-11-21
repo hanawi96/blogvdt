@@ -1,12 +1,10 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import AdminPlusIcon from '../../components/admin/AdminPlusIcon.astro';
-import OrdersTrendChart from '../../components/admin/OrdersTrendChart.svelte';
+import DashboardTrendCharts from '../../components/admin/DashboardTrendCharts.svelte';
 import { getDashboardOverview } from '../../features/dashboard/stats';
-import { OVERVIEW_DAYS } from '../../features/dashboard/metrics';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
-import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
 
 const session = Astro.locals.adminSession;
@@ -22,15 +20,10 @@ try {
   console.error(JSON.stringify({ event: 'dashboard_failed', name: error instanceof Error ? error.name : 'unknown' }));
   loadError = 'Không tải được số liệu.';
 }
-
-const topMax = dashboard && dashboard.admin ? Math.max(1, ...dashboard.topProducts.map((item) => item.sold)) : 1;
-const provinceMax =
-  dashboard && dashboard.admin ? Math.max(1, ...dashboard.provinces.map((item) => item.orders)) : 1;
-const sourceMax = dashboard && dashboard.admin ? Math.max(1, ...dashboard.sources.map((item) => item.orders)) : 1;
 ---
 
 <AdminLayout title="Tổng quan">
-  <p slot="lead">Số liệu {OVERVIEW_DAYS} ngày gần nhất và tổng quan vận hành.</p>
+  <p slot="lead">Số liệu vận hành theo kỳ đã chọn.</p>
   <div slot="action" class="dash-quick">
     <a class="btn btn-primary" href={routes.adminPostNew}><AdminPlusIcon />Viết bài</a>
     {admin && <a class="btn" href={routes.adminProductNew}><AdminPlusIcon />Thêm sản phẩm</a>}
@@ -41,28 +34,6 @@ const sourceMax = dashboard && dashboard.admin ? Math.max(1, ...dashboard.source
   {
     dashboard && (
       <div class="dash">
-        <section class="dash-card" aria-labelledby="dash-actions-title">
-          <h2 id="dash-actions-title">Cần xử lý ngay</h2>
-          {dashboard.actions.length === 0 ? (
-            <p class="dash-ok">Hiện không có việc nào cần xử lý. Mọi thứ đang ổn.</p>
-          ) : (
-            <ul class="dash-actions">
-              {dashboard.actions.map((item) => (
-                <li>
-                  <a class="dash-action" href={item.href} data-tone={item.tone}>
-                    <span class="dash-action-count">{item.count ?? '→'}</span>
-                    <span class="dash-action-text">
-                      <strong>{item.label}</strong>
-                      <span>{item.detail}</span>
-                    </span>
-                    <span class="dash-action-go" aria-hidden="true">›</span>
-                  </a>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
         {!dashboard.admin && (
           <section class="dash-card" aria-labelledby="dash-content-title">
             <h2 id="dash-content-title">Nội dung</h2>
@@ -80,181 +51,12 @@ const sourceMax = dashboard && dashboard.admin ? Math.max(1, ...dashboard.source
         )}
 
         {dashboard.admin && (
-          <>
-            <section aria-labelledby="dash-kpi-title">
-              <div class="dash-card-head">
-                <h2 id="dash-kpi-title">Chỉ số {OVERVIEW_DAYS} ngày gần nhất</h2>
-                <a href={routes.adminOrders}>Xem đơn</a>
-              </div>
-              <ul class="dash-kpis dash-kpis-3">
-                <li class="dash-card dash-kpi">
-                  <p class="dash-kpi-label">Số đơn</p>
-                  <p class="dash-kpi-value">{dashboard.kpi.orders}</p>
-                  <p class="dash-delta" data-tone={dashboard.kpi.deltas.orders.tone}>{dashboard.kpi.deltas.orders.text}</p>
-                </li>
-                <li class="dash-card dash-kpi">
-                  <p class="dash-kpi-label">Doanh thu</p>
-                  <p class="dash-kpi-value">{formatVnd(dashboard.kpi.revenue)}</p>
-                  <p class="dash-delta" data-tone={dashboard.kpi.deltas.revenue.tone}>{dashboard.kpi.deltas.revenue.text}</p>
-                </li>
-                <li class="dash-card dash-kpi">
-                  <p class="dash-kpi-label">Lãi ròng</p>
-                  <p class="dash-kpi-value">{formatVnd(dashboard.kpi.profit)}</p>
-                  <p class="dash-delta" data-tone={dashboard.kpi.deltas.profit.tone}>
-                    {dashboard.kpi.costedOrders < dashboard.kpi.orders
-                      ? `Trên ${dashboard.kpi.costedOrders}/${dashboard.kpi.orders} đơn có chi phí`
-                      : dashboard.kpi.deltas.profit.text}
-                  </p>
-                </li>
-              </ul>
-            </section>
-
-            <section class="dash-card" aria-labelledby="dash-life-title">
-              <h2 id="dash-life-title">Toàn thời gian</h2>
-              <ul class="dash-life">
-                <li>
-                  <span>Sản phẩm đang bán</span>
-                  <strong>{dashboard.lifetime.products}</strong>
-                </li>
-                <li>
-                  <span>Bài đã xuất bản</span>
-                  <strong>{dashboard.lifetime.publishedPosts}</strong>
-                </li>
-                <li>
-                  <span>Bài lưu nháp</span>
-                  <strong>{dashboard.lifetime.drafts}</strong>
-                </li>
-                <li>
-                  <span>Số lượng đã bán</span>
-                  <strong>{dashboard.lifetime.soldQty}</strong>
-                </li>
-                <li>
-                  <span>Tổng doanh thu</span>
-                  <strong>{formatVnd(dashboard.lifetime.revenue)}</strong>
-                </li>
-                <li>
-                  <span>Tổng đơn hàng</span>
-                  <strong>{dashboard.lifetime.orders}</strong>
-                </li>
-              </ul>
-            </section>
-
-            <div class="dash-split">
-              <section class="dash-card" aria-labelledby="dash-chart-orders">
-                <div class="dash-card-head">
-                  <h2 id="dash-chart-orders">Đơn hàng theo ngày</h2>
-                </div>
-                <OrdersTrendChart
-                  client:visible
-                  labels={dashboard.chart.labels}
-                  current={dashboard.chart.orders.current}
-                  previous={dashboard.chart.orders.previous}
-                  unit="count"
-                  label="Biểu đồ số đơn 7 ngày gần nhất so với 7 ngày trước"
-                />
-              </section>
-              <section class="dash-card" aria-labelledby="dash-chart-revenue">
-                <div class="dash-card-head">
-                  <h2 id="dash-chart-revenue">Doanh thu theo ngày</h2>
-                </div>
-                <OrdersTrendChart
-                  client:visible
-                  labels={dashboard.chart.labels}
-                  current={dashboard.chart.revenue.current}
-                  previous={dashboard.chart.revenue.previous}
-                  unit="money"
-                  label="Biểu đồ doanh thu 7 ngày gần nhất so với 7 ngày trước"
-                />
-              </section>
-            </div>
-
-            <div class="dash-split">
-              <section class="dash-card" aria-labelledby="dash-prov-title">
-                <h2 id="dash-prov-title">Top 5 tỉnh / thành phố</h2>
-                {dashboard.provinces.length === 0 ? (
-                  <p class="text-muted">Chưa có đơn trong {OVERVIEW_DAYS} ngày gần nhất.</p>
-                ) : (
-                  <ol class="dash-rank">
-                    {dashboard.provinces.map((item) => (
-                      <li>
-                        <div class="dash-rank-row">
-                          <span class="dash-rank-name">{item.name}</span>
-                          <span class="dash-rank-meta">
-                            {item.orders} đơn · {formatVnd(item.revenue)}
-                          </span>
-                        </div>
-                        <div class="dash-bar" aria-hidden="true">
-                          <span style={`width: ${Math.max(4, Math.round((item.orders / provinceMax) * 100))}%`} />
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </section>
-
-              <section class="dash-card" aria-labelledby="dash-source-title">
-                <h2 id="dash-source-title">Theo nguồn khách</h2>
-                {dashboard.sources.length === 0 ? (
-                  <p class="text-muted">Chưa có đơn trong {OVERVIEW_DAYS} ngày gần nhất.</p>
-                ) : (
-                  <ol class="dash-rank">
-                    {dashboard.sources.map((item) => (
-                      <li>
-                        <div class="dash-rank-row">
-                          <span class="dash-rank-name">{item.name}</span>
-                          <span class="dash-rank-meta">
-                            {item.orders} đơn · {formatVnd(item.revenue)}
-                          </span>
-                        </div>
-                        <div class="dash-bar" aria-hidden="true">
-                          <span style={`width: ${Math.max(4, Math.round((item.orders / sourceMax) * 100))}%`} />
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </section>
-            </div>
-
-            <section class="dash-card" aria-labelledby="dash-top-title">
-              <div class="dash-card-head">
-                <h2 id="dash-top-title">Top 10 sản phẩm bán chạy</h2>
-                <a href={routes.adminProducts}>Sản phẩm</a>
-              </div>
-              {dashboard.topProducts.length === 0 ? (
-                <p class="text-muted">Chưa có đơn trong {OVERVIEW_DAYS} ngày gần nhất.</p>
-              ) : (
-                <ol class="dash-rank dash-top-products">
-                  {dashboard.topProducts.map((item) => (
-                    <li>
-                      <div class="dash-rank-row dash-top-row">
-                        <a class="dash-top-product" href={routes.adminProduct(item.productId)}>
-                          {item.imageUrl ? (
-                            <img
-                              class="product-thumb"
-                              src={item.imageUrl}
-                              alt={item.imageAlt}
-                              width="44"
-                              height="44"
-                              loading="lazy"
-                              decoding="async"
-                            />
-                          ) : (
-                            <span class="product-thumb is-empty" aria-hidden="true" />
-                          )}
-                          <span class="dash-rank-name">{item.name}</span>
-                        </a>
-                        <strong class="dash-rank-meta">{item.sold} chiếc</strong>
-                      </div>
-                      <div class="dash-bar" aria-hidden="true">
-                        <span style={`width: ${Math.max(4, Math.round((item.sold / topMax) * 100))}%`} />
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </section>
-          </>
+          <DashboardTrendCharts
+            client:visible
+            kpis={dashboard.kpis}
+            charts={dashboard.charts}
+            breakdowns={dashboard.breakdowns}
+          />
         )}
       </div>
     )
