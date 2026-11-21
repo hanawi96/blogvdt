@@ -20,6 +20,10 @@ const ALIAS_TOKENS = {
   sg: ['ho', 'chi', 'minh'],
   hn: ['ha', 'noi'],
   dn: ['da', 'nang'],
+  // Chat hay dính chữ: Lang Biang-Đà Lạt (Lâm Đồng).
+  langbiang: ['lang', 'biang'],
+  dalat: ['da', 'lat'],
+  tpdalat: ['da', 'lat'],
 };
 
 /** Typo hẹp cao nguyên / tên dễ viết sai (so khớp token, không thay query). */
@@ -496,10 +500,12 @@ function prepareQuery(raw, provinceBares, placeSplits) {
     if (!folded) continue;
     const pieceTokens = wordTokens(folded);
     const hasAdminLabel = /\b(?:phuong|xa|thi tran|huyen|quan|thi xa|tinh|thanh pho|tp)\b/.test(folded);
+    // Chỉ nhãn đứng đầu cụm — tránh «nghe tinh» (đường) bị coi là có «tỉnh».
+    const hasLeadingAdmin = /^(?:phuong|xa|thi tran|huyen|quan|thi xa|tinh|thanh pho|tp)\b/.test(folded);
     const hasHamlet = /\b(?:thon|xom|ap)\b/.test(folded);
     const startsStreet = /^(?:xom|thon|ap|to|khu|so|duong|pho|ngo|hem|ke|gan|nha|dc|dia chi)\b/.test(folded);
 
-    if (firstAdminAt >= 0 && pieceIndex < firstAdminAt && !hasAdminLabel) {
+    if (firstAdminAt >= 0 && pieceIndex < firstAdminAt && !hasLeadingAdmin) {
       street.push(cleanStreetPiece(piece));
       continue;
     }

@@ -1472,7 +1472,19 @@ export async function updateStaffOrderLines(
   const settled = settleStaffTotal(columns.subtotal, discount.amount, compensation ? '' : rawTotal, compensation ? '' : rawExtra);
   if (!settled.ok) return settled;
   const baseCode = discount.amount > 0 ? discount.code : null;
-  const collected = applyStaffCollection(settled.totalPrice, settled.discountAmount, baseCode, { compensation, shippingFee: current.shippingFee });
+  // Đồng bộ ship với rule POS/admin: đổi SL có thể đủ/hết miễn ship — không giữ phí cũ.
+  const ship = compensation
+    ? { free: true, fee: 0 }
+    : await resolvePublicShippingFee(
+        db,
+        lines
+          .filter((line): line is typeof line & { productId: number } => line.productId != null)
+          .map((line) => ({ productId: line.productId, lineTotal: line.lineTotal })),
+      );
+  const collected = applyStaffCollection(settled.totalPrice, settled.discountAmount, baseCode, {
+    compensation,
+    shippingFee: ship.fee,
+  });
   if (!collected.ok) return collected;
   const holdsUse = Boolean(current.discountCode && current.discountAmount > 0 && current.discountRestored === 0);
   const code = collected.discountCode;
@@ -1508,6 +1520,7 @@ export async function updateStaffOrderLines(
           discountAmount: amount,
           discountRestored: restore && !claim ? 1 : claim ? 0 : current.discountRestored,
           totalPrice,
+          shippingFee: collected.shippingFee,
           costGoods: snapshot.costGoods,
           costExtra: snapshot.costExtra,
           costLines: encodeCostLines(snapshot),

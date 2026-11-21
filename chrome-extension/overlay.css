@@ -514,33 +514,47 @@ html.vdt-zalo-inset.vdt-zalo-resizing #chatViewContainer {
 
 #vdt-pos-overlay-root .vdt-qty-stepper {
   display: inline-grid;
-  grid-template-columns: 1.8rem auto 1.8rem;
+  grid-template-columns: 2.2rem minmax(2.2rem, auto) 2.2rem;
   align-items: stretch;
-  min-width: 6.5rem;
-  border: 1px solid #bfdbfe;
-  border-radius: 0.4rem;
+  min-width: 7.2rem;
+  min-height: 2.35rem;
+  border: 0;
+  border-radius: 0.5rem;
   overflow: hidden;
-  background: #fff;
+  background: #e8f1ff;
 }
 
 #vdt-pos-overlay-root .vdt-qty-btn {
   margin: 0;
   border: 0;
-  background: #eff6ff;
+  background: #dbeafe;
   color: #1d4ed8;
   font: inherit;
-  font-size: 0.95rem;
+  font-size: 1.05rem;
   font-weight: 700;
+  line-height: 1;
   cursor: pointer;
+}
+
+#vdt-pos-overlay-root .vdt-qty-btn:hover,
+#vdt-pos-overlay-root .vdt-qty-btn:focus-visible {
+  background: #bfdbfe;
+  outline: none;
+}
+
+#vdt-pos-overlay-root .vdt-qty-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 #vdt-pos-overlay-root .vdt-qty-value {
   display: grid;
   place-items: center;
-  min-width: 2rem;
-  border-inline: 1px solid #bfdbfe;
+  min-width: 2.2rem;
+  border: 0;
+  background: #f8fbff;
   color: #1d4ed8;
-  font-size: 0.8rem;
+  font-size: 0.88rem;
   font-weight: 750;
 }
 

@@ -2500,6 +2500,7 @@ function patchCustomerFromOrder(order) {
   recent.totalPrice = Number(order.totalPrice) || recent.totalPrice;
   recent.quantity = Number(order.quantity) || recent.quantity;
   recent.editable = order.editable !== false;
+  if (order.shippingFee != null) recent.shippingFee = Math.max(0, Number(order.shippingFee) || 0);
   if (typeof order.discountCode === 'string') recent.discountCode = order.discountCode;
   if (Array.isArray(order.lines) && order.lines.length) {
     recent.lines = order.lines;

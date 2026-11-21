@@ -472,6 +472,31 @@ describe('đổi địa chỉ 3 cấp sang 2 cấp', () => {
     expect(onlyLong.items.every((item) => !/pơng drang/i.test(item.newText))).toBe(true);
   });
 
+  it('Lâm Đồng: langbiang / dalat dính chữ → Phường Lang Biang-Đà Lạt', () => {
+    const target = wardNamed('Tỉnh Lâm Đồng', 'Phường Lang Biang-Đà Lạt');
+    expect(target).toBeTruthy();
+    for (const raw of [
+      '374 xo viet nghe tinh,phuong langbiang,tp dalat',
+      'phuong langbiang, tp dalat',
+      'langbiang, dalat',
+      'langbiang dalat',
+      'phường langbiang, đà lạt',
+    ]) {
+      const result = searchLegacyAddress(rows, mapping, raw);
+      expect(result.items[0], raw).toMatchObject({
+        provinceCode: target?.provinceCode,
+        wardCode: target?.wardCode,
+      });
+      expect(result.items[0]?.newText, raw).toMatch(/Lang Biang.*Đà Lạt.*Lâm Đồng/);
+    }
+    const street = searchLegacyAddress(
+      rows,
+      mapping,
+      '374 xo viet nghe tinh,phuong langbiang,tp dalat',
+    );
+    expect(street.items[0]?.line.toLowerCase()).toContain('374');
+  });
+
   it('Đắk Lắk: chí thạnh / đức bình đông regression', () => {
     const tuyAnBac = wardNamed('Tỉnh Đắk Lắk', 'Xã Tuy An Bắc');
     const ducBinh = wardNamed('Tỉnh Đắk Lắk', 'Xã Đức Bình');
