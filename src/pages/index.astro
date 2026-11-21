@@ -3,6 +3,7 @@ import DataError from '../components/public/DataError.astro';
 import FaqSection from '../components/public/FaqSection.astro';
 import HomeProductCard from '../components/public/HomeProductCard.astro';
 import OrderDialog from '../components/public/OrderDialog.astro';
+import { BRACELET_PROCESS_STEPS, BRACELET_PROCESS_VIDEO_ID } from '../features/content/bracelet-process';
 import { FAQ_ITEMS } from '../features/content/faq';
 import { listHomeCatalogCategories } from '../features/products/categories';
 import {
@@ -33,15 +34,6 @@ type DemoPhoto = {
   width: number | null;
   height: number | null;
 };
-
-const PROCESS_STEPS = [
-  { title: 'Chọn nguyên liệu', text: 'Chọn cành dâu tằm phù hợp trước khi tách và làm sạch.', img: '/Images/quy-trinh/quy-trinh-lam-vong_1.webp' },
-  { title: 'Bóc dâu tằm', text: 'Tách phần gỗ dùng làm hạt, giữ vẻ mộc tự nhiên.', img: '/Images/quy-trinh/quy-trinh-lam-vong_2.webp' },
-  { title: 'Phơi khô', text: 'Phơi đều để hạt khô, ổn định trước khi mài.', img: '/Images/quy-trinh/quy-trinh-lam-vong_3.webp' },
-  { title: 'Mài nhỏ cành dâu', text: 'Tạo hình hạt vừa tay bé, đều từng viên.', img: '/Images/quy-trinh/quy-trinh-lam-vong_4.webp' },
-  { title: 'Mài mịn viền hạt', text: 'Mài tay cho nhẵn, hạn chế cạnh sắc.', img: '/Images/quy-trinh/quy-trinh-lam-vong_5.webp' },
-  { title: 'Xỏ vòng', text: 'Xỏ dây, chỉnh size theo bé và hoàn thiện.', img: '/Images/quy-trinh/quy-trinh-lam-vong_6.webp' },
-] as const;
 
 const BENEFITS = [
   {
@@ -125,7 +117,6 @@ const shopFiltered = Boolean(shopQuery.category) || Astro.url.searchParams.has('
 const nextCatalogHref = catalogPath({ ...shopQuery, page: 2 });
 const nextApiHref = catalogApiPath({ ...shopQuery, page: 2 });
 const heroPhoto = photoAt(photos, 0);
-const PROCESS_SHORT_ID = '15TVzfA-Jys';
 const site = loaded.site;
 const origin = getSiteOrigin(Astro.url.origin);
 
@@ -323,7 +314,7 @@ async function loadHome(query: CatalogQuery) {
           </div>
           <div class="home-process-rail">
             <ol class="home-process">
-              {PROCESS_STEPS.map((step, index) => (
+              {BRACELET_PROCESS_STEPS.map((step, index) => (
                 <li class="home-process-card">
                   <span class="home-process-num" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
                   <img
@@ -348,12 +339,12 @@ async function loadHome(query: CatalogQuery) {
               <button
                 class="home-process-video-play"
                 type="button"
-                data-yt-facade={PROCESS_SHORT_ID}
+                data-yt-facade={BRACELET_PROCESS_VIDEO_ID}
                 aria-label="Phát video quy trình làm vòng dâu tằm"
               >
                 <img
                   class="home-process-video-thumb"
-                  src={`https://i.ytimg.com/vi/${PROCESS_SHORT_ID}/hqdefault.jpg`}
+                  src={`https://i.ytimg.com/vi/${BRACELET_PROCESS_VIDEO_ID}/hqdefault.jpg`}
                   alt=""
                   width="315"
                   height="560"

@@ -8,6 +8,13 @@ export const CORD_TYPE_LABELS: Record<CordType, string> = {
   other: 'Khác',
 };
 
+/** Nhãn chip trên card công khai; `other`/rỗng → không hiện. */
+export const CORD_CARD_LABELS: Record<CordType, string> = {
+  adjustable: 'Dây rút',
+  elastic: 'Co giãn',
+  other: '',
+};
+
 /** Chuẩn hóa giá trị DB / legacy tiếng Việt → adjustable | elastic | other | ''. */
 export function normalizeCordType(value: string | null | undefined): CordType | '' {
   if (value === 'adjustable' || value === 'Dây rút') return 'adjustable';
@@ -25,7 +32,13 @@ export function cordTypeLabel(value: string | null | undefined): string {
   return kind ? CORD_TYPE_LABELS[kind] : '';
 }
 
-/** Tên hiển thị trên card công khai; không đổi tên lưu DB. `other`/rỗng → không tiền tố. */
+/** Nhãn chip card; rỗng khi không hiện. */
+export function cordCardLabel(value: string | null | undefined): string {
+  const kind = normalizeCordType(value);
+  return kind ? CORD_CARD_LABELS[kind] : '';
+}
+
+/** Tên có tiền tố (sidebar/chỗ text thuần). Card shop dùng chip + `name`. */
 export function productCardName(name: string, cordType: string | null | undefined): string {
   const kind = normalizeCordType(cordType);
   if (kind === 'adjustable') return `[DÂY RÚT] ${name}`;

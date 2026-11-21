@@ -1024,7 +1024,10 @@ html.vdt-zalo-inset.vdt-zalo-resizing #chatViewContainer {
   display: none !important;
 }
 
-/* Nút nhận địa chỉ — lệch ra bên phải bubble, không đè chữ. */
+/*
+ * Pin dưới góc phải bubble — tránh toolbar ngang (emoji/reply/more) bên phải tin.
+ * Áp dụng cả Pancake + Zalo; nhạt khi nghỉ, rõ khi hover tin hoặc nút.
+ */
 [data-vdt-addr-host='1'] {
   position: relative !important;
   overflow: visible !important;
@@ -1034,25 +1037,27 @@ button.vdt-addr-btn {
   all: unset;
   box-sizing: border-box;
   position: absolute;
-  top: 50%;
-  left: calc(100% + 6px);
-  right: auto;
-  z-index: 5;
+  top: calc(100% + 4px);
+  left: auto;
+  right: 0;
+  z-index: 3;
   display: inline-grid;
   place-items: center;
   width: 1.55rem;
   height: 1.55rem;
-  margin-top: -0.775rem;
+  margin-top: 0;
   border-radius: 999px;
   border: 1px solid #c9a07a;
   background: #fff7ed;
   color: #9a3412;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(28, 25, 23, 0.12);
-  opacity: 0.92;
+  opacity: 0.55;
 }
 
-button.vdt-addr-btn:hover {
+[data-vdt-addr-host='1']:hover > button.vdt-addr-btn,
+button.vdt-addr-btn:hover,
+button.vdt-addr-btn:focus-visible {
   opacity: 1;
   background: #ffedd5;
 }

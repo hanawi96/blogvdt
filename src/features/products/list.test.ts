@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { productCardName } from './cord';
+import { audienceCardLabel, readAudience } from './audience';
+import { cordCardLabel, productCardName } from './cord';
 import { parseProductForm, ratingFormValue } from './form';
 import { productMarginAttr, productMarginBand } from '../materials/costing';
 import {
@@ -109,6 +110,24 @@ describe('danh sách sản phẩm', () => {
     expect(parsed.ok && parsed.input.comparePrice).toBe(null);
     expect(parsed.ok && parsed.input.categoryIds).toEqual([]);
     expect(parsed.ok && parsed.input.cordType).toBe('');
+    expect(parsed.ok && parsed.input.audience).toBe('none');
+  });
+
+  it('nhận đối tượng đeo và từ chối giá trị lạ', () => {
+    expect(readAudience(undefined)).toBe('none');
+    expect(audienceCardLabel('none')).toBe('');
+    expect(audienceCardLabel('both')).toBe('Cho cả bé trai & bé gái');
+    expect(audienceCardLabel('boy')).toBe('Cho bé trai');
+    expect(audienceCardLabel('girl')).toBe('Cho bé gái');
+    const both = productForm();
+    both.set('audience', 'both');
+    const parsedBoth = parseProductForm(both);
+    expect(parsedBoth.ok && parsedBoth.input.audience).toBe('both');
+    const bad = productForm();
+    bad.set('audience', 'unisex');
+    const rejected = parseProductForm(bad);
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) expect(rejected.errors.audience).toBe('Đối tượng đeo không hợp lệ.');
   });
 
   it('nhận giá gốc, danh mục và kiểu dây', () => {
@@ -148,6 +167,10 @@ describe('danh sách sản phẩm', () => {
     expect(productCardName('Vòng mix bạc', 'other')).toBe('Vòng mix bạc');
     expect(productCardName('Vòng mix bạc', '')).toBe('Vòng mix bạc');
     expect(productCardName('Vòng mix bạc', null)).toBe('Vòng mix bạc');
+    expect(cordCardLabel('adjustable')).toBe('Dây rút');
+    expect(cordCardLabel('elastic')).toBe('Co giãn');
+    expect(cordCardLabel('other')).toBe('');
+    expect(cordCardLabel('')).toBe('');
   });
 
   it('từ chối giá gốc không lớn hơn giá bán', () => {

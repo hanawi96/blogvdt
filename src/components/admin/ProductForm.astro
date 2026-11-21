@@ -4,6 +4,7 @@ import ProductRecipe from './ProductRecipe.svelte';
 import SlugField from './SlugField.svelte';
 import type { ProductPhoto } from '../../features/products/products';
 import type { CostedLine, MaterialOption } from '../../features/materials/costing';
+import { AUDIENCES, AUDIENCE_LABELS, readAudience } from '../../features/products/audience';
 import { CORD_TYPES, CORD_TYPE_LABELS, normalizeCordType } from '../../features/products/cord';
 import { PRODUCT_STATUSES, PRODUCT_STATUS_LABELS } from '../../features/products/status';
 import type { FieldErrors } from '../../lib/validation/errors';
@@ -16,6 +17,7 @@ interface Values {
   comparePrice: string;
   categoryIds: string[];
   cordType: string;
+  audience: string;
   description: string;
   coverMediaId: string;
   album: string[];
@@ -110,9 +112,21 @@ const selectedCategoryIds = new Set(values.categoryIds);
     </div>
     {errors.cordType && <span class="error-text">{errors.cordType}</span>}
   </div>
+  <div class="mt-4">
+    <span class="mb-1 block font-semibold" id="audience-label">Đối tượng đeo</span>
+    <div class="category-presets" role="radiogroup" aria-labelledby="audience-label">
+      {AUDIENCES.map((value) => (
+        <label class="category-preset">
+          <input type="radio" name="audience" value={value} checked={readAudience(values.audience) === value} />
+          <span>{AUDIENCE_LABELS[value]}</span>
+        </label>
+      ))}
+    </div>
+    {errors.audience && <span class="error-text">{errors.audience}</span>}
+  </div>
   <label class="mt-4 block">
     <span class="mb-1 block font-semibold">Mô tả</span>
-    <textarea class="field min-h-32" name="description" required maxlength="2000">{values.description}</textarea>
+    <textarea class="field min-h-32" name="description" maxlength="2000">{values.description}</textarea>
     {errors.description && <span class="error-text">{errors.description}</span>}
   </label>
   <input type="hidden" name="sortOrder" value={values.sortOrder} />

@@ -1,0 +1,77 @@
+---
+import { BRACELET_PROCESS_STEPS, BRACELET_PROCESS_VIDEO_ID } from '../../features/content/bracelet-process';
+
+interface Props {
+  class?: string;
+}
+
+const { class: className = '' } = Astro.props;
+---
+
+<section class:list={['product-process', className]} aria-labelledby="product-process-title">
+  <header class="product-process-intro">
+    <h2 id="product-process-title">
+      Quy trình làm vòng
+      <span class="home-script">từng hạt được chăm chút</span>
+    </h2>
+    <p>Từ cành dâu quê nhà đến cổ tay bé — mỗi bước đều làm thủ công.</p>
+  </header>
+
+  <ol class="product-process-list">
+    {
+      BRACELET_PROCESS_STEPS.map((step, index) => (
+        <li class="product-process-step">
+          <span class="product-process-num" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+          <img
+            class="product-process-photo"
+            src={step.img}
+            alt=""
+            width="160"
+            height="160"
+            loading="lazy"
+            decoding="async"
+          />
+          <div class="product-process-copy">
+            <strong>{step.title}</strong>
+            <span>{step.text}</span>
+          </div>
+        </li>
+      ))
+    }
+  </ol>
+
+  <figure class="product-process-video">
+    <div class="product-process-video-frame">
+      <button
+        class="product-process-video-play"
+        type="button"
+        data-yt-facade={BRACELET_PROCESS_VIDEO_ID}
+        aria-label="Xem video quy trình làm vòng dâu tằm"
+      >
+        <img
+          class="product-process-video-thumb"
+          src={`https://i.ytimg.com/vi/${BRACELET_PROCESS_VIDEO_ID}/hqdefault.jpg`}
+          alt=""
+          width="480"
+          height="360"
+          loading="lazy"
+          decoding="async"
+        />
+        <span class="product-process-video-icon" aria-hidden="true">
+          <svg viewBox="0 0 68 48" width="48" height="34">
+            <path
+              d="M66.5 7.7a8 8 0 0 0-5.6-5.7C56 .6 34 .6 34 .6s-22 0-26.9 1.4A8 8 0 0 0 1.5 7.7 83 83 0 0 0 0 24a83 83 0 0 0 1.5 16.3 8 8 0 0 0 5.6 5.7C12 47.4 34 47.4 34 47.4s22 0 26.9-1.4a8 8 0 0 0 5.6-5.7A83 83 0 0 0 68 24a83 83 0 0 0-1.5-16.3z"
+              fill="#f00"></path>
+            <path d="M27 34 44 24 27 14z" fill="#fff"></path>
+          </svg>
+        </span>
+      </button>
+    </div>
+    <figcaption>
+      <p class="product-process-video-note">Xem video quy trình — vòng làm theo cân nặng riêng của bé</p>
+      <a class="btn btn-cta product-process-order" href="#dat-hang" data-scroll-to="dat-hang">
+        Đặt hàng ngay <span aria-hidden="true">→</span>
+      </a>
+    </figcaption>
+  </figure>
+</section>

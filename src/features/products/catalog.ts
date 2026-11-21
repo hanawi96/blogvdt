@@ -3,6 +3,7 @@ import type { AppDb } from '../../lib/db/client';
 import { media, productCategories, productCategoryLinks, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { listingMediaKey, MEDIA_CARD_SIZE } from '../media/files';
+import { readAudience } from './audience';
 import { ratingFormValue } from './form';
 import { productShipBadge, type ProductShipBadge } from '../shipping/customer-fee';
 import { sellableProductWhere } from './status';
@@ -98,6 +99,8 @@ export type CatalogCard = {
   comparePrice: number | null;
   /** Kiểu dây DB: `adjustable` | `elastic` | `other` | rỗng. */
   cordType: string;
+  /** Đối tượng đeo: `none` | `both` | `boy` | `girl`. */
+  audience: string;
   weightScale: WeightScale;
   shipBadge: ProductShipBadge;
   /** Điểm hiển thị (vd 5.0); null nếu chưa có rating. */
@@ -147,6 +150,7 @@ export async function listCatalogProducts(db: AppDb, query: CatalogQuery) {
       rating: products.rating,
       sold: soldCount,
       cordType: products.cordType,
+      audience: products.audience,
       weightScale: productCategories.weightScale,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,
@@ -183,6 +187,7 @@ export async function listBestSellers(db: AppDb, limit = 5): Promise<CatalogCard
       rating: products.rating,
       sold: soldCount,
       cordType: products.cordType,
+      audience: products.audience,
       weightScale: productCategories.weightScale,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,
@@ -254,6 +259,7 @@ export function toCatalogCard(row: {
   rating: number;
   sold: number;
   cordType: string | null;
+  audience?: string | null;
   weightScale: string | null;
   categorySlug: string | null;
   coverKey: string | null;
@@ -272,6 +278,7 @@ export function toCatalogCard(row: {
     price: row.price,
     comparePrice: visibleComparePrice(row.price, row.comparePrice),
     cordType: row.cordType ?? '',
+    audience: readAudience(row.audience),
     weightScale: readWeightScale(row.weightScale),
     shipBadge: productShipBadge(row.price, row.categorySlug),
     ratingLabel: ratingLabel || null,

@@ -1,7 +1,8 @@
 ---
 import { CART_MAX_QUANTITY } from '../../features/cart/cart';
+import { audienceCardLabel } from '../../features/products/audience';
 import { discountPercent } from '../../features/products/catalog';
-import { productCardName } from '../../features/products/cord';
+import { cordCardLabel } from '../../features/products/cord';
 import { productRequiresTagName, TAG_NAME_MAX } from '../../features/products/tag-name';
 import { requiresWeight, weightChips, weightExtras, weightOptionLabel, type WeightScale } from '../../features/products/weight';
 import type { ProductShipBadge } from '../../features/shipping/customer-fee';
@@ -19,6 +20,7 @@ interface Props {
     price: number;
     comparePrice: number | null;
     cordType?: string;
+    audience?: string;
     weightScale: WeightScale;
     shipBadge?: ProductShipBadge;
     ratingLabel?: string | null;
@@ -34,7 +36,8 @@ interface Props {
 const { product, eager = false } = Astro.props;
 const href = routes.product(product.slug);
 const orderHref = `${routes.checkout}?san-pham=${encodeURIComponent(product.slug)}`;
-const displayName = productCardName(product.name, product.cordType);
+const cordLabel = cordCardLabel(product.cordType);
+const audienceLabel = audienceCardLabel(product.audience);
 const needsWeight = requiresWeight(product.weightScale);
 const needsTag = productRequiresTagName(product.name);
 const needsDialog = needsWeight || needsTag;
@@ -75,7 +78,13 @@ const orderAttrs = {
     <ProductSalesBadge ratingLabel={product.ratingLabel ?? null} sold={product.sold ?? 0} />
   </a>
   <div class="home-shop-body">
-    <h3 class="home-shop-name"><a href={href}>{displayName}</a></h3>
+    <h3 class="home-shop-name">
+      <a href={href}>
+        {cordLabel && <span class="home-shop-cord">{cordLabel}</span>}
+        <span class="home-shop-name-text">{product.name}</span>
+      </a>
+    </h3>
+    {audienceLabel && <p class="home-shop-audience">{audienceLabel}</p>}
     <p class="home-shop-price">
       <span class="home-shop-price-now">{formatVnd(product.price)}</span>
       {product.comparePrice != null && <span class="home-shop-price-was">{formatVnd(product.comparePrice)}</span>}
@@ -133,7 +142,7 @@ const orderAttrs = {
           data-requires-tag={needsTag ? 'true' : undefined}
         >
           <div class="add-head">
-            <p id={addTitleId} class="font-semibold">{displayName}</p>
+            <p id={addTitleId} class="font-semibold">{product.name}</p>
             <button class="add-close" type="button" data-add-close aria-label="Đóng">×</button>
           </div>
           <p class="font-semibold text-primary-strong" data-add-price>{formatVnd(product.price)}</p>

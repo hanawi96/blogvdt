@@ -119,6 +119,17 @@
   let defaultShipFee = '';
   /** @type {null | { product: object, editIndex: number | null, weight: string, qty: number, note: string, name: string, price: string, unitCost: string, extraOpen: boolean }} */
   let customDraft = null;
+  /** Đơn đang hiện trên card khách — «Gửi xác nhận» khi form trống lấy từ đây. */
+  /** @type {number | null} */
+  let activeHostOrderId = null;
+  /** @type {string} */
+  let activeHostOrderPhone = '';
+  /** @type {null | { resolve: (id: number | null) => void }} */
+  let activeOrderWaiter = null;
+
+  function confirmPhoneKey(raw) {
+    return normalizeOrderPhone(raw) || String(raw || '').trim();
+  }
 
   function show(el, on) {
     if (el instanceof HTMLElement) el.hidden = !on;
@@ -455,6 +466,7 @@
       await saveCurrentDraft({ force: true });
     }
     clearSavedBanner();
+    // Không xóa snapshot tin xác nhận theo chatId — snapshot gắn SĐT (sessionStorage).
     hostChannel = nextChannel;
     hostChatId = nextChatId;
 
@@ -2087,28 +2099,30 @@
     return 'Nhận hàng thanh toán';
   }
 
-  function buildConfirmMessages() {
-    writeAddress();
-    const name = nameInput instanceof HTMLInputElement ? nameInput.value.trim() : '';
-    const phone = phoneInput instanceof HTMLInputElement ? phoneInput.value.trim() : '';
-    const address = addressValue instanceof HTMLInputElement ? addressValue.value.trim() : '';
-    const payRadio = document.querySelector('input[name="payState"]:checked');
-    const payValue = payRadio instanceof HTMLInputElement ? payRadio.value : 'cod';
-    const payState = computePayState();
-    const productLines = cart
+  /**
+   * @param {{ name?: string, phone?: string, address?: string, lines?: Array<{ name?: string, quantity?: string|number, weight?: string }>, payValue?: string, payable?: number, ship?: number, free?: boolean }} parts
+   */
+  function formatConfirmMessages(parts) {
+    const name = String(parts.name || '').trim();
+    const phone = String(parts.phone || '').trim();
+    const address = String(parts.address || '').trim();
+    const payValue = parts.payValue || 'cod';
+    const productLines = (Array.isArray(parts.lines) ? parts.lines : [])
       .map((line, index) => {
         const qty = Number(line.quantity) > 0 ? Number(line.quantity) : 1;
         const size = String(line.weight || '').trim();
-        const parts = [`${index + 1}. ${line.name}`, `SL: ${qty} chiếc`];
-        if (size) parts.push(`Size: ${size}`);
-        return parts.join('  ·  ');
+        const partsLine = [`${index + 1}. ${line.name || 'Sản phẩm'}`, `SL: ${qty} chiếc`];
+        if (size) partsLine.push(`Size: ${size}`);
+        return partsLine.join('  ·  ');
       })
       .join('\n');
-    const totalPart = payState.free
-      ? `${compactVnd(payState.payable)} (Miễn phí vận chuyển)`
-      : payState.ship > 0
-        ? `${compactVnd(payState.payable)} (gồm ship ${compactVnd(payState.ship)})`
-        : compactVnd(payState.payable);
+    const payable = Number(parts.payable) || 0;
+    const ship = Number(parts.ship) || 0;
+    const totalPart = parts.free
+      ? `${compactVnd(payable)} (Miễn phí vận chuyển)`
+      : ship > 0
+        ? `${compactVnd(payable)} (gồm ship ${compactVnd(ship)})`
+        : compactVnd(payable);
     const msg1 = [
       '—— XÁC NHẬN THÔNG TIN ——',
       '',
@@ -2126,6 +2140,103 @@
     ].join('\n');
     const msg2 = 'Phiền c kiểm tra và xác nhận thông tin giúp em với nha để em lưu đơn lại chị ha';
     return [msg1, msg2];
+  }
+
+  function buildConfirmMessages() {
+    writeAddress();
+    const name = nameInput instanceof HTMLInputElement ? nameInput.value.trim() : '';
+    const phone = phoneInput instanceof HTMLInputElement ? phoneInput.value.trim() : '';
+    const address = addressValue instanceof HTMLInputElement ? addressValue.value.trim() : '';
+    const payRadio = document.querySelector('input[name="payState"]:checked');
+    const payValue = payRadio instanceof HTMLInputElement ? payRadio.value : 'cod';
+    const payState = computePayState();
+    return formatConfirmMessages({
+      name,
+      phone,
+      address,
+      lines: cart,
+      payValue,
+      payable: payState.payable,
+      ship: payState.ship,
+      free: payState.free,
+    });
+  }
+
+  /** Dựng tin xác nhận từ đơn đã lưu (card khách / API pos-get). */
+  function buildConfirmMessagesFromOrder(order) {
+    const flags = order?.flags && typeof order.flags === 'object' ? order.flags : {};
+    const free = Boolean(flags.freeShip || flags.compensation);
+    const ship = free ? 0 : moneyOf(flags.shippingFee);
+    const payable = Math.max(0, Number(order?.totalPrice) || 0);
+    const lines = (Array.isArray(order?.lines) ? order.lines : []).map((line) => ({
+      name: line.productName || line.name,
+      quantity: line.quantity,
+      weight: line.weight,
+    }));
+    return formatConfirmMessages({
+      name: order?.customerName,
+      phone: order?.phone,
+      address: order?.address,
+      lines,
+      payValue: flags.payState || 'cod',
+      payable,
+      ship,
+      free,
+    });
+  }
+
+  /** Tải đơn im lặng để gửi xác nhận — không đổ vào form. */
+  async function fetchOrderForConfirm(orderId) {
+    const id = Number(orderId);
+    if (!Number.isInteger(id) || id < 1) return null;
+    try {
+      const result = await send('vdt-pos-order-get', { orderId: id });
+      if (!result?.ok || !result.order) return null;
+      return result.order;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Hỏi content đơn đang hiện trên card (khi panel chưa nhận được push). */
+  function requestActiveOrderId() {
+    if (activeHostOrderId) return Promise.resolve(activeHostOrderId);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (id) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        if (activeOrderWaiter === waiter) activeOrderWaiter = null;
+        resolve(id || null);
+      };
+      const timer = window.setTimeout(() => finish(activeHostOrderId), 400);
+      const waiter = { resolve: finish };
+      activeOrderWaiter = waiter;
+      try {
+        window.parent.postMessage({ source: 'vdt-pos', type: 'vdt-request-active-order' }, '*');
+      } catch {
+        finish(null);
+      }
+    });
+  }
+
+  /**
+   * Form đủ → tin từ form.
+   * Form thiếu → tin từ đơn đang hiện trên card (nguồn đúng, luôn mới).
+   */
+  async function resolveConfirmMessages(draft) {
+    const issue = validateDraft(draft);
+    if (!issue) return { messages: buildConfirmMessages(), issue: null };
+
+    const orderId = activeHostOrderId || (await requestActiveOrderId());
+    const formPhone = confirmPhoneKey(draft.phone);
+    const hostPhone = confirmPhoneKey(activeHostOrderPhone);
+    if (orderId && (!formPhone || !hostPhone || formPhone === hostPhone)) {
+      const order = await fetchOrderForConfirm(orderId);
+      if (order) return { messages: buildConfirmMessagesFromOrder(order), issue: null };
+    }
+    return { messages: null, issue };
   }
 
   /** @param {{ syncFreeShip?: boolean }} [opts] */
@@ -3028,6 +3139,9 @@
     if (!result?.ok || typeof result.id !== 'number') {
       return { ok: false, result };
     }
+    // Gắn ngay đơn vừa tạo/sửa — «Gửi xác nhận» không cần chờ lookup card.
+    activeHostOrderId = result.id;
+    activeHostOrderPhone = confirmPhoneKey(draft.phone);
     const phone = draft.phone;
     const draftChannel = hostChannel;
     const draftChatId = hostChatId;
@@ -3098,17 +3212,29 @@
 
   sendConfirmBtn?.addEventListener('click', () => {
     if (sendingConfirm || submitting) return;
-    const draft = requireDraftReady();
-    if (!draft) return;
-    const messages = buildConfirmMessages();
     sendingConfirm = true;
     setConfirmButtonsBusy(true);
-    void requestSendConfirm(messages).then((result) => {
-      sendingConfirm = false;
-      setConfirmButtonsBusy(false);
-      if (!result?.ok) setFormError(result?.error || 'Không gửi được tin xác nhận vào ô chat.');
-      else setStatusMessage('Đã gửi tin xác nhận vào ô chat.');
-    });
+    void (async () => {
+      try {
+        const draft = collectDraft();
+        const resolved = await resolveConfirmMessages(draft);
+        if (!resolved.messages?.length) {
+          if (resolved.issue) revealInvalid(resolved.issue);
+          else setFormError('Không có đơn để gửi xác nhận. Tạo đơn hoặc mở chat có đơn trước.');
+          return;
+        }
+        clearFieldAttention();
+        setFormError('');
+        const result = await requestSendConfirm(resolved.messages);
+        if (!result?.ok) setFormError(result?.error || 'Không gửi được tin xác nhận vào ô chat.');
+        else setStatusMessage('Đã gửi tin xác nhận vào ô chat.');
+      } catch {
+        setFormError('Không gửi được tin xác nhận. Thử lại.');
+      } finally {
+        sendingConfirm = false;
+        setConfirmButtonsBusy(false);
+      }
+    })();
   });
 
   sendConfirmCreateBtn?.addEventListener('click', () => {
@@ -3169,6 +3295,17 @@
       if (confirmWaiter) {
         confirmWaiter.resolve({ ok: Boolean(data.ok), error: data.error || '' });
         confirmWaiter = null;
+      }
+      return;
+    }
+    if (data.type === 'vdt-active-order') {
+      const id = Number(data.orderId);
+      activeHostOrderId = Number.isInteger(id) && id > 0 ? id : null;
+      activeHostOrderPhone = confirmPhoneKey(typeof data.phone === 'string' ? data.phone : '');
+      if (activeOrderWaiter) {
+        const waiter = activeOrderWaiter;
+        activeOrderWaiter = null;
+        waiter.resolve(activeHostOrderId);
       }
       return;
     }

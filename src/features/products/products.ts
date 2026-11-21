@@ -123,6 +123,7 @@ export type ProductInput = {
   comparePrice: number | null;
   categoryIds: number[];
   cordType: string;
+  audience: string;
   description: string;
   coverMediaId: number | null;
   albumIds: number[];
@@ -491,6 +492,7 @@ function productValues(input: ProductInput, now: number) {
     comparePrice: input.comparePrice,
     categoryId: primaryCategoryId(input.categoryIds),
     cordType: input.cordType,
+    audience: input.audience,
     description: input.description,
     coverMediaId: input.coverMediaId,
     status: input.status,

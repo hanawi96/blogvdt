@@ -1,12 +1,14 @@
 import { z } from 'zod';
 import { fieldErrors, type FieldErrors } from '../../lib/validation/errors';
 import { parseRecipe } from '../materials/costing';
+import { isAudience, readAudience } from './audience';
 import { isCordType } from './cord';
 import { parseCategoryIds } from './product-category-links';
 import type { ProductInput } from './products';
 import { isProductStatus } from './status';
 
-export { CORD_TYPES, CORD_TYPE_LABELS, cordTypeLabel, productCardName } from './cord';
+export { AUDIENCES, AUDIENCE_LABELS, audienceCardLabel, readAudience } from './audience';
+export { CORD_TYPES, CORD_TYPE_LABELS, cordCardLabel, cordTypeLabel, productCardName } from './cord';
 
 export const PRODUCT_RATING_MAX = 50;
 
@@ -21,7 +23,8 @@ const productFields = z.object({
   price: z.string().regex(/^\d{1,8}$/, 'Giá là số nguyên VND.'),
   comparePrice: z.string().trim(),
   cordType: z.string().trim().max(80, 'Kiểu dây quá dài.'),
-  description: z.string().trim().min(1, 'Nhập mô tả.').max(2000, 'Mô tả quá dài.'),
+  audience: z.string().trim(),
+  description: z.string().trim().max(2000, 'Mô tả quá dài.'),
   coverMediaId: z.string(),
   status: z.string(),
   sortOrder: z.string().regex(/^-?\d{1,4}$/, 'Thứ tự là số nguyên.'),
@@ -38,6 +41,7 @@ export function parseProductForm(form: FormData): { ok: true; input: ProductInpu
     price: formValue(form, 'price'),
     comparePrice: formValue(form, 'comparePrice'),
     cordType: formValue(form, 'cordType'),
+    audience: formValue(form, 'audience') || 'none',
     description: formValue(form, 'description'),
     coverMediaId: formValue(form, 'coverMediaId'),
     status: formValue(form, 'status'),
@@ -50,6 +54,7 @@ export function parseProductForm(form: FormData): { ok: true; input: ProductInpu
   if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
   if (!isProductStatus(parsed.data.status)) return { ok: false, errors: { status: 'Trạng thái không hợp lệ.' } };
   if (parsed.data.cordType && !isCordType(parsed.data.cordType)) return { ok: false, errors: { cordType: 'Kiểu dây không hợp lệ.' } };
+  if (!isAudience(parsed.data.audience)) return { ok: false, errors: { audience: 'Đối tượng đeo không hợp lệ.' } };
   const comparePrice = readComparePrice(parsed.data.comparePrice, Number(parsed.data.price));
   if (!comparePrice.ok) return { ok: false, errors: { comparePrice: comparePrice.error } };
   const stockQty = readStockQty(parsed.data.stockQty);
@@ -73,6 +78,7 @@ export function parseProductForm(form: FormData): { ok: true; input: ProductInpu
       comparePrice: comparePrice.value,
       categoryIds: categories.ids,
       cordType: parsed.data.cordType,
+      audience: readAudience(parsed.data.audience),
       description: parsed.data.description,
       coverMediaId,
       albumIds,

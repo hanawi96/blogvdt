@@ -24,6 +24,7 @@ export const GET: APIRoute = async ({ url }) => {
           comparePrice: product.comparePrice,
           discountPercent: discountPercent(product.price, product.comparePrice),
           cordType: product.cordType,
+          audience: product.audience,
           weightScale: product.weightScale,
           shipBadge: product.shipBadge,
           ratingLabel: product.ratingLabel,

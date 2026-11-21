@@ -164,6 +164,7 @@ async function selectProducts(db: AppDb, pattern: string, limit: number, offset:
       rating: products.rating,
       sold: productSoldCount,
       cordType: products.cordType,
+      audience: products.audience,
       weightScale: productCategories.weightScale,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,

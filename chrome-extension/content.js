@@ -861,13 +861,63 @@ function extractPhonesFromNode(node) {
   return phones;
 }
 
-/** Tin nhân viên gửi trên Pancake — bỏ khi lấy SĐT khách từ bubble. */
+/** Tin nhân viên / page gửi trên Pancake — bỏ khi lấy SĐT hoặc gắn pin. */
 function isPancakeOutgoingMessage(node) {
   if (!(node instanceof Element)) return false;
+  let el = node instanceof HTMLElement ? node : null;
+  for (let depth = 0; el && depth < 8; depth += 1) {
+    const bits = [
+      el.className || '',
+      el.getAttribute('data-type') || '',
+      el.getAttribute('data-from') || '',
+      el.getAttribute('data-sender') || '',
+      el.getAttribute('data-direction') || '',
+      el.getAttribute('data-is-page') || '',
+      el.getAttribute('data-from-page') || '',
+    ].join(' ');
+    if (
+      /\b(me|mine|sent|outgoing|self|from[_-]?me|is[_-]?me|own[_-]?message|msg[_-]?out|message[_-]?out|from[_-]?page|is[_-]?page|page[_-]?message|staff|agent)\b/i.test(
+        bits,
+      )
+    ) {
+      return true;
+    }
+    el = el.parentElement;
+  }
+  return false;
+}
+
+/**
+ * Tin căn phải trong khung chat = tin mình gửi (Zalo xanh / Pancake page).
+ * Dùng khi class/data-id không đủ — tránh gắn pin vào tin shop.
+ */
+function isVisuallyOutgoingMessage(node) {
+  if (!(node instanceof HTMLElement)) return false;
   const bubble =
-    node.closest('[class*="message"], [class*="bubble"], [class*="Message"], [class*="chat-item"]') || node;
-  const cls = `${bubble.className || ''} ${bubble.getAttribute('data-type') || ''} ${bubble.getAttribute('data-from') || ''}`;
-  return /\b(me|mine|sent|outgoing|self|from[_-]?me|is[_-]?me|own[_-]?message|msg[_-]?out|message[_-]?out)\b/i.test(cls);
+    node.closest(
+      '.chat-message, [data-component="bubble-message"], [class*="message"], [class*="bubble"], [class*="chat-item"], [class*="msg-item"]',
+    ) || node;
+  if (!(bubble instanceof HTMLElement)) return false;
+  const pane =
+    bubble.closest(
+      '[class*="message-list"], [class*="msg-list"], [class*="chat-content"], [class*="conversation-content"], [class*="thread"], [class*="chat-window"], main, [role="log"]',
+    ) || bubble.offsetParent;
+  if (!(pane instanceof HTMLElement)) return false;
+  const b = bubble.getBoundingClientRect();
+  const p = pane.getBoundingClientRect();
+  if (b.width < 12 || p.width < 80) return false;
+  const distLeft = b.left - p.left;
+  const distRight = p.right - b.right;
+  // Căn phải rõ (lề phải nhỏ hơn lề trái đáng kể).
+  return distRight + 24 < distLeft;
+}
+
+/** Chỉ tin khách mới gắn pin / double-click nhận địa chỉ. */
+function isCustomerAddressMessage(node) {
+  if (isVisuallyOutgoingMessage(node)) return false;
+  if (isZalo()) return isZaloCustomerMessage(node);
+  if (isPancake()) return !isPancakeOutgoingMessage(node);
+  return true;
 }
 
 /** SĐT trong bubble hội thoại đang mở — ưu tiên tin khách; lấy số xuất hiện sau cùng (mới nhất). */
@@ -2315,6 +2365,16 @@ function renderLineEditor(line, index, editable) {
   </div>`;
 }
 
+function pushActiveOrderToPos() {
+  const recent = activeCustomer?.recent;
+  const orderId = Number(recent?.id);
+  postToPos({
+    type: 'vdt-active-order',
+    orderId: Number.isInteger(orderId) && orderId > 0 ? orderId : null,
+    phone: String(activeCustomer?.phone || ''),
+  });
+}
+
 function renderCustomer(root, customer) {
   const box = customerBox(root);
   if (!(box instanceof HTMLElement)) return;
@@ -2322,6 +2382,7 @@ function renderCustomer(root, customer) {
   if (!recent) {
     activeCustomer = null;
     customerEditUi = null;
+    pushActiveOrderToPos();
     setCustomerStatus(root, `Có ${customer.orderCount} đơn · chưa đọc được đơn gần nhất`);
     return;
   }
@@ -2398,6 +2459,7 @@ function renderCustomer(root, customer) {
     nameInput.focus();
     nameInput.select();
   }
+  pushActiveOrderToPos();
 }
 
 function commitCustomerProductName(lineIndex, raw) {
@@ -2521,6 +2583,7 @@ async function confirmDeleteCustomerOrder() {
     customerEditUi = null;
     customerDeleteConfirm = false;
     customerSaving = false;
+    pushActiveOrderToPos();
     setCustomerStatus(ensureRoot(), `Đã xóa đơn · ${phone}`);
     showToast('Đã xóa đơn.');
   } catch {
@@ -2815,6 +2878,7 @@ function requestLookup(phone, convId, name) {
   customerSaving = false;
   customerDeleteConfirm = false;
   activeCustomer = null;
+  pushActiveOrderToPos();
   setCustomerStatus(root, `Đang tra ${phone}…`);
   void runtimeSend({ type: 'vdt-lookup-phone', phone }).then((result) => {
     if (!isExtensionAlive()) return;
@@ -2837,6 +2901,7 @@ function requestLookup(phone, convId, name) {
     customerCanDelete = Boolean(result.canDelete);
     if (!result.found || !result.customer) {
       activeCustomer = null;
+      pushActiveOrderToPos();
       setNoOrderStatus(root, phone);
       schedulePendingRefresh(300);
       postCustomerFill({ phone, name: name || '', channel, chatId: convId });
@@ -3198,13 +3263,25 @@ function collectAddressHosts() {
     if (node.closest(`#${ROOT_ID}`)) continue;
     if (node.closest(CHAT_LIST_SEL)) continue;
     if (node.closest(`[${ADDR_BTN_ATTR}]`)) continue;
-    // Zalo: không gắn pin / không lấy SĐT từ tin xanh (tin mình / số shiper).
-    if (isZalo() && !isZaloCustomerMessage(node)) continue;
+    // Không gắn pin trên tin mình gửi (Zalo SentMsg / Pancake page·staff).
+    if (!isCustomerAddressMessage(node)) continue;
     const text = normalizeMessageText(node);
     if (!looksLikeAddressText(text)) continue;
     candidates.push(node);
   }
   return candidates.filter((node) => !candidates.some((other) => other !== node && node.contains(other)));
+}
+
+/** Cùng luồng với nút pin: đọc text bubble → map địa chỉ vào form. */
+function tryApplyAddressFromHost(host) {
+  if (!(host instanceof HTMLElement)) return false;
+  const address = normalizeMessageText(host);
+  if (!looksLikeAddressText(address)) {
+    showToast('Không thấy địa chỉ trong tin này');
+    return false;
+  }
+  void applyAddressFromChat(address);
+  return true;
 }
 
 function ensureAddressButton(host) {
@@ -3216,7 +3293,7 @@ function ensureAddressButton(host) {
   btn.type = 'button';
   btn.className = 'vdt-addr-btn';
   btn.setAttribute(ADDR_BTN_ATTR, '1');
-  btn.title = 'Nhận địa chỉ vào form đơn';
+  btn.title = 'Nhận địa chỉ vào form đơn (hoặc double-click tin)';
   btn.setAttribute('aria-label', 'Nhận địa chỉ vào form đơn');
   btn.innerHTML =
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-5.3 7-11a7 7 0 1 0-14 0c0 5.7 7 11 7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>';
@@ -3225,12 +3302,7 @@ function ensureAddressButton(host) {
     (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const address = normalizeMessageText(host);
-      if (!looksLikeAddressText(address)) {
-        showToast('Không thấy địa chỉ trong tin này');
-        return;
-      }
-      void applyAddressFromChat(address);
+      tryApplyAddressFromHost(host);
     },
     true,
   );
@@ -3279,6 +3351,22 @@ function watchChatPages() {
     scheduleListPhoneScan();
   });
   chatObserver.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+  document.addEventListener(
+    'dblclick',
+    (event) => {
+      if (!isExtensionAlive()) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(`#${ROOT_ID}`)) return;
+      if (target.closest(`[${ADDR_BTN_ATTR}]`)) return;
+      const host = target.closest(`[${ADDR_HOST_ATTR}]`);
+      if (!(host instanceof HTMLElement)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      tryApplyAddressFromHost(host);
+    },
+    true,
+  );
   document.addEventListener(
     'click',
     (event) => {
@@ -3541,8 +3629,13 @@ async function mount() {
       panelReady = true;
       flushPendingPosMessages();
       postToPos({ type: 'vdt-host-channel', channel: chatChannel() || '' }, true);
+      pushActiveOrderToPos();
       revealOverlayIfReady();
       scheduleSync();
+      return;
+    }
+    if (data.type === 'vdt-request-active-order') {
+      pushActiveOrderToPos();
       return;
     }
     if (data.type === 'vdt-order-updated') {
