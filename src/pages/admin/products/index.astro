@@ -594,10 +594,20 @@ function listHref(nextView: 'list' | 'cards'): string {
             )}
           </div>
           {result.pageCount > 1 && (
-            <nav class="post-pager" aria-label="Phân trang">
-              {result.page > 1 && <a class="btn" href={pageHref({ page: result.page - 1 })}>Trang trước</a>}
-              <span>Trang {result.page}/{result.pageCount}</span>
-              {result.page < result.pageCount && <a class="btn" href={pageHref({ page: result.page + 1 })}>Trang sau</a>}
+            <nav class="admin-pager" aria-label="Phân trang">
+              <div class="admin-pager-inner">
+                {result.page > 1 ? (
+                  <a class="admin-pager-btn" href={pageHref({ page: result.page - 1 })}>Trang trước</a>
+                ) : (
+                  <span class="admin-pager-btn is-disabled" aria-hidden="true">Trang trước</span>
+                )}
+                <span class="admin-pager-status">Trang {result.page}/{result.pageCount}</span>
+                {result.page < result.pageCount ? (
+                  <a class="admin-pager-btn is-next" href={pageHref({ page: result.page + 1 })}>Trang sau</a>
+                ) : (
+                  <span class="admin-pager-btn is-disabled" aria-hidden="true">Trang sau</span>
+                )}
+              </div>
             </nav>
           )}
           {result.page < result.pageCount && <link rel="prefetch" href={pageHref({ page: result.page + 1 })} />}
@@ -854,7 +864,7 @@ function listHref(nextView: 'list' | 'cards'): string {
       return;
     }
 
-    const pager = target.closest<HTMLAnchorElement>('.post-pager a.btn');
+    const pager = target.closest<HTMLAnchorElement>('.admin-pager a.admin-pager-btn');
     if (pager) {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
@@ -960,7 +970,7 @@ function listHref(nextView: 'list' | 'cards'): string {
 
   // Prefetch danh mục khi di chuột — lần bấm sau thường đã có sẵn trong cache trình duyệt.
   results?.addEventListener('pointerover', (event) => {
-    const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('[data-product-presets] a, .post-pager a.btn') : null;
+    const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('[data-product-presets] a, .admin-pager a.admin-pager-btn') : null;
     if (!link || link.getAttribute('aria-current') === 'page') return;
     if (link.closest('[data-client-filter]')) return;
     prefetchUrl(link.href);

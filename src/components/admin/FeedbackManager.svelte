@@ -384,14 +384,20 @@
   </dialog>
 
   {#if pageCount > 1}
-    <nav class="pager mt-4" aria-label="Phân trang feedback">
-      {#if page > 1}
-        <a class="pager-num" href={`${routes.adminFeedback}?page=${page - 1}`}>‹</a>
-      {/if}
-      <span class="pager-num is-active">{page} / {pageCount}</span>
-      {#if page < pageCount}
-        <a class="pager-num" href={`${routes.adminFeedback}?page=${page + 1}`}>›</a>
-      {/if}
+    <nav class="admin-pager" aria-label="Phân trang feedback">
+      <div class="admin-pager-inner">
+        {#if page > 1}
+          <a class="admin-pager-btn" href={`${routes.adminFeedback}?page=${page - 1}`}>Trang trước</a>
+        {:else}
+          <span class="admin-pager-btn is-disabled" aria-hidden="true">Trang trước</span>
+        {/if}
+        <span class="admin-pager-status">Trang {page}/{pageCount}</span>
+        {#if page < pageCount}
+          <a class="admin-pager-btn is-next" href={`${routes.adminFeedback}?page=${page + 1}`}>Trang sau</a>
+        {:else}
+          <span class="admin-pager-btn is-disabled" aria-hidden="true">Trang sau</span>
+        {/if}
+      </div>
     </nav>
   {/if}
 </section>

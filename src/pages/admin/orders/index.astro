@@ -1338,7 +1338,7 @@ const shippedPanelHref =
     });
 
     root.addEventListener('click', (event) => {
-      const pagerLink = event.target instanceof Element ? event.target.closest('.post-pager a.btn') : null;
+      const pagerLink = event.target instanceof Element ? event.target.closest('.admin-pager a.admin-pager-btn') : null;
       if (pagerLink instanceof HTMLAnchorElement) {
         event.preventDefault();
         const href = pagerLink.getAttribute('href') ?? '';

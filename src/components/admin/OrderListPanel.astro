@@ -532,10 +532,20 @@ const canToggleSort = status !== 'shipped';
   </div>
 </div>
 {result.pageCount > 1 && (
-  <nav class="post-pager" aria-label="Phân trang">
-    {result.page > 1 && <a class="btn" href={pageHref(result.page - 1)}>Trang trước</a>}
-    <span>Trang {result.page}/{result.pageCount}</span>
-    {result.page < result.pageCount && <a class="btn" href={pageHref(result.page + 1)}>Trang sau</a>}
+  <nav class="admin-pager" aria-label="Phân trang">
+    <div class="admin-pager-inner">
+      {result.page > 1 ? (
+        <a class="admin-pager-btn" href={pageHref(result.page - 1)}>Trang trước</a>
+      ) : (
+        <span class="admin-pager-btn is-disabled" aria-hidden="true">Trang trước</span>
+      )}
+      <span class="admin-pager-status">Trang {result.page}/{result.pageCount}</span>
+      {result.page < result.pageCount ? (
+        <a class="admin-pager-btn is-next" href={pageHref(result.page + 1)}>Trang sau</a>
+      ) : (
+        <span class="admin-pager-btn is-disabled" aria-hidden="true">Trang sau</span>
+      )}
+    </div>
   </nav>
 )}
 </div>
