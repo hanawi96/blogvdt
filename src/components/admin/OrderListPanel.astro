@@ -432,7 +432,18 @@ const canToggleSort = status !== 'shipped';
                 {profit === null ? (
                   <span class="text-muted">—</span>
                 ) : (
-                  <span class="order-profit" data-sign={profit < 0 ? 'loss' : 'gain'}>{formatVnd(profit)}</span>
+                  <>
+                    <span class="order-profit" data-sign={profit < 0 ? 'loss' : 'gain'}>{formatVnd(profit)}</span>
+                    <button
+                      class="order-profit-detail"
+                      type="button"
+                      data-profit-detail={String(order.id)}
+                      aria-haspopup="dialog"
+                      aria-controls="order-profit-dialog"
+                    >
+                      Xem chi tiết
+                    </button>
+                  </>
                 )}
               </div>
             </td>

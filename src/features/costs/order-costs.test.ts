@@ -141,6 +141,15 @@ describe('ảnh chụp chi phí lúc đặt', () => {
   });
 
   it('unitCost ghi đè công thức — dòng tùy chỉnh vẫn có lãi', () => {
+    const recipes = new Map([
+      [
+        1,
+        [
+          { name: 'Hạt', quantity: 10, unitCost: 2000 },
+          { name: 'Dây', quantity: 1, unitCost: 20000 },
+        ],
+      ],
+    ]);
     const shot = costSnapshotOf(
       [
         { name: 'Vòng A + bi bạc', productId: 1, quantity: 1, unitCost: 55000 },
@@ -149,12 +158,34 @@ describe('ảnh chụp chi phí lúc đặt', () => {
       new Map([[1, 40000]]),
       costs,
       200000,
+      recipes,
     );
     expect(shot.missing).toEqual([]);
     expect(shot.costGoods).toBe(95000);
     expect(shot.goods).toEqual([
       { name: 'Vòng A + bi bạc', quantity: 1, unitCost: 55000, amount: 55000 },
-      { name: 'Vòng trơn', quantity: 1, unitCost: 40000, amount: 40000 },
+      {
+        name: 'Vòng trơn',
+        quantity: 1,
+        unitCost: 40000,
+        amount: 40000,
+        materials: [
+          { name: 'Hạt', quantity: 10, unitCost: 2000, amount: 20000 },
+          { name: 'Dây', quantity: 1, unitCost: 20000, amount: 20000 },
+        ],
+      },
     ]);
+  });
+
+  it('chụp nguyên liệu theo số lượng dòng đơn', () => {
+    const shot = costSnapshotOf(
+      [{ name: 'Vòng trơn', productId: 1, quantity: 2 }],
+      new Map([[1, 40000]]),
+      costs,
+      180000,
+      new Map([[1, [{ name: 'Hạt', quantity: 10, unitCost: 2000 }]]]),
+    );
+    expect(shot.goods[0]?.materials).toEqual([{ name: 'Hạt', quantity: 20, unitCost: 2000, amount: 40000 }]);
+    expect(parseCostLines(encodeCostLines(shot))?.goods[0]?.materials).toEqual(shot.goods[0]?.materials);
   });
 });

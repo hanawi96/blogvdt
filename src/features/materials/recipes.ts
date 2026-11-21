@@ -72,6 +72,38 @@ export function recipeWrites(db: AppDb, productId: number, lines: readonly Recip
 // Không truyền ids → mọi sản phẩm có công thức (dùng cho tổng hợp đơn hàng). D1 giới hạn ~100 tham số → chia lô.
 const PRODUCT_COST_CHUNK = 90;
 
+export type ProductRecipePart = { name: string; quantity: number; unitCost: number };
+
+/** Công thức nguyên liệu theo sản phẩm (đơn giá hiện tại). Dùng khi chụp/hiện chi tiết giá vốn. */
+export async function loadProductRecipeParts(
+  db: AppDb,
+  productIds: readonly number[],
+): Promise<Map<number, ProductRecipePart[]>> {
+  const ids = [...new Set(productIds.filter((id) => Number.isInteger(id) && id > 0))];
+  if (ids.length === 0) return new Map();
+  const out = new Map<number, ProductRecipePart[]>();
+  for (let i = 0; i < ids.length; i += PRODUCT_COST_CHUNK) {
+    const chunk = ids.slice(i, i + PRODUCT_COST_CHUNK);
+    const rows = await db
+      .select({
+        productId: productMaterials.productId,
+        name: materials.name,
+        quantity: productMaterials.quantity,
+        unitCost: materials.unitCost,
+      })
+      .from(productMaterials)
+      .innerJoin(materials, eq(materials.id, productMaterials.materialId))
+      .where(inArray(productMaterials.productId, chunk))
+      .orderBy(asc(materials.name), asc(materials.id));
+    for (const row of rows) {
+      const list = out.get(row.productId) ?? [];
+      list.push({ name: row.name, quantity: row.quantity, unitCost: row.unitCost });
+      out.set(row.productId, list);
+    }
+  }
+  return out;
+}
+
 export async function loadProductCosts(db: AppDb, productIds?: readonly number[]): Promise<Map<number, number>> {
   if (productIds && productIds.length === 0) return new Map();
   const ids = productIds

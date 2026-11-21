@@ -52,6 +52,7 @@ export const routes = {
   adminOrder: (id: number) => `/admin/orders/${id}`,
   adminOrderEdit: (id: number) => `/admin/orders/${id}/edit`,
   adminOrderLines: (id: number) => `/admin/orders/${id}/lines`,
+  adminOrderCosts: (id: number) => `/admin/orders/${id}/costs`,
   adminOrderDelete: (id: number) => `/admin/orders/${id}/delete`,
   adminOrderPosEdit: (id: number) => `/admin/orders/${id}/pos`,
   adminOrderDuplicate: (id: number) => `/admin/orders/new?from=${id}`,

@@ -2,7 +2,7 @@ import { asc, eq, sql } from 'drizzle-orm';
 import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
 import { isUniqueViolation } from '../orders/order';
 import { parseMaterialPrice } from '../materials/costing';
-import { loadProductCosts } from '../materials/recipes';
+import { loadProductCosts, loadProductRecipeParts, type ProductRecipePart } from '../materials/recipes';
 import type { AppDb } from '../../lib/db/client';
 import { orderCosts } from '../../lib/db/schema';
 import { isShippingOrderCost } from './shipping-name';
@@ -91,8 +91,27 @@ export function orderShippingCost(stored: number, extra: ReadonlyArray<{ name: s
   return extra.reduce((sum, line) => (isShippingOrderCost(line.name) ? sum + line.amount : sum), 0);
 }
 
-export type GoodsCostLine = { name: string; quantity: number; unitCost: number; amount: number };
+export type GoodsMaterialLine = { name: string; quantity: number; unitCost: number; amount: number };
+export type GoodsCostLine = {
+  name: string;
+  quantity: number;
+  unitCost: number;
+  amount: number;
+  /** Nguyên liệu tạo nên giá vốn SP (không có khi dòng tùy chỉnh ghi đè vốn). */
+  materials?: GoodsMaterialLine[];
+};
 export type ExtraCostLine = { name: string; kind: OrderCostKind; rate: number; amount: number };
+
+export function materialsForOrderLine(
+  parts: readonly ProductRecipePart[] | undefined,
+  lineQuantity: number,
+): GoodsMaterialLine[] | undefined {
+  if (!parts || parts.length === 0) return undefined;
+  return parts.map((part) => {
+    const quantity = part.quantity * lineQuantity;
+    return { name: part.name, quantity, unitCost: part.unitCost, amount: part.unitCost * quantity };
+  });
+}
 
 // costGoods = null khi còn sản phẩm chưa có công thức: không được bịa tổng giá vốn.
 // goods vẫn giữ các dòng đã tính được. extra là các khoản đang bật lúc đặt.
@@ -111,13 +130,28 @@ export function costSnapshotOf(
   costByProduct: ReadonlyMap<number, number>,
   costs: ReadonlyArray<{ name: string; kind: OrderCostKind; value: number; active: boolean }>,
   payable: number,
+  recipesByProduct?: ReadonlyMap<number, readonly ProductRecipePart[]>,
 ): OrderCostSnapshot {
   const missing: string[] = [];
   const goods: GoodsCostLine[] = [];
   for (const line of lines) {
+    const overridden =
+      typeof line.unitCost === 'number' && Number.isInteger(line.unitCost) && line.unitCost >= 0;
     const unitCost = resolveLineUnitCost(line, costByProduct);
     if (unitCost === undefined) missing.push(line.name);
-    else goods.push({ name: line.name, quantity: line.quantity, unitCost, amount: unitCost * line.quantity });
+    else {
+      const materials =
+        !overridden && line.productId !== null
+          ? materialsForOrderLine(recipesByProduct?.get(line.productId), line.quantity)
+          : undefined;
+      goods.push({
+        name: line.name,
+        quantity: line.quantity,
+        unitCost,
+        amount: unitCost * line.quantity,
+        ...(materials ? { materials } : {}),
+      });
+    }
   }
   const known = lines.length > 0 && missing.length === 0;
   const active = costs.filter((cost) => cost.active);
@@ -163,13 +197,41 @@ export function parseCostLines(raw: string | null): Pick<OrderCostSnapshot, 'goo
   const goods: GoodsCostLine[] = [];
   for (const line of record.goods) {
     if (!line || typeof line !== 'object') return null;
-    const item = line as { name?: unknown; quantity?: unknown; unitCost?: unknown; amount?: unknown };
+    const item = line as { name?: unknown; quantity?: unknown; unitCost?: unknown; amount?: unknown; materials?: unknown };
     const unitCost = readMoney(item.unitCost);
     const amount = readMoney(item.amount);
     if (typeof item.name !== 'string' || typeof item.quantity !== 'number' || !Number.isInteger(item.quantity) || item.quantity < 1 || unitCost === null || amount === null) {
       return null;
     }
-    goods.push({ name: item.name, quantity: item.quantity, unitCost, amount });
+    let materials: GoodsMaterialLine[] | undefined;
+    if (item.materials !== undefined) {
+      if (!Array.isArray(item.materials)) return null;
+      materials = [];
+      for (const part of item.materials) {
+        if (!part || typeof part !== 'object') return null;
+        const mat = part as { name?: unknown; quantity?: unknown; unitCost?: unknown; amount?: unknown };
+        const matUnit = readMoney(mat.unitCost);
+        const matAmount = readMoney(mat.amount);
+        if (
+          typeof mat.name !== 'string' ||
+          typeof mat.quantity !== 'number' ||
+          !Number.isInteger(mat.quantity) ||
+          mat.quantity < 1 ||
+          matUnit === null ||
+          matAmount === null
+        ) {
+          return null;
+        }
+        materials.push({ name: mat.name, quantity: mat.quantity, unitCost: matUnit, amount: matAmount });
+      }
+    }
+    goods.push({
+      name: item.name,
+      quantity: item.quantity,
+      unitCost,
+      amount,
+      ...(materials && materials.length > 0 ? { materials } : {}),
+    });
   }
   if (!Array.isArray(record.extra)) return null;
   const extra: ExtraCostLine[] = [];
@@ -199,8 +261,13 @@ export async function snapshotOrderCosts(
   payable: number,
 ): Promise<OrderCostSnapshot | null> {
   try {
-    const [costs, byProduct] = await Promise.all([listOrderCosts(db), loadProductCosts(db)]);
-    return costSnapshotOf(lines, byProduct, costs, payable);
+    const productIds = lines.flatMap((line) => (line.productId !== null ? [line.productId] : []));
+    const [costs, byProduct, recipes] = await Promise.all([
+      listOrderCosts(db),
+      loadProductCosts(db, productIds.length > 0 ? productIds : undefined),
+      loadProductRecipeParts(db, productIds),
+    ]);
+    return costSnapshotOf(lines, byProduct, costs, payable, recipes);
   } catch (error) {
     console.error(JSON.stringify({ event: 'order_cost_snapshot_failed', name: error instanceof Error ? error.name : 'unknown' }));
     return null;

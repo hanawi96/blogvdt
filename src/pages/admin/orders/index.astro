@@ -451,6 +451,25 @@ const shippedPanelHref =
       </div>
     </div>
   </dialog>
+  <dialog
+    id="order-profit-dialog"
+    class="order-profit-dialog"
+    aria-labelledby="order-profit-dialog-title"
+    data-order-profit-dialog
+  >
+    <div class="order-profit-dialog-card">
+      <header class="order-profit-dialog-head">
+        <div>
+          <h2 id="order-profit-dialog-title">Lợi nhuận đơn hàng</h2>
+          <p data-order-profit-code hidden></p>
+        </div>
+        <button class="order-profit-dialog-close" type="button" data-order-profit-close aria-label="Đóng">×</button>
+      </header>
+      <div class="order-profit-dialog-body is-loading" data-order-profit-body>
+        <p class="order-profit-dialog-loading">Đang tải…</p>
+      </div>
+    </div>
+  </dialog>
 </AdminLayout>
 
 <script>
@@ -1422,5 +1441,328 @@ const shippedPanelHref =
 
     paint();
     schedulePrefetch();
+  }
+
+  type ProfitExtraLine = { name: string; amount: number; rateLabel?: string | null };
+  type ProfitMaterialLine = { name: string; quantity: number; unitCost: number; amount: number };
+  type ProfitGoodsLine = {
+    name: string;
+    quantity: number;
+    unitCost: number;
+    amount: number;
+    materials?: ProfitMaterialLine[];
+  };
+  type ProfitCollection = {
+    kind: 'cod' | 'deposit' | 'paid' | 'compensation';
+    payLabel: string;
+    depositAmount: number;
+    collectAmount: number;
+  };
+  type ProfitDetail = {
+    code: string;
+    productAmount: number;
+    shippingFee: number;
+    discountAmount: number;
+    totalPrice: number;
+    collection: ProfitCollection;
+    costGoods: number | null;
+    goods: ProfitGoodsLine[];
+    packaging: { total: number | null; lines: ProfitExtraLine[] };
+    taxes: ProfitExtraLine[];
+    displayShippingCost: number;
+    totalCost: number | null;
+    profit: number | null;
+    marginPercent: number | null;
+    missing: string[];
+    hasLines: boolean;
+  };
+  const profitDialog = document.querySelector('[data-order-profit-dialog]');
+  const profitBody = document.querySelector('[data-order-profit-body]');
+  const profitCode = document.querySelector('[data-order-profit-code]');
+  const profitCache = new Map<number, ProfitDetail>();
+
+  function formatProfitMoney(amount: number): string {
+    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(amount);
+  }
+
+  function escapeProfitText(value: string): string {
+    return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function profitMoney(amount: number | null, tone?: string): string {
+    if (amount === null) return '<span class="order-profit-sheet-amount is-empty">—</span>';
+    const attr = tone ? ` data-tone="${tone}"` : '';
+    return `<span class="order-profit-sheet-amount"${attr}>${escapeProfitText(formatProfitMoney(amount))}</span>`;
+  }
+
+  function profitRow(label: string, amount: number | null, opts?: { tone?: string; strong?: boolean; total?: boolean }) {
+    const classes = ['order-profit-sheet-row'];
+    if (opts?.strong) classes.push('is-strong');
+    if (opts?.total) classes.push('is-total');
+    return `<div class="${classes.join(' ')}"><span class="order-profit-sheet-label">${escapeProfitText(label)}</span>${profitMoney(amount, opts?.tone)}</div>`;
+  }
+
+  function profitNestedLines(lines: Array<{ name: string; amount: number; meta?: string; materials?: ProfitMaterialLine[] }>): string {
+    if (lines.length === 0) return '';
+    return `<ul class="order-profit-sheet-nested">${lines
+      .map((line) => {
+        const title = line.meta
+          ? `<span class="order-profit-sheet-nested-main"><span>${escapeProfitText(line.name)}</span><span class="order-profit-sheet-nested-meta">${escapeProfitText(line.meta)}</span></span>`
+          : `<span>${escapeProfitText(line.name)}</span>`;
+        const materials =
+          line.materials && line.materials.length > 0
+            ? `<ul class="order-profit-sheet-materials">${line.materials
+                .map(
+                  (mat) =>
+                    `<li><span class="order-profit-sheet-nested-main"><span>${escapeProfitText(mat.name)}</span><span class="order-profit-sheet-nested-meta">${escapeProfitText(`${mat.quantity} × ${formatProfitMoney(mat.unitCost)}`)}</span></span>${profitMoney(mat.amount)}</li>`,
+                )
+                .join('')}</ul>`
+            : '';
+        return `<li class="order-profit-sheet-nested-item">${title}${profitMoney(line.amount)}${materials}</li>`;
+      })
+      .join('')}</ul>`;
+  }
+
+  function renderProfitDetail(data: ProfitDetail): string {
+    const revenueRows: string[] = [];
+    if (data.discountAmount > 0) {
+      revenueRows.push(profitRow('Tiền sản phẩm', data.productAmount + data.discountAmount));
+      revenueRows.push(profitRow('Giảm giá', -data.discountAmount, { tone: 'cost' }));
+    } else {
+      revenueRows.push(profitRow('Tiền sản phẩm', data.productAmount));
+    }
+    revenueRows.push(profitRow('Phí ship (khách trả)', data.shippingFee));
+    revenueRows.push(profitRow('Tổng doanh thu', data.totalPrice, { strong: true, total: true, tone: 'revenue' }));
+
+    const collectRows: string[] = [];
+    if (data.collection.kind === 'compensation') {
+      collectRows.push(`<p class="order-profit-sheet-note">Gửi bù — không thu tiền khách.</p>`);
+    } else if (data.collection.kind === 'deposit') {
+      collectRows.push(profitRow('Đã cọc', data.collection.depositAmount));
+      collectRows.push(profitRow('Thu COD khi giao', data.collection.collectAmount, { strong: true, tone: 'collect' }));
+    } else if (data.collection.kind === 'paid') {
+      collectRows.push(profitRow('Đã chuyển khoản', data.totalPrice, { strong: true, tone: 'collect' }));
+      collectRows.push(profitRow('Thu COD khi giao', 0));
+    } else {
+      collectRows.push(profitRow('Thu COD khi giao', data.collection.collectAmount, { strong: true, tone: 'collect' }));
+    }
+
+    const costRows: string[] = [];
+    if (data.hasLines && data.goods.length > 0) {
+      costRows.push(`<details class="order-profit-sheet-details">
+        <summary>
+          <span class="order-profit-sheet-label">Giá vốn sản phẩm</span>
+          ${profitMoney(data.costGoods, 'cost')}
+        </summary>
+        <p class="order-profit-sheet-details-caption">Theo sản phẩm trong đơn</p>
+        ${profitNestedLines(
+          data.goods.map((line) => ({
+            name: line.name,
+            meta: `${line.quantity} × ${formatProfitMoney(line.unitCost)}`,
+            amount: line.amount,
+            materials: line.materials,
+          })),
+        )}
+      </details>`);
+    } else {
+      costRows.push(profitRow('Giá vốn sản phẩm', data.costGoods, { tone: 'cost' }));
+    }
+    if (data.missing.length > 0) {
+      costRows.push(`<p class="order-profit-sheet-missing">Thiếu công thức: ${escapeProfitText(data.missing.join(', '))}</p>`);
+    }
+
+    if (data.hasLines && data.packaging.lines.length > 0) {
+      costRows.push(`<details class="order-profit-sheet-details">
+        <summary>
+          <span class="order-profit-sheet-label">Chi phí đóng gói</span>
+          ${profitMoney(data.packaging.total, 'cost')}
+        </summary>
+        <p class="order-profit-sheet-details-caption">Chi phí theo đơn hàng (1 lần)</p>
+        ${profitNestedLines(
+          data.packaging.lines.map((line) => ({
+            name: line.rateLabel ? `${line.name} (${line.rateLabel})` : line.name,
+            amount: line.amount,
+          })),
+        )}
+      </details>`);
+    } else {
+      costRows.push(profitRow('Chi phí đóng gói', data.packaging.total, { tone: 'cost' }));
+    }
+
+    costRows.push(profitRow('Phí ship (thực tế)', data.displayShippingCost, { tone: 'cost' }));
+
+    if (data.taxes.length > 0) {
+      for (const tax of data.taxes) {
+        const label = tax.rateLabel ? `${tax.name} (${tax.rateLabel})` : tax.name;
+        costRows.push(profitRow(label, tax.amount, { tone: 'cost' }));
+      }
+    }
+
+    costRows.push(profitRow('Tổng chi phí', data.totalCost, { strong: true, total: true, tone: 'cost-total' }));
+
+    const marginText =
+      data.marginPercent === null ? '—' : `${data.marginPercent.toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+    const profitTone = data.profit !== null && data.profit < 0 ? 'loss' : 'profit';
+
+    return `<div class="order-profit-sheet">
+      <section class="order-profit-sheet-block" data-kind="revenue">
+        <h3 class="order-profit-sheet-heading">Doanh thu</h3>
+        ${revenueRows.join('')}
+      </section>
+      <section class="order-profit-sheet-block" data-kind="collect">
+        <h3 class="order-profit-sheet-heading">Thu hộ / Cọc</h3>
+        ${collectRows.join('')}
+      </section>
+      <section class="order-profit-sheet-block" data-kind="cost">
+        <h3 class="order-profit-sheet-heading">Chi phí</h3>
+        ${costRows.join('')}
+      </section>
+      <section class="order-profit-sheet-result">
+        <div class="order-profit-sheet-result-row">
+          <span>Lợi nhuận ròng</span>
+          ${profitMoney(data.profit, profitTone)}
+        </div>
+        <p class="order-profit-sheet-margin">Tỷ suất lợi nhuận <strong>${escapeProfitText(marginText)}</strong></p>
+      </section>
+    </div>`;
+  }
+
+  async function loadProfitDetail(orderId: number): Promise<ProfitDetail> {
+    const cached = profitCache.get(orderId);
+    if (cached) return cached;
+    const response = await fetch(`/admin/orders/${orderId}/costs`, {
+      credentials: 'same-origin',
+      headers: { accept: 'application/json' },
+    });
+    const payload = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      code?: string;
+      productAmount?: number;
+      shippingFee?: number;
+      discountAmount?: number;
+      totalPrice?: number;
+      collection?: ProfitCollection;
+      costGoods?: number | null;
+      goods?: ProfitGoodsLine[];
+      packaging?: { total?: number | null; lines?: ProfitExtraLine[] };
+      taxes?: ProfitExtraLine[];
+      displayShippingCost?: number;
+      totalCost?: number | null;
+      profit?: number | null;
+      marginPercent?: number | null;
+      missing?: string[];
+      hasLines?: boolean;
+    };
+    if (!response.ok || !payload.ok || typeof payload.code !== 'string' || typeof payload.totalPrice !== 'number') {
+      throw new Error(payload.error || 'Không tải được chi tiết chi phí.');
+    }
+    const collection = payload.collection;
+    const detail: ProfitDetail = {
+      code: payload.code,
+      productAmount: Number(payload.productAmount) || 0,
+      shippingFee: Number(payload.shippingFee) || 0,
+      discountAmount: Number(payload.discountAmount) || 0,
+      totalPrice: payload.totalPrice,
+      collection:
+        collection &&
+        (collection.kind === 'cod' ||
+          collection.kind === 'deposit' ||
+          collection.kind === 'paid' ||
+          collection.kind === 'compensation')
+          ? {
+              kind: collection.kind,
+              payLabel: typeof collection.payLabel === 'string' ? collection.payLabel : '',
+              depositAmount: Number(collection.depositAmount) || 0,
+              collectAmount: Number(collection.collectAmount) || 0,
+            }
+          : { kind: 'cod', payLabel: 'COD', depositAmount: 0, collectAmount: payload.totalPrice },
+      costGoods: typeof payload.costGoods === 'number' ? payload.costGoods : null,
+      goods: Array.isArray(payload.goods)
+        ? payload.goods.flatMap((line) => {
+            if (
+              !line ||
+              typeof line.name !== 'string' ||
+              typeof line.quantity !== 'number' ||
+              typeof line.unitCost !== 'number' ||
+              typeof line.amount !== 'number'
+            ) {
+              return [];
+            }
+            const materials = Array.isArray(line.materials)
+              ? line.materials.filter(
+                  (mat): mat is ProfitMaterialLine =>
+                    !!mat &&
+                    typeof mat.name === 'string' &&
+                    typeof mat.quantity === 'number' &&
+                    typeof mat.unitCost === 'number' &&
+                    typeof mat.amount === 'number',
+                )
+              : undefined;
+            return [{ name: line.name, quantity: line.quantity, unitCost: line.unitCost, amount: line.amount, ...(materials && materials.length > 0 ? { materials } : {}) }];
+          })
+        : [],
+      packaging: {
+        total: typeof payload.packaging?.total === 'number' ? payload.packaging.total : payload.packaging?.total === null ? null : 0,
+        lines: Array.isArray(payload.packaging?.lines) ? payload.packaging.lines : [],
+      },
+      taxes: Array.isArray(payload.taxes) ? payload.taxes : [],
+      displayShippingCost: Number(payload.displayShippingCost) || 0,
+      totalCost: typeof payload.totalCost === 'number' ? payload.totalCost : null,
+      profit: typeof payload.profit === 'number' ? payload.profit : null,
+      marginPercent: typeof payload.marginPercent === 'number' ? payload.marginPercent : null,
+      missing: Array.isArray(payload.missing) ? payload.missing.filter((name): name is string => typeof name === 'string') : [],
+      hasLines: payload.hasLines === true,
+    };
+    profitCache.set(orderId, detail);
+    return detail;
+  }
+
+  async function openProfitDetail(orderId: number) {
+    if (!(profitDialog instanceof HTMLDialogElement) || !(profitBody instanceof HTMLElement)) return;
+    if (profitCode instanceof HTMLElement) {
+      profitCode.textContent = '';
+      profitCode.hidden = true;
+    }
+    profitBody.classList.add('is-loading');
+    profitBody.innerHTML = '<p class="order-profit-dialog-loading">Đang tải…</p>';
+    if (!profitDialog.open) profitDialog.showModal();
+    try {
+      const detail = await loadProfitDetail(orderId);
+      if (profitCode instanceof HTMLElement) {
+        profitCode.textContent = detail.code;
+        profitCode.hidden = false;
+      }
+      profitBody.classList.remove('is-loading');
+      profitBody.innerHTML = renderProfitDetail(detail);
+    } catch (error) {
+      if (profitCode instanceof HTMLElement) {
+        profitCode.textContent = '';
+        profitCode.hidden = true;
+      }
+      profitBody.classList.remove('is-loading');
+      const message = error instanceof Error ? error.message : 'Không tải được chi tiết chi phí.';
+      profitBody.innerHTML = `<p class="order-profit-dialog-error" role="alert">${escapeProfitText(message)}</p>`;
+    }
+  }
+
+  board?.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest('[data-profit-detail]');
+    if (!(button instanceof HTMLButtonElement)) return;
+    const orderId = Number(button.dataset.profitDetail);
+    if (!Number.isInteger(orderId) || orderId < 1) return;
+    event.preventDefault();
+    void openProfitDetail(orderId);
+  });
+
+  if (profitDialog instanceof HTMLDialogElement) {
+    for (const close of profitDialog.querySelectorAll('[data-order-profit-close]')) {
+      close.addEventListener('click', () => profitDialog.close());
+    }
+    profitDialog.addEventListener('click', (event) => {
+      if (event.target === profitDialog) profitDialog.close();
+    });
   }
 </script>

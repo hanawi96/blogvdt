@@ -7352,6 +7352,309 @@
   .order-profit-cell {
     display: grid;
     gap: 0.2rem;
+    justify-items: start;
+  }
+  .order-profit-detail {
+    appearance: none;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    color: color-mix(in oklab, var(--color-accent) 78%, var(--color-ink));
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 550;
+    line-height: 1.2;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in oklab, var(--color-accent) 35%, transparent);
+    text-underline-offset: 0.12em;
+    cursor: pointer;
+  }
+  .order-profit-detail:hover {
+    color: var(--color-accent);
+    text-decoration-color: color-mix(in oklab, var(--color-accent) 55%, transparent);
+  }
+  .order-profit-detail:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--color-accent) 55%, transparent);
+    outline-offset: 2px;
+    border-radius: 0.2rem;
+  }
+  .order-profit-dialog {
+    width: min(32rem, calc(100% - 1.5rem));
+    max-height: calc(100dvh - 1.5rem);
+    margin: auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-ink);
+    overflow: auto;
+  }
+  .order-profit-dialog::backdrop {
+    background: color-mix(in oklab, var(--color-ink) 38%, transparent);
+  }
+  .order-profit-dialog-card {
+    width: 100%;
+    max-height: inherit;
+    overflow: auto;
+    overscroll-behavior: contain;
+    display: grid;
+    gap: 0.85rem;
+    padding: 1rem 1.05rem 1.1rem;
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    box-shadow: 0 18px 42px color-mix(in oklab, var(--color-ink) 18%, transparent);
+  }
+  .order-profit-dialog-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .order-profit-dialog-head h2 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .order-profit-dialog-head p {
+    margin: 0.2rem 0 0;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .order-profit-dialog-close {
+    border: 0;
+    background: transparent;
+    font-size: 1.4rem;
+    line-height: 1;
+    color: var(--color-muted);
+    cursor: pointer;
+    padding: 0.1rem 0.35rem;
+    border-radius: 0.35rem;
+  }
+  .order-profit-dialog-close:hover {
+    color: var(--color-ink);
+    background: color-mix(in oklab, var(--color-ink) 6%, transparent);
+  }
+  .order-profit-dialog-body.is-loading {
+    display: grid;
+    place-items: center;
+    min-height: 12rem;
+  }
+  .order-profit-dialog-loading,
+  .order-profit-dialog-error {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.9rem;
+    text-align: center;
+  }
+  .order-profit-dialog-error {
+    color: color-mix(in oklab, var(--color-danger, #b42318) 85%, var(--color-ink));
+  }
+  .order-profit-sheet {
+    display: grid;
+    gap: 0.7rem;
+  }
+  .order-profit-sheet-block {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.75rem 0.8rem 0.8rem;
+    border-radius: calc(var(--radius-lg) - 0.1rem);
+    border: 0;
+    background: var(--color-surface);
+  }
+  .order-profit-sheet-block[data-kind='revenue'] {
+    background: color-mix(in oklab, var(--color-accent) 5%, var(--color-surface));
+  }
+  .order-profit-sheet-block[data-kind='collect'] {
+    background: color-mix(in oklab, var(--color-accent-strong) 4%, var(--color-surface));
+  }
+  .order-profit-sheet-block[data-kind='cost'] {
+    background: color-mix(in oklab, var(--color-danger) 3.5%, var(--color-surface));
+  }
+  .order-profit-sheet-heading {
+    margin: 0 0 0.15rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: color-mix(in oklab, var(--color-ink) 78%, var(--color-muted));
+  }
+  .order-profit-sheet-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.9rem;
+  }
+  .order-profit-sheet-row.is-total {
+    margin-top: 0.2rem;
+    padding-top: 0.45rem;
+    border-top: 1px solid color-mix(in oklab, var(--color-ink) 8%, transparent);
+  }
+  .order-profit-sheet-row.is-strong .order-profit-sheet-label,
+  .order-profit-sheet-row.is-strong .order-profit-sheet-amount {
+    font-weight: 700;
+  }
+  .order-profit-sheet-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .order-profit-sheet-amount {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .order-profit-sheet-amount.is-empty {
+    color: var(--color-muted);
+  }
+  .order-profit-sheet-amount[data-tone='revenue'] {
+    color: color-mix(in oklab, #2f6b4f 55%, var(--color-ink));
+  }
+  .order-profit-sheet-amount[data-tone='collect'] {
+    color: color-mix(in oklab, var(--color-accent-strong) 72%, var(--color-ink));
+  }
+  .order-profit-sheet-amount[data-tone='cost'],
+  .order-profit-sheet-amount[data-tone='cost-total'] {
+    color: color-mix(in oklab, var(--color-danger) 72%, var(--color-ink));
+  }
+  .order-profit-sheet-amount[data-tone='profit'] {
+    color: color-mix(in oklab, #2a5f8f 70%, var(--color-ink));
+  }
+  .order-profit-sheet-amount[data-tone='loss'] {
+    color: color-mix(in oklab, var(--color-danger) 85%, var(--color-ink));
+  }
+  .order-profit-sheet-note,
+  .order-profit-sheet-missing {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--color-muted);
+  }
+  .order-profit-sheet-missing {
+    color: color-mix(in oklab, var(--color-danger) 75%, var(--color-ink));
+  }
+  .order-profit-sheet-details {
+    border-radius: var(--radius-sm);
+    background: color-mix(in oklab, var(--color-surface) 70%, transparent);
+  }
+  .order-profit-sheet-details > summary {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    list-style: none;
+    cursor: pointer;
+    font-size: 0.95rem;
+    padding: 0.1rem 0.35rem 0.1rem 0;
+  }
+  .order-profit-sheet-details > summary::-webkit-details-marker {
+    display: none;
+  }
+  .order-profit-sheet-details > summary .order-profit-sheet-label::before {
+    content: '▸';
+    display: inline-block;
+    margin-right: 0.3rem;
+    color: var(--color-muted);
+    transition: transform 0.15s ease;
+  }
+  .order-profit-sheet-details[open] > summary .order-profit-sheet-label::before {
+    transform: rotate(90deg);
+  }
+  .order-profit-sheet-details-caption {
+    margin: 0.35rem 0 0.25rem;
+    padding: 0 0.35rem 0 0.85rem;
+    font-size: 0.8125rem;
+    color: var(--color-muted);
+  }
+  .order-profit-sheet-nested {
+    list-style: none;
+    margin: 0;
+    padding: 0 0.35rem 0.25rem 0.85rem;
+    display: grid;
+    gap: 0.3rem;
+  }
+  .order-profit-sheet-nested > li,
+  .order-profit-sheet-nested-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+    column-gap: 0.65rem;
+    row-gap: 0.25rem;
+    font-size: 0.9rem;
+    color: color-mix(in oklab, var(--color-ink) 82%, var(--color-muted));
+  }
+  .order-profit-sheet-nested-main {
+    display: grid;
+    gap: 0.05rem;
+    min-width: 0;
+  }
+  .order-profit-sheet-nested-meta {
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+  }
+  .order-profit-sheet-materials {
+    grid-column: 1 / -1;
+    list-style: none;
+    margin: 0;
+    padding: 0.3rem 0.15rem 0.15rem 0.7rem;
+    display: grid;
+    gap: 0.25rem;
+    border-left: 2px solid color-mix(in oklab, var(--color-ink) 8%, transparent);
+  }
+  .order-profit-sheet-materials li {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.55rem;
+    font-size: 0.85rem;
+    color: var(--color-muted);
+  }
+  .order-profit-sheet-details .order-profit-sheet-amount {
+    padding-right: 0.1rem;
+  }
+  .order-profit-sheet-result {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.85rem 0.9rem;
+    border-radius: calc(var(--radius-lg) - 0.1rem);
+    border: 0;
+    background: color-mix(in oklab, #2a5f8f 6%, var(--color-surface));
+  }
+  .order-profit-sheet-result-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 1rem;
+    font-weight: 700;
+  }
+  .order-profit-sheet-result-row .order-profit-sheet-amount {
+    font-size: 1.15rem;
+  }
+  .order-profit-sheet-margin {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+  }
+  .order-profit-sheet-margin strong {
+    color: color-mix(in oklab, var(--color-ink) 85%, var(--color-muted));
+    font-weight: 650;
+  }
+  @media (max-width: 40rem) {
+    .order-profit-dialog {
+      width: calc(100% - 1rem);
+      max-height: calc(100dvh - 1rem);
+    }
+    .order-profit-dialog-card {
+      gap: 0.7rem;
+      padding: 0.9rem 0.9rem 1rem;
+      border-radius: var(--radius-md);
+    }
+    .order-profit-sheet {
+      gap: 0.55rem;
+    }
+    .order-profit-sheet-block,
+    .order-profit-sheet-result {
+      padding: 0.65rem 0.7rem 0.7rem;
+    }
   }
   .order-date-cell {
     display: grid;
