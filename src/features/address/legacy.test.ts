@@ -472,6 +472,26 @@ describe('đổi địa chỉ 3 cấp sang 2 cấp', () => {
     expect(onlyLong.items.every((item) => !/pơng drang/i.test(item.newText))).toBe(true);
   });
 
+  it('alias tỉnh cũ / dính chữ: kiengiang→An Giang, binhduong→HCM, nhatrang', () => {
+    const phuQuoc = wardNamed('Tỉnh An Giang', 'Đặc Khu Phú Quốc');
+    expect(phuQuoc).toBeTruthy();
+    for (const raw of ['duong to, phuquoc, kiengiang', 'duong to, phuquoc, angiang']) {
+      const pq = searchLegacyAddress(rows, mapping, raw);
+      expect(pq.items.some((item) => item.wardCode === phuQuoc?.wardCode), raw).toBe(true);
+    }
+
+    const nt = searchLegacyAddress(rows, mapping, 'nhatrang, khanhhoa');
+    expect(nt.items.some((item) => /nha trang|khanh hoa|khánh hòa/i.test(`${item.newText} ${item.oldText}`))).toBe(
+      true,
+    );
+
+    const bd = searchLegacyAddress(rows, mapping, 'thudautmot, binhduong');
+    expect(bd.items.length).toBeGreaterThan(0);
+    expect(bd.items.some((item) => /hồ chí minh|ho chi minh|thủ dầu một|thu dau mot/i.test(item.newText))).toBe(
+      true,
+    );
+  });
+
   it('Lâm Đồng: langbiang / dalat dính chữ → Phường Lang Biang-Đà Lạt', () => {
     const target = wardNamed('Tỉnh Lâm Đồng', 'Phường Lang Biang-Đà Lạt');
     expect(target).toBeTruthy();

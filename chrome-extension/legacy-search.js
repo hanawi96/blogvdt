@@ -14,16 +14,120 @@ const CENTRAL_PROVINCES = [
   'thành phố huế',
 ];
 
+/**
+ * Token dính chữ / viết tắt chat → tách thành token khớp địa chỉ 2 cấp.
+ * Tỉnh cũ (sau sáp nhập 2025) map sang tỉnh mới còn trong danh mục.
+ * Đồng bộ với src/features/address/legacy.ts.
+ */
 const ALIAS_TOKENS = {
   hcm: ['ho', 'chi', 'minh'],
   tphcm: ['ho', 'chi', 'minh'],
+  saigon: ['ho', 'chi', 'minh'],
   sg: ['ho', 'chi', 'minh'],
   hn: ['ha', 'noi'],
+  hanoi: ['ha', 'noi'],
   dn: ['da', 'nang'],
-  // Chat hay dính chữ: Lang Biang-Đà Lạt (Lâm Đồng).
+  danang: ['da', 'nang'],
+  hp: ['hai', 'phong'],
+  haiphong: ['hai', 'phong'],
+  ct: ['can', 'tho'],
+  cantho: ['can', 'tho'],
+  hue: ['hue'],
+  tphue: ['hue'],
+
+  angiang: ['an', 'giang'],
+  bacninh: ['bac', 'ninh'],
+  camau: ['ca', 'mau'],
+  caobang: ['cao', 'bang'],
+  daklak: ['dak', 'lak'],
+  dienbien: ['dien', 'bien'],
+  dongnai: ['dong', 'nai'],
+  dongthap: ['dong', 'thap'],
+  gialai: ['gia', 'lai'],
+  hatinh: ['ha', 'tinh'],
+  hungyen: ['hung', 'yen'],
+  khanhhoa: ['khanh', 'hoa'],
+  laichau: ['lai', 'chau'],
+  lamdong: ['lam', 'dong'],
+  langson: ['lang', 'son'],
+  laocai: ['lao', 'cai'],
+  nghean: ['nghe', 'an'],
+  ninhbinh: ['ninh', 'binh'],
+  phutho: ['phu', 'tho'],
+  quangngai: ['quang', 'ngai'],
+  quangninh: ['quang', 'ninh'],
+  quangtri: ['quang', 'tri'],
+  sonla: ['son', 'la'],
+  tayninh: ['tay', 'ninh'],
+  thainguyen: ['thai', 'nguyen'],
+  thanhhoa: ['thanh', 'hoa'],
+  tuyenquang: ['tuyen', 'quang'],
+  vinhlong: ['vinh', 'long'],
+
+  kiengiang: ['an', 'giang'],
+  bacgiang: ['bac', 'ninh'],
+  baclieu: ['ca', 'mau'],
+  phuyen: ['dak', 'lak'],
+  binhphuoc: ['dong', 'nai'],
+  tiengiang: ['dong', 'thap'],
+  binhdinh: ['gia', 'lai'],
+  thaibinh: ['hung', 'yen'],
+  ninhthuan: ['khanh', 'hoa'],
+  daknong: ['lam', 'dong'],
+  binhthuan: ['lam', 'dong'],
+  yenbai: ['lao', 'cai'],
+  hanam: ['ninh', 'binh'],
+  namdinh: ['ninh', 'binh'],
+  vinhphuc: ['phu', 'tho'],
+  hoabinh: ['phu', 'tho'],
+  kontum: ['quang', 'ngai'],
+  quangbinh: ['quang', 'tri'],
+  quangnam: ['da', 'nang'],
+  longan: ['tay', 'ninh'],
+  backan: ['thai', 'nguyen'],
+  hagiang: ['tuyen', 'quang'],
+  haiduong: ['hai', 'phong'],
+  soctrang: ['can', 'tho'],
+  haugiang: ['can', 'tho'],
+  bentre: ['vinh', 'long'],
+  travinh: ['vinh', 'long'],
+  binhduong: ['ho', 'chi', 'minh'],
+  bariavungtau: ['ho', 'chi', 'minh'],
+  brvt: ['ho', 'chi', 'minh'],
+  vungtau: ['vung', 'tau'],
+
   langbiang: ['lang', 'biang'],
   dalat: ['da', 'lat'],
   tpdalat: ['da', 'lat'],
+  nhatrang: ['nha', 'trang'],
+  phuquoc: ['phu', 'quoc'],
+  buonmathuot: ['buon', 'ma', 'thuot'],
+  bmt: ['buon', 'ma', 'thuot'],
+  thudautmot: ['thu', 'dau', 'mot'],
+  tdm: ['thu', 'dau', 'mot'],
+  govap: ['go', 'vap'],
+  binhthanh: ['binh', 'thanh'],
+  thuduc: ['thu', 'duc'],
+  binhtan: ['binh', 'tan'],
+  phunhuan: ['phu', 'nhuan'],
+  tanbinh: ['tan', 'binh'],
+  tanphu: ['tan', 'phu'],
+  hocmon: ['hoc', 'mon'],
+  binhchanh: ['binh', 'chanh'],
+  cangio: ['can', 'gio'],
+  nhabe: ['nha', 'be'],
+  quan1: ['quan', '1'],
+  quan2: ['quan', '2'],
+  quan3: ['quan', '3'],
+  quan4: ['quan', '4'],
+  quan5: ['quan', '5'],
+  quan6: ['quan', '6'],
+  quan7: ['quan', '7'],
+  quan8: ['quan', '8'],
+  quan9: ['quan', '9'],
+  quan10: ['quan', '10'],
+  quan11: ['quan', '11'],
+  quan12: ['quan', '12'],
 };
 
 /** Typo hẹp cao nguyên / tên dễ viết sai (so khớp token, không thay query). */
@@ -441,14 +545,16 @@ function normalizeChatAddressQuery(raw) {
 }
 
 /** Piece sau còn tỉnh/huyện/xã → «dương tơ» phía trước nhiều khả năng là tên xã, không phải đường. */
-function laterPiecesSuggestAdmin(pieces, fromIndex, provinceBares) {
+function laterPiecesSuggestAdmin(pieces, fromIndex, provinceBares, expand = (token) => [token]) {
   for (let index = fromIndex + 1; index < pieces.length; index += 1) {
     const folded = loose(pieces[index] || '');
     if (!folded || /^\d/.test(folded)) continue;
     if (provinceBares.has(stripProvince(folded))) return true;
     if (/^(?:tinh|thanh pho|tp|huyen|quan|thi xa|phuong|xa|thi tran)\b/.test(folded)) return true;
-    // Tỉnh/huyện cũ đã sáp nhập (Kiên Giang) hoặc TP đảo (Phú Quốc) — không còn trong provinceBares.
-    const toks = wordTokens(folded);
+    // Expand alias dính chữ: «phuquoc»/«kiengiang» → 2+ token.
+    const toks = wordTokens(folded).flatMap((token) => [...expand(token)]);
+    const bare = toks.join(' ');
+    if (provinceBares.has(stripProvince(bare))) return true;
     if (
       toks.length >= 2 &&
       toks.length <= 4 &&
@@ -536,7 +642,7 @@ function prepareQuery(raw, provinceBares, placeSplits) {
         /^(?:duong|pho)\b/.test(folded) &&
         pieceTokens.length >= 2 &&
         pieceTokens.length <= 3 &&
-        laterPiecesSuggestAdmin(pieces, pieceIndex, provinceBares);
+        laterPiecesSuggestAdmin(pieces, pieceIndex, provinceBares, expand);
       if (maybeWardNamedDuongPho) {
         pushProvinceOrLoose(pieceTokens.flatMap(expand), false);
         continue;
