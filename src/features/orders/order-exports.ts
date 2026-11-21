@@ -49,6 +49,7 @@ export async function loadOrdersForSpxExport(db: AppDb, ids: number[]): Promise<
       productName: orders.productName,
       quantity: orders.quantity,
       optionLabel: orders.optionLabel,
+      note: orders.note,
     })
     .from(orders)
     .where(inArray(orders.id, ids));
@@ -61,6 +62,7 @@ export async function loadOrdersForSpxExport(db: AppDb, ids: number[]): Promise<
       productName: orderItems.productName,
       quantity: orderItems.quantity,
       optionLabel: orderItems.optionLabel,
+      note: orderItems.note,
       sortOrder: orderItems.sortOrder,
     })
     .from(orderItems)
@@ -70,7 +72,12 @@ export async function loadOrdersForSpxExport(db: AppDb, ids: number[]): Promise<
   const linesByOrder = new Map<number, SpxExportOrder['lines']>();
   for (const item of itemRows) {
     const list = linesByOrder.get(item.orderId) ?? [];
-    list.push({ productName: item.productName, quantity: item.quantity, optionLabel: item.optionLabel });
+    list.push({
+      productName: item.productName,
+      quantity: item.quantity,
+      optionLabel: item.optionLabel,
+      note: item.note,
+    });
     linesByOrder.set(item.orderId, list);
   }
 

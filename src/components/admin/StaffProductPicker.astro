@@ -11,7 +11,7 @@ interface Props {
 }
 
 const { pickerProducts, pickerCategories, pos = false } = Astro.props;
-const uncategorized = pickerProducts.some((product) => product.categoryId == null);
+const uncategorized = pickerProducts.some((product) => product.categoryIds.length === 0);
 const weightPresets = weightOptions('baby').filter((label) => label.endsWith('kg'));
 ---
 
@@ -41,6 +41,7 @@ const weightPresets = weightOptions('baby').filter((label) => label.endsWith('kg
               class="staff-pick"
               data-pick
               data-category={product.categoryId ?? 'none'}
+              data-categories={product.categoryIds.length > 0 ? product.categoryIds.join(',') : 'none'}
               data-name={product.name}
               data-id={product.id}
               data-price={product.price}

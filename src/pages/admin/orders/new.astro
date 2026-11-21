@@ -20,7 +20,7 @@ const session = Astro.locals.adminSession;
 if (!session) return Astro.redirect(routes.adminLogin);
 
 const db = createDb(getDbBinding());
-const picker = await listStaffPickerProducts(db);
+const picker = await listStaffPickerProducts(db, { inStockOnly: true });
 const products = picker.products;
 
 // Nhân bản: ?from={id} nạp đơn gốc để điền sẵn form. Đơn mới hoàn toàn, không giữ mã/cọc/cờ gửi.

@@ -12,6 +12,7 @@ import { listOrderCosts } from '../../features/costs/order-costs';
 import { listPublicCommentThreads } from '../../features/product-comments/comments';
 import { getPublicProduct } from '../../features/products/public';
 import { isPubliclySellable } from '../../features/products/status';
+import { productRequiresTagName, TAG_NAME_MAX } from '../../features/products/tag-name';
 import { requiresWeight, weightChips, weightExtras, weightOptionLabel } from '../../features/products/weight';
 import { getPublicSite } from '../../features/settings/settings';
 import {
@@ -93,6 +94,8 @@ const commitments = [
 ];
 
 const needsWeight = visible ? requiresWeight(visible.weightScale) : false;
+const needsTag = visible ? productRequiresTagName(visible.name) : false;
+const needsAddDialog = needsWeight || needsTag;
 const addChips = needsWeight && visible ? weightChips(visible.weightScale) : [];
 const addExtras = needsWeight && visible ? weightExtras(visible.weightScale) : [];
 
@@ -190,7 +193,7 @@ async function loadProduct() {
             </ul>
           </section>
         )}
-        {!needsWeight && (
+        {!needsAddDialog && (
           <form id="cart-add-form" method="post" action={routes.cart} data-cart-form data-cart-from="order">
             <input type="hidden" name="intent" value="add" />
             <input type="hidden" name="slug" value={visible.slug} />
@@ -204,15 +207,22 @@ async function loadProduct() {
           <a class="btn btn-cta product-buy-cta" href="#dat-hang" data-scroll-to="dat-hang">
             Đặt mua ngay <span aria-hidden="true">→</span>
           </a>
-          {needsWeight ? (
+          {needsAddDialog ? (
             <button class="btn order-add-cart" type="button" data-add-open aria-haspopup="dialog" aria-controls="product-add-dialog">Thêm vào giỏ</button>
           ) : (
             <button class="btn order-add-cart" type="submit" form="cart-add-form">Thêm vào giỏ</button>
           )}
         </div>
-        {needsWeight && (
+        {needsAddDialog && (
           <dialog id="product-add-dialog" class="add-dialog" aria-labelledby="product-add-title">
-            <form class="add-form" method="post" action={routes.cart} data-cart-form data-requires-weight="true">
+            <form
+              class="add-form"
+              method="post"
+              action={routes.cart}
+              data-cart-form
+              data-requires-weight={needsWeight ? 'true' : undefined}
+              data-requires-tag={needsTag ? 'true' : undefined}
+            >
               <div class="add-head">
                 <p id="product-add-title" class="font-semibold">{visible.name}</p>
                 <button class="add-close" type="button" data-add-close aria-label="Đóng">×</button>
@@ -222,29 +232,43 @@ async function loadProduct() {
               <input type="hidden" name="slug" value={visible.slug} />
               <input type="hidden" name="product_name" value={visible.name} />
               <input type="hidden" name="price" value={visible.price} />
-              <fieldset class="mt-3" data-weight-field data-base-price={visible.price}>
-                <legend class="text-sm font-semibold">Cân nặng của bé</legend>
-                <div class="weight-grid mt-2" role="radiogroup">
-                  {addChips.map((weight, index) => (
-                    <label class="weight-chip">
-                      <input type="radio" name="weight" value={weight} required={index === 0} />
-                      <span>{weight}</span>
-                    </label>
-                  ))}
-                  <button type="button" class="weight-chip weight-chip-more" data-weight-more aria-expanded="false" aria-label="Cân nặng khác">
-                    <span aria-hidden="true">+</span>
-                  </button>
-                </div>
-                <div class="weight-extra mt-2" data-weight-extra hidden>
-                  <select class="field" data-weight-extra-select aria-label="Chọn cân nặng lớn hơn">
-                    <option value="">Chọn cân nặng (16kg – 70kg)</option>
-                    {addExtras.map((weight) => (
-                      <option value={weight}>{weightOptionLabel(weight, visible.price)}</option>
-                    ))}
-                  </select>
-                </div>
-                <p class="weight-surcharge-note" data-weight-note hidden></p>
-              </fieldset>
+              {
+                needsWeight ? (
+                  <fieldset class="mt-3" data-weight-field data-base-price={visible.price}>
+                    <legend class="text-sm font-semibold">Cân nặng của bé</legend>
+                    <div class="weight-grid mt-2" role="radiogroup">
+                      {addChips.map((weight, index) => (
+                        <label class="weight-chip">
+                          <input type="radio" name="weight" value={weight} required={index === 0} />
+                          <span>{weight}</span>
+                        </label>
+                      ))}
+                      <button type="button" class="weight-chip weight-chip-more" data-weight-more aria-expanded="false" aria-label="Cân nặng khác">
+                        <span aria-hidden="true">+</span>
+                      </button>
+                    </div>
+                    <div class="weight-extra mt-2" data-weight-extra hidden>
+                      <select class="field" data-weight-extra-select aria-label="Chọn cân nặng lớn hơn">
+                        <option value="">Chọn cân nặng (16kg – 70kg)</option>
+                        {addExtras.map((weight) => (
+                          <option value={weight}>{weightOptionLabel(weight, visible.price)}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <p class="weight-surcharge-note" data-weight-note hidden></p>
+                  </fieldset>
+                ) : (
+                  <input type="hidden" name="weight" value="" />
+                )
+              }
+              {
+                needsTag && (
+                  <label class="mt-3 block text-sm font-semibold" for="product-tag-name">
+                    Tên cần in lên thẻ
+                    <input id="product-tag-name" class="field mt-1" name="tagName" required maxlength={TAG_NAME_MAX} autocomplete="off" placeholder="Ví dụ: Minh An" />
+                  </label>
+                )
+              }
               <QtyStepper max={CART_MAX_QUANTITY} />
               <p class="add-error error-text mt-2" role="alert" hidden></p>
               <button class="btn btn-primary mt-4 w-full" type="submit">Thêm vào giỏ</button>

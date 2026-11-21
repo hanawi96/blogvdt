@@ -708,7 +708,6 @@ const shippedPanelHref =
   }
   if (form instanceof HTMLFormElement) {
     const input = form.querySelector('input[name="q"]');
-    let timer = 0;
     const go = () => {
       const params = formParams();
       // Đổi lọc → về trang 1
@@ -721,29 +720,21 @@ const shippedPanelHref =
       void softNavigate(next, { push: true, params });
     };
     goSearch = go;
-    if (input instanceof HTMLInputElement) {
-      input.addEventListener('input', () => {
-        window.clearTimeout(timer);
-        timer = window.setTimeout(() => {
-          // Có ô tìm → «Tất cả trạng thái» (tránh sót đơn đã gửi); xóa tìm → về «Chưa gửi hàng».
-          const statusSelect = form.querySelector('select[name="status"]');
-          if (statusSelect instanceof HTMLSelectElement) {
-            statusSelect.value = input.value.trim() ? 'all' : 'unshipped';
-          }
-          go();
-        }, 300);
-      });
-    }
+    // Ô tìm: chỉ chạy khi Enter. Có từ khóa → «Tất cả trạng thái»; xóa tìm → «Chưa gửi hàng».
     form.addEventListener('change', (event) => {
       if (event.target === input) return;
       const target = event.target;
       if (target instanceof HTMLElement && target.closest('[data-order-date-dialog]')) return;
-      window.clearTimeout(timer);
       go();
     });
     form.addEventListener('submit', (event) => {
       event.preventDefault();
-      window.clearTimeout(timer);
+      if (input instanceof HTMLInputElement) {
+        const statusSelect = form.querySelector('select[name="status"]');
+        if (statusSelect instanceof HTMLSelectElement) {
+          statusSelect.value = input.value.trim() ? 'all' : 'unshipped';
+        }
+      }
       go();
     });
 
@@ -751,12 +742,10 @@ const shippedPanelHref =
       const tagInput = form.querySelector('[data-order-tag]');
       if (!(tagInput instanceof HTMLInputElement)) return;
       tagInput.value = tagInput.value === 'the-ten' ? '' : 'the-ten';
-      window.clearTimeout(timer);
       go();
     });
 
     form.querySelector('[data-order-reset]')?.addEventListener('click', () => {
-      window.clearTimeout(timer);
       cache.clear();
       clearSelection?.();
       clearTagNoteBatch();
@@ -776,7 +765,6 @@ const shippedPanelHref =
       const sortInput = form.querySelector('[data-order-sort]');
       if (!(sortInput instanceof HTMLInputElement)) return;
       sortInput.value = toggle.dataset.next === 'newest' ? 'newest' : '';
-      window.clearTimeout(timer);
       go();
     });
 

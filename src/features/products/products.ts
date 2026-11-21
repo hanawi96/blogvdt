@@ -3,13 +3,20 @@ import type { BatchItem } from 'drizzle-orm/batch';
 import { runBatch } from '../../lib/db/batch';
 import type { AppDb } from '../../lib/db/client';
 import { slugRedirectQueries } from '../../lib/db/redirects';
-import { media, productCategories, productMedia, products, redirects } from '../../lib/db/schema';
+import { media, productCategories, productCategoryLinks, productMedia, products, redirects } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { listingMediaKey } from '../media/files';
 import { mediaMapByIds } from '../media/media';
 import { PRODUCT_MARGIN_HIGH, PRODUCT_MARGIN_LOW, type RecipeLine } from '../materials/costing';
 import { insertRecipe, recipeWrites, validateRecipe } from '../materials/recipes';
 import { normalizeCordType, type CordType } from './cord';
+import {
+  listProductCategoryIds,
+  listProductCategoryIdsByProductIds,
+  primaryCategoryId,
+  replaceProductCategoryWrites,
+  resolveProductCategoryIds,
+} from './product-category-links';
 import { isProductStatus, type ProductStatus } from './status';
 
 /** Số sản phẩm mỗi trang danh sách admin. */
@@ -114,7 +121,7 @@ export type ProductInput = {
   slug: string;
   price: number;
   comparePrice: number | null;
-  categoryId: number | null;
+  categoryIds: number[];
   cordType: string;
   description: string;
   coverMediaId: number | null;
@@ -171,8 +178,17 @@ export async function listProducts(
     shared.push(
       sql`${productMarginSql} >= ${PRODUCT_MARGIN_LOW} and ${productMarginSql} <= ${PRODUCT_MARGIN_HIGH}`,
     );
-  } else if (margin === 'high') shared.push(sql`${productMarginSql} > ${PRODUCT_MARGIN_HIGH}`);
-  const conditions = filters.categoryId ? [...shared, eq(products.categoryId, filters.categoryId)] : shared;
+  }   else if (margin === 'high') shared.push(sql`${productMarginSql} > ${PRODUCT_MARGIN_HIGH}`);
+  const inCategory = filters.categoryId
+    ? inArray(
+        products.id,
+        db
+          .select({ productId: productCategoryLinks.productId })
+          .from(productCategoryLinks)
+          .where(eq(productCategoryLinks.categoryId, filters.categoryId)),
+      )
+    : undefined;
+  const conditions = inCategory ? [...shared, inCategory] : shared;
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = Math.max(1, filters.page);
   const sort = productListSort(filters.sort);
@@ -181,11 +197,12 @@ export async function listProducts(
     db.select({ value: count() }).from(products).where(where),
     filtered ? db.select({ value: count() }).from(products) : Promise.resolve([]),
     filters.categoryId ? db.select({ value: count() }).from(products).where(and(...shared)) : Promise.resolve([]),
-    // Đếm trong ON (không phải WHERE) để danh mục chưa có sản phẩm khớp vẫn hiện với số 0.
+    // Đếm qua bảng liên kết; giữ danh mục trống với số 0.
     db
       .select({ id: productCategories.id, name: productCategories.name, count: count(products.id) })
       .from(productCategories)
-      .leftJoin(products, and(eq(products.categoryId, productCategories.id), ...shared))
+      .leftJoin(productCategoryLinks, eq(productCategoryLinks.categoryId, productCategories.id))
+      .leftJoin(products, and(eq(products.id, productCategoryLinks.productId), ...shared))
       .groupBy(productCategories.id)
       .orderBy(asc(productCategories.sortOrder), asc(productCategories.name), asc(productCategories.id)),
     db
@@ -206,6 +223,8 @@ export async function listProducts(
         coverKey: media.r2Key,
         cardKey: media.cardR2Key,
         coverAlt: media.altText,
+        coverWidth: media.width,
+        coverHeight: media.height,
       })
       .from(products)
       .leftJoin(media, eq(products.coverMediaId, media.id))
@@ -216,9 +235,22 @@ export async function listProducts(
       .offset((page - 1) * PRODUCT_PAGE_SIZE),
   ]);
   const total = totalRows[0]?.value ?? 0;
+  const categoryIdsByProduct = await listProductCategoryIdsByProductIds(
+    db,
+    rows.map((row) => row.id),
+  );
+  // Thứ tự tên theo sortOrder danh mục (categoryRows đã sort).
+  const categoryNameById = new Map(categoryRows.map((category) => [category.id, category.name]));
+  const categoryRank = new Map(categoryRows.map((category, index) => [category.id, index]));
   return {
     rows: rows.map((row) => {
       const listKey = listingMediaKey(row.coverKey, row.cardKey);
+      const categoryIds = categoryIdsByProduct.get(row.id) ?? (row.categoryId ? [row.categoryId] : []);
+      const categoryNames = [...categoryIds]
+        .sort((left, right) => (categoryRank.get(left) ?? 0) - (categoryRank.get(right) ?? 0))
+        .map((id) => categoryNameById.get(id))
+        .filter((name): name is string => Boolean(name));
+      const categoryName = categoryNames.join(' · ') || row.categoryName || '';
       return {
         id: row.id,
         name: row.name,
@@ -229,11 +261,17 @@ export async function listProducts(
         rating: row.rating,
         sold: Math.max(0, Number(row.sold) || 0),
         categoryId: row.categoryId,
-        categoryName: row.categoryName ?? '',
+        categoryIds,
+        categoryNames,
+        categoryName,
         cordType: row.cordType,
         status: row.status,
         updatedAt: row.updatedAt,
         coverUrl: listKey ? routes.media(listKey) : null,
+        // URL gốc (không card/thumb) — dùng lightbox xem kích thước thật.
+        coverOriginalUrl: row.coverKey ? routes.media(row.coverKey) : null,
+        coverWidth: row.coverWidth,
+        coverHeight: row.coverHeight,
         coverAlt: row.coverAlt ?? '',
       };
     }),
@@ -299,12 +337,19 @@ export async function getProduct(db: AppDb, id: number) {
   const rows = await db.select().from(products).where(eq(products.id, id)).limit(1);
   const product = rows[0];
   if (!product) return null;
-  const album = await db
-    .select({ mediaId: productMedia.mediaId })
-    .from(productMedia)
-    .where(eq(productMedia.productId, id))
-    .orderBy(asc(productMedia.sortOrder), asc(productMedia.mediaId));
-  return { ...product, albumIds: album.map((item) => item.mediaId) };
+  const [album, categoryIds] = await Promise.all([
+    db
+      .select({ mediaId: productMedia.mediaId })
+      .from(productMedia)
+      .where(eq(productMedia.productId, id))
+      .orderBy(asc(productMedia.sortOrder), asc(productMedia.mediaId)),
+    listProductCategoryIds(db, id),
+  ]);
+  return {
+    ...product,
+    albumIds: album.map((item) => item.mediaId),
+    categoryIds: categoryIds.length > 0 ? categoryIds : product.categoryId ? [product.categoryId] : [],
+  };
 }
 
 export async function createProduct(
@@ -312,32 +357,42 @@ export async function createProduct(
   input: ProductInput,
   now = Date.now(),
 ): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
-  const slugError = await slugAvailable(db, input.slug, null);
+  const links = await resolveProductCategoryIds(db, input.categoryIds);
+  if (!links.ok) return { ok: false, error: links.error };
+  const payload = { ...input, categoryIds: links.ids };
+  const slugError = await slugAvailable(db, payload.slug, null);
   if (slugError) return { ok: false, error: slugError };
-  const mediaError = await mediaAvailable(db, input);
+  const mediaError = await mediaAvailable(db, payload);
   if (mediaError) return { ok: false, error: mediaError };
-  const categoryError = await categoryAvailable(db, input.categoryId);
-  if (categoryError) return { ok: false, error: categoryError };
-  const recipeError = await validateRecipe(db, input.recipe, null);
+  const recipeError = await validateRecipe(db, payload.recipe, null);
   if (recipeError) return { ok: false, error: recipeError };
   const inserted = await db
     .insert(products)
-    .values({ ...productValues(input, now), createdAt: now })
+    .values({ ...productValues(payload, now), createdAt: now })
     .returning({ id: products.id });
   const id = inserted[0]?.id;
   if (!id) return { ok: false, error: 'Không lưu được sản phẩm.' };
-  if (input.albumIds.length > 0) {
+  if (payload.categoryIds.length > 0) {
     try {
-      await albumInsert(db, id, input.albumIds);
+      await runBatch(db, replaceProductCategoryWrites(db, id, payload.categoryIds));
+    } catch (error) {
+      await db.delete(products).where(eq(products.id, id));
+      console.error(JSON.stringify({ event: 'product_categories_failed', name: error instanceof Error ? error.name : 'unknown' }));
+      return { ok: false, error: 'Không lưu được danh mục.' };
+    }
+  }
+  if (payload.albumIds.length > 0) {
+    try {
+      await albumInsert(db, id, payload.albumIds);
     } catch (error) {
       await db.delete(products).where(eq(products.id, id));
       console.error(JSON.stringify({ event: 'product_album_failed', name: error instanceof Error ? error.name : 'unknown' }));
       return { ok: false, error: 'Không lưu được album.' };
     }
   }
-  if (input.recipe.length > 0) {
+  if (payload.recipe.length > 0) {
     try {
-      await insertRecipe(db, id, input.recipe);
+      await insertRecipe(db, id, payload.recipe);
     } catch (error) {
       await db.delete(products).where(eq(products.id, id));
       console.error(JSON.stringify({ event: 'product_recipe_failed', name: error instanceof Error ? error.name : 'unknown' }));
@@ -355,22 +410,24 @@ export async function updateProduct(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const current = await getProduct(db, id);
   if (!current) return { ok: false, error: 'Không tìm thấy sản phẩm.' };
-  const slugError = await slugAvailable(db, input.slug, id);
+  const links = await resolveProductCategoryIds(db, input.categoryIds);
+  if (!links.ok) return { ok: false, error: links.error };
+  const payload = { ...input, categoryIds: links.ids };
+  const slugError = await slugAvailable(db, payload.slug, id);
   if (slugError) return { ok: false, error: slugError };
-  const mediaError = await mediaAvailable(db, input);
+  const mediaError = await mediaAvailable(db, payload);
   if (mediaError) return { ok: false, error: mediaError };
-  const categoryError = await categoryAvailable(db, input.categoryId);
-  if (categoryError) return { ok: false, error: categoryError };
-  const recipeError = await validateRecipe(db, input.recipe, id);
+  const recipeError = await validateRecipe(db, payload.recipe, id);
   if (recipeError) return { ok: false, error: recipeError };
   const queries: BatchItem<'sqlite'>[] = [
-    db.update(products).set(productValues(input, now)).where(eq(products.id, id)),
+    db.update(products).set(productValues(payload, now)).where(eq(products.id, id)),
+    ...replaceProductCategoryWrites(db, id, payload.categoryIds),
     db.delete(productMedia).where(eq(productMedia.productId, id)),
   ];
-  if (input.albumIds.length > 0) queries.push(albumInsert(db, id, input.albumIds));
-  queries.push(...recipeWrites(db, id, input.recipe));
-  if (current.slug !== input.slug) {
-    queries.push(...slugRedirectQueries(db, routes.product(current.slug), routes.product(input.slug), now));
+  if (payload.albumIds.length > 0) queries.push(albumInsert(db, id, payload.albumIds));
+  queries.push(...recipeWrites(db, id, payload.recipe));
+  if (current.slug !== payload.slug) {
+    queries.push(...slugRedirectQueries(db, routes.product(current.slug), routes.product(payload.slug), now));
   }
   await runBatch(db, queries);
   return { ok: true };
@@ -432,7 +489,7 @@ function productValues(input: ProductInput, now: number) {
     slug: input.slug,
     price: input.price,
     comparePrice: input.comparePrice,
-    categoryId: input.categoryId,
+    categoryId: primaryCategoryId(input.categoryIds),
     cordType: input.cordType,
     description: input.description,
     coverMediaId: input.coverMediaId,
@@ -454,12 +511,6 @@ async function slugAvailable(db: AppDb, slug: string, currentId: number | null):
   const rows = await db.select({ id: products.id }).from(products).where(eq(products.slug, slug)).limit(1);
   if (rows[0] && rows[0].id !== currentId) return 'Slug đã được dùng.';
   return null;
-}
-
-async function categoryAvailable(db: AppDb, categoryId: number | null): Promise<string | null> {
-  if (!categoryId) return null;
-  const rows = await db.select({ id: productCategories.id }).from(productCategories).where(eq(productCategories.id, categoryId)).limit(1);
-  return rows[0] ? null : 'Danh mục không còn.';
 }
 
 async function mediaAvailable(db: AppDb, input: ProductInput): Promise<string | null> {

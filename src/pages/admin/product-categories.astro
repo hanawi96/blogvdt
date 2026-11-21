@@ -371,8 +371,6 @@ function productCountLabel(count: number): string {
   const form = document.querySelector('[data-category-search]');
   const list = document.querySelector('[data-product-category-list]');
   if (form instanceof HTMLFormElement) {
-    const input = form.querySelector('input[name="q"]');
-    let timer = 0;
     const go = () => {
       const data = new FormData(form);
       const value = data.get('q');
@@ -382,15 +380,9 @@ function productCountLabel(count: number): string {
       list?.setAttribute('aria-busy', 'true');
       location.assign(next);
     };
-    if (input instanceof HTMLInputElement) {
-      input.addEventListener('input', () => {
-        window.clearTimeout(timer);
-        timer = window.setTimeout(go, 300);
-      });
-    }
+    // Ô tìm: chỉ chạy khi Enter.
     form.addEventListener('submit', (event) => {
       event.preventDefault();
-      window.clearTimeout(timer);
       go();
     });
   }

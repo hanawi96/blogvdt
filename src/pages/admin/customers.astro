@@ -334,7 +334,6 @@ try {
   const list = document.querySelector('[data-customer-list]');
   if (form instanceof HTMLFormElement) {
     const input = form.querySelector('input[name="q"]');
-    let timer = 0;
     const go = () => {
       const data = new FormData(form);
       const term = String(data.get('q') ?? '').trim();
@@ -350,20 +349,13 @@ try {
       list?.setAttribute('aria-busy', 'true');
       location.assign(next);
     };
-    if (input instanceof HTMLInputElement) {
-      input.addEventListener('input', () => {
-        window.clearTimeout(timer);
-        timer = window.setTimeout(go, 300);
-      });
-    }
+    // Ô tìm: chỉ chạy khi Enter. Select/filter vẫn đổi ngay khi change.
     form.addEventListener('change', (event) => {
       if (event.target === input) return;
-      window.clearTimeout(timer);
       go();
     });
     form.addEventListener('submit', (event) => {
       event.preventDefault();
-      window.clearTimeout(timer);
       go();
     });
     form.querySelector('[data-customer-filters-toggle]')?.addEventListener('click', () => {

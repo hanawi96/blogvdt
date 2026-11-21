@@ -38,7 +38,7 @@ const loadSaved = Number.isInteger(savedId) && savedId > 0 && Astro.request.meth
 
 // Song song các query độc lập — giảm thời gian iframe trắng khi mở POS.
 const [picker, discountChoices, orderCosts, sourceOrder, savedOrder] = await Promise.all([
-  listStaffPickerProducts(db),
+  listStaffPickerProducts(db, { inStockOnly: true }),
   listStaffDiscountChoices(db),
   listOrderCosts(db),
   Number.isInteger(fromId) && fromId > 0 ? getOrder(db, fromId) : Promise.resolve(null),

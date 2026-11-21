@@ -48,6 +48,7 @@ export type SpxExportLine = {
   productName: string;
   quantity: number;
   optionLabel: string | null;
+  note: string | null;
 };
 
 export type SpxExportOrder = {
@@ -56,6 +57,8 @@ export type SpxExportOrder = {
   customerName: string;
   phone: string;
   address: string;
+  /** Lưu ý đơn (hiện LƯU Ý TỔNG + cột Lưu ý giao hàng). */
+  note: string | null;
   status: string;
   fulfillStatus: string | null;
   shipOn: number | null;
@@ -102,20 +105,26 @@ export function resolveSpxAddress(
   return null;
 }
 
+/** Khớp mẫu SPX: [SP -- Size: … - Số lượng: N - LƯU Ý: …] --- [LƯU Ý TỔNG: …] */
 export function formatSpxProductName(
-  order: Pick<SpxExportOrder, 'productName' | 'quantity' | 'optionLabel' | 'lines' | 'fulfillStatus'>,
+  order: Pick<SpxExportOrder, 'productName' | 'quantity' | 'optionLabel' | 'note' | 'lines' | 'fulfillStatus'>,
 ): string {
   const lines =
     order.lines.length > 0
       ? order.lines
-      : [{ productName: order.productName, quantity: order.quantity, optionLabel: order.optionLabel }];
+      : [{ productName: order.productName, quantity: order.quantity, optionLabel: order.optionLabel, note: null }];
   const parts = lines.map((line) => {
     const size = line.optionLabel ? ` -- Size: ${line.optionLabel}` : '';
-    return `[${line.productName}${size} - Số lượng: ${line.quantity}]`;
+    const lineNote = line.note?.trim();
+    const notePart = lineNote ? ` - LƯU Ý: ${lineNote}` : '';
+    return `[${line.productName}${size} - Số lượng: ${line.quantity}${notePart}]`;
   });
   const brand = '[VÒNG DÂU TẰM]';
   const prefix = order.fulfillStatus === 'reship' ? `[HÀNG GỬI LẠI]${brand}` : brand;
-  return `${prefix} - ${parts.join(' ----- ')}`;
+  let text = `${prefix} - ${parts.join(' ----- ')}`;
+  const orderNote = order.note?.trim();
+  if (orderNote) text += ` --- [LƯU Ý TỔNG: ${orderNote}]`;
+  return text;
 }
 
 export type SpxMappedRow = {
@@ -155,6 +164,7 @@ export function mapOrdersToSpxRows(
       continue;
     }
     const cod = spxCodForOrder(order);
+    const deliveryNote = order.note?.trim() ?? '';
     rows.push({
       orderId: order.id,
       cells: [
@@ -184,7 +194,7 @@ export function mapOrdersToSpxRows(
         cod.collect === 'Y' ? cod.amount : '',
         '',
         'Người gửi trả',
-        '',
+        deliveryNote,
         '',
         '',
       ],

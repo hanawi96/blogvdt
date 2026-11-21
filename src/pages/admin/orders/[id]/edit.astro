@@ -40,7 +40,7 @@ if (!canEditOrderProducts(order.status)) {
 }
 
 const stored = orderLineSources(order);
-const picker = await listStaffPickerProducts(db);
+const picker = await listStaffPickerProducts(db, { inStockOnly: true });
 const products = picker.products;
 const keepIds = stored.flatMap((line) => (line.productId ? [line.productId] : []));
 const keptChoices = await listStaffProductChoices(db, keepIds);

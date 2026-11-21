@@ -723,12 +723,15 @@ function current(href: string): boolean {
       }
     };
     if (node.dataset.requiresWeight === 'true' && weight.length === 0) return warn('Chọn cân nặng');
+    const tagName = String(data.get('tagName') ?? '').replace(/\s+/g, ' ').trim();
+    if (node.dataset.requiresTag === 'true' && tagName.length === 0) return warn('Nhập tên cần in lên thẻ');
     event.preventDefault();
     const quantity = Number(data.get('quantity') ?? '1');
     const result = addCartLine(readCookie(), {
       slug: String(data.get('slug') ?? ''),
       weight,
       quantity: Number.isInteger(quantity) ? quantity : 1,
+      note: tagName,
     });
     if (!result.ok) {
       showCartToast('Giỏ đã đầy', 'err');

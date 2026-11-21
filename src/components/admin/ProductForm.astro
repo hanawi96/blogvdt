@@ -5,7 +5,7 @@ import SlugField from './SlugField.svelte';
 import type { ProductPhoto } from '../../features/products/products';
 import type { CostedLine, MaterialOption } from '../../features/materials/costing';
 import { CORD_TYPES, CORD_TYPE_LABELS, normalizeCordType } from '../../features/products/cord';
-import { PRODUCT_STATUS_LABELS } from '../../features/products/status';
+import { PRODUCT_STATUSES, PRODUCT_STATUS_LABELS } from '../../features/products/status';
 import type { FieldErrors } from '../../lib/validation/errors';
 import { routes } from '../../lib/routes';
 
@@ -14,7 +14,7 @@ interface Values {
   slug: string;
   price: string;
   comparePrice: string;
-  categoryId: string;
+  categoryIds: string[];
   cordType: string;
   description: string;
   coverMediaId: string;
@@ -41,6 +41,7 @@ interface Props {
 }
 
 const { csrf, action, values, errors, formError, categories, photos, recipeOptions, recipeLines, deleteAction } = Astro.props;
+const selectedCategoryIds = new Set(values.categoryIds);
 ---
 
 <form id="product-form" class="product-editor" method="post" action={action} data-busy>
@@ -81,19 +82,22 @@ const { csrf, action, values, errors, formError, categories, photos, recipeOptio
     </label>
   </div>
   <ProductPhotos client:load {csrf} cover={photos.cover} album={photos.album} error={errors.coverMediaId ?? errors.album ?? ''} />
-  <label class="mt-4 block">
+  <div class="mt-4">
     <span class="mb-1 block font-semibold">Danh mục</span>
-    <select class="field" name="categoryId">
-      <option value="" selected={values.categoryId === ''}>Chưa chọn</option>
-      {categories.map((category) => (
-        <option value={category.id} selected={values.categoryId === String(category.id)}>{category.name}</option>
-      ))}
-    </select>
-    {categories.length === 0 && (
+    {categories.length === 0 ? (
       <span class="mt-1 block text-sm text-muted">Chưa có danh mục. <a href={routes.adminProductCategories}>Thêm danh mục sản phẩm</a></span>
+    ) : (
+      <div class="category-presets mt-1" role="group" aria-label="Chọn danh mục">
+        {categories.map((category) => (
+          <label class="category-preset">
+            <input type="checkbox" name="categoryIds" value={category.id} checked={selectedCategoryIds.has(String(category.id))} />
+            <span>{category.name}</span>
+          </label>
+        ))}
+      </div>
     )}
-    {errors.categoryId && <span class="error-text">{errors.categoryId}</span>}
-  </label>
+    {(errors.categoryIds || errors.categoryId) && <span class="error-text">{errors.categoryIds || errors.categoryId}</span>}
+  </div>
   <div class="mt-4">
     <span class="mb-1 block font-semibold" id="cord-type-label">Kiểu dây</span>
     <div class="category-presets" role="radiogroup" aria-labelledby="cord-type-label">
@@ -122,14 +126,18 @@ const { csrf, action, values, errors, formError, categories, photos, recipeOptio
     <textarea class="field min-h-24" name="metaDescription" maxlength="300">{values.metaDescription}</textarea>
     {errors.metaDescription && <span class="error-text">{errors.metaDescription}</span>}
   </label>
-  <label class="mt-4 block">
-    <span class="mb-1 block font-semibold">Trạng thái</span>
-    <select class="field" name="status">
-      <option value="active" selected={values.status === 'active'}>{PRODUCT_STATUS_LABELS.active}</option>
-      <option value="inactive" selected={values.status === 'inactive'}>{PRODUCT_STATUS_LABELS.inactive}</option>
-    </select>
+  <div class="mt-4">
+    <span class="mb-1 block font-semibold" id="product-status-label">Trạng thái</span>
+    <div class="category-presets" role="radiogroup" aria-labelledby="product-status-label">
+      {PRODUCT_STATUSES.map((status) => (
+        <label class="category-preset">
+          <input type="radio" name="status" value={status} checked={values.status === status} required />
+          <span>{PRODUCT_STATUS_LABELS[status]}</span>
+        </label>
+      ))}
+    </div>
     {errors.status && <span class="error-text">{errors.status}</span>}
-  </label>
+  </div>
   </div>
   <div class="product-editor-side">
     <ProductRecipe client:load options={recipeOptions} lines={recipeLines} error={errors.recipe ?? ''} materialsHref={routes.adminMaterials} />

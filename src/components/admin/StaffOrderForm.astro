@@ -356,7 +356,10 @@ const {
     const list = [...root.querySelectorAll<HTMLElement>('[data-pick]')].map((row) => ({
       row,
       name: fold(row.dataset.name ?? ''),
-      category: row.dataset.category ?? 'none',
+      categories: (row.dataset.categories ?? row.dataset.category ?? 'none')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
     }));
     const empty = root.querySelector('[data-pick-empty]');
     const limit = root.querySelector('[data-pick-limit]');
@@ -671,7 +674,8 @@ const {
       const allCats = category === '' || category === 'all' || category === 'hot';
       let shown = 0;
       for (const item of list) {
-        const match = (allCats || item.category === category) && (needle === '' || item.name.includes(needle));
+        const match =
+          (allCats || item.categories.includes(category)) && (needle === '' || item.name.includes(needle));
         let visible = match;
         if (visible && hotOnly) visible = shown < HOT_TOP;
         if (visible && topOnly) visible = shown < ALL_TOP;

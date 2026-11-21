@@ -1,6 +1,7 @@
 ---
 import AddressField from './AddressField.astro';
 import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
+import { productRequiresTagName, TAG_NAME_MAX } from '../../features/products/tag-name';
 import { requiresWeight, weightChips, weightExtras, weightOptionLabel, type WeightScale } from '../../features/products/weight';
 import DiscountCodeField from './DiscountCodeField.astro';
 import PaymentField from './PaymentField.astro';
@@ -10,7 +11,7 @@ import { routes } from '../../lib/routes';
 import type { FieldErrors } from '../../lib/validation/errors';
 
 interface Props {
-  product: { slug: string; weightScale: WeightScale; price?: number };
+  product: { slug: string; name?: string; weightScale: WeightScale; price?: number };
   values?: {
     customerName: string;
     phone: string;
@@ -19,6 +20,7 @@ interface Props {
     wardCode?: string;
     addressLine?: string;
     note: string;
+    tagName?: string;
     quantity: string;
     weight: string;
     paymentMethod: string;
@@ -36,7 +38,7 @@ interface Props {
 
 const {
   product,
-  values = { customerName: '', phone: '', address: '', note: '', quantity: '1', weight: '', paymentMethod: '', discountCode: '' },
+  values = { customerName: '', phone: '', address: '', note: '', tagName: '', quantity: '1', weight: '', paymentMethod: '', discountCode: '' },
   errors = {},
   quote = null,
   landing = '',
@@ -48,6 +50,7 @@ const {
 const chips = weightChips(product.weightScale);
 const extras = weightExtras(product.weightScale);
 const hasWeight = requiresWeight(product.weightScale);
+const needsTag = productRequiresTagName(product.name ?? '');
 // Khi khách quay lại với cân nặng đã chọn nằm ngoài chip (16kg+), mở sẵn dropdown.
 const extraSelected = extras.includes(values.weight);
 const goodsPayable = quote?.totalPrice ?? goodsTotal;
@@ -103,6 +106,15 @@ const showSummary = Boolean(shipping) && (goodsTotal > 0 || (typeof product.pric
     </div>
     {errors.quantity && <span class="error-text">{errors.quantity}</span>}
   </div>
+  {
+    needsTag && (
+      <label class="mt-4 block" for="tag-name">
+        <span class="mb-1 block font-semibold">Tên cần in lên thẻ</span>
+        <input id="tag-name" class="field" name="tagName" required maxlength={TAG_NAME_MAX} autocomplete="off" placeholder="Ví dụ: Minh An" value={values.tagName ?? ''} />
+        {errors.tagName && <span class="error-text">{errors.tagName}</span>}
+      </label>
+    )
+  }
   <PaymentField value={values.paymentMethod} error={errors.paymentMethod} />
   <div class="form-pair mt-4">
     <label class="block" for="customer-name">

@@ -1,5 +1,6 @@
 import { cartSummary, type CartLine } from '../cart/cart';
 import { SLUG_PATTERN } from '../posts/slug';
+import { productRequiresTagName, readTagName, tagNameToLineNote } from '../products/tag-name';
 import {
   applyWeightPrice,
   isValidWeight,
@@ -99,6 +100,8 @@ export type OrderDraft = {
   phone: string;
   address: string;
   note: string;
+  /** Lưu ý dòng SP (tên in thẻ), ghi vào order_items khi có. */
+  lineNote: string | null;
   productId: number;
   productName: string;
   unitPrice: number;
@@ -125,6 +128,7 @@ export type CartLineDraft = {
   unitPrice: number;
   quantity: number;
   optionLabel: string | null;
+  note: string | null;
   lineTotal: number;
 };
 
@@ -232,6 +236,7 @@ export function parseOrderSubmission(
     productSlug: string;
     quantity: string;
     weight?: string;
+    tagName?: string;
     paymentMethod?: string;
     company: string;
     landing?: string;
@@ -254,6 +259,13 @@ export function parseOrderSubmission(
   const weight = (input.weight ?? '').trim();
   if (product && requiresWeight(product.weightScale) && !weight) errors.weight = 'Chọn cân nặng cho bé.';
   else if (product && !isValidWeight(product.weightScale, weight)) errors.weight = 'Cân nặng không hợp lệ.';
+  let lineNote: string | null = null;
+  if (product && productRequiresTagName(product.name)) {
+    const tag = readTagName(input.tagName ?? '');
+    if (tag === null) errors.tagName = 'Nhập tên cần in lên thẻ.';
+    else if (tag === 'bad') errors.tagName = 'Tên in thẻ tối đa 40 ký tự.';
+    else lineNote = tagNameToLineNote(tag);
+  }
   if (Object.keys(errors).length > 0 || !product || !customer.phone || !Number.isInteger(quantity)) {
     return { ok: false, blocked: false, errors };
   }
@@ -264,6 +276,7 @@ export function parseOrderSubmission(
       phone: customer.phone,
       address: customer.address,
       note: customer.note,
+      lineNote,
       productId: product.id,
       productName: product.name,
       unitPrice: applyWeightPrice(product.price, weight),
@@ -310,7 +323,18 @@ export function parseCartOrder(
     }
     if (requiresWeight(product.weightScale) && !line.weight) errors[`weight${index}`] = 'Chọn cân nặng cho bé.';
     if (!isValidWeight(product.weightScale, line.weight)) errors[`weight${index}`] = 'Cân nặng không hợp lệ.';
-    if (errors[`quantity${index}`] || errors[`weight${index}`]) continue;
+    let lineNote: string | null = null;
+    if (productRequiresTagName(product.name)) {
+      const tag = readTagName(line.note);
+      if (tag === null) errors[`note${index}`] = 'Nhập tên cần in lên thẻ.';
+      else if (tag === 'bad') errors[`note${index}`] = 'Tên in thẻ tối đa 40 ký tự.';
+      else lineNote = tagNameToLineNote(tag);
+    } else {
+      const note = line.note.replace(/\s+/g, ' ').trim();
+      if (note.length > 160) errors[`note${index}`] = 'Lưu ý tối đa 160 ký tự.';
+      else if (note) lineNote = note;
+    }
+    if (errors[`quantity${index}`] || errors[`weight${index}`] || errors[`note${index}`]) continue;
     const unitPrice = applyWeightPrice(product.price, line.weight);
     built.push({
       productId: product.id,
@@ -318,6 +342,7 @@ export function parseCartOrder(
       unitPrice,
       quantity: line.quantity,
       optionLabel: orderOptionLabel(line.weight),
+      note: lineNote,
       lineTotal: unitPrice * line.quantity,
     });
   }
@@ -334,6 +359,7 @@ export function parseCartOrder(
         phone: customer.phone,
         address: customer.address,
         note: customer.note,
+        lineNote: line.note,
         productId: line.productId,
         productName: line.productName,
         unitPrice: line.unitPrice,

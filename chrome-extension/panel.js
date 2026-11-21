@@ -1588,11 +1588,18 @@
     });
   }
 
+  function productInCategory(product, categoryKey) {
+    const ids = Array.isArray(product?.categoryIds) ? product.categoryIds : [];
+    if (ids.some((id) => String(id) === categoryKey)) return true;
+    // Bootstrap cũ chỉ có categoryId chính.
+    return String(product?.categoryId ?? '') === categoryKey;
+  }
+
   function filteredProducts() {
     const needle = fold(pickText);
     let list = products.slice();
     if (pickCategory === 'hot') list = list.slice(0, 10);
-    else if (pickCategory !== 'all') list = list.filter((item) => String(item.categoryId) === pickCategory);
+    else if (pickCategory !== 'all') list = list.filter((item) => productInCategory(item, pickCategory));
     if (needle) list = list.filter((item) => fold(item.name).includes(needle));
     return list.slice(0, 40);
   }
@@ -2021,7 +2028,9 @@
     return (bootstrap.discountChoices || []).find((item) => item.code === discountCode.value) || null;
   }
 
-  function computePayState() {
+  /** @param {{ syncFreeShip?: boolean }} [opts] syncFreeShip=false khi user tự tick/bỏ miễn ship. */
+  function computePayState(opts = {}) {
+    const syncFreeShip = opts.syncFreeShip !== false;
     const subtotal = cartSubtotal();
     const codeAmount = quoteDiscount(selectedDiscount(), subtotal);
     const room = Math.max(0, subtotal - codeAmount);
@@ -2048,8 +2057,9 @@
     }));
     const autoFree = qualifiesFreeShip(shipLines);
     const compensation = compensationEl instanceof HTMLInputElement && compensationEl.checked;
-    if (freeShipEl instanceof HTMLInputElement) {
-      if (autoFree) freeShipEl.checked = true;
+    // Giống admin applyRule: đủ điều kiện → bật; hết đủ → tắt (kèm khôi phục phí mặc định bên dưới).
+    if (syncFreeShip && freeShipEl instanceof HTMLInputElement && !compensation) {
+      freeShipEl.checked = autoFree;
     }
     const free = (freeShipEl instanceof HTMLInputElement && freeShipEl.checked) || autoFree || compensation;
     if (shipFeeEl instanceof HTMLInputElement) {
@@ -2118,8 +2128,9 @@
     return [msg1, msg2];
   }
 
-  function paintPay() {
-    const { subtotal, codeAmount, extra, ship, free, compensation, payable } = computePayState();
+  /** @param {{ syncFreeShip?: boolean }} [opts] */
+  function paintPay(opts) {
+    const { subtotal, codeAmount, extra, ship, free, compensation, payable } = computePayState(opts);
     if (paySummary instanceof HTMLElement) {
       paySummary.textContent = compensation
         ? 'Gửi bù · không thu tiền.'
@@ -2681,7 +2692,7 @@
     compensationEl?.addEventListener('change', syncFlags);
     priorityEl?.addEventListener('change', syncFlags);
     shipLaterEl?.addEventListener('change', syncFlags);
-    freeShipEl?.addEventListener('change', () => paintPay());
+    freeShipEl?.addEventListener('change', () => paintPay({ syncFreeShip: false }));
     shipFeeEl?.addEventListener('input', () => {
       if (shipFeeEl instanceof HTMLInputElement) shipFeeEl.value = groupDigits(shipFeeEl.value);
       paintPay();

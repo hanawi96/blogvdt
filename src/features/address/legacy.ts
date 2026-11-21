@@ -30,7 +30,13 @@ type Entry = {
   kind: 'old' | 'current';
   wardTokens: readonly string[];
   districtTokens: readonly string[];
+  /** Tỉnh theo key cũ (3 cấp). */
   provinceTokens: readonly string[];
+  /**
+   * Tỉnh đơn vị mới sau sáp nhập — chat hay ghi tỉnh mới (vd. An Giang)
+   * trong khi bản ghi cũ vẫn là Kiên Giang.
+   */
+  altProvinceTokens: readonly string[];
   oldText: string;
   newText: string;
   provinceCode: string;
@@ -159,6 +165,7 @@ function entriesFrom(rows: readonly AddressSelectRow[], mapping: Readonly<Record
         wardTokens: wordTokens(stripWard(loose(wardName))),
         districtTokens: [],
         provinceTokens,
+        altProvinceTokens: [],
         oldText: '',
         newText: `${wardName} · ${provinceName}`,
         provinceCode,
@@ -173,11 +180,17 @@ function entriesFrom(rows: readonly AddressSelectRow[], mapping: Readonly<Record
     if (!oldParts || !next) continue;
     const resolved = lookup.get(`${stripWard(loose(next.ward))}|${stripProvince(loose(next.province))}`);
     if (!resolved || resolved === 'ambiguous') continue;
+    const oldProvinceTokens = wordTokens(stripProvince(loose(oldParts.province)));
+    const newProvinceTokens = wordTokens(stripProvince(loose(next.province)));
+    const sameProvince =
+      oldProvinceTokens.length === newProvinceTokens.length &&
+      oldProvinceTokens.every((token, index) => token === newProvinceTokens[index]);
     entries.push({
       kind: 'old',
       wardTokens: wordTokens(stripWard(loose(oldParts.ward))),
       districtTokens: wordTokens(stripDistrict(loose(oldParts.district))),
-      provinceTokens: wordTokens(stripProvince(loose(oldParts.province))),
+      provinceTokens: oldProvinceTokens,
+      altProvinceTokens: sameProvince ? [] : newProvinceTokens,
       oldText: `${displayName(oldParts.ward)} · ${displayName(oldParts.district)} · ${displayName(oldParts.province)}`,
       newText: `${next.ward} · ${next.province}`,
       provinceCode: resolved.provinceCode,
@@ -469,10 +482,16 @@ function expandWardDistrictShortcuts(text: string): string {
   return out;
 }
 
+/** SĐT VN trong chat: 0944887829 / 0944.887.829 / 0944 887 829. */
+const CHAT_PHONE_RE = /(?:\+?84|0)(?:[.\s-]?\d){8,10}/;
+function stripChatPhones(text: string): string {
+  return text.replace(/(?:^|[\s,;:\-])(?:\+?84|0)(?:[.\s-]?\d){8,10}(?=[\s,;:\-|]|$)/g, ' ');
+}
+
 /** Chuẩn hóa tin chat: bỏ SĐT/tên đầu, đổi «A - B - C» thành dấu phẩy, tách ghi chú (...). */
 function normalizeChatAddressQuery(raw: string): { text: string; notes: string[] } {
   const source = String(raw || '').replace(/\u00a0/g, ' ');
-  const chatMeta = /(?:\+?84|0)\d{8,10}/.test(source) || source.includes('|');
+  const chatMeta = CHAT_PHONE_RE.test(source) || source.includes('|');
   let text = source;
   const notes: string[] = [];
   text = text.replace(/\(([^)]{2,120})\)/g, (_, note: string) => {
@@ -480,7 +499,7 @@ function normalizeChatAddressQuery(raw: string): { text: string; notes: string[]
     return ', ';
   });
   if (text.includes('|')) text = text.slice(text.lastIndexOf('|') + 1);
-  text = text.replace(/(?:^|[\s,;:])(?:\+?84|0)\d{8,10}(?=[\s,;:|]|$)/g, ' ');
+  text = stripChatPhones(text);
   // Chỉ bỏ họ tên đầu khi tin có SĐT hoặc dấu | — tránh nuốt «xã Tân…,».
   if (chatMeta) {
     text = text.replace(
@@ -489,6 +508,7 @@ function normalizeChatAddressQuery(raw: string): { text: string; notes: string[]
     );
   }
   text = text.replace(/\s*[-–—]\s*/g, ', ');
+  text = stripChatPhones(text);
   text = repairAdminLabelTypos(text);
   // Mở P./Q. trước khi «Âu Cơ .P.Tân» bị tách thành «P, Tân».
   text = expandWardDistrictShortcuts(text);
@@ -505,6 +525,30 @@ function normalizeChatAddressQuery(raw: string): { text: string; notes: string[]
     .replace(/^[,.\s]+|[,.\s]+$/g, '')
     .trim();
   return { text, notes };
+}
+
+/** Piece sau còn tỉnh/huyện/xã → «dương tơ» phía trước nhiều khả năng là tên xã, không phải đường. */
+function laterPiecesSuggestAdmin(
+  pieces: readonly string[],
+  fromIndex: number,
+  provinceBares: ReadonlySet<string>,
+): boolean {
+  for (let index = fromIndex + 1; index < pieces.length; index += 1) {
+    const folded = loose(pieces[index] || '');
+    if (!folded || /^\d/.test(folded)) continue;
+    if (provinceBares.has(stripProvince(folded))) return true;
+    if (/^(?:tinh|thanh pho|tp|huyen|quan|thi xa|phuong|xa|thi tran)\b/.test(folded)) return true;
+    // Tỉnh/huyện cũ đã sáp nhập (Kiên Giang) hoặc TP đảo (Phú Quốc) — không còn trong provinceBares.
+    const toks = wordTokens(folded);
+    if (
+      toks.length >= 2 &&
+      toks.length <= 4 &&
+      !/^(?:ms|mr|mrs|miss|chi|anh|em|co|chu|bac)\b/.test(folded)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function prepareQuery(
@@ -578,7 +622,19 @@ function prepareQuery(
 
     // C1/C5: cụm ngắn số nhà. C2: cụm dài có ấp + tên chỗ sau → peel, không nuốt cả câu.
     // «đc nhà văn hoá thôn còn pheo» (không nhãn xã/tỉnh trong piece) → cả piece là street.
+    // «dương tơ» (xã) ≠ «đường …»: chỉ nuốt street khi ghi rõ «đường/phố» hoặc không có tỉnh/huyện sau.
     if ((startsStreet || hasHamlet) && !hasAdminLabel) {
+      const explicitStreetLabel = /^(?:đường|phố)\b/i.test(piece.trim());
+      const maybeWardNamedDuongPho =
+        !explicitStreetLabel &&
+        /^(?:duong|pho)\b/.test(folded) &&
+        pieceTokens.length >= 2 &&
+        pieceTokens.length <= 3 &&
+        laterPiecesSuggestAdmin(pieces, pieceIndex, provinceBares);
+      if (maybeWardNamedDuongPho) {
+        pushProvinceOrLoose(pieceTokens.flatMap(expand), false);
+        continue;
+      }
       if (pieceTokens.length <= 4) {
         street.push(cleanStreetPiece(piece));
         continue;
@@ -723,6 +779,21 @@ function restCovered(rest: readonly string[], district: readonly string[], provi
   return indexOfSlice(cover, rest) !== null || sameSet || cover.every((token) => tokensInclude(rest, token));
 }
 
+function entryProvinceSets(entry: Entry): readonly (readonly string[])[] {
+  if (entry.altProvinceTokens.length === 0) return [entry.provinceTokens];
+  return [entry.provinceTokens, entry.altProvinceTokens];
+}
+
+function provinceFullyIn(hay: readonly string[], entry: Entry): boolean {
+  return entryProvinceSets(entry).some(
+    (province) => province.length > 0 && province.every((token) => tokensInclude(hay, token)),
+  );
+}
+
+function restCoveredForEntry(rest: readonly string[], entry: Entry): boolean {
+  return entryProvinceSets(entry).some((province) => restCovered(rest, entry.districtTokens, province));
+}
+
 function sumTokenIncludeCosts(hay: readonly string[], needles: readonly string[]): number | null {
   let sum = 0;
   for (const needle of needles) {
@@ -748,10 +819,9 @@ function scoreEntry(entry: Entry, tokens: readonly string[]): number {
     if (beforeHasPlace) {
       // «Ngũ Lão, Thuỷ Nguyên, Hải Phòng»: tên cũ/xóm trước phường mới — chỉ nhận khi phần SAU đã đủ tỉnh.
       // Không cộng thưởng huyện/tỉnh (giữ < 1000) để không át khớp xã cũ exact.
-      const provinceAfter =
-        entry.provinceTokens.length > 0 && entry.provinceTokens.every((token) => tokensInclude(after, token));
-      if (!provinceAfter) return 0;
-      if (!restCovered(rest, entry.districtTokens, entry.provinceTokens)) return 0;
+      // Chấp nhận tỉnh mới (alt) khi chat ghi An Giang thay vì Kiên Giang cũ.
+      if (!provinceFullyIn(after, entry)) return 0;
+      if (!restCoveredForEntry(rest, entry)) return 0;
       return 850 + entry.wardTokens.length * 10 + (entry.kind === 'old' ? 5 : 0) - fuzzyCost * FUZZY_COST_PER_EDIT;
     }
     // Khớp đủ tên xã trong query.
@@ -765,22 +835,29 @@ function scoreEntry(entry: Entry, tokens: readonly string[]): number {
     score = (prefix ? 920 : 860) + tokens.length * 15 + (entry.kind === 'old' ? 5 : 0);
     rest = [];
   }
-  if (!restCovered(rest, entry.districtTokens, entry.provinceTokens)) return 0;
+  if (!restCoveredForEntry(rest, entry)) return 0;
   // Soft tên xã cần tỉnh (hoặc huyện) trong câu — tránh «tan thanh» ≈ «tan thinh».
   if (fuzzyCost > 0) {
     const districtOk =
       entry.districtTokens.length > 0 && sumTokenIncludeCosts(rest, entry.districtTokens) !== null;
-    const provinceOk =
-      entry.provinceTokens.length > 0 && sumTokenIncludeCosts(rest, entry.provinceTokens) !== null;
+    const provinceOk = entryProvinceSets(entry).some(
+      (province) => province.length > 0 && sumTokenIncludeCosts(rest, province) !== null,
+    );
     if (!districtOk && !provinceOk) return 0;
   }
   if (rest.length > 0 && entry.districtTokens.length > 0) {
     const districtCost = sumTokenIncludeCosts(rest, entry.districtTokens);
     if (districtCost !== null) score += 200 - districtCost * FUZZY_COST_PER_EDIT;
   }
-  if (rest.length > 0 && entry.provinceTokens.length > 0) {
-    const provinceCost = sumTokenIncludeCosts(rest, entry.provinceTokens);
-    if (provinceCost !== null) score += 200 - provinceCost * FUZZY_COST_PER_EDIT;
+  if (rest.length > 0) {
+    let bestProvince = 0;
+    for (const province of entryProvinceSets(entry)) {
+      if (province.length === 0) continue;
+      const provinceCost = sumTokenIncludeCosts(rest, province);
+      if (provinceCost === null) continue;
+      bestProvince = Math.max(bestProvince, 200 - provinceCost * FUZZY_COST_PER_EDIT);
+    }
+    score += bestProvince;
   }
   return score - fuzzyCost * FUZZY_COST_PER_EDIT;
 }

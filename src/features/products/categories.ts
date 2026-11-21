@@ -1,7 +1,7 @@
 import { and, asc, count, eq, like, max, or } from 'drizzle-orm';
 import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
-import { media, productCategories, products } from '../../lib/db/schema';
+import { media, productCategories, productCategoryLinks, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { SLUG_PATTERN, slugify } from '../posts/slug';
 import { isProductStatus, PRODUCT_CATEGORY_STATUS_LABELS, type ProductStatus } from './status';
@@ -83,7 +83,8 @@ export async function listProductCategories(db: AppDb, query = '') {
       productCount: count(products.id),
     })
     .from(productCategories)
-    .leftJoin(products, eq(products.categoryId, productCategories.id))
+    .leftJoin(productCategoryLinks, eq(productCategoryLinks.categoryId, productCategories.id))
+    .leftJoin(products, eq(products.id, productCategoryLinks.productId))
     .leftJoin(media, eq(productCategories.coverMediaId, media.id))
     .where(where)
     .groupBy(
@@ -110,9 +111,10 @@ export async function listSellableProductCategories(db: AppDb) {
       sortOrder: productCategories.sortOrder,
     })
     .from(productCategories)
+    .innerJoin(productCategoryLinks, eq(productCategoryLinks.categoryId, productCategories.id))
     .innerJoin(
       products,
-      and(eq(products.categoryId, productCategories.id), eq(products.status, 'active'), eq(productCategories.status, 'active')),
+      and(eq(products.id, productCategoryLinks.productId), eq(products.status, 'active'), eq(productCategories.status, 'active')),
     )
     .groupBy(productCategories.id, productCategories.name, productCategories.slug, productCategories.sortOrder)
     .orderBy(asc(productCategories.sortOrder), asc(productCategories.name), asc(productCategories.id));
@@ -131,9 +133,10 @@ export async function listHomeCatalogCategories(db: AppDb) {
       coverAlt: media.altText,
     })
     .from(productCategories)
+    .innerJoin(productCategoryLinks, eq(productCategoryLinks.categoryId, productCategories.id))
     .innerJoin(
       products,
-      and(eq(products.categoryId, productCategories.id), eq(products.status, 'active'), eq(productCategories.status, 'active')),
+      and(eq(products.id, productCategoryLinks.productId), eq(products.status, 'active'), eq(productCategories.status, 'active')),
     )
     .leftJoin(media, eq(productCategories.coverMediaId, media.id))
     .groupBy(
@@ -278,7 +281,7 @@ export async function deleteProductCategory(
   const current = await db.select({ name: productCategories.name }).from(productCategories).where(eq(productCategories.id, id)).limit(1);
   const row = current[0];
   if (!row) return { ok: false, error: 'Không tìm thấy danh mục.' };
-  const used = await db.select({ value: count() }).from(products).where(eq(products.categoryId, id));
+  const used = await db.select({ value: count() }).from(productCategoryLinks).where(eq(productCategoryLinks.categoryId, id));
   const blocked = productCategoryInUseError(used[0]?.value ?? 0);
   if (blocked) return { ok: false, error: blocked };
   await commitWrites(db, [

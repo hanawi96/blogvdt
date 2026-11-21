@@ -1,6 +1,7 @@
 /** Filter danh mục/sort + Xem tiếp trên trang chủ — fetch JSON /api/catalog, không reload. */
 import { CART_MAX_QUANTITY } from '../features/cart/cart';
 import { productCardName } from '../features/products/cord';
+import { productRequiresTagName, TAG_NAME_MAX } from '../features/products/tag-name';
 import { WEIGHT_SCALES, type WeightScale } from '../features/products/weight';
 import { FREE_SHIP_WITH_ADDON_LABEL, type ProductShipBadge } from '../features/shipping/customer-fee';
 
@@ -101,6 +102,8 @@ function boot() {
     const name = escapeHtml(product.name);
     const title = escapeHtml(productCardName(product.name, product.cordType));
     const needsWeight = product.weightScale !== 'none';
+    const needsTag = productRequiresTagName(product.name);
+    const needsDialog = needsWeight || needsTag;
     const media = product.coverUrl
       ? `<img src="${escapeHtml(product.coverUrl)}" alt="" width="${product.coverWidth ?? 480}" height="${product.coverHeight ?? 480}" loading="${eager ? 'eager' : 'lazy'}" decoding="async" sizes="(min-width: 64rem) 16rem, (min-width: 40rem) 30vw, 46vw" />`
       : '<span class="home-shop-media-empty" aria-hidden="true"></span>';
@@ -132,7 +135,7 @@ function boot() {
       '<svg class="home-shop-btn-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true"><path stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z"></path></svg>';
     const plusIcon =
       '<svg class="home-shop-btn-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true"><path stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"></path></svg>';
-    const cart = needsWeight
+    const cart = needsDialog
       ? `<button class="btn home-shop-cart" type="button" data-add-open aria-haspopup="dialog" aria-controls="${addId}">${plusIcon} Thêm giỏ</button>`
       : `<form class="home-shop-cart-form" method="post" action="${cartPath}" data-cart-form>
           <input type="hidden" name="intent" value="add" />
@@ -143,9 +146,28 @@ function boot() {
           <input type="hidden" name="price" value="${product.price}" />
           <button class="btn home-shop-cart" type="submit">${plusIcon} Thêm giỏ</button>
         </form>`;
-    const dialog = needsWeight
+    const weightField = needsWeight
+      ? `<fieldset class="mt-3" data-weight-field data-base-price="${product.price}">
+            <legend class="text-sm font-semibold">Cân nặng của bé</legend>
+            <div class="weight-grid mt-2" role="radiogroup">
+              ${weights
+                .map(
+                  (weight, index) =>
+                    `<label class="weight-chip"><input type="radio" name="weight" value="${escapeHtml(weight)}"${index === 0 ? ' required' : ''} /><span>${escapeHtml(weight)}</span></label>`,
+                )
+                .join('')}
+            </div>
+          </fieldset>`
+      : '<input type="hidden" name="weight" value="" />';
+    const tagField = needsTag
+      ? `<label class="mt-3 block text-sm font-semibold" for="${addId}-tag">
+            Tên cần in lên thẻ
+            <input id="${addId}-tag" class="field mt-1" name="tagName" required maxlength="${TAG_NAME_MAX}" autocomplete="off" placeholder="Ví dụ: Minh An" />
+          </label>`
+      : '';
+    const dialog = needsDialog
       ? `<dialog id="${addId}" class="add-dialog" aria-labelledby="${addTitleId}">
-          <form class="add-form" method="post" action="${cartPath}" data-cart-form data-requires-weight="true">
+          <form class="add-form" method="post" action="${cartPath}" data-cart-form${needsWeight ? ' data-requires-weight="true"' : ''}${needsTag ? ' data-requires-tag="true"' : ''}>
             <div class="add-head">
               <p id="${addTitleId}" class="font-semibold">${title}</p>
               <button class="add-close" type="button" data-add-close aria-label="Đóng">×</button>
@@ -155,17 +177,8 @@ function boot() {
             <input type="hidden" name="slug" value="${escapeHtml(product.slug)}" />
             <input type="hidden" name="product_name" value="${name}" />
             <input type="hidden" name="price" value="${product.price}" />
-            <fieldset class="mt-3" data-weight-field data-base-price="${product.price}">
-              <legend class="text-sm font-semibold">Cân nặng của bé</legend>
-              <div class="weight-grid mt-2" role="radiogroup">
-                ${weights
-                  .map(
-                    (weight, index) =>
-                      `<label class="weight-chip"><input type="radio" name="weight" value="${escapeHtml(weight)}"${index === 0 ? ' required' : ''} /><span>${escapeHtml(weight)}</span></label>`,
-                  )
-                  .join('')}
-              </div>
-            </fieldset>
+            ${weightField}
+            ${tagField}
             <div class="qty-stepper" data-qty-stepper>
               <p class="qty-stepper-label">Số lượng</p>
               <div class="qty-stepper-row" role="group" aria-label="Số lượng">

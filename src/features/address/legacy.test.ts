@@ -230,6 +230,29 @@ describe('đổi địa chỉ 3 cấp sang 2 cấp', () => {
     expect(result.items[0]?.line.toLowerCase()).toContain('kế trạm xe khách hùng cường');
   });
 
+  it('Phú Quốc: dương tơ + tỉnh mới An Giang (không nhãn xã, SĐT có chấm)', () => {
+    const target = wardNamed('Tỉnh An Giang', 'Đặc Khu Phú Quốc');
+    expect(target).toBeTruthy();
+    for (const raw of [
+      'Ga đến, sân bay QT Phú quốc, dương tơ-Phú Quốc - An Giang, Ms Hằng- 0944.887.829',
+      'dương tơ, Phú Quốc, An Giang',
+      'xã dương tơ, Phú Quốc, An Giang',
+      'dương tơ, Phú Quốc, Kiên Giang',
+    ]) {
+      const result = searchLegacyAddress(rows, mapping, raw);
+      expect(result.items.some((item) => item.wardCode === target?.wardCode), raw).toBe(true);
+      expect(result.items[0]?.newText, raw).toMatch(/Phú Quốc.*An Giang/i);
+    }
+    const withStreet = searchLegacyAddress(
+      rows,
+      mapping,
+      'Ga đến, sân bay QT Phú quốc, dương tơ-Phú Quốc - An Giang, Ms Hằng- 0944.887.829',
+    );
+    expect(withStreet.items[0]?.wardCode).toBe(target?.wardCode);
+    // SĐT có chấm không được nhét vào số nhà.
+    expect(`${withStreet.items[0]?.line || ''} ${withStreet.debug.tokens.join(' ')}`).not.toMatch(/0944/);
+  });
+
   it('tin nhắn Bình Dương 3 cấp không dấu phẩy đổi sang Thủ Dầu Một, HCM', () => {
     const target = wardNamed('Thành phố Hồ Chí Minh', 'Phường Thủ Dầu Một');
     expect(target).toBeTruthy();

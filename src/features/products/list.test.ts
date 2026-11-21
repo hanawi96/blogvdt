@@ -107,18 +107,19 @@ describe('danh sách sản phẩm', () => {
     expect(parsed.ok && parsed.input.status).toBe('inactive');
     expect(parsed.ok && parsed.input.seoTitle).toBe('Tiêu đề SEO');
     expect(parsed.ok && parsed.input.comparePrice).toBe(null);
-    expect(parsed.ok && parsed.input.categoryId).toBe(null);
+    expect(parsed.ok && parsed.input.categoryIds).toEqual([]);
     expect(parsed.ok && parsed.input.cordType).toBe('');
   });
 
   it('nhận giá gốc, danh mục và kiểu dây', () => {
     const form = productForm();
     form.set('comparePrice', '180000');
-    form.set('categoryId', '4');
+    form.append('categoryIds', '4');
+    form.append('categoryIds', '7');
     form.set('cordType', 'adjustable');
     const parsed = parseProductForm(form);
     expect(parsed.ok && parsed.input.comparePrice).toBe(180000);
-    expect(parsed.ok && parsed.input.categoryId).toBe(4);
+    expect(parsed.ok && parsed.input.categoryIds).toEqual([4, 7]);
     expect(parsed.ok && parsed.input.cordType).toBe('adjustable');
     const elastic = productForm();
     elastic.set('cordType', 'elastic');
@@ -134,10 +135,10 @@ describe('danh sách sản phẩm', () => {
     if (!rejected.ok) expect(rejected.errors.cordType).toBe('Kiểu dây không hợp lệ.');
 
     const invalid = productForm();
-    invalid.set('categoryId', 'nhom');
+    invalid.append('categoryIds', 'nhom');
     const bad = parseProductForm(invalid);
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.errors.categoryId).toBe('Danh mục không hợp lệ.');
+    if (!bad.ok) expect(bad.errors.categoryIds).toBe('Danh mục không hợp lệ.');
   });
 
   it('tiền tố tên card theo kiểu dây', () => {

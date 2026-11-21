@@ -27,7 +27,7 @@ export const GET: APIRoute = async ({ locals, url }) => {
   try {
     const db = createDb(getDbBinding());
     const [picker, discountChoices, orderCosts] = await Promise.all([
-      listStaffPickerProducts(db),
+      listStaffPickerProducts(db, { inStockOnly: true }),
       listStaffDiscountChoices(db),
       listOrderCosts(db),
     ]);

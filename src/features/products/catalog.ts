@@ -1,6 +1,6 @@
-import { and, asc, count, desc, eq, like, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, like, sql, type SQL } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
-import { media, productCategories, products } from '../../lib/db/schema';
+import { media, productCategories, productCategoryLinks, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { listingMediaKey, MEDIA_CARD_SIZE } from '../media/files';
 import { ratingFormValue } from './form';
@@ -117,7 +117,18 @@ export function visibleComparePrice(price: number, comparePrice: number | null):
 export async function listCatalogProducts(db: AppDb, query: CatalogQuery) {
   const filters: SQL[] = [sellableProductWhere()];
   if (query.q) filters.push(like(products.name, `%${query.q}%`));
-  if (query.category) filters.push(eq(productCategories.slug, query.category));
+  if (query.category) {
+    filters.push(
+      inArray(
+        products.id,
+        db
+          .select({ productId: productCategoryLinks.productId })
+          .from(productCategoryLinks)
+          .innerJoin(productCategories, eq(productCategoryLinks.categoryId, productCategories.id))
+          .where(eq(productCategories.slug, query.category)),
+      ),
+    );
+  }
   const where = and(...filters);
   const current = Math.max(1, query.page);
   const totalRows = await db

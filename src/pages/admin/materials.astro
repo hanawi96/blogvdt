@@ -620,6 +620,7 @@ function pageHref(next: number): string {
         data-reprice={repriceView.payload}
       >
         <form
+          class="reprice-form"
           method="post"
           data-busy
           data-confirm-title="Cập nhật giá bán?"
@@ -631,79 +632,81 @@ function pageHref(next: number): string {
           <input type="hidden" name="id" value={repriceView.id} />
           <input type="hidden" name="truoc" value={repriceView.previous} />
           <input type="hidden" name="hien-tai" value={repriceView.unitCost} />
-          <h2 id="reprice-dialog-title" class="text-lg font-semibold">Cập nhật giá bán</h2>
-          <p class="mt-2">
-            Đã đổi <strong>{repriceView.name}</strong> từ {formatVnd(repriceView.previous)} {repriceView.unitCost > repriceView.previous ? 'lên' : 'xuống'} {formatVnd(repriceView.unitCost)}. Có {repriceView.total} sản phẩm đang dùng nguyên liệu này.
-          </p>
-          {errorText && <p class="error-text mt-2" role="alert">{errorText}</p>}
-          {repriceView.total > repriceView.lines.length && (
-            <p class="pricing-summary">Chỉ liệt kê {repriceView.lines.length} sản phẩm đầu tiên. Có thể áp dụng lại sau khi đổi đơn giá nếu cần cập nhật thêm.</p>
-          )}
-          <div class="reprice-modes">
-            <label class="reprice-mode">
-              <input type="radio" name="mode" value="keep" checked={repriceView.mode === 'keep'} data-reprice-mode />
-              <span><strong>Giữ tiền lời</strong><span class="seo-hint">Cộng hoặc trừ đúng phần vốn thay đổi, rồi làm tròn lên 1.000 ₫.</span></span>
-            </label>
-            <label class="reprice-mode">
-              <input type="radio" name="mode" value="margin" checked={repriceView.mode === 'margin'} data-reprice-mode />
-              <span><strong>Đặt lại theo biên</strong><span class="seo-hint">Tính lại giá bán từ giá vốn mới, theo biên và bước làm tròn bên dưới.</span></span>
-            </label>
-            <div class="reprice-tools" data-reprice-tools hidden={repriceView.mode !== 'margin'}>
-              <label>
-                <span class="mb-1 block font-semibold">Biên mục tiêu (%)</span>
-                <input class="field" name="bien" type="number" inputmode="numeric" min="0" max={MAX_TARGET_MARGIN} value={DEFAULT_TARGET_MARGIN} data-reprice-margin />
+          <div class="reprice-body">
+            <h2 id="reprice-dialog-title" class="text-lg font-semibold">Cập nhật giá bán</h2>
+            <p class="mt-2">
+              Đã đổi <strong>{repriceView.name}</strong> từ {formatVnd(repriceView.previous)} {repriceView.unitCost > repriceView.previous ? 'lên' : 'xuống'} {formatVnd(repriceView.unitCost)}. Có {repriceView.total} sản phẩm đang dùng nguyên liệu này.
+            </p>
+            {errorText && <p class="error-text mt-2" role="alert">{errorText}</p>}
+            {repriceView.total > repriceView.lines.length && (
+              <p class="pricing-summary">Chỉ liệt kê {repriceView.lines.length} sản phẩm đầu tiên. Có thể áp dụng lại sau khi đổi đơn giá nếu cần cập nhật thêm.</p>
+            )}
+            <div class="reprice-modes">
+              <label class="reprice-mode">
+                <input type="radio" name="mode" value="keep" checked={repriceView.mode === 'keep'} data-reprice-mode />
+                <span><strong>Giữ tiền lời</strong><span class="seo-hint">Cộng hoặc trừ đúng phần vốn thay đổi, rồi làm tròn lên 1.000 ₫.</span></span>
               </label>
-              <label>
-                <span class="mb-1 block font-semibold">Làm tròn lên</span>
-                <select class="field" name="lam-tron" data-reprice-step>
-                  {ROUND_STEPS.map((item) => <option value={item} selected={item === DEFAULT_ROUND_STEP}>{stepLabels[item]}</option>)}
-                </select>
+              <label class="reprice-mode">
+                <input type="radio" name="mode" value="margin" checked={repriceView.mode === 'margin'} data-reprice-mode />
+                <span><strong>Đặt lại theo biên</strong><span class="seo-hint">Tính lại giá bán từ giá vốn mới, theo biên và bước làm tròn bên dưới.</span></span>
+              </label>
+              <div class="reprice-tools" data-reprice-tools hidden={repriceView.mode !== 'margin'}>
+                <label>
+                  <span class="mb-1 block font-semibold">Biên mục tiêu (%)</span>
+                  <input class="field" name="bien" type="number" inputmode="numeric" min="0" max={MAX_TARGET_MARGIN} value={DEFAULT_TARGET_MARGIN} data-reprice-margin />
+                </label>
+                <label>
+                  <span class="mb-1 block font-semibold">Làm tròn lên</span>
+                  <select class="field" name="lam-tron" data-reprice-step>
+                    {ROUND_STEPS.map((item) => <option value={item} selected={item === DEFAULT_ROUND_STEP}>{stepLabels[item]}</option>)}
+                  </select>
+                </label>
+              </div>
+              <label class="reprice-mode">
+                <input type="radio" name="mode" value="none" checked={repriceView.mode === 'none'} data-reprice-mode />
+                <span><strong>Không đổi giá bán</strong><span class="seo-hint">Đơn giá mới vẫn được giữ. Giá bán các sản phẩm giữ nguyên.</span></span>
               </label>
             </div>
-            <label class="reprice-mode">
-              <input type="radio" name="mode" value="none" checked={repriceView.mode === 'none'} data-reprice-mode />
-              <span><strong>Không đổi giá bán</strong><span class="seo-hint">Đơn giá mới vẫn được giữ. Giá bán các sản phẩm giữ nguyên.</span></span>
-            </label>
+            <p class="pricing-summary">Đổi cách tính sẽ chọn lại những sản phẩm có giá mới. Dòng tô màu là biên dưới 30%, đang lỗ, hoặc bị giá gốc chặn.</p>
+            <table class="post-table reprice-table">
+              <thead>
+                <tr>
+                  <th class="product-check">
+                    <input type="checkbox" aria-label="Chọn tất cả sản phẩm có thể đổi giá" data-reprice-all disabled={!repriceView.lines.some((line) => line.changed)} />
+                  </th>
+                  <th>Sản phẩm</th>
+                  <th>Số lượng</th>
+                  <th>Giá hiện tại</th>
+                  <th>Giá mới</th>
+                  <th>Biên</th>
+                </tr>
+              </thead>
+              <tbody>
+                {repriceView.lines.map((line) => {
+                  const note = line.blocked && line.comparePrice !== null ? repriceNote(line, repriceView.mode, formatVnd(line.comparePrice)) : repriceNote(line, repriceView.mode, '');
+                  const marginLabel = repriceView.mode === 'none' || line.marginAfter === null ? `biên ${percent(line.marginBefore)}` : `${percent(line.marginBefore)} → ${percent(line.marginAfter)}`;
+                  return (
+                    <tr class:list={[{ 'is-warn': line.warn }]} data-reprice-id={line.productId}>
+                      <td class="product-check">
+                        <input type="checkbox" name="ids" value={line.productId} checked={line.changed} disabled={!line.changed} aria-label={`Chọn ${line.name}`} data-reprice-check />
+                      </td>
+                      <td data-label="Sản phẩm">
+                        <a class="post-title" href={routes.adminProduct(line.productId)} target="_blank" rel="noopener">{line.name}</a>
+                        {isProductStatus(line.status) && line.status !== 'active' && <span class="material-off">{PRODUCT_STATUS_LABELS[line.status]}</span>}
+                        {note && <span class="reprice-note" data-reprice-note>{note}</span>}
+                        {!note && <span class="reprice-note" data-reprice-note hidden></span>}
+                      </td>
+                      <td data-label="Số lượng">{line.quantity}</td>
+                      <td data-label="Giá hiện tại">{formatVnd(line.price)}</td>
+                      <td data-label="Giá mới"><strong class="material-price" data-reprice-next>{line.nextPrice !== null && line.nextPrice !== line.price ? formatVnd(line.nextPrice) : '—'}</strong></td>
+                      <td data-label="Biên"><span class="pricing-margin" data-reprice-margin-text data-tone={line.warn ? 'low' : 'ok'}>{marginLabel}</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-          <p class="pricing-summary">Đổi cách tính sẽ chọn lại những sản phẩm có giá mới. Dòng tô màu là biên dưới 30%, đang lỗ, hoặc bị giá gốc chặn.</p>
-          <table class="post-table reprice-table">
-            <thead>
-              <tr>
-                <th class="product-check">
-                  <input type="checkbox" aria-label="Chọn tất cả sản phẩm có thể đổi giá" data-reprice-all disabled={!repriceView.lines.some((line) => line.changed)} />
-                </th>
-                <th>Sản phẩm</th>
-                <th>Số lượng</th>
-                <th>Giá hiện tại</th>
-                <th>Giá mới</th>
-                <th>Biên</th>
-              </tr>
-            </thead>
-            <tbody>
-              {repriceView.lines.map((line) => {
-                const note = line.blocked && line.comparePrice !== null ? repriceNote(line, repriceView.mode, formatVnd(line.comparePrice)) : repriceNote(line, repriceView.mode, '');
-                const marginLabel = repriceView.mode === 'none' || line.marginAfter === null ? `biên ${percent(line.marginBefore)}` : `${percent(line.marginBefore)} → ${percent(line.marginAfter)}`;
-                return (
-                  <tr class:list={[{ 'is-warn': line.warn }]} data-reprice-id={line.productId}>
-                    <td class="product-check">
-                      <input type="checkbox" name="ids" value={line.productId} checked={line.changed} disabled={!line.changed} aria-label={`Chọn ${line.name}`} data-reprice-check />
-                    </td>
-                    <td data-label="Sản phẩm">
-                      <a class="post-title" href={routes.adminProduct(line.productId)} target="_blank" rel="noopener">{line.name}</a>
-                      {isProductStatus(line.status) && line.status !== 'active' && <span class="material-off">{PRODUCT_STATUS_LABELS[line.status]}</span>}
-                      {note && <span class="reprice-note" data-reprice-note>{note}</span>}
-                      {!note && <span class="reprice-note" data-reprice-note hidden></span>}
-                    </td>
-                    <td data-label="Số lượng">{line.quantity}</td>
-                    <td data-label="Giá hiện tại">{formatVnd(line.price)}</td>
-                    <td data-label="Giá mới"><strong class="material-price" data-reprice-next>{line.nextPrice !== null && line.nextPrice !== line.price ? formatVnd(line.nextPrice) : '—'}</strong></td>
-                    <td data-label="Biên"><span class="pricing-margin" data-reprice-margin-text data-tone={line.warn ? 'low' : 'ok'}>{marginLabel}</span></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          <div class="pricing-bar">
+          <div class="pricing-bar reprice-foot">
             <span data-reprice-count aria-live="polite">Đã chọn {repriceView.lines.filter((line) => line.changed).length}</span>
             <div class="dash-quick">
               <button class="btn" type="button" data-reprice-close>Để sau</button>

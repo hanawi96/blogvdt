@@ -1,9 +1,10 @@
-import { and, asc, eq, inArray, isNotNull, ne, notExists, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, ne, notExists, or, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { media, orderItems, orders, productCategories, productMedia, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { loadProductCosts } from '../materials/recipes';
 import { listingMediaKey } from '../media/files';
+import { listProductCategoryIdsByProductIds } from './product-category-links';
 import { isPubliclySellable, sellableProductWhere } from './status';
 import { readWeightScale } from './weight';
 
@@ -81,6 +82,7 @@ export async function listOrderCatalog(db: AppDb) {
       slug: products.slug,
       name: products.name,
       price: products.price,
+      comparePrice: products.comparePrice,
       weightScale: productCategories.weightScale,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,
@@ -92,10 +94,11 @@ export async function listOrderCatalog(db: AppDb) {
     .leftJoin(media, eq(products.coverMediaId, media.id))
     .where(sellableProductWhere())
     .orderBy(asc(products.sortOrder), asc(products.id));
-  return rows.map(({ weightScale, coverKey, cardKey, coverAlt, categorySlug, ...row }) => {
+  return rows.map(({ weightScale, coverKey, cardKey, coverAlt, categorySlug, comparePrice, ...row }) => {
     const listKey = listingMediaKey(coverKey, cardKey);
     return {
       ...row,
+      comparePrice: comparePrice != null && comparePrice > row.price ? comparePrice : null,
       weightScale: readWeightScale(weightScale),
       categorySlug: categorySlug ?? '',
       coverUrl: listKey ? routes.media(listKey) : null,
@@ -163,6 +166,7 @@ export type StaffPickerProduct = {
   weightScale: ReturnType<typeof readWeightScale>;
   active: true;
   categoryId: number | null;
+  categoryIds: number[];
   categoryName: string;
   categorySlug: string;
   sold: number;
@@ -174,8 +178,15 @@ export type StaffPickerProduct = {
 
 export type StaffPickerCategory = { id: number; name: string };
 
-// Danh sách mẫu cho trang tạo đơn: đang bán, kèm danh mục và số chiếc đã bán (trừ đơn hủy).
-export async function listStaffPickerProducts(db: AppDb): Promise<{ products: StaffPickerProduct[]; categories: StaffPickerCategory[] }> {
+/**
+ * Danh sách mẫu tạo đơn.
+ * `inStockOnly`: UI picker — ẩn SP hết hàng + DM trống/tắt; bỏ cờ khi định giá/sửa đơn (vẫn cần SP tồn 0).
+ */
+export async function listStaffPickerProducts(
+  db: AppDb,
+  options?: { inStockOnly?: boolean },
+): Promise<{ products: StaffPickerProduct[]; categories: StaffPickerCategory[] }> {
+  const inStockOnly = options?.inStockOnly === true;
   const [rows, itemSold, singleSold] = await Promise.all([
     db
       .select({
@@ -195,7 +206,7 @@ export async function listStaffPickerProducts(db: AppDb): Promise<{ products: St
       .from(products)
       .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
       .leftJoin(media, eq(products.coverMediaId, media.id))
-      .where(sellableProductWhere()),
+      .where(inStockOnly ? and(sellableProductWhere(), gt(products.stockQty, 0)) : sellableProductWhere()),
     db
       .select({
         productId: orderItems.productId,
@@ -225,21 +236,37 @@ export async function listStaffPickerProducts(db: AppDb): Promise<{ products: St
     if (row.productId == null) continue;
     soldByProduct.set(row.productId, (soldByProduct.get(row.productId) ?? 0) + Number(row.sold));
   }
-  const costs = await loadProductCosts(
-    db,
-    rows.map((row) => row.id),
-  );
+  const productIds = rows.map((row) => row.id);
+  const [costs, categoryIdsByProduct, activeCategories] = await Promise.all([
+    loadProductCosts(db, productIds),
+    listProductCategoryIdsByProductIds(db, productIds),
+    db
+      .select({
+        id: productCategories.id,
+        name: productCategories.name,
+        sortOrder: productCategories.sortOrder,
+      })
+      .from(productCategories)
+      .where(eq(productCategories.status, 'active'))
+      .orderBy(asc(productCategories.sortOrder), asc(productCategories.name), asc(productCategories.id)),
+  ]);
+  const activeCategoryIds = new Set(activeCategories.map((category) => category.id));
+  const linkedCategoryIds = new Set<number>();
   const listed: StaffPickerProduct[] = rows
     .map((row) => {
       const listKey = listingMediaKey(row.coverKey, row.cardKey);
       const unitCost = costs.get(row.id);
+      const rawIds = categoryIdsByProduct.get(row.id) ?? (row.categoryId ? [row.categoryId] : []);
+      const categoryIds = rawIds.filter((categoryId) => activeCategoryIds.has(categoryId));
+      for (const categoryId of categoryIds) linkedCategoryIds.add(categoryId);
       return {
         id: row.id,
         name: row.name,
         price: row.price,
         weightScale: readWeightScale(row.weightScale),
         active: true as const,
-        categoryId: row.categoryId,
+        categoryId: row.categoryId && activeCategoryIds.has(row.categoryId) ? row.categoryId : null,
+        categoryIds,
         categoryName: row.categoryName ?? '',
         categorySlug: row.categorySlug ?? '',
         sold: (soldByProduct.get(row.id) ?? 0) + Math.max(0, row.soldBase || 0),
@@ -249,14 +276,10 @@ export async function listStaffPickerProducts(db: AppDb): Promise<{ products: St
       };
     })
     .sort((a, b) => b.sold - a.sold || a.name.localeCompare(b.name, 'vi'));
-  const seen = new Map<number, { name: string; sort: number }>();
-  for (const row of rows) {
-    if (row.categoryId == null || seen.has(row.categoryId)) continue;
-    seen.set(row.categoryId, { name: row.categoryName ?? '', sort: row.categorySort ?? 0 });
-  }
-  const categories = [...seen.entries()]
-    .sort((a, b) => a[1].sort - b[1].sort || a[1].name.localeCompare(b[1].name, 'vi'))
-    .map(([id, category]) => ({ id, name: category.name }));
+  // Chỉ DM đang bật và còn ít nhất một SP còn tồn trong picker.
+  const categories = activeCategories
+    .filter((category) => linkedCategoryIds.has(category.id))
+    .map((category) => ({ id: category.id, name: category.name }));
   return { products: listed, categories };
 }
 

@@ -669,7 +669,6 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
   });
 
   if (searchForm instanceof HTMLFormElement && input instanceof HTMLInputElement) {
-    let timer = 0;
     const go = () => {
       const url = new URL(location.href);
       const value = input.value.trim();
@@ -680,13 +679,9 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
       postList()?.setAttribute('aria-busy', 'true');
       location.assign(url);
     };
-    input.addEventListener('input', () => {
-      window.clearTimeout(timer);
-      timer = window.setTimeout(go, 300);
-    });
+    // Ô tìm: chỉ chạy khi Enter.
     searchForm.addEventListener('submit', (event) => {
       event.preventDefault();
-      window.clearTimeout(timer);
       go();
     });
     searchForm.querySelector('[data-post-filters-toggle]')?.addEventListener('click', () => {

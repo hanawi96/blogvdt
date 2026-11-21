@@ -109,8 +109,9 @@ const margins: { id: ProductListMargin; label: string }[] = [
 ];
 
 const activeCategory = result?.categories.some((category) => category.id === categoryId) ? categoryId : null;
-const isRowShown = (rowCategory: number | null) => !clientFilter || activeCategory === null || rowCategory === activeCategory;
-const shownCount = result?.rows.filter((product) => isRowShown(product.categoryId)).length ?? 0;
+const isRowShown = (categoryIds: number[]) =>
+  !clientFilter || activeCategory === null || categoryIds.includes(activeCategory);
+const shownCount = result?.rows.filter((product) => isRowShown(product.categoryIds)).length ?? 0;
 // Lọc phụ (không kể ô tìm) — badge / mở sẵn panel trên mobile.
 const advancedFiltersActive = Boolean(status || cord || marginFilter) || sort !== DEFAULT_PRODUCT_LIST_SORT;
 
@@ -315,7 +316,7 @@ function listHref(nextView: 'list' | 'cards'): string {
                         const off = discountPercent(product.price, product.comparePrice);
                         const statusLabel = isProductStatus(product.status) ? PRODUCT_STATUS_LABELS[product.status] : product.status;
                         return (
-                          <li class="product-admin-card" data-product-item data-category={product.categoryId ?? ''} hidden={!isRowShown(product.categoryId)}>
+                          <li class="product-admin-card" data-product-item data-categories={product.categoryIds.join(',')} hidden={!isRowShown(product.categoryIds)}>
                             <div class="product-admin-card-media">
                               <input
                                 class="product-admin-card-check"
@@ -325,7 +326,19 @@ function listHref(nextView: 'list' | 'cards'): string {
                                 value={product.id}
                                 aria-label={`Chọn ${product.name}`}
                               />
-                              {product.coverUrl ? (
+                              {product.coverUrl && product.coverOriginalUrl ? (
+                                <button
+                                  class="product-cover-open product-admin-card-cover"
+                                  type="button"
+                                  data-product-cover-open
+                                  data-src={product.coverOriginalUrl}
+                                  data-alt={product.coverAlt || product.name}
+                                  data-size={product.coverWidth && product.coverHeight ? `${product.coverWidth}×${product.coverHeight}` : ''}
+                                  aria-label={`Xem ảnh gốc ${product.name}`}
+                                >
+                                  <img class="product-admin-card-img" src={product.coverUrl} alt="" width="320" height="320" loading="lazy" />
+                                </button>
+                              ) : product.coverUrl ? (
                                 <img class="product-admin-card-img" src={product.coverUrl} alt={product.coverAlt} width="320" height="320" loading="lazy" />
                               ) : (
                                 <span class="product-admin-card-img is-empty" aria-hidden="true" />
@@ -333,68 +346,85 @@ function listHref(nextView: 'list' | 'cards'): string {
                               {off != null && <span class="product-admin-card-discount">-{off}%</span>}
                             </div>
                             <div class="product-admin-card-body">
-                              <a class="product-admin-card-title" href={routes.adminProduct(product.id)}>{product.name}</a>
-                              <p class="product-admin-card-meta">
-                                <span>{product.categoryName || 'Không danh mục'}</span>
-                                {cordTypeLabel(product.cordType) && (
-                                  <>
-                                    <span aria-hidden="true">·</span>
-                                    <span>{cordTypeLabel(product.cordType)}</span>
-                                  </>
-                                )}
-                                <span aria-hidden="true">·</span>
+                              <div class="product-admin-card-head">
+                                <a class="product-admin-card-title" href={routes.adminProduct(product.id)}>{product.name}</a>
                                 <span class="product-admin-card-status" data-status={active ? 'active' : 'inactive'}>{statusLabel}</span>
-                              </p>
+                              </div>
+                              <div class="product-admin-card-tags">
+                                {(product.categoryNames.length > 0 ? product.categoryNames : ['Không danh mục']).map((name) => (
+                                  <span class="product-admin-card-tag">{name}</span>
+                                ))}
+                                {cordTypeLabel(product.cordType) && (
+                                  <span class="product-admin-card-tag is-cord">{cordTypeLabel(product.cordType)}</span>
+                                )}
+                              </div>
                               <p class="product-admin-card-price">
                                 <strong>{formatVnd(product.price)}</strong>
                                 {product.comparePrice != null && <span class="product-compare">{formatVnd(product.comparePrice)}</span>}
                               </p>
-                              <p class="product-admin-card-cost">
+                              <div class="product-admin-card-metrics" aria-label="Giá vốn và biên">
                                 {cost === undefined || profit == null ? (
-                                  <span class="product-figure is-empty">Chưa có giá vốn</span>
+                                  <span class="product-admin-card-metric is-empty">
+                                    <span class="product-admin-card-metric-label">Giá vốn</span>
+                                    <span class="product-admin-card-metric-value">Chưa có</span>
+                                  </span>
                                 ) : (
                                   <>
-                                    <span>Giá vốn {formatVnd(cost)}</span>
-                                    <span aria-hidden="true">·</span>
-                                    <span>Lãi {formatVnd(profit.profit)}</span>
-                                    {profit.marginPercent != null && (
-                                      <>
-                                        <span aria-hidden="true">·</span>
-                                        <span data-margin={productMarginAttr(profit.marginPercent)}>
-                                          Biên {profit.marginPercent}%
-                                        </span>
-                                      </>
-                                    )}
+                                    <span class="product-admin-card-metric">
+                                      <span class="product-admin-card-metric-label">Giá vốn</span>
+                                      <span class="product-admin-card-metric-value">{formatVnd(cost)}</span>
+                                    </span>
+                                    <span class="product-admin-card-metric">
+                                      <span class="product-admin-card-metric-label">Lãi</span>
+                                      <span class="product-admin-card-metric-value">{formatVnd(profit.profit)}</span>
+                                    </span>
+                                    <span class="product-admin-card-metric">
+                                      <span class="product-admin-card-metric-label">Biên</span>
+                                      <span
+                                        class="product-admin-card-metric-value"
+                                        data-margin={profit.marginPercent == null ? undefined : productMarginAttr(profit.marginPercent)}
+                                      >
+                                        {profit.marginPercent == null ? '—' : `${profit.marginPercent}%`}
+                                      </span>
+                                    </span>
                                   </>
                                 )}
-                              </p>
-                              <p class="product-admin-card-stats">
-                                <span class:list={[product.stockQty <= 0 && 'is-empty']}>Tồn {product.stockQty}</span>
-                                <span aria-hidden="true">·</span>
-                                <span>Đã bán {product.sold}</span>
-                                <span aria-hidden="true">·</span>
-                                <span class:list={['product-admin-card-rating', product.rating <= 0 && 'is-empty']}>
-                                  <svg
-                                    class="product-admin-card-star"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke-width="1.5"
-                                    stroke="currentColor"
-                                    width="14"
-                                    height="14"
-                                    aria-hidden="true"
-                                  >
-                                    <path
-                                      stroke-linecap="round"
-                                      stroke-linejoin="round"
-                                      d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"
-                                    ></path>
-                                  </svg>
-                                  <span class="sr-only">Điểm </span>
-                                  {product.rating > 0 ? ratingFormValue(product.rating) : '—'}
+                              </div>
+                              <div class="product-admin-card-stats" aria-label="Tồn kho và bán">
+                                <span class:list={['product-admin-card-stat', product.stockQty <= 0 && 'is-empty']}>
+                                  <span class="product-admin-card-stat-label">Tồn</span>
+                                  <span class="product-admin-card-stat-value">{product.stockQty}</span>
                                 </span>
-                              </p>
+                                <span class="product-admin-card-stat">
+                                  <span class="product-admin-card-stat-label">Đã bán</span>
+                                  <span class="product-admin-card-stat-value">{product.sold}</span>
+                                </span>
+                                <span class:list={['product-admin-card-stat', 'product-admin-card-rating', product.rating <= 0 && 'is-empty']}>
+                                  <span class="product-admin-card-stat-label">
+                                    <svg
+                                      class="product-admin-card-star"
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      fill="none"
+                                      viewBox="0 0 24 24"
+                                      stroke-width="1.5"
+                                      stroke="currentColor"
+                                      width="12"
+                                      height="12"
+                                      aria-hidden="true"
+                                    >
+                                      <path
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"
+                                      ></path>
+                                    </svg>
+                                    <span class="sr-only">Điểm</span>
+                                  </span>
+                                  <span class="product-admin-card-stat-value">
+                                    {product.rating > 0 ? ratingFormValue(product.rating) : '—'}
+                                  </span>
+                                </span>
+                              </div>
                               <div class="product-admin-card-actions">
                                 <a class="category-list-edit" href={routes.adminProduct(product.id)}>Sửa</a>
                                 <form
@@ -449,7 +479,7 @@ function listHref(nextView: 'list' | 'cards'): string {
                         const cost = costs.get(product.id);
                         const margin = cost === undefined ? null : profitOf(product.price, cost).marginPercent;
                         return (
-                          <tr data-product-item data-category={product.categoryId ?? ''} hidden={!isRowShown(product.categoryId)}>
+                          <tr data-product-item data-category={product.categoryId ?? ''} data-categories={product.categoryIds.join(',')} hidden={!isRowShown(product.categoryIds)}>
                             <td class="product-check">
                               <input
                                 type="checkbox"
@@ -461,7 +491,19 @@ function listHref(nextView: 'list' | 'cards'): string {
                             </td>
                             <td class="product-list-main">
                               <div class="product-main">
-                                {product.coverUrl ? (
+                                {product.coverUrl && product.coverOriginalUrl ? (
+                                  <button
+                                    class="product-cover-open product-list-cover"
+                                    type="button"
+                                    data-product-cover-open
+                                    data-src={product.coverOriginalUrl}
+                                    data-alt={product.coverAlt || product.name}
+                                    data-size={product.coverWidth && product.coverHeight ? `${product.coverWidth}×${product.coverHeight}` : ''}
+                                    aria-label={`Xem ảnh gốc ${product.name}`}
+                                  >
+                                    <img class="product-thumb" src={product.coverUrl} alt="" width="44" height="44" loading="lazy" />
+                                  </button>
+                                ) : product.coverUrl ? (
                                   <img class="product-thumb" src={product.coverUrl} alt={product.coverAlt} width="44" height="44" loading="lazy" />
                                 ) : (
                                   <span class="product-thumb is-empty" aria-hidden="true" />
@@ -496,7 +538,17 @@ function listHref(nextView: 'list' | 'cards'): string {
                                 <span class="product-figure" data-margin={productMarginAttr(margin)}>{margin}%</span>
                               )}
                             </td>
-                            <td class="product-list-category" data-label="Danh mục">{product.categoryName || '—'}</td>
+                            <td class="product-list-category" data-label="Danh mục">
+                              {product.categoryNames.length > 0 ? (
+                                <span class="product-list-categories">
+                                  {product.categoryNames.map((name) => (
+                                    <span class="product-list-category-item">{name}</span>
+                                  ))}
+                                </span>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
                             <td class="product-list-cord" data-label="Kiểu dây">{cordTypeLabel(product.cordType) || '—'}</td>
                             <td class="product-list-status" data-label="Trạng thái">
                               <span class="post-status" data-status={active ? 'active' : 'inactive'}>
@@ -553,6 +605,18 @@ function listHref(nextView: 'list' | 'cards'): string {
       )
     }
   </div>
+
+  <div class="media-lightbox" data-product-cover-lightbox hidden>
+    <div class="media-lightbox-bar">
+      <p class="media-lightbox-meta" data-product-cover-meta>Ảnh gốc</p>
+      <button class="btn media-lightbox-close product-cover-close" type="button" data-product-cover-close aria-label="Đóng">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+      </button>
+    </div>
+    <div class="media-lightbox-stage" data-product-cover-stage role="button" tabindex="0" aria-label="Đóng xem ảnh gốc">
+      <img data-product-cover-img alt="" />
+    </div>
+  </div>
 </AdminLayout>
 
 <script>
@@ -564,6 +628,57 @@ function listHref(nextView: 'list' | 'cards'): string {
   let anchor: HTMLInputElement | null = null;
   let categoryNav = 0;
   const prefetched = new Set<string>();
+
+  const coverLightbox = document.querySelector<HTMLElement>('[data-product-cover-lightbox]');
+  const coverImg = coverLightbox?.querySelector<HTMLImageElement>('[data-product-cover-img]');
+  const coverMeta = coverLightbox?.querySelector<HTMLElement>('[data-product-cover-meta]');
+  const coverStage = coverLightbox?.querySelector<HTMLElement>('[data-product-cover-stage]');
+
+  function closeProductCover() {
+    if (!coverLightbox || !coverImg) return;
+    coverLightbox.hidden = true;
+    coverImg.removeAttribute('src');
+    coverImg.removeAttribute('alt');
+    coverImg.removeAttribute('width');
+    coverImg.removeAttribute('height');
+    document.documentElement.style.removeProperty('overflow');
+  }
+
+  function openProductCover(button: HTMLElement) {
+    if (!coverLightbox || !coverImg || !coverMeta) return;
+    const src = button.dataset.src ?? '';
+    if (!src) return;
+    const alt = button.dataset.alt ?? '';
+    const size = button.dataset.size ?? '';
+    coverImg.src = src;
+    coverImg.alt = alt;
+    coverMeta.textContent = size ? `Ảnh gốc · ${size}` : 'Ảnh gốc';
+    document.documentElement.style.overflow = 'hidden';
+    coverLightbox.hidden = false;
+    coverLightbox.querySelector<HTMLButtonElement>('[data-product-cover-close]')?.focus();
+  }
+
+  document.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const open = target.closest<HTMLElement>('[data-product-cover-open]');
+    if (open) {
+      event.preventDefault();
+      openProductCover(open);
+      return;
+    }
+    if (target.closest('[data-product-cover-close]')) {
+      closeProductCover();
+      return;
+    }
+    if (target === coverStage) closeProductCover();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !coverLightbox || coverLightbox.hidden) return;
+    event.preventDefault();
+    closeProductCover();
+  });
 
   const rowBoxes = () => (results ? [...results.querySelectorAll<HTMLInputElement>('input[name="ids"]')] : []);
   const isShown = (box: HTMLInputElement) => !(box.closest<HTMLElement>('[data-product-item]')?.hidden ?? false);
@@ -675,7 +790,11 @@ function listHref(nextView: 'list' | 'cards'): string {
     }
     let shown = 0;
     for (const row of list.querySelectorAll<HTMLElement>('[data-product-item]')) {
-      row.hidden = category !== '' && row.dataset.category !== category;
+      const ids = (row.dataset.categories ?? row.dataset.category ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+      row.hidden = category !== '' && !ids.includes(category);
       // Bỏ chọn dòng bị ẩn để thao tác hàng loạt không chạm sản phẩm người dùng không nhìn thấy.
       const box = row.querySelector<HTMLInputElement>('input[name="ids"]');
       if (row.hidden && box) box.checked = false;
@@ -849,7 +968,6 @@ function listHref(nextView: 'list' | 'cards'): string {
 
   if (searchForm instanceof HTMLFormElement) {
     const input = searchForm.querySelector('input[name="q"]');
-    let timer = 0;
     const go = () => {
       const data = new FormData(searchForm);
       const read = (name: string) => {
@@ -864,20 +982,13 @@ function listHref(nextView: 'list' | 'cards'): string {
       productList()?.setAttribute('aria-busy', 'true');
       location.assign(url);
     };
-    if (input instanceof HTMLInputElement) {
-      input.addEventListener('input', () => {
-        window.clearTimeout(timer);
-        timer = window.setTimeout(go, 300);
-      });
-    }
+    // Ô tìm: chỉ chạy khi Enter (submit). Select/filter vẫn đổi ngay khi change.
     searchForm.addEventListener('change', (event) => {
       if (event.target === input) return;
-      window.clearTimeout(timer);
       go();
     });
     searchForm.addEventListener('submit', (event) => {
       event.preventDefault();
-      window.clearTimeout(timer);
       go();
     });
     searchForm.querySelector('[data-product-filters-toggle]')?.addEventListener('click', () => {

@@ -27,7 +27,7 @@ const chatPhonePersisted = new Set();
 const chatPhoneSaveAttempted = new Set();
 /** @type {object | null} */
 let activeCustomer = null;
-/** @type {{ lineIndex: number, mode: 'weight' | 'qty', extraOpen?: boolean } | null} */
+/** @type {{ lineIndex: number, mode: 'weight' | 'qty' | 'name', extraOpen?: boolean } | null} */
 let customerEditUi = null;
 let customerSaving = false;
 let customerDeleteConfirm = false;
@@ -2296,9 +2296,18 @@ function renderLineEditor(line, index, editable) {
     </div>`;
   }
 
+  const productName = String(line.productName || '');
+  const productLabel = productName || 'Tên sản phẩm';
+  const productEl =
+    editable && open?.mode === 'name'
+      ? `<input class="vdt-product-input" type="text" maxlength="120" value="${escapeAttr(productName)}" data-vdt-product-input="${index}" aria-label="Tên sản phẩm" ${customerSaving ? 'disabled' : ''} />`
+      : editable
+        ? `<button type="button" class="vdt-product vdt-product-edit" data-vdt-edit-name="${index}" title="Sửa tên sản phẩm" ${customerSaving ? 'disabled' : ''}>${escapeHtml(productLabel)}</button>`
+        : `<span class="vdt-product">${escapeHtml(productName)}</span>`;
+
   return `<div class="vdt-line" data-vdt-line-row="${index}">
     <div class="vdt-line-main">
-      <span class="vdt-product">${escapeHtml(line.productName || '')}</span>
+      ${productEl}
       ${weightPill}
       ${qtyPill}
     </div>
@@ -2336,7 +2345,7 @@ function renderCustomer(root, customer) {
     <div class="vdt-customer-card${canMutate ? ' is-editable' : ''}${priorityOn && canMutate ? ' is-priority' : ''}${lineSaving ? ' is-saving' : ''}${customerDeleteConfirm ? ' is-confirm-delete' : ''}">
       <div class="vdt-customer-row">
         <span class="vdt-pill vdt-pill-status">${escapeHtml(status)}</span>
-        <span class="vdt-pill vdt-pill-phone">${escapeHtml(customer.phone)}</span>
+        <button type="button" class="vdt-pill vdt-pill-phone" data-vdt-copy-phone="${escapeAttr(customer.phone)}" title="Sao chép SĐT" aria-label="Sao chép ${escapeAttr(customer.phone)}">${escapeHtml(customer.phone)}</button>
         <span class="vdt-date">${escapeHtml(dayLabel(recent.createdAt))}</span>
         <div class="vdt-customer-actions">
           ${
@@ -2384,6 +2393,35 @@ function renderCustomer(root, customer) {
       <div class="vdt-lines">${lines.map((line, index) => renderLineEditor(line, index, canMutate)).join('')}</div>
     </div>
   `;
+  const nameInput = box.querySelector('[data-vdt-product-input]');
+  if (nameInput instanceof HTMLInputElement) {
+    nameInput.focus();
+    nameInput.select();
+  }
+}
+
+function commitCustomerProductName(lineIndex, raw) {
+  if (!customerCanMutate() || customerSaving) return;
+  if (!(customerEditUi?.lineIndex === lineIndex && customerEditUi.mode === 'name')) return;
+  const name = String(raw || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+  if (!name) {
+    showToast('Nhập tên sản phẩm.');
+    customerEditUi = { lineIndex, mode: 'name' };
+    renderCustomer(ensureRoot(), activeCustomer);
+    return;
+  }
+  const current = String(customerLinesOf(activeCustomer?.recent)[lineIndex]?.productName || '').trim();
+  customerEditUi = null;
+  if (name === current) {
+    renderCustomer(ensureRoot(), activeCustomer);
+    return;
+  }
+  void saveCustomerLines((lines) => {
+    if (lines[lineIndex]) lines[lineIndex].productName = name;
+  });
 }
 
 function customerCanMutate() {
@@ -2543,6 +2581,12 @@ function handleCustomerCardClick(event) {
   const target = event.target;
   if (!(target instanceof Element)) return;
 
+  const copyPhone = target.closest('[data-vdt-copy-phone]');
+  if (copyPhone instanceof HTMLElement) {
+    void copyPendingPhone(copyPhone.getAttribute('data-vdt-copy-phone') || '');
+    return;
+  }
+
   const priorityToggle = target.closest('[data-vdt-priority-order]');
   if (priorityToggle instanceof HTMLElement) {
     void toggleActiveOrderPriority();
@@ -2606,6 +2650,18 @@ function handleCustomerCardClick(event) {
     return;
   }
 
+  const nameToggle = target.closest('[data-vdt-edit-name]');
+  if (nameToggle instanceof HTMLElement) {
+    const lineIndex = Number(nameToggle.getAttribute('data-vdt-edit-name'));
+    if (!Number.isInteger(lineIndex)) return;
+    customerEditUi =
+      customerEditUi?.lineIndex === lineIndex && customerEditUi.mode === 'name'
+        ? null
+        : { lineIndex, mode: 'name' };
+    renderCustomer(ensureRoot(), activeCustomer);
+    return;
+  }
+
   const chip = target.closest('[data-vdt-weight-chip]');
   if (chip instanceof HTMLElement) {
     const lineIndex = Number(chip.getAttribute('data-vdt-line'));
@@ -2661,6 +2717,35 @@ function handleCustomerCardChange(event) {
   void saveCustomerLines((lines) => {
     if (lines[lineIndex]) lines[lineIndex].weight = weight;
   });
+}
+
+function handleCustomerCardKeydown(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) || !target.hasAttribute('data-vdt-product-input')) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    customerEditUi = null;
+    if (activeCustomer) renderCustomer(ensureRoot(), activeCustomer);
+    return;
+  }
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  const lineIndex = Number(target.getAttribute('data-vdt-product-input'));
+  if (!Number.isInteger(lineIndex)) return;
+  commitCustomerProductName(lineIndex, target.value);
+}
+
+function handleCustomerCardFocusOut(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) || !target.hasAttribute('data-vdt-product-input')) return;
+  // Đổi sang chip khác trong cùng card — không commit sớm.
+  const next = event.relatedTarget;
+  if (next instanceof Node && target.closest('[data-vdt-customer]')?.contains(next)) return;
+  const lineIndex = Number(target.getAttribute('data-vdt-product-input'));
+  if (!Number.isInteger(lineIndex)) return;
+  // Chỉ commit khi vẫn đang mở editor tên dòng này.
+  if (!(customerEditUi?.lineIndex === lineIndex && customerEditUi.mode === 'name')) return;
+  commitCustomerProductName(lineIndex, target.value);
 }
 
 function escapeHtml(value) {
@@ -3381,6 +3466,8 @@ function ensureRoot() {
     handleCustomerCardClick(event);
   });
   root.addEventListener('change', handleCustomerCardChange);
+  root.addEventListener('keydown', handleCustomerCardKeydown);
+  root.addEventListener('focusout', handleCustomerCardFocusOut);
   bindResize(root);
   window.addEventListener(
     'resize',

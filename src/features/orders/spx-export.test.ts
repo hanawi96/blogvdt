@@ -25,6 +25,7 @@ function sample(partial: Partial<SpxExportOrder> & Pick<SpxExportOrder, 'id' | '
     customerName: 'Nguyễn A',
     phone: '0901000000',
     address: '910/10 nguyễn thị định, Phường Cát Lái, Thành phố Hồ Chí Minh',
+    note: null,
     status: 'confirmed',
     fulfillStatus: null,
     shipOn: null,
@@ -103,10 +104,11 @@ describe('mapOrdersToSpxRows', () => {
         productName: 'fallback',
         quantity: 1,
         optionLabel: null,
+        note: null,
         fulfillStatus: null,
         lines: [
-          { productName: 'Trơn co giãn', quantity: 1, optionLabel: '4kg' },
-          { productName: 'Vòng trơn cổ điển dây đỏ', quantity: 1, optionLabel: '4kg' },
+          { productName: 'Trơn co giãn', quantity: 1, optionLabel: '4kg', note: null },
+          { productName: 'Vòng trơn cổ điển dây đỏ', quantity: 1, optionLabel: '4kg', note: null },
         ],
       }),
     ).toBe(
@@ -120,10 +122,41 @@ describe('mapOrdersToSpxRows', () => {
         productName: 'Trơn mix 2 bi bạc',
         quantity: 1,
         optionLabel: '3kg',
+        note: null,
         fulfillStatus: 'reship',
         lines: [],
       }),
     ).toBe('[HÀNG GỬI LẠI][VÒNG DÂU TẰM] - [Trơn mix 2 bi bạc -- Size: 3kg - Số lượng: 1]');
+  });
+
+  it('ghép LƯU Ý dòng SP và LƯU Ý TỔNG như mẫu chuẩn', () => {
+    expect(
+      formatSpxProductName({
+        productName: 'fallback',
+        quantity: 1,
+        optionLabel: null,
+        note: 'Giao hàng buổi chiều',
+        fulfillStatus: null,
+        lines: [
+          {
+            productName: 'Vòng mix sole bạc 3ly charm ngựa + thẻ tên bé',
+            quantity: 1,
+            optionLabel: '3kg',
+            note: 'thẻ tròn Cá, làm dây rút ngắn',
+          },
+        ],
+      }),
+    ).toBe(
+      '[VÒNG DÂU TẰM] - [Vòng mix sole bạc 3ly charm ngựa + thẻ tên bé -- Size: 3kg - Số lượng: 1 - LƯU Ý: thẻ tròn Cá, làm dây rút ngắn] --- [LƯU Ý TỔNG: Giao hàng buổi chiều]',
+    );
+  });
+
+  it('map cột Lưu ý giao hàng từ note đơn', () => {
+    const result = mapOrdersToSpxRows(
+      [sample({ id: 1, code: 'DH1', note: 'Giao hàng buổi chiều' })],
+      addressRows,
+    );
+    expect(result.rows[0]?.cells[26]).toBe('Giao hàng buổi chiều');
   });
 
   it('bỏ qua đơn gửi sau còn chưa tới ngày', () => {

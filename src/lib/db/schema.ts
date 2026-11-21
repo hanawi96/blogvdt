@@ -238,6 +238,23 @@ export const products = sqliteTable(
   ],
 );
 
+/** Nhiều danh mục / sản phẩm. products.category_id vẫn là danh mục chính (weightScale, sellable). */
+export const productCategoryLinks = sqliteTable(
+  'product_category_links',
+  {
+    productId: integer('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    categoryId: integer('category_id')
+      .notNull()
+      .references(() => productCategories.id, { onDelete: 'cascade' }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.productId, table.categoryId] }),
+    index('product_category_links_category_idx').on(table.categoryId),
+  ],
+);
+
 // Nhóm nguyên liệu (Charm bạc, Bi bạc...). Tên không trùng, không phân biệt hoa thường.
 export const materialGroups = sqliteTable(
   'material_groups',

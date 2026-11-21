@@ -147,7 +147,13 @@ export const POST: APIRoute = async ({ request, locals, url }) => {
       url: routes.adminOrder(created.id),
     });
   } catch (error) {
-    console.error(JSON.stringify({ event: 'pos_create_failed', name: error instanceof Error ? error.name : 'unknown' }));
+    console.error(
+      JSON.stringify({
+        event: 'pos_create_failed',
+        name: error instanceof Error ? error.name : 'unknown',
+        message: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+      }),
+    );
     return json({ ok: false, error: 'Không tạo được đơn. Thử lại.' }, 500);
   }
 };

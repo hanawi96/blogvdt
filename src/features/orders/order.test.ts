@@ -38,6 +38,7 @@ const catalog: CatalogProduct[] = [
   { id: 1, slug: 'vong-to-tam-tron', name: 'Vòng tơ tằm trơn', price: 150000, weightScale: 'none' },
   { id: 4, slug: 'khong-co-size', name: 'Vòng không size', price: 100000, weightScale: 'none' },
   { id: 7, slug: 'vong-cho-be', name: 'Vòng cho bé', price: 120000, weightScale: 'baby' },
+  { id: 9, slug: 'mix-the-ten', name: 'Mix thẻ tên bé', price: 200000, weightScale: 'baby' },
 ];
 
 const valid = {
@@ -332,8 +333,8 @@ describe('đơn hàng', () => {
       {
         ...valid,
         lines: [
-          { slug: 'vong-to-tam-tron', quantity: 2, weight: '' },
-          { slug: 'khong-co-size', quantity: 1, weight: '' },
+          { slug: 'vong-to-tam-tron', quantity: 2, weight: '', note: '' },
+          { slug: 'khong-co-size', quantity: 1, weight: '', note: '' },
         ],
       },
       catalog,
@@ -341,15 +342,15 @@ describe('đơn hàng', () => {
     expect(parsed.ok && parsed.cart?.totalPrice).toBe(400000);
     expect(parsed.ok && parsed.cart?.productName).toBe('Vòng tơ tằm trơn, Vòng không size');
     expect(parsed.ok && parsed.single).toBeNull();
-    const single = parseCartOrder({ ...valid, lines: [{ slug: 'khong-co-size', quantity: 1, weight: '' }] }, catalog);
+    const single = parseCartOrder({ ...valid, lines: [{ slug: 'khong-co-size', quantity: 1, weight: '', note: '' }] }, catalog);
     expect(single.ok && single.single?.totalPrice).toBe(100000);
     expect(single.ok && single.cart).toBeNull();
   });
 
   it('giỏ hàng: lưu hình thức thanh toán cho đơn một mẫu và nhiều mẫu, từ chối giá trị lạ', () => {
     const two = [
-      { slug: 'vong-to-tam-tron', quantity: 1, weight: '' },
-      { slug: 'khong-co-size', quantity: 1, weight: '' },
+      { slug: 'vong-to-tam-tron', quantity: 1, weight: '', note: '' },
+      { slug: 'khong-co-size', quantity: 1, weight: '', note: '' },
     ];
     const bankMany = parseCartOrder({ ...valid, paymentMethod: 'bank', lines: two }, catalog);
     expect(bankMany.ok && bankMany.cart?.paymentMethod).toBe('bank');
@@ -363,15 +364,43 @@ describe('đơn hàng', () => {
   });
 
   it('bắt buộc cân nặng hợp lệ và ghép vào nhãn đơn khi danh mục cần', () => {
-    const missing = parseCartOrder({ ...valid, lines: [{ slug: 'vong-cho-be', quantity: 1, weight: '' }] }, catalog);
+    const missing = parseCartOrder({ ...valid, lines: [{ slug: 'vong-cho-be', quantity: 1, weight: '', note: '' }] }, catalog);
     expect(missing.ok).toBe(false);
     if (!missing.ok) expect(missing.errors.weight0).toBeTruthy();
 
-    const bad = parseCartOrder({ ...valid, lines: [{ slug: 'vong-cho-be', quantity: 1, weight: '99kg' }] }, catalog);
+    const bad = parseCartOrder({ ...valid, lines: [{ slug: 'vong-cho-be', quantity: 1, weight: '99kg', note: '' }] }, catalog);
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.errors.weight0).toBeTruthy();
 
-    const good = parseCartOrder({ ...valid, lines: [{ slug: 'vong-cho-be', quantity: 1, weight: 'Chưa sinh' }] }, catalog);
+    const good = parseCartOrder({ ...valid, lines: [{ slug: 'vong-cho-be', quantity: 1, weight: 'Chưa sinh', note: '' }] }, catalog);
     expect(good.ok && good.single?.optionLabel).toBe('3kg');
+  });
+
+  it('SP thẻ tên: bắt buộc tên in thẻ khi mua ngay và khi gửi giỏ', () => {
+    const missing = parseOrderSubmission({ ...valid, productSlug: 'mix-the-ten', weight: '5kg' }, catalog);
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.errors.tagName).toBeTruthy();
+
+    const good = parseOrderSubmission({ ...valid, productSlug: 'mix-the-ten', weight: '5kg', tagName: 'Minh An' }, catalog);
+    expect(good.ok && good.draft.lineNote).toBe('thẻ: Minh An');
+
+    const cartMissing = parseCartOrder(
+      { ...valid, lines: [{ slug: 'mix-the-ten', quantity: 1, weight: '5kg', note: '' }] },
+      catalog,
+    );
+    expect(cartMissing.ok).toBe(false);
+    if (!cartMissing.ok) expect(cartMissing.errors.note0).toBeTruthy();
+
+    const cartGood = parseCartOrder(
+      { ...valid, lines: [{ slug: 'mix-the-ten', quantity: 1, weight: '5kg', note: 'Bé Na' }] },
+      catalog,
+    );
+    expect(cartGood.ok && cartGood.single?.lineNote).toBe('thẻ: Bé Na');
+
+    const optional = parseCartOrder(
+      { ...valid, lines: [{ slug: 'khong-co-size', quantity: 1, weight: '', note: 'làm dây rút ngắn' }] },
+      catalog,
+    );
+    expect(optional.ok && optional.single?.lineNote).toBe('làm dây rút ngắn');
   });
 });

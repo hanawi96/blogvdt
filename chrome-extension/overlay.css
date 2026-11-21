@@ -602,7 +602,16 @@ html.vdt-zalo-inset.vdt-zalo-resizing #chatViewContainer {
   border-color: #e5e7eb;
   background: #fff;
   color: #111827;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+#vdt-pos-overlay-root button.vdt-pill-phone:hover {
+  border-color: #d1d5db;
+  background: #f9fafb;
 }
 
 #vdt-pos-overlay-root .vdt-pill-place {
@@ -656,6 +665,39 @@ html.vdt-zalo-inset.vdt-zalo-resizing #chatViewContainer {
 
 #vdt-pos-overlay-root .vdt-line-main .vdt-product {
   flex: 1 1 8rem;
+}
+
+#vdt-pos-overlay-root button.vdt-product {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.3;
+  color: #6b7280;
+}
+
+#vdt-pos-overlay-root .vdt-customer-card.is-editable button.vdt-product:hover {
+  color: #374151;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+#vdt-pos-overlay-root .vdt-product-input {
+  flex: 1 1 8rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.12rem 0.35rem;
+  border: 1px solid #86efac;
+  border-radius: 0.35rem;
+  background: #fff;
+  color: #111827;
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.3;
 }
 
 #vdt-pos-overlay-root .vdt-customer-actions {

@@ -999,37 +999,64 @@ export async function placeOrder(
           { phone: draft.phone, name: draft.customerName, address: draft.address },
           now,
         );
-        await db.insert(orders).values({
-          code,
-          customerId,
-          customerName: draft.customerName,
-          phone: draft.phone,
-          address: draft.address,
-          provinceCode: resolveProvinceCode(draft.address),
-          note: draft.note || null,
-          productId: draft.productId,
-          productName: draft.productName,
-          unitPrice: draft.unitPrice,
-          quantity: draft.quantity,
-          optionLabel: draft.optionLabel,
-          subtotal: draft.subtotal,
-          discountCode: draft.discountCode,
-          discountAmount: draft.discountAmount,
-          discountRestored: 0,
-          totalPrice,
-          costGoods: snapshot?.costGoods ?? null,
-          costExtra: snapshot ? snapshot.costExtra : null,
-          costLines: snapshot ? encodeCostLines(snapshot) : null,
-          paymentMethod: draft.paymentMethod,
-          source: 'web',
-          shippingFee,
-          shippingCost: snapshot?.shippingCost ?? 0,
-          status: 'new',
-          ipHash,
-          landingSlug: draft.landingSlug,
-          createdAt: now,
-          updatedAt: now,
-        });
+        const inserted = await db
+          .insert(orders)
+          .values({
+            code,
+            customerId,
+            customerName: draft.customerName,
+            phone: draft.phone,
+            address: draft.address,
+            provinceCode: resolveProvinceCode(draft.address),
+            note: draft.note || null,
+            productId: draft.productId,
+            productName: draft.productName,
+            unitPrice: draft.unitPrice,
+            quantity: draft.quantity,
+            optionLabel: draft.optionLabel,
+            subtotal: draft.subtotal,
+            discountCode: draft.discountCode,
+            discountAmount: draft.discountAmount,
+            discountRestored: 0,
+            totalPrice,
+            costGoods: snapshot?.costGoods ?? null,
+            costExtra: snapshot ? snapshot.costExtra : null,
+            costLines: snapshot ? encodeCostLines(snapshot) : null,
+            paymentMethod: draft.paymentMethod,
+            source: 'web',
+            shippingFee,
+            shippingCost: snapshot?.shippingCost ?? 0,
+            status: 'new',
+            ipHash,
+            landingSlug: draft.landingSlug,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning({ id: orders.id });
+        // Có tên in thẻ → lưu dòng SP để admin/SPX đọc được lưu ý từng mẫu.
+        if (draft.lineNote) {
+          const orderId = inserted[0]?.id;
+          if (!orderId) {
+            await releaseDiscountSlot(db, slot.id, now);
+            return { ok: false, status: 503, error: 'Chưa tạo được mã đơn. Thử lại.' };
+          }
+          try {
+            await db.insert(orderItems).values({
+              orderId,
+              productId: draft.productId,
+              productName: draft.productName,
+              unitPrice: draft.unitPrice,
+              quantity: draft.quantity,
+              optionLabel: draft.optionLabel,
+              note: draft.lineNote,
+              lineTotal: draft.subtotal,
+              sortOrder: 0,
+            });
+          } catch (error) {
+            await db.delete(orders).where(eq(orders.id, orderId));
+            throw error;
+          }
+        }
         await clearChatPhonePendingByPhone(db, draft.phone);
         return { ok: true, code };
       } catch (error) {
@@ -1148,6 +1175,7 @@ export async function placeCartOrder(
               unitPrice: line.unitPrice,
               quantity: line.quantity,
               optionLabel: line.optionLabel,
+              note: line.note,
               lineTotal: line.lineTotal,
               sortOrder: index,
             })),
