@@ -19,7 +19,13 @@ import {
   type ProductListMargin,
   type ProductListSort,
 } from '../../../features/products/products';
-import { isProductStatus, PRODUCT_STATUS_LABELS, type ProductStatus } from '../../../features/products/status';
+import {
+  isProductStatus,
+  productAdminStatusLabel,
+  productAdminStatusTone,
+  PRODUCT_STATUS_LABELS,
+  type ProductStatus,
+} from '../../../features/products/status';
 import { createDb } from '../../../lib/db/client';
 import { getDbBinding } from '../../../lib/cloudflare/env';
 import { formatDateTime } from '../../../lib/datetime';
@@ -310,11 +316,11 @@ function listHref(nextView: 'list' | 'cards'): string {
                   <>
                     <ul class="product-card-grid" hidden={shownCount === 0}>
                       {result.rows.map((product) => {
-                        const active = product.status === 'active';
                         const cost = costs.get(product.id);
                         const profit = cost === undefined ? null : profitOf(product.price, cost);
                         const off = discountPercent(product.price, product.comparePrice);
-                        const statusLabel = isProductStatus(product.status) ? PRODUCT_STATUS_LABELS[product.status] : product.status;
+                        const statusTone = productAdminStatusTone(product.status, product.stockQty);
+                        const statusLabel = productAdminStatusLabel(product.status, product.stockQty);
                         return (
                           <li class="product-admin-card" data-product-item data-categories={product.categoryIds.join(',')} hidden={!isRowShown(product.categoryIds)}>
                             <div class="product-admin-card-media">
@@ -348,7 +354,7 @@ function listHref(nextView: 'list' | 'cards'): string {
                             <div class="product-admin-card-body">
                               <div class="product-admin-card-head">
                                 <a class="product-admin-card-title" href={routes.adminProduct(product.id)}>{product.name}</a>
-                                <span class="product-admin-card-status" data-status={active ? 'active' : 'inactive'}>{statusLabel}</span>
+                                <span class="product-admin-card-status" data-status={statusTone}>{statusLabel}</span>
                               </div>
                               <div class="product-admin-card-tags">
                                 {(product.categoryNames.length > 0 ? product.categoryNames : ['Không danh mục']).map((name) => (
@@ -376,7 +382,12 @@ function listHref(nextView: 'list' | 'cards'): string {
                                     </span>
                                     <span class="product-admin-card-metric">
                                       <span class="product-admin-card-metric-label">Lãi</span>
-                                      <span class="product-admin-card-metric-value">{formatVnd(profit.profit)}</span>
+                                      <span
+                                        class="product-admin-card-metric-value"
+                                        data-margin={profit.marginPercent == null ? undefined : productMarginAttr(profit.marginPercent)}
+                                      >
+                                        {formatVnd(profit.profit)}
+                                      </span>
                                     </span>
                                     <span class="product-admin-card-metric">
                                       <span class="product-admin-card-metric-label">Biên</span>
@@ -475,9 +486,9 @@ function listHref(nextView: 'list' | 'cards'): string {
                     </thead>
                     <tbody>
                       {result.rows.map((product) => {
-                        const active = product.status === 'active';
                         const cost = costs.get(product.id);
                         const margin = cost === undefined ? null : profitOf(product.price, cost).marginPercent;
+                        const statusTone = productAdminStatusTone(product.status, product.stockQty);
                         return (
                           <tr data-product-item data-category={product.categoryId ?? ''} data-categories={product.categoryIds.join(',')} hidden={!isRowShown(product.categoryIds)}>
                             <td class="product-check">
@@ -551,8 +562,8 @@ function listHref(nextView: 'list' | 'cards'): string {
                             </td>
                             <td class="product-list-cord" data-label="Kiểu dây">{cordTypeLabel(product.cordType) || '—'}</td>
                             <td class="product-list-status" data-label="Trạng thái">
-                              <span class="post-status" data-status={active ? 'active' : 'inactive'}>
-                                {isProductStatus(product.status) ? PRODUCT_STATUS_LABELS[product.status] : product.status}
+                              <span class="post-status" data-status={statusTone}>
+                                {productAdminStatusLabel(product.status, product.stockQty)}
                               </span>
                             </td>
                             <td class="product-list-updated" data-label="Cập nhật">{formatDateTime(product.updatedAt)}</td>

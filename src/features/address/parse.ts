@@ -111,6 +111,7 @@ const END_PROVINCE_CODES: Readonly<Record<string, string>> = {
   haug: 'Cần Thơ',
   hcm: 'Hồ Chí Minh',
   sg: 'Hồ Chí Minh',
+  bd: 'Hồ Chí Minh',
   brvt: 'Hồ Chí Minh',
   qnam: 'Đà Nẵng',
 };

@@ -472,6 +472,41 @@ describe('đổi địa chỉ 3 cấp sang 2 cấp', () => {
     expect(onlyLong.items.every((item) => !/pơng drang/i.test(item.newText))).toBe(true);
   });
 
+  it('Thái Bình (cũ) + xã Tây Thái Ninh → Hưng Yên', () => {
+    const target = wardNamed('Tỉnh Hưng Yên', 'Xã Tây Thái Ninh');
+    expect(target).toBeTruthy();
+    for (const raw of [
+      'Thôn Tiền Phong, xã Tây Thái Ninh, tỉnh Thái Bình (nhà cô Huệ ở Ngã Ba Thái Giang)',
+      'xa Tay Thai Ninh, tinh Thai Binh',
+      'xa Tay Thai Ninh, Thai Binh',
+      'Thôn Tiền Phong, xã tay thai ninh, tỉnh tb',
+      'xa tay thai ninh, tinh TB',
+    ]) {
+      const result = searchLegacyAddress(rows, mapping, raw);
+      expect(result.items[0], raw).toMatchObject({
+        provinceCode: target?.provinceCode,
+        wardCode: target?.wardCode,
+      });
+      expect(result.items[0]?.newText, raw).toMatch(/Tây Thái Ninh.*Hưng Yên/i);
+    }
+    const full = searchLegacyAddress(
+      rows,
+      mapping,
+      'Thôn Tiền Phong, xã Tây Thái Ninh, tỉnh Thái Bình (nhà cô Huệ ở Ngã Ba Thái Giang)',
+    );
+    expect(full.items[0]?.line.toLowerCase()).toMatch(/tiền phong|tien phong/);
+  });
+
+  it('mã viết tắt tỉnh cũ: bd→HCM, kg→An Giang', () => {
+    const tdm = searchLegacyAddress(rows, mapping, 'thudautmot, tinh bd');
+    expect(tdm.items.some((item) => /hồ chí minh|thu dau mot|thủ dầu một/i.test(item.newText))).toBe(true);
+
+    const pq = wardNamed('Tỉnh An Giang', 'Đặc Khu Phú Quốc');
+    expect(pq).toBeTruthy();
+    const kg = searchLegacyAddress(rows, mapping, 'duong to, phuquoc, tinh kg');
+    expect(kg.items.some((item) => item.wardCode === pq?.wardCode)).toBe(true);
+  });
+
   it('alias tỉnh cũ / dính chữ: kiengiang→An Giang, binhduong→HCM, nhatrang', () => {
     const phuQuoc = wardNamed('Tỉnh An Giang', 'Đặc Khu Phú Quốc');
     expect(phuQuoc).toBeTruthy();

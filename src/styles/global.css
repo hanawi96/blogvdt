@@ -5988,6 +5988,10 @@
     background: color-mix(in srgb, var(--color-muted) 12%, var(--color-surface));
     color: var(--color-muted);
   }
+  .product-admin-card-status[data-status='oos'] {
+    background: color-mix(in srgb, var(--color-danger, #b42318) 12%, var(--color-surface));
+    color: var(--color-danger, #b42318);
+  }
   .product-admin-card-tags {
     display: flex;
     flex-wrap: wrap;
@@ -6042,10 +6046,12 @@
     display: flex;
     min-width: 0;
     flex-direction: column;
+    align-items: center;
     gap: 0.1rem;
     padding: 0.4rem 0.45rem;
     border-radius: var(--radius-sm);
     background: color-mix(in srgb, var(--color-canvas) 70%, var(--color-surface));
+    text-align: center;
   }
   .product-admin-card-metric.is-empty,
   .product-admin-card-stat.is-empty {
@@ -6058,6 +6064,7 @@
   .product-admin-card-stat-label {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 0.2rem;
     color: var(--color-muted);
     font-size: 0.625rem;
@@ -6091,7 +6098,7 @@
     color: var(--color-success, #067647);
   }
   .product-admin-card-rating {
-    align-items: flex-start;
+    align-items: center;
   }
   .product-admin-card-star {
     flex: none;
@@ -10983,6 +10990,12 @@
   }
   .post-status[data-status='active'] {
     color: var(--color-primary-strong);
+  }
+  .post-status[data-status='oos'] {
+    color: var(--color-danger, #b42318);
+  }
+  .post-status[data-status='oos']::before {
+    background: var(--color-danger, #b42318);
   }
   .post-actions {
     display: flex;

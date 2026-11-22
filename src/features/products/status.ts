@@ -18,6 +18,18 @@ export function isProductStatus(value: string): value is ProductStatus {
   return PRODUCT_STATUSES.some((status) => status === value);
 }
 
+/** Nhãn trạng thái trên danh sách admin: active + hết tồn → Hết hàng. */
+export function productAdminStatusLabel(status: string, stockQty: number): string {
+  if (status === 'active' && stockQty <= 0) return 'Hết hàng';
+  return isProductStatus(status) ? PRODUCT_STATUS_LABELS[status] : status;
+}
+
+/** Tone badge admin: oos khi đang bán nhưng tồn ≤ 0. */
+export function productAdminStatusTone(status: string, stockQty: number): 'active' | 'inactive' | 'oos' {
+  if (status === 'active' && stockQty <= 0) return 'oos';
+  return status === 'active' ? 'active' : 'inactive';
+}
+
 /** SP đang bán và danh mục (nếu có) đang bật. Query phải leftJoin productCategories. */
 export function sellableProductWhere(): SQL {
   return and(

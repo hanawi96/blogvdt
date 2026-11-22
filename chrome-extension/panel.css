@@ -1374,9 +1374,24 @@ body {
   background: color-mix(in srgb, var(--accent) 7%, var(--surface));
 }
 
-.flag-list {
+.flag-chips {
   display: grid;
-  gap: 0.45rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.flag-chips .preset {
+  width: 100%;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 0.42rem 0.3rem;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.flag-chips .preset span {
+  min-width: 0;
+  line-height: 1.15;
 }
 
 .flag {

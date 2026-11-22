@@ -63,6 +63,19 @@ const ALIAS_TOKENS: Readonly<Record<string, readonly string[]>> = {
   cantho: ['can', 'tho'],
   hue: ['hue'],
   tphue: ['hue'],
+  tth: ['hue'],
+  // Mã ngắn an toàn (≥3 ký tự hoặc ít trùng âm tiết) — mã 2 chữ xử lý ở SHORT_PROVINCE_CODES.
+  dnai: ['dong', 'nai'],
+  bdinh: ['gia', 'lai'],
+  hnam: ['ninh', 'binh'],
+  qnam: ['da', 'nang'],
+  qng: ['quang', 'ngai'],
+  tnh: ['tay', 'ninh'],
+  dno: ['lam', 'dong'],
+  bth: ['lam', 'dong'],
+  hag: ['tuyen', 'quang'],
+  haug: ['can', 'tho'],
+  brvt: ['ho', 'chi', 'minh'],
 
   // —— Tỉnh hiện tại (dính chữ) ——
   angiang: ['an', 'giang'],
@@ -94,7 +107,7 @@ const ALIAS_TOKENS: Readonly<Record<string, readonly string[]>> = {
   tuyenquang: ['tuyen', 'quang'],
   vinhlong: ['vinh', 'long'],
 
-  // —— Tỉnh cũ → tỉnh mới (NQ 202/2025) ——
+  // —— Tỉnh cũ → tỉnh mới (NQ 202/2025, dạng dính chữ) ——
   kiengiang: ['an', 'giang'],
   bacgiang: ['bac', 'ninh'],
   baclieu: ['ca', 'mau'],
@@ -124,7 +137,6 @@ const ALIAS_TOKENS: Readonly<Record<string, readonly string[]>> = {
   travinh: ['vinh', 'long'],
   binhduong: ['ho', 'chi', 'minh'],
   bariavungtau: ['ho', 'chi', 'minh'],
-  brvt: ['ho', 'chi', 'minh'],
   vungtau: ['vung', 'tau'],
 
   // —— Địa danh / quận cũ hay dính chữ ——
@@ -167,6 +179,128 @@ const SOFT_TOKEN_EQ: Readonly<Record<string, readonly string[]>> = {
   than: ['thanh'],
   thanh: ['than'],
 };
+
+/**
+ * Mã viết tắt 2–4 ký tự — CHỈ khi cả cụm tỉnh là một token («tỉnh tb», «bd»).
+ * Không đưa vào ALIAS_TOKENS (tránh «đắk lạ» bị nuốt vì alias `la`).
+ */
+const SHORT_PROVINCE_CODES: Readonly<Record<string, readonly string[]>> = {
+  ag: ['an', 'giang'],
+  kg: ['an', 'giang'],
+  bn: ['bac', 'ninh'],
+  bg: ['bac', 'ninh'],
+  cb: ['cao', 'bang'],
+  cm: ['ca', 'mau'],
+  bl: ['ca', 'mau'],
+  db: ['dien', 'bien'],
+  dl: ['dak', 'lak'],
+  py: ['dak', 'lak'],
+  dnai: ['dong', 'nai'],
+  bp: ['dong', 'nai'],
+  dt: ['dong', 'thap'],
+  tg: ['dong', 'thap'],
+  gl: ['gia', 'lai'],
+  bdinh: ['gia', 'lai'],
+  ht: ['ha', 'tinh'],
+  hy: ['hung', 'yen'],
+  tb: ['hung', 'yen'],
+  kh: ['khanh', 'hoa'],
+  nt: ['khanh', 'hoa'],
+  lb: ['lai', 'chau'],
+  lc: ['lao', 'cai'],
+  yb: ['lao', 'cai'],
+  ld: ['lam', 'dong'],
+  dno: ['lam', 'dong'],
+  bth: ['lam', 'dong'],
+  ls: ['lang', 'son'],
+  na: ['nghe', 'an'],
+  nb: ['ninh', 'binh'],
+  hnam: ['ninh', 'binh'],
+  nd: ['ninh', 'binh'],
+  pt: ['phu', 'tho'],
+  vp: ['phu', 'tho'],
+  hb: ['phu', 'tho'],
+  qn: ['quang', 'ninh'],
+  qng: ['quang', 'ngai'],
+  kt: ['quang', 'ngai'],
+  qt: ['quang', 'tri'],
+  qb: ['quang', 'tri'],
+  qnam: ['da', 'nang'],
+  sl: ['son', 'la'],
+  th: ['thanh', 'hoa'],
+  tn: ['thai', 'nguyen'],
+  bk: ['thai', 'nguyen'],
+  tnh: ['tay', 'ninh'],
+  la: ['tay', 'ninh'],
+  tq: ['tuyen', 'quang'],
+  hag: ['tuyen', 'quang'],
+  vl: ['vinh', 'long'],
+  bt: ['vinh', 'long'],
+  tv: ['vinh', 'long'],
+  hn: ['ha', 'noi'],
+  hp: ['hai', 'phong'],
+  hd: ['hai', 'phong'],
+  ct: ['can', 'tho'],
+  st: ['can', 'tho'],
+  haug: ['can', 'tho'],
+  hcm: ['ho', 'chi', 'minh'],
+  sg: ['ho', 'chi', 'minh'],
+  bd: ['ho', 'chi', 'minh'],
+  brvt: ['ho', 'chi', 'minh'],
+  dn: ['da', 'nang'],
+  hue: ['hue'],
+  tth: ['hue'],
+};
+
+/**
+ * Cụm tỉnh cũ (nhiều từ, đã fold) → token tỉnh mới.
+ * Khác ALIAS_TOKENS (một token dính): «thai binh» / «kien giang» ghi có dấu cách.
+ */
+const LEGACY_PROVINCE_BARE: Readonly<Record<string, readonly string[]>> = {
+  'thai binh': ['hung', 'yen'],
+  'kien giang': ['an', 'giang'],
+  'bac giang': ['bac', 'ninh'],
+  'bac lieu': ['ca', 'mau'],
+  'phu yen': ['dak', 'lak'],
+  'binh phuoc': ['dong', 'nai'],
+  'tien giang': ['dong', 'thap'],
+  'binh dinh': ['gia', 'lai'],
+  'ninh thuan': ['khanh', 'hoa'],
+  'dak nong': ['lam', 'dong'],
+  'binh thuan': ['lam', 'dong'],
+  'yen bai': ['lao', 'cai'],
+  'ha nam': ['ninh', 'binh'],
+  'nam dinh': ['ninh', 'binh'],
+  'vinh phuc': ['phu', 'tho'],
+  'hoa binh': ['phu', 'tho'],
+  'kon tum': ['quang', 'ngai'],
+  'quang binh': ['quang', 'tri'],
+  'quang nam': ['da', 'nang'],
+  'long an': ['tay', 'ninh'],
+  'bac kan': ['thai', 'nguyen'],
+  'ha giang': ['tuyen', 'quang'],
+  'hai duong': ['hai', 'phong'],
+  'soc trang': ['can', 'tho'],
+  'hau giang': ['can', 'tho'],
+  'ben tre': ['vinh', 'long'],
+  'tra vinh': ['vinh', 'long'],
+  'binh duong': ['ho', 'chi', 'minh'],
+  'ba ria vung tau': ['ho', 'chi', 'minh'],
+  'ba ria - vung tau': ['ho', 'chi', 'minh'],
+  'vung tau': ['ho', 'chi', 'minh'],
+};
+
+/** Đổi mã/cụm tỉnh cũ → tỉnh mới; chỉ gọi trên token tỉnh (không đụng tên xã). */
+function resolveProvinceTokens(tokens: readonly string[]): string[] {
+  if (tokens.length === 0) return [];
+  if (tokens.length === 1) {
+    const short = SHORT_PROVINCE_CODES[tokens[0]!];
+    if (short) return [...short];
+  }
+  const bare = tokens.join(' ');
+  const mapped = LEGACY_PROVINCE_BARE[bare];
+  return mapped ? [...mapped] : [...tokens];
+}
 
 /** Số gợi ý tối đa; ưu tiên đủ (exact + tên dài hơn chứa query). */
 const LIMIT = 20;
@@ -685,12 +819,19 @@ function prepareQuery(
   const street: string[] = [...normalized.notes];
 
   const pushProvinceOrLoose = (tokens: string[], labeledProvince: boolean) => {
-    const bare = tokens.join(' ');
+    const resolved = resolveProvinceTokens(tokens);
+    const bare = resolved.join(' ');
     // D6: «hưng yên» vừa là tỉnh vừa là xã cũ — khi còn piece khác, để loose để khớp liền mạch.
     if (provinceBares.has(bare) && (labeledProvince || pieces.length === 1)) {
-      provinceTokens.push(...tokens);
+      provinceTokens.push(...resolved);
+    } else if (
+      LEGACY_PROVINCE_BARE[tokens.join(' ')] ||
+      (tokens.length === 1 && SHORT_PROVINCE_CODES[tokens[0]!])
+    ) {
+      // «tỉnh Thái Bình» / «tb» / «bd» → tỉnh mới dù không còn tên cũ trong provinceBares.
+      provinceTokens.push(...resolved);
     } else {
-      looseTokens.push(...tokens);
+      looseTokens.push(...resolved);
     }
   };
 
@@ -780,14 +921,20 @@ function prepareQuery(
       continue;
     }
     if (/^tinh\b/.test(folded)) {
-      provinceTokens.push(...wordTokens(stripProvince(folded)).flatMap(expand));
+      provinceTokens.push(
+        ...resolveProvinceTokens(wordTokens(stripProvince(folded)).flatMap(expand)),
+      );
       continue;
     }
     if (/^(?:thanh pho|tp)\b/.test(folded)) {
       const bare = stripProvince(folded);
-      const tokens = wordTokens(bare).flatMap(expand);
-      if (provinceBares.has(bare)) provinceTokens.push(...tokens);
-      else districtTokens.push(...tokens);
+      const tokens = resolveProvinceTokens(wordTokens(bare).flatMap(expand));
+      const resolvedBare = tokens.join(' ');
+      if (provinceBares.has(resolvedBare) || provinceBares.has(bare) || LEGACY_PROVINCE_BARE[bare]) {
+        provinceTokens.push(...tokens);
+      } else {
+        districtTokens.push(...tokens);
+      }
       continue;
     }
     const bare = stripProvince(stripDistrict(stripWard(folded)));

@@ -556,7 +556,7 @@
     }
 
     const block =
-      target.closest('.meta-block, .card, .block, .ship-row, .pick-card, .flag-list, .discount') || target;
+      target.closest('.meta-block, .card, .block, .ship-row, .pick-card, .flag-chips, .discount') || target;
     if (block instanceof HTMLElement) block.classList.add('is-block-attention');
     target.classList.add('is-field-attention');
 

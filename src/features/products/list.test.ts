@@ -12,7 +12,7 @@ import {
   productListView,
   readProductBulk,
 } from './products';
-import { isPubliclySellable } from './status';
+import { isPubliclySellable, productAdminStatusLabel, productAdminStatusTone } from './status';
 
 describe('danh sách sản phẩm', () => {
   it('chỉ nhận các kiểu sắp xếp đã định', () => {
@@ -91,6 +91,15 @@ describe('danh sách sản phẩm', () => {
     expect(isPubliclySellable({ status: 'active', categoryStatus: 'active' })).toBe(true);
     expect(isPubliclySellable({ status: 'active', categoryStatus: 'inactive' })).toBe(false);
     expect(isPubliclySellable({ status: 'inactive', categoryStatus: 'active' })).toBe(false);
+  });
+
+  it('hiển thị Hết hàng khi đang bán nhưng tồn ≤ 0', () => {
+    expect(productAdminStatusLabel('active', 0)).toBe('Hết hàng');
+    expect(productAdminStatusTone('active', 0)).toBe('oos');
+    expect(productAdminStatusLabel('active', 3)).toBe('Đang bán');
+    expect(productAdminStatusTone('active', 3)).toBe('active');
+    expect(productAdminStatusLabel('inactive', 0)).toBe('Ngừng bán');
+    expect(productAdminStatusTone('inactive', 0)).toBe('inactive');
   });
 
   it('nhận form sản phẩm ngừng bán và SEO', () => {
