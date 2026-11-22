@@ -54,6 +54,8 @@ describe('vn calendar helpers', () => {
     expect(formatOrderDateFilterLabel('2026-11-08', '2026-11-08', now)).toBe('Hôm qua');
     expect(formatOrderDateFilterLabel('2026-11-03', '2026-11-09', now)).toBe('7 ngày qua');
     expect(formatOrderDateFilterLabel('2026-10-11', '2026-11-09', now)).toBe('30 ngày qua');
+    expect(formatOrderDateFilterLabel('2026-09-11', '2026-11-09', now)).toBe('60 ngày qua');
+    expect(formatOrderDateFilterLabel('2026-08-12', '2026-11-09', now)).toBe('90 ngày qua');
     expect(formatOrderDateFilterLabel('2026-11-15', '2026-11-15', now)).toBe('15/11');
     expect(formatOrderDateFilterLabel('2026-11-01', '2026-11-15', now)).toBe('01–15/11');
     expect(formatOrderDateFilterLabel('2026-11-01', '2026-11-09', now)).toBe('Tháng 11');

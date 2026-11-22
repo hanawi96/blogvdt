@@ -1,0 +1,76 @@
+---
+import {
+  averagePerOrder,
+  type PosTodayStats,
+} from '../../features/orders/pos-today-stats';
+import { formatVnd } from '../../lib/money';
+
+type Props = {
+  stats: PosTodayStats;
+  periodLabel: string;
+  usesDateFilter: boolean;
+};
+
+const { stats, periodLabel, usesDateFilter } = Astro.props;
+const avgRevenue = averagePerOrder(stats.revenue, stats.revenueOrders);
+const avgProfit = averagePerOrder(stats.profit, stats.costedOrders);
+const emptyPeriod = usesDateFilter ? 'Chưa có đơn trong kỳ đã chọn' : 'Chưa có đơn trong ngày';
+---
+
+<section
+  class="order-today-summary"
+  data-order-summary
+  aria-label={`Tóm tắt đơn ${periodLabel} (giờ Việt Nam)`}
+>
+  <article class="order-today-tile order-today-tile--revenue">
+    <p class="order-today-tile-label">Doanh thu {periodLabel}</p>
+    <p class="order-today-tile-value">{formatVnd(stats.revenue)}</p>
+    <p class="order-today-tile-meta">
+      {
+        stats.revenueOrders === 0
+          ? stats.orders === 0
+            ? emptyPeriod
+            : 'Không có đơn tính doanh thu (gửi bù / hủy)'
+          : `TB ${formatVnd(avgRevenue)}/đơn · ${stats.revenueOrders} đơn`
+      }
+    </p>
+  </article>
+  <article class="order-today-tile order-today-tile--profit">
+    <p class="order-today-tile-label">Lãi ròng {periodLabel}</p>
+    <p class="order-today-tile-value" data-tone={stats.profit < 0 ? 'bad' : undefined}>
+      {formatVnd(stats.profit)}
+    </p>
+    <p class="order-today-tile-meta">
+      {
+        stats.costedOrders === 0
+          ? stats.orders === 0
+            ? emptyPeriod
+            : 'Chưa đủ giá vốn để tính TB lãi/đơn'
+          : stats.costedOrders < stats.orders
+            ? `TB ${formatVnd(avgProfit)}/đơn · ${stats.costedOrders}/${stats.orders} đơn có vốn`
+            : `TB ${formatVnd(avgProfit)}/đơn · ${stats.costedOrders} đơn`
+      }
+    </p>
+  </article>
+  <article class="order-today-tile order-today-tile--source">
+    <p class="order-today-tile-label">Nguồn khách {periodLabel}</p>
+    {
+      stats.sources.length === 0 ? (
+        <p class="order-today-tile-empty">Chưa có nguồn ghi nhận</p>
+      ) : (
+        <ul class="order-today-sources">
+          {stats.sources.map((item) => (
+            <li class="order-today-source" data-source={item.key}>
+              <span class="order-today-source-name">{item.label}</span>
+              <span class="order-today-source-stat">
+                {item.orders} đơn
+                <span class="order-today-source-sep" aria-hidden="true">·</span>
+                {formatVnd(item.revenue)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+  </article>
+</section>

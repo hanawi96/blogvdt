@@ -5716,6 +5716,106 @@
     justify-content: flex-end;
     gap: 0.65rem;
   }
+  .order-today-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0 0 1.1rem;
+  }
+  @media (max-width: 64rem) {
+    .order-today-summary {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .order-today-tile--source {
+      grid-column: 1 / -1;
+    }
+  }
+  .order-today-tile {
+    min-width: 0;
+    border: 0;
+    border-radius: calc(var(--radius-md) + 0.15rem);
+    padding: 0.95rem 1.05rem 1rem;
+    color: var(--color-ink);
+  }
+  .order-today-tile--revenue {
+    background: color-mix(in oklab, var(--color-primary) 12%, var(--color-sand));
+  }
+  .order-today-tile--profit {
+    background: color-mix(in oklab, var(--color-accent) 10%, var(--color-sand));
+  }
+  .order-today-tile--source {
+    background: color-mix(in oklab, var(--color-sand) 78%, var(--color-primary));
+  }
+  .order-today-tile-label {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .order-today-tile-value {
+    margin: 0.35rem 0 0;
+    color: var(--color-heading);
+    font-size: clamp(1.15rem, 2.2vw, 1.45rem);
+    font-weight: 700;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+  .order-today-tile-value[data-tone='bad'] {
+    color: var(--color-danger);
+  }
+  .order-today-tile-meta,
+  .order-today-tile-empty {
+    margin: 0.4rem 0 0;
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+  .order-today-sources {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0.55rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .order-today-source {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.45rem;
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--color-surface) 72%, transparent);
+    padding: 0.28rem 0.7rem;
+    font-size: 0.75rem;
+    line-height: 1.25;
+  }
+  .order-today-source-name {
+    color: var(--color-heading);
+    font-weight: 700;
+  }
+  .order-today-source-stat {
+    color: var(--color-muted);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .order-today-source-sep {
+    margin: 0 0.1rem;
+    opacity: 0.7;
+  }
+  .order-today-source[data-source='zalo'] {
+    background: color-mix(in oklab, #4f8cff 14%, var(--color-surface));
+  }
+  .order-today-source[data-source='facebook'] {
+    background: color-mix(in oklab, #5b7cfa 14%, var(--color-surface));
+  }
+  .order-today-source[data-source='tiktok'] {
+    background: color-mix(in oklab, #2c2825 10%, var(--color-surface));
+  }
+  .order-today-source[data-source='web'] {
+    background: color-mix(in oklab, var(--color-primary) 14%, var(--color-surface));
+  }
   .order-pending-revenue {
     display: inline-flex;
     flex-wrap: wrap;
@@ -12581,6 +12681,10 @@
     }
     .order-pending-revenue {
       max-width: none;
+    }
+    .order-today-summary {
+      grid-template-columns: 1fr;
+      gap: 0.6rem;
     }
     .order-table tr.order-row {
       display: grid;

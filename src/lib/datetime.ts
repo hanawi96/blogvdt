@@ -132,6 +132,10 @@ export function formatOrderDateFilterLabel(from: string, to: string, now = Date.
     if (last7 && from === last7.from && to === last7.to) return '7 ngày qua';
     const last30 = vnLastNDaysRange(30, now);
     if (last30 && from === last30.from && to === last30.to) return '30 ngày qua';
+    const last60 = vnLastNDaysRange(60, now);
+    if (last60 && from === last60.from && to === last60.to) return '60 ngày qua';
+    const last90 = vnLastNDaysRange(90, now);
+    if (last90 && from === last90.from && to === last90.to) return '90 ngày qua';
     const startParts = parseYmd(from);
     if (startParts) {
       const monthRange = vnMonthRange(startParts.year, startParts.month, now);
