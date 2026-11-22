@@ -28,7 +28,8 @@ type NavIcon =
   | 'redirects'
   | 'users'
   | 'activity'
-  | 'settings';
+  | 'settings'
+  | 'backups';
 
 const { title } = Astro.props;
 const session = Astro.locals.adminSession;
@@ -58,6 +59,7 @@ const items: { href: string; label: string; icon: NavIcon }[] = [
     ? [
         { href: routes.adminSeo, label: 'Kiểm tra SEO', icon: 'seo' as const },
         { href: routes.adminRedirects, label: 'Chuyển hướng', icon: 'redirects' as const },
+        { href: routes.adminBackups, label: 'Backup', icon: 'backups' as const },
         { href: routes.adminUsers, label: 'Người dùng', icon: 'users' as const },
         { href: routes.adminActivity, label: 'Nhật ký', icon: 'activity' as const },
         { href: routes.adminSettings, label: 'Cài đặt', icon: 'settings' as const },

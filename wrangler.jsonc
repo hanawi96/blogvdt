@@ -1,7 +1,8 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "vong-dau-tam",
-  "main": "@astrojs/cloudflare/entrypoints/server",
+  // Custom entry: Astro fetch + Workflows + cron lịch backup.
+  "main": "./src/worker.ts",
   // Ngày tương thích của Worker mới. Xem lại trước khi đẩy ngày này lên sau này.
   "compatibility_date": "2026-10-14",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
@@ -9,13 +10,32 @@
     "directory": "./dist",
     "binding": "ASSETS"
   },
-  // Biến môi trường production. Khi chạy thử trên *.workers.dev: giữ ENVIRONMENT khác "production"
-  // để toàn site noindex (không cho Google index tên miền tạm). Khi có domain thật:
-  // đổi SITE_URL = "https://ten-mien.com" và ENVIRONMENT = "production" rồi deploy lại.
+  // Domain production. SITE_URL phải khớp hostname khách truy cập (không dùng www nếu canonical là apex).
+  // workers_dev / preview_urls = false: chỉ phục vụ qua custom domain, tránh deploy lại bật URL tạm.
+  "workers_dev": false,
+  "preview_urls": false,
   "vars": {
-    "ENVIRONMENT": "staging",
-    "SITE_URL": ""
+    "ENVIRONMENT": "production",
+    "SITE_URL": "https://vongdautambyanh.com",
+    "CF_ACCOUNT_ID": "6732e495e6dc332a4d51e0aba6c0408a",
+    "D1_DATABASE_ID": "b98c2657-e991-42e8-bba3-a797452437b2"
   },
+  "triggers": {
+    // Mỗi giờ UTC: kiểm tra lịch backup / job hẹn giờ.
+    "crons": ["0 * * * *"]
+  },
+  "workflows": [
+    {
+      "name": "vdt-backup",
+      "binding": "BACKUP_WORKFLOW",
+      "class_name": "BackupWorkflow"
+    },
+    {
+      "name": "vdt-restore",
+      "binding": "RESTORE_WORKFLOW",
+      "class_name": "RestoreWorkflow"
+    }
+  ],
   "observability": {
     "enabled": true,
     "logs": {
@@ -43,6 +63,11 @@
     {
       "binding": "MEDIA",
       "bucket_name": "vong-dau-tam-media",
+      "remote": false
+    },
+    {
+      "binding": "BACKUPS",
+      "bucket_name": "vong-dau-tam-backups",
       "remote": false
     }
   ],

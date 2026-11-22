@@ -44,6 +44,11 @@
     }
   }
 
+  function avatarInitial(name: string): string {
+    const first = [...name.trim()][0];
+    return first ? first.toLocaleUpperCase('vi') : '?';
+  }
+
   function clearImage(revoke = true) {
     if (revoke && imagePreview) URL.revokeObjectURL(imagePreview);
     imagePreview = null;
@@ -145,6 +150,7 @@
           id: payload.id,
           authorName: submittedName,
           authorKind: 'guest',
+          avatarUrl: null,
           body: submittedBody,
           imageUrl: localImageUrl,
           imageWidth: null,
@@ -176,6 +182,27 @@
   }
 </script>
 
+{#snippet commentAvatar(name: string, verified: boolean, avatarUrl: string | null = null)}
+  <span class="pc-avatar" aria-hidden="true">
+    {#if avatarUrl}
+      <img class="pc-avatar-circle pc-avatar-photo" src={avatarUrl} alt="" width="36" height="36" loading="lazy" decoding="async" />
+    {:else}
+      <span class="pc-avatar-circle">{avatarInitial(name)}</span>
+    {/if}
+    {#if verified}
+      <span class="pc-avatar-verified" title="Chủ shop">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" focusable="false" aria-hidden="true">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z"
+          />
+        </svg>
+      </span>
+    {/if}
+  </span>
+{/snippet}
+
 <section id="binh-luan" class="pc" aria-labelledby="pc-title">
   <header class="pc-head">
     <h2 id="pc-title" class="pc-title">Bình luận</h2>
@@ -195,6 +222,7 @@
             aria-busy={thread.pending ? 'true' : undefined}
           >
             <div class="pc-meta">
+              {@render commentAvatar(thread.authorName, thread.authorKind === 'shop', thread.avatarUrl)}
               <span class="pc-author" class:is-shop={thread.authorKind === 'shop'}>{thread.authorName}</span>
               {#if thread.authorKind === 'shop'}
                 <span class="pc-badge is-owner">Chủ shop</span>
@@ -234,6 +262,7 @@
                     aria-busy={reply.pending ? 'true' : undefined}
                   >
                     <div class="pc-meta">
+                      {@render commentAvatar(reply.authorName, reply.authorKind === 'shop', reply.avatarUrl)}
                       <span class="pc-author" class:is-shop={reply.authorKind === 'shop'}>{reply.authorName}</span>
                       {#if reply.authorKind === 'shop'}
                         <span class="pc-badge is-owner">Chủ shop</span>
@@ -372,6 +401,7 @@
   }
   .pc-card {
     padding: 0.15rem 0;
+    overflow: visible;
     animation: pc-in 0.35s ease;
   }
   .pc-card.is-pending {
@@ -388,6 +418,52 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 0.4rem 0.55rem;
+    overflow: visible;
+  }
+  .pc-avatar {
+    position: relative;
+    flex: none;
+    width: 2.5rem;
+    height: 2.5rem;
+    overflow: visible;
+  }
+  .pc-avatar-circle {
+    position: absolute;
+    inset: 0 auto auto 0;
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 50%;
+    background: #e8eef4;
+    color: #3a3f45;
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1;
+    user-select: none;
+  }
+  .pc-avatar-photo {
+    object-fit: cover;
+    background: var(--color-sand);
+  }
+  .pc-avatar-verified {
+    position: absolute;
+    right: -0.05rem;
+    bottom: -0.05rem;
+    z-index: 1;
+    width: 1.1rem;
+    height: 1.1rem;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    color: #22c55e;
+    background: var(--color-surface);
+    border-radius: 50%;
+  }
+  .pc-avatar-verified svg {
+    display: block;
+    width: 100%;
+    height: 100%;
   }
   .pc-author {
     font-weight: 600;

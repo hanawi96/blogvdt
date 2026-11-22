@@ -6,6 +6,8 @@ import {
   isExternalHref,
   isInternalPostPath,
   isPostHref,
+  classifyContentHref,
+  collectLinkCounts,
   postLinkCounts,
   postPathFromHref,
   rankLinkSuggestions,
@@ -91,23 +93,37 @@ describe('liên kết nội bộ', () => {
     expect(collected.paths[0]).toBe('/bai-0');
   });
 
-  it('đếm link vào và link ra, bỏ link tự trỏ và link trùng', () => {
+  it('phân loại link nội bộ và link ra ngoài theo host', () => {
+    expect(classifyContentHref('/bai-moi')).toEqual({ kind: 'internal', key: '/bai-moi' });
+    expect(classifyContentHref('/san-pham/vong-tron')).toEqual({ kind: 'internal', key: '/san-pham/vong-tron' });
+    expect(classifyContentHref('https://www.facebook.com/', 'vongdautam.vn')).toEqual({
+      kind: 'external',
+      key: 'https://www.facebook.com/',
+    });
+    expect(classifyContentHref('https://vongdautam.vn/bai-moi?utm=1', 'vongdautam.vn')).toEqual({
+      kind: 'internal',
+      key: '/bai-moi',
+    });
+  });
+
+  it('đếm link nội bộ và link ra, gộp trùng', () => {
     const doc = (...hrefs: string[]) =>
       JSON.stringify({
         type: 'doc',
         content: [{ type: 'paragraph', content: hrefs.map((href) => ({ type: 'text', text: 'x', marks: [{ type: 'link', attrs: { href } }] })) }],
       });
-    const page = [
-      { id: 1, slug: 'bai-a', contentJson: doc('/bai-b', '/bai-b?x=1', '/bai-a', '/bai-c') },
-      { id: 2, slug: 'bai-b', contentJson: doc() },
-    ];
-    const sources = [
-      { id: 1, contentJson: page[0].contentJson },
-      { id: 3, contentJson: doc('https://vongdautam.vn/bai-b', '/bai-b-cu') },
-      { id: 2, contentJson: doc('/bai-b') },
-    ];
-    const counts = postLinkCounts(page, sources);
-    expect(counts.get(1)).toEqual({ inbound: 0, outbound: 2 });
-    expect(counts.get(2)).toEqual({ inbound: 2, outbound: 0 });
+    expect(collectLinkCounts(doc('/bai-b', '/bai-b?x=1', 'https://www.facebook.com/', 'https://www.facebook.com/page'), 'vongdautam.vn')).toEqual({
+      internal: 1,
+      external: 2,
+    });
+    const counts = postLinkCounts(
+      [
+        { id: 1, contentJson: doc('/bai-b', 'https://example.com/a') },
+        { id: 2, contentJson: doc() },
+      ],
+      'vongdautam.vn',
+    );
+    expect(counts.get(1)).toEqual({ internal: 1, external: 1 });
+    expect(counts.get(2)).toEqual({ internal: 0, external: 0 });
   });
 });

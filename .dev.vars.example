@@ -5,3 +5,11 @@ TURSO_DATABASE_URL=
 TURSO_AUTH_TOKEN=
 # Domain production cho canonical, sitemap và robots. Để trống khi chạy local.
 SITE_URL=
+# Backup D1 (Workflow export/import). Production dùng `wrangler secret put`.
+# CF_ACCOUNT_ID / D1_DATABASE_ID đã có trong wrangler.jsonc vars; local có thể ghi đè.
+D1_API_TOKEN=
+# Google Drive mirror (tùy chọn). Scope drive.file + refresh token OAuth.
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REFRESH_TOKEN=
+GOOGLE_DRIVE_FOLDER_ID=

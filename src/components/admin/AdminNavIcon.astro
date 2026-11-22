@@ -18,7 +18,8 @@ interface Props {
     | 'redirects'
     | 'users'
     | 'activity'
-    | 'settings';
+    | 'settings'
+    | 'backups';
 }
 
 const { name } = Astro.props;
@@ -221,6 +222,18 @@ const { name } = Astro.props;
           stroke-linecap="round"
         ></path>
       </>
+    )
+  }
+  {
+    name === 'backups' && (
+      <path
+        d="M12 4.5v9.2M9 11l3 3 3-3M5.5 16.5v2a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5v-2"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.7"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      ></path>
     )
   }
 </svg>

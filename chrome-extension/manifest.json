@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Vòng Dâu Tằm — Tạo đơn",
   "description": "Sidebar tạo đơn nổi trên Pancake và Zalo.",
-  "version": "1.10.14",
+  "version": "1.10.19",
   "permissions": [
     "sidePanel",
     "storage",
@@ -14,7 +14,7 @@
     "https://pancake.vn/*",
     "https://chat.zalo.me/*",
     "https://pos.pancake.vn/*",
-    "https://*.yendev96.workers.dev/*",
+    "https://vongdautambyanh.com/*",
     "http://127.0.0.1/*",
     "http://localhost/*"
   ],

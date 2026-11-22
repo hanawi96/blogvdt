@@ -24,7 +24,7 @@ export const GET: APIRoute = async ({ locals, url }) => {
   // JSON 401 (không redirect HTML) — extension SW đọc được.
   if (!session) {
     return json(
-      { ok: false, error: 'auth', loginUrl: `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.adminOrderPos)}` },
+      { ok: false, error: 'auth', loginUrl: `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.admin)}` },
       401,
     );
   }

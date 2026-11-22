@@ -21,7 +21,7 @@ export const GET: APIRoute = async ({ locals, url }) => {
       {
         ok: false,
         error: 'auth',
-        loginUrl: `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.adminOrderPos)}`,
+        loginUrl: `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.admin)}`,
       },
       401,
     );

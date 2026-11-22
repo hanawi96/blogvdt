@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, gte, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
-import { productComments, products } from '../../lib/db/schema';
+import { adminUsers, media, productComments, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { detectImageType, imageSizeError, readRasterSize } from '../media/files';
 import {
@@ -16,6 +16,8 @@ export type PublicComment = {
   id: number;
   authorName: string;
   authorKind: 'guest' | 'shop';
+  /** Avatar tài khoản admin (reply shop); guest luôn null. */
+  avatarUrl: string | null;
   body: string;
   imageUrl: string | null;
   imageWidth: number | null;
@@ -47,16 +49,19 @@ function toPublic(row: {
   id: number;
   authorName: string;
   authorKind: string;
+  avatarR2Key: string | null;
   body: string;
   r2Key: string | null;
   imageWidth: number | null;
   imageHeight: number | null;
   createdAt: number;
 }): PublicComment {
+  const isShop = row.authorKind === 'shop';
   return {
     id: row.id,
     authorName: row.authorName,
-    authorKind: row.authorKind === 'shop' ? 'shop' : 'guest',
+    authorKind: isShop ? 'shop' : 'guest',
+    avatarUrl: isShop && row.avatarR2Key ? routes.media(row.avatarR2Key) : null,
     body: row.body,
     imageUrl: commentImageUrl(row.r2Key),
     imageWidth: row.imageWidth,
@@ -73,6 +78,7 @@ export async function listPublicCommentThreads(db: AppDb, productId: number): Pr
       parentId: productComments.parentId,
       authorName: productComments.authorName,
       authorKind: productComments.authorKind,
+      avatarR2Key: media.r2Key,
       body: productComments.body,
       r2Key: productComments.r2Key,
       imageWidth: productComments.imageWidth,
@@ -80,6 +86,8 @@ export async function listPublicCommentThreads(db: AppDb, productId: number): Pr
       createdAt: productComments.createdAt,
     })
     .from(productComments)
+    .leftJoin(adminUsers, eq(productComments.adminUserId, adminUsers.id))
+    .leftJoin(media, eq(adminUsers.avatarMediaId, media.id))
     .where(and(eq(productComments.productId, productId), eq(productComments.status, 'approved')))
     .orderBy(asc(productComments.id));
 
@@ -229,6 +237,7 @@ export async function createShopReply(
   input: {
     productId: number;
     parentId: number;
+    adminUserId: number;
     authorName: string;
     body: string;
     image: CommentImage | null;
@@ -237,6 +246,9 @@ export async function createShopReply(
 ): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
   const body = input.body.replace(/\r\n/g, '\n').trim().slice(0, 1000);
   if (!body) return { ok: false, error: 'Nhập nội dung trả lời.' };
+  if (!Number.isInteger(input.adminUserId) || input.adminUserId < 1) {
+    return { ok: false, error: 'Phiên đăng nhập không hợp lệ.' };
+  }
   const authorName = shopReplyAuthorName(input.authorName);
 
   const parent = await resolveReplyParent(db, input.productId, input.parentId);
@@ -257,6 +269,7 @@ export async function createShopReply(
         parentId: parent.parentId,
         authorName,
         authorKind: 'shop',
+        adminUserId: input.adminUserId,
         body,
         r2Key: input.image?.r2Key ?? null,
         imageWidth: input.image?.width ?? null,

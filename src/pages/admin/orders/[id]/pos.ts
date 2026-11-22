@@ -92,7 +92,7 @@ function orderPayload(
 
 export const GET: APIRoute = async ({ params, request, locals, url }) => {
   const session = locals.adminSession;
-  const loginUrl = `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.adminOrderPos)}`;
+  const loginUrl = `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.admin)}`;
   if (!session) return json({ ok: false, error: 'auth', loginUrl }, 401);
   if (!allowsStaffApiOrigin(request)) return json({ ok: false, error: 'Nguồn gửi không hợp lệ.' }, 403);
 
@@ -119,7 +119,7 @@ export const GET: APIRoute = async ({ params, request, locals, url }) => {
 
 export const POST: APIRoute = async ({ params, request, locals, url }) => {
   const session = locals.adminSession;
-  const loginUrl = `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.adminOrderPos)}`;
+  const loginUrl = `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.admin)}`;
   if (!session) return json({ ok: false, error: 'auth', loginUrl }, 401);
   if (!allowsStaffApiOrigin(request)) return json({ ok: false, error: 'Nguồn gửi không hợp lệ.' }, 403);
 

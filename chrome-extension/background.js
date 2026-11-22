@@ -1,16 +1,27 @@
 importScripts('legacy-search.js');
 
-const DEFAULT_POS_URL = 'https://vong-dau-tam.yendev96.workers.dev/admin/orders/pos';
+const DEFAULT_POS_URL = 'https://vongdautambyanh.com/admin';
+/** Host staging cũ — migrate storage sang DEFAULT_POS_URL khi còn lưu URL này. */
+const LEGACY_POS_HOSTS = new Set(['vong-dau-tam.yendev96.workers.dev']);
 const SESSION_COOKIE = 'admin_session';
+
+function isLegacyPosUrl(value) {
+  try {
+    return LEGACY_POS_HOSTS.has(new URL(String(value || '')).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
 
 function normalizePosUrl(value) {
   const trimmed = String(value || '').trim().replace(/\/$/, '');
-  if (!trimmed) return DEFAULT_POS_URL;
+  if (!trimmed || isLegacyPosUrl(trimmed)) return DEFAULT_POS_URL;
   try {
     const url = new URL(trimmed);
     if (!/^https?:$/.test(url.protocol)) throw new Error('protocol');
-    if (!url.pathname.includes('/admin/orders/pos')) {
-      url.pathname = '/admin/orders/pos';
+    // Chỉ cần origin admin; pathname cũ /admin/orders/pos vẫn chấp nhận → chuẩn hóa về /admin.
+    if (url.pathname === '/admin/orders/pos' || !url.pathname.startsWith('/admin')) {
+      url.pathname = '/admin';
       url.search = '';
       url.hash = '';
     }
@@ -22,7 +33,16 @@ function normalizePosUrl(value) {
 
 async function getPosUrl() {
   const stored = await chrome.storage.sync.get(['posUrl']);
-  return normalizePosUrl(stored.posUrl);
+  const next = normalizePosUrl(stored.posUrl);
+  // Persist migrate ngay khi đọc (không chờ onInstalled) — tránh cache/sync còn workers.dev.
+  const prev = String(stored.posUrl || '')
+    .trim()
+    .replace(/\/$/, '');
+  if (prev !== next) {
+    await chrome.storage.sync.set({ posUrl: next });
+    await chrome.storage.local.set({ posUrlCached: next });
+  }
+  return next;
 }
 
 /** Cookie đăng nhập tab admin (first-party, không partition). */
@@ -51,7 +71,7 @@ async function syncSessionToPage(_pageUrl) {
       ok: false,
       reason: 'no-session',
       posUrl,
-      loginUrl: `${origin}/admin/login?next=${encodeURIComponent('/admin/orders/pos')}`,
+      loginUrl: `${origin}/admin/login?next=${encodeURIComponent('/admin')}`,
     };
   }
   try {
@@ -72,7 +92,7 @@ async function adminFetchJson(pathWithQuery, options = {}) {
     return { ok: false, error: 'URL POS không hợp lệ.' };
   }
   const cookie = await readAdminSessionCookie(posUrl);
-  const loginUrl = `${origin}/admin/login?next=${encodeURIComponent('/admin/orders/pos')}`;
+  const loginUrl = `${origin}/admin/login?next=${encodeURIComponent('/admin')}`;
   if (!cookie) {
     return { ok: false, error: 'auth', loginUrl };
   }
@@ -331,11 +351,17 @@ async function phoneSavedStatus(phones) {
 
 async function ensureDefaults() {
   const stored = await chrome.storage.sync.get(['posUrl', 'overlayOpen', 'overlayWidth']);
+  const posUrl = normalizePosUrl(stored.posUrl);
   const patch = {};
-  if (!stored.posUrl) patch.posUrl = DEFAULT_POS_URL;
+  const prevPos = String(stored.posUrl || '')
+    .trim()
+    .replace(/\/$/, '');
+  if (prevPos !== posUrl) patch.posUrl = posUrl;
   if (stored.overlayOpen === undefined) patch.overlayOpen = true;
   if (stored.overlayWidth === undefined) patch.overlayWidth = 400;
   if (Object.keys(patch).length) await chrome.storage.sync.set(patch);
+  // Luôn khớp cache local với URL canonical (xóa sót workers.dev sau reload).
+  await chrome.storage.local.set({ posUrlCached: posUrl });
   if (chrome.sidePanel?.setPanelBehavior) {
     await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
   }
@@ -493,7 +519,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'vdt-open-login') {
     getPosUrl().then(async (posUrl) => {
       const origin = new URL(posUrl).origin;
-      const loginUrl = `${origin}/admin/login?next=${encodeURIComponent('/admin/orders/pos')}`;
+      const loginUrl = `${origin}/admin/login?next=${encodeURIComponent('/admin')}`;
       await chrome.tabs.create({ url: loginUrl, active: true });
       sendResponse({ ok: true });
     });

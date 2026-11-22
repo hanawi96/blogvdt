@@ -120,30 +120,19 @@ export async function hasInboundPostLink(db: AppDb, input: { path: string; exclu
 
 const LINK_COUNT_PAGE_CAP = 20;
 
-// Chỉ đọc bài của trang đang xem + bài XB có chứa link nội bộ. Tránh OR nhiều LIKE (D1: pattern too complex).
-export async function listPostLinkCounts(db: AppDb, rows: ReadonlyArray<{ id: number; slug: string }>): Promise<Map<number, PostLinkCount>> {
-  if (rows.length === 0) return new Map();
-  const ids = rows.map((row) => row.id);
-  const [page, sources] = await Promise.all([
-    db
-      .select({ id: posts.id, slug: posts.slug, contentJson: posts.contentJson })
-      .from(posts)
-      .where(inArray(posts.id, ids)),
-    db
-      .select({ id: posts.id, contentJson: posts.contentJson })
-      .from(posts)
-      // Bài ở root /{slug} nên không còn tiền tố chung; lọc theo mark link của Tiptap.
-      .where(and(livePublished(), like(posts.contentJson, '%"type":"link"%'))),
-  ]);
-  return postLinkCounts(page, sources);
-}
-
-/** Đếm link vào/ra cho tối đa 20 id (một trang danh sách admin). */
-export async function listPostLinkCountsByIds(db: AppDb, ids: ReadonlyArray<number>): Promise<Map<number, PostLinkCount>> {
+/** Đếm link nội bộ / link ra trong nội dung — chỉ đọc đúng các bài trên trang. */
+export async function listPostLinkCountsByIds(
+  db: AppDb,
+  ids: ReadonlyArray<number>,
+  host = '',
+): Promise<Map<number, PostLinkCount>> {
   const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))].slice(0, LINK_COUNT_PAGE_CAP);
   if (unique.length === 0) return new Map();
-  const rows = await db.select({ id: posts.id, slug: posts.slug }).from(posts).where(inArray(posts.id, unique));
-  return listPostLinkCounts(db, rows);
+  const page = await db
+    .select({ id: posts.id, contentJson: posts.contentJson })
+    .from(posts)
+    .where(inArray(posts.id, unique));
+  return postLinkCounts(page, host);
 }
 
 function slugOf(path: string): string {

@@ -10,10 +10,29 @@
     <div class="panel" id="panel">
       <div class="panel-status" data-boot-status>Đang tải…</div>
       <div class="panel-auth" data-auth hidden>
-        <p data-auth-text>Chưa đăng nhập admin. Đăng nhập trên trang quản trị một lần.</p>
-        <div class="panel-auth-actions">
-          <button type="button" class="btn btn-primary" data-login>Mở đăng nhập</button>
-          <button type="button" class="btn" data-retry>Đã đăng nhập — tải lại</button>
+        <div class="panel-auth-card">
+          <div class="panel-auth-mark" aria-hidden="true">
+            <svg viewBox="0 0 64 64" fill="none">
+              <circle cx="32" cy="32" r="30" fill="url(#authGlow)" />
+              <path
+                d="M32 18c-5.5 0-10 4.5-10 10v4.2c-2.2.9-3.8 3.1-3.8 5.6v8.4c0 3.4 2.8 6.2 6.2 6.2h15.2c3.4 0 6.2-2.8 6.2-6.2v-8.4c0-2.5-1.6-4.7-3.8-5.6V28c0-5.5-4.5-10-10-10Zm-6.2 10c0-3.4 2.8-6.2 6.2-6.2s6.2 2.8 6.2 6.2v3.5H25.8V28Zm3.1 16.2v-4.4c0-1.7 1.4-3.1 3.1-3.1s3.1 1.4 3.1 3.1v4.4c0 1.7-1.4 3.1-3.1 3.1s-3.1-1.4-3.1-3.1Z"
+                fill="currentColor"
+                opacity="0.88"
+              />
+              <defs>
+                <radialGradient id="authGlow" cx="50%" cy="40%" r="55%">
+                  <stop stop-color="#f3d5c4" />
+                  <stop offset="1" stop-color="#f7e8dc" stop-opacity="0.35" />
+                </radialGradient>
+              </defs>
+            </svg>
+          </div>
+          <h2 class="panel-auth-title" data-auth-title>Chào bạn</h2>
+          <p class="panel-auth-text" data-auth-text>Đăng nhập admin một lần — sidebar dùng chung phiên.</p>
+          <div class="panel-auth-actions">
+            <button type="button" class="btn btn-primary panel-auth-primary" data-login>Mở đăng nhập</button>
+            <button type="button" class="panel-auth-ghost" data-retry>Đã đăng nhập — tải lại</button>
+          </div>
         </div>
       </div>
 

@@ -733,6 +733,8 @@ export const productComments = sqliteTable(
     parentId: integer('parent_id').references((): AnySQLiteColumn => productComments.id, { onDelete: 'cascade' }),
     authorName: text('author_name').notNull(),
     authorKind: text('author_kind').notNull().default('guest'),
+    /** Admin trả lời shop — dùng lấy avatar; null với guest. */
+    adminUserId: integer('admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
     body: text('body').notNull(),
     r2Key: text('r2_key'),
     imageWidth: integer('image_width'),
@@ -745,6 +747,7 @@ export const productComments = sqliteTable(
     index('product_comments_product_public_idx').on(table.productId, table.status, table.parentId, table.id),
     index('product_comments_admin_list_idx').on(table.status, table.createdAt, table.id),
     index('product_comments_rate_idx').on(table.ipHash, table.createdAt),
+    index('product_comments_admin_user_idx').on(table.adminUserId),
     check('product_comments_author_kind_check', sql`${table.authorKind} IN ('guest', 'shop')`),
     check('product_comments_status_check', sql`${table.status} IN ('pending', 'approved', 'hidden')`),
   ],
@@ -810,3 +813,44 @@ export const chatPhoneMaps = sqliteTable(
     index('chat_phone_maps_pending_updated_idx').on(table.pending, table.updatedAt),
   ],
 );
+
+/** Job backup D1 → R2 (+ Drive tùy chọn). */
+export const backupJobs = sqliteTable(
+  'backup_jobs',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    kind: text('kind').notNull(),
+    trigger: text('trigger').notNull(),
+    status: text('status').notNull(),
+    tablesJson: text('tables_json'),
+    r2Key: text('r2_key'),
+    bytes: integer('bytes'),
+    sha256: text('sha256'),
+    driveFileId: text('drive_file_id'),
+    driveStatus: text('drive_status').notNull().default('skipped'),
+    error: text('error'),
+    createdBy: integer('created_by').references(() => adminUsers.id, { onDelete: 'set null' }),
+    createdAt: integer('created_at').notNull(),
+    finishedAt: integer('finished_at'),
+    runAt: integer('run_at'),
+    workflowInstanceId: text('workflow_instance_id'),
+  },
+  (table) => [
+    index('backup_jobs_status_created_idx').on(table.status, table.createdAt),
+    index('backup_jobs_kind_status_idx').on(table.kind, table.status, table.createdAt),
+    index('backup_jobs_run_at_idx').on(table.runAt),
+    check('backup_jobs_kind_check', sql`${table.kind} in ('full', 'partial')`),
+    check('backup_jobs_trigger_check', sql`${table.trigger} in ('manual', 'schedule', 'pre_restore')`),
+    check('backup_jobs_status_check', sql`${table.status} in ('queued', 'running', 'success', 'failed')`),
+    check(
+      'backup_jobs_drive_status_check',
+      sql`${table.driveStatus} in ('skipped', 'pending', 'success', 'failed')`,
+    ),
+  ],
+);
+
+export const backupSettings = sqliteTable('backup_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});

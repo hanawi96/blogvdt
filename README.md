@@ -145,10 +145,46 @@ npm run build
 npx wrangler deploy
 ```
 
-### Backup production
+### Backup D1 (R2 + admin)
+
+Hệ thống backup nằm tại `/admin/backups` (chỉ role admin). File SQL lưu bucket R2 `vong-dau-tam-backups` (binding `BACKUPS`), không lưu trong repo và không dùng bucket media.
 
 ```powershell
-npx wrangler d1 export vong-dau-tam --remote --output .\backup-prod.sql
+# Bucket backups (một lần)
+npx wrangler r2 bucket create vong-dau-tam-backups
+
+# API Token: Create Custom Token → Account → D1 → Edit (export cần Write/Edit, không dùng Read)
+# https://dash.cloudflare.com/profile/api-tokens
+npx wrangler secret put D1_API_TOKEN
+
+# Áp migration 0055 nếu chưa
+npx wrangler d1 migrations apply vong-dau-tam --remote
+npm run generate-types
+npm run build
+npx wrangler deploy
 ```
 
-File backup chứa đơn hàng và thông tin khách. Không commit. Ảnh nằm ở R2, backup riêng theo `r2_key`.
+Trong admin: tạo backup full/partial, tải SQL, bật lịch theo giờ Việt Nam (UTC+7), retention, và (tùy chọn) mirror Google Drive. Restore chỉ từ bản `full` thành công — xác nhận `RESTORE` + tên site; hệ thống tự backup `pre_restore` trước.
+
+Secrets Drive (tùy chọn, sau khi OAuth Google Cloud Console lấy refresh token):
+
+```powershell
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+npx wrangler secret put GOOGLE_REFRESH_TOKEN
+npx wrangler secret put GOOGLE_DRIVE_FOLDER_ID
+```
+
+Export/import tạm khóa D1 vài giây đến vài phút. Ảnh media vẫn ở `vong-dau-tam-media` (không nằm trong backup D1).
+
+Fallback thủ công (CLI, không qua UI):
+
+```powershell
+npx wrangler d1 export vong-dau-tam --remote --output ".\backup-prod-$(Get-Date -Format yyyy-MM-dd).sql"
+```
+
+### Theo dõi production
+
+- Cloudflare Dashboard → Workers → `vong-dau-tam` → Logs / Observability (đã bật logs + traces).
+- SSL/TLS zone: Always Use HTTPS + Full; chứng chỉ Cloudflare tự renew (apex + `*.vongdautambyanh.com`).
+- Cập nhật code: migration `--remote` (nếu có) → `npm run build` → `npx wrangler deploy`.

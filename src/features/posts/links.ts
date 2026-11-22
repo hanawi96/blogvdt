@@ -146,29 +146,61 @@ export function collectPostPaths(raw: string, limit = 20): { paths: string[]; tr
   }
 }
 
-const COUNT_LIMIT = 500;
+export type PostLinkCount = { internal: number; external: number };
 
-export type PostLinkCount = { inbound: number; outbound: number };
-
-// Link ra: số bài khác mà nội dung bài này trỏ tới. Link vào: số bài nguồn khác trỏ tới bài này.
-export function postLinkCounts(
-  page: ReadonlyArray<{ id: number; slug: string; contentJson: string }>,
-  sources: ReadonlyArray<{ id: number; contentJson: string }>,
-): Map<number, PostLinkCount> {
-  const byPath = new Map(page.map((row) => [routes.knowledge(row.slug), row.id]));
-  const counts = new Map<number, PostLinkCount>();
-  for (const row of page) {
-    const own = routes.knowledge(row.slug);
-    const outbound = collectPostPaths(row.contentJson, COUNT_LIMIT).paths.filter((path) => path !== own).length;
-    counts.set(row.id, { inbound: 0, outbound });
+/** Phân loại href trong bài: path/`cùng host` = nội bộ; http(s) host khác = link ra. */
+export function classifyContentHref(value: string, host = ''): { kind: 'internal' | 'external'; key: string } | null {
+  const raw = value.trim();
+  if (!raw || raw.length > 300) return null;
+  if (raw.startsWith('/') && !raw.startsWith('//')) {
+    const path = normalizeSitePath(raw);
+    return path ? { kind: 'internal', key: path } : null;
   }
-  for (const source of sources) {
-    for (const path of collectPostPaths(source.contentJson, COUNT_LIMIT).paths) {
-      const target = byPath.get(path);
-      const count = target === undefined || target === source.id ? undefined : counts.get(target);
-      if (count) count.inbound += 1;
+  if (!isHttpUrl(raw)) return null;
+  try {
+    const url = new URL(raw);
+    if (url.username || url.password) return null;
+    const path = (url.pathname.split(/[?#]/, 1)[0] ?? '').replace(/\/+$/, '') || '/';
+    const hostname = url.hostname.toLowerCase();
+    if (host && hostname === host.toLowerCase()) return { kind: 'internal', key: path };
+    return { kind: 'external', key: `${url.protocol}//${hostname}${path}` };
+  } catch {
+    return null;
+  }
+}
+
+export function collectLinkCounts(raw: string, host = ''): PostLinkCount {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { internal: 0, external: 0 };
+  }
+  const internal = new Set<string>();
+  const external = new Set<string>();
+  walk(parsed);
+  return { internal: internal.size, external: external.size };
+
+  function walk(node: unknown): void {
+    if (!node || typeof node !== 'object') return;
+    const current = node as LinkNode;
+    if (current.type === 'text') {
+      for (const mark of current.marks ?? []) {
+        if (mark.type !== 'link' || typeof mark.attrs?.href !== 'string') continue;
+        const hit = classifyContentHref(mark.attrs.href, host);
+        if (!hit) continue;
+        if (hit.kind === 'internal') internal.add(hit.key);
+        else external.add(hit.key);
+      }
     }
+    for (const child of current.content ?? []) walk(child);
   }
+}
+
+/** Đếm link nội bộ / link ra trong từng bài (không quét inbound từ bài khác). */
+export function postLinkCounts(page: ReadonlyArray<{ id: number; contentJson: string }>, host = ''): Map<number, PostLinkCount> {
+  const counts = new Map<number, PostLinkCount>();
+  for (const row of page) counts.set(row.id, collectLinkCounts(row.contentJson, host));
   return counts;
 }
 

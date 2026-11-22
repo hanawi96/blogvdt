@@ -8,7 +8,7 @@ import { listPickerCategories, listRedirectPostTargets } from '../../../features
 import { SLUG_PATTERN } from '../../../features/posts/slug';
 import { isPostStatus, POST_STATUS_LABELS } from '../../../features/posts/status';
 import { createDb } from '../../../lib/db/client';
-import { getDbBinding } from '../../../lib/cloudflare/env';
+import { getDbBinding, getSiteOrigin } from '../../../lib/cloudflare/env';
 import { formatDateTime } from '../../../lib/datetime';
 import { routes } from '../../../lib/routes';
 
@@ -45,8 +45,14 @@ if (wantsJson) {
   }
   if (Astro.url.searchParams.get('counts') === '1') {
     const ids = Astro.url.searchParams.getAll('id').map((value) => Number(value));
-    const map = await listPostLinkCountsByIds(db, ids);
-    const counts: Record<string, { inbound: number; outbound: number }> = {};
+    let host = '';
+    try {
+      host = new URL(getSiteOrigin(Astro.url.origin)).hostname;
+    } catch {
+      host = Astro.url.hostname;
+    }
+    const map = await listPostLinkCountsByIds(db, ids, host);
+    const counts: Record<string, { internal: number; external: number }> = {};
     for (const [id, value] of map) counts[String(id)] = value;
     return new Response(JSON.stringify({ counts }), { headers: jsonHeaders });
   }
@@ -93,7 +99,7 @@ try {
   result = await listPosts(db, { query, status, sort, page: Number.isInteger(page) ? page : 1 });
   const inTrash = status === 'trash';
   try {
-    // Link vào/ra lazy qua JSON (?counts=1) — không chặn SSR danh sách.
+    // Link nội bộ/ra lazy qua JSON (?counts=1) — không chặn SSR danh sách.
     [targets, categoryOptions] = await Promise.all([
       listRedirectPostTargets(db),
       inTrash ? Promise.resolve([]) : listPickerCategories(db),
@@ -307,8 +313,8 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                   <th>Tác giả</th>
                   <th>Danh mục</th>
                   <th>Trạng thái</th>
-                  <th title="Số bài đã xuất bản khác có liên kết tới bài này">Link vào</th>
-                  <th title="Số bài khác mà bài này liên kết tới">Link ra</th>
+                  <th title="Số link trỏ về chính website này (path /… hoặc URL cùng domain)">Nội bộ</th>
+                  <th title="Số link trỏ sang website khác">Link ra</th>
                   <th aria-sort={sort === 'oldest' ? 'ascending' : 'descending'}>
                     <a href={pageHref({ sort: sort === 'oldest' ? 'newest' : 'oldest', page: 1 })}>Cập nhật</a>
                   </th>
@@ -353,7 +359,7 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                           {isPostStatus(post.status) ? POST_STATUS_LABELS[post.status] : post.status}
                         </span>
                       </td>
-                      <td class="post-list-in" data-label="Link vào" data-link-in={post.id}>…</td>
+                      <td class="post-list-in" data-label="Nội bộ" data-link-in={post.id}>…</td>
                       <td class="post-list-out" data-label="Link ra" data-link-out={post.id}>…</td>
                       <td class="post-list-updated">{formatDateTime(post.updatedAt)}</td>
                       <td class="post-list-ops">
@@ -475,15 +481,15 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
       const data: unknown = await response.json().catch(() => null);
       const counts =
         data && typeof data === 'object' && 'counts' in data && data.counts && typeof data.counts === 'object'
-          ? (data.counts as Record<string, { inbound?: unknown; outbound?: unknown }>)
+          ? (data.counts as Record<string, { internal?: unknown; external?: unknown }>)
           : null;
       if (!response.ok || !counts) throw new Error('counts');
       for (const id of ids) {
         const row = counts[String(id)];
         const inCell = results.querySelector(`[data-link-in="${id}"]`);
         const outCell = results.querySelector(`[data-link-out="${id}"]`);
-        if (inCell) inCell.textContent = row && typeof row.inbound === 'number' ? String(row.inbound) : '—';
-        if (outCell) outCell.textContent = row && typeof row.outbound === 'number' ? String(row.outbound) : '—';
+        if (inCell) inCell.textContent = row && typeof row.internal === 'number' ? String(row.internal) : '—';
+        if (outCell) outCell.textContent = row && typeof row.external === 'number' ? String(row.external) : '—';
       }
     } catch {
       fail();

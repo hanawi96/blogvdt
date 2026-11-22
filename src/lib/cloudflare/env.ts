@@ -43,6 +43,22 @@ export function getMediaBucket(): R2Bucket {
   return bucket;
 }
 
+export function getBackupBucket(): R2Bucket {
+  const bucket = (env as { BACKUPS?: R2Bucket }).BACKUPS;
+  if (!bucket) {
+    throw new Error('Thiếu binding R2 (BACKUPS). Kiểm tra wrangler.jsonc.');
+  }
+  return bucket;
+}
+
+export function optionalBackupBucket(): R2Bucket | null {
+  try {
+    return getBackupBucket();
+  } catch {
+    return null;
+  }
+}
+
 export function optionalMediaBucket(): R2Bucket | null {
   try {
     return getMediaBucket();

@@ -21,7 +21,7 @@ function json(data: unknown, status = 200) {
 
 export const GET: APIRoute = async ({ locals, url }) => {
   const session = locals.adminSession;
-  const loginUrl = `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.adminOrderPos)}`;
+  const loginUrl = `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.admin)}`;
   if (!session) return json({ ok: false, error: 'auth', loginUrl }, 401);
 
   try {

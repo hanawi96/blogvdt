@@ -24,7 +24,7 @@ export const GET: APIRoute = async ({ locals, url }) => {
   const session = locals.adminSession;
   if (!session) {
     return json(
-      { ok: false, error: 'auth', loginUrl: `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.adminOrderPos)}` },
+      { ok: false, error: 'auth', loginUrl: `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.admin)}` },
       401,
     );
   }
@@ -42,7 +42,7 @@ export const POST: APIRoute = async ({ request, locals, url }) => {
   const session = locals.adminSession;
   if (!session) {
     return json(
-      { ok: false, error: 'auth', loginUrl: `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.adminOrderPos)}` },
+      { ok: false, error: 'auth', loginUrl: `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.admin)}` },
       401,
     );
   }

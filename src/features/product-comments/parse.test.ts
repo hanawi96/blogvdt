@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeCommentBody, normalizeCommentName, replyMentionPrefix, validateGuestComment } from './parse';
+import {
+  normalizeCommentBody,
+  normalizeCommentName,
+  replyMentionPrefix,
+  shopReplyAuthorName,
+  validateGuestComment,
+} from './parse';
 
 describe('product comment parse', () => {
   it('normalizes name and body', () => {
@@ -9,6 +15,12 @@ describe('product comment parse', () => {
 
   it('builds reply mention prefix', () => {
     expect(replyMentionPrefix('Hương')).toBe('@Hương ');
+  });
+
+  it('uses admin display name for shop replies', () => {
+    expect(shopReplyAuthorName('Yên')).toBe('Yên');
+    expect(shopReplyAuthorName('  Yên Nguyễn  ')).toBe('Yên Nguyễn');
+    expect(shopReplyAuthorName('')).toBe('Admin');
   });
 
   it('validates guest fields', () => {

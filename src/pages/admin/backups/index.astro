@@ -1,0 +1,816 @@
+---
+import AdminPlusIcon from '../../../components/admin/AdminPlusIcon.astro';
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { activityActor, activityWrite, commitWrites } from '../../../features/activity/log';
+import { mutationError } from '../../../features/auth/session';
+import { BACKUP_TABLE_WHITELIST } from '../../../features/backups/tables';
+import { driveConfigured, uploadBackupToDrive } from '../../../features/backups/drive';
+import {
+  importObjectKey,
+  looksLikeSqlDump,
+  validateBackupSqlFile,
+} from '../../../features/backups/import-file';
+import { getBackupSettings, saveBackupSettings } from '../../../features/backups/settings';
+import {
+  getBackupJob,
+  listBackupJobs,
+  markDriveResult,
+  parseJobTables,
+  type BackupJob,
+} from '../../../features/backups/jobs';
+import { deleteBackupById } from '../../../features/backups/retention';
+import { releaseRestoreLock, tryAcquireRestoreLock } from '../../../features/backups/restore-lock';
+import { describeDailySchedule } from '../../../features/backups/schedule';
+import { enqueueBackup } from '../../../features/backups/service';
+import {
+  formatVnDateInput,
+  HOUR_OPTIONS_VN,
+  MINUTE_OPTIONS,
+  utcHourToVnHour,
+  vnDateTimeToUtcMs,
+  vnHourToUtcHour,
+} from '../../../features/backups/time';
+import { createDb } from '../../../lib/db/client';
+import { getBackupBucket, getDbBinding } from '../../../lib/cloudflare/env';
+import { routes } from '../../../lib/routes';
+import { env } from 'cloudflare:workers';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+if (session.role !== 'admin') {
+  return new Response('Bạn không có quyền vào trang này.', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+}
+
+const db = createDb(getDbBinding());
+let formError = '';
+let formOk = '';
+let activeTab: 'list' | 'create' | 'restore' | 'settings' =
+  Astro.url.searchParams.get('tab') === 'settings'
+    ? 'settings'
+    : Astro.url.searchParams.get('tab') === 'create'
+      ? 'create'
+      : Astro.url.searchParams.get('tab') === 'restore'
+        ? 'restore'
+        : 'list';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const blocked = mutationError(Astro.request, session, form);
+  if (blocked) {
+    Astro.response.status = 403;
+    formError = blocked;
+  } else {
+    const intent = String(form.get('intent') ?? '');
+    if (intent === 'create') activeTab = 'create';
+    else if (intent === 'settings') activeTab = 'settings';
+    else if (intent === 'import-restore') activeTab = 'restore';
+    const actor = await activityActor(db, session.userId);
+    if (intent === 'create') {
+      const kind = String(form.get('kind') ?? 'full') === 'partial' ? 'partial' : 'full';
+      const tables = form.getAll('tables').map(String);
+      const when = String(form.get('when') ?? 'now');
+      let runAt: number | null = null;
+      if (when === 'later') {
+        const runDate = String(form.get('runDate') ?? '').trim();
+        const runHour = Number(form.get('runHourVn'));
+        const runMinute = Number(form.get('runMinuteVn'));
+        const parsed = vnDateTimeToUtcMs(runDate, runHour, runMinute);
+        if (parsed == null) formError = 'Chọn ngày và giờ hợp lệ (giờ Việt Nam).';
+        else if (parsed <= Date.now() + 60_000) formError = 'Giờ hẹn phải sau thời điểm hiện tại ít nhất 1 phút.';
+        else runAt = parsed;
+      } else if (when !== 'now') {
+        formError = 'Cách chạy không hợp lệ.';
+      }
+      if (!formError) {
+        const workflow = env.BACKUP_WORKFLOW;
+        if (!workflow) {
+          formError = 'Thiếu binding BACKUP_WORKFLOW.';
+        } else {
+          const created = await enqueueBackup(db, workflow, {
+            kind,
+            trigger: 'manual',
+            tables: kind === 'partial' ? tables : null,
+            createdBy: session.userId,
+            runAt,
+          });
+          if (!created.ok) {
+            formError = created.error;
+          } else {
+            await commitWrites(db, [
+              activityWrite(
+                db,
+                {
+                  actorId: actor.id,
+                  actorName: actor.name,
+                  action: 'backup.create',
+                  objectType: 'backup',
+                  objectId: String(created.job.id),
+                  summary: `Tạo backup #${created.job.id} (${created.job.kind})`,
+                  createdAt: Date.now(),
+                },
+                false,
+              ),
+            ]);
+            return Astro.redirect(`${routes.adminBackups}?created=1`, 303);
+          }
+        }
+      }
+    } else if (intent === 'settings') {
+      const hourVnInput = Number(form.get('scheduleHourVn'));
+      const saved = await saveBackupSettings(db, {
+        scheduleEnabled: form.get('scheduleEnabled') === '1',
+        scheduleHourUtc: Number.isInteger(hourVnInput) ? vnHourToUtcHour(hourVnInput) : Number.NaN,
+        retentionCount: Number(form.get('retentionCount')),
+        driveEnabled: form.get('driveEnabled') === '1',
+      });
+      if (!saved.ok) {
+        formError = saved.error;
+      } else {
+        await commitWrites(db, [
+          activityWrite(
+            db,
+            {
+              actorId: actor.id,
+              actorName: actor.name,
+              action: 'backup.settings',
+              objectType: 'backup',
+              objectId: null,
+              summary: 'Cập nhật lịch/Drive backup',
+              createdAt: Date.now(),
+            },
+            false,
+          ),
+        ]);
+        return Astro.redirect(`${routes.adminBackups}?tab=settings&saved=1`, 303);
+      }
+    } else if (intent === 'import-restore') {
+      const confirm = String(form.get('confirm') ?? '').trim().toUpperCase();
+      const fileField = form.get('sqlFile');
+      const checked = validateBackupSqlFile(fileField instanceof File ? fileField : null);
+      if (confirm !== 'K') {
+        formError = 'Gõ K để xác nhận khôi phục.';
+      } else if (!checked.ok) {
+        formError = checked.error;
+      } else {
+        const workflow = env.RESTORE_WORKFLOW;
+        if (!workflow) {
+          formError = 'Thiếu binding RESTORE_WORKFLOW.';
+        } else {
+          const lock = await tryAcquireRestoreLock(db);
+          if (!lock.ok) {
+            formError = lock.error;
+          } else {
+            try {
+              const bytes = await checked.file.arrayBuffer();
+              if (!(await looksLikeSqlDump(bytes))) {
+                await releaseRestoreLock(db);
+                formError = 'File không giống dump SQL hợp lệ.';
+              } else {
+                const bucket = getBackupBucket();
+                const key = importObjectKey();
+                await bucket.put(key, bytes, {
+                  httpMetadata: { contentType: 'application/sql; charset=utf-8' },
+                  customMetadata: {
+                    kind: 'import',
+                    uploadedBy: String(session.userId),
+                    originalName: checked.file.name.slice(0, 120),
+                  },
+                });
+                await workflow.create({ params: { r2Key: key, actorId: session.userId } });
+                await commitWrites(db, [
+                  activityWrite(
+                    db,
+                    {
+                      actorId: actor.id,
+                      actorName: actor.name,
+                      action: 'backup.restore',
+                      objectType: 'backup',
+                      objectId: null,
+                      summary: `Bắt đầu khôi phục DB từ file import (${checked.file.name.slice(0, 80)})`,
+                      createdAt: Date.now(),
+                    },
+                    false,
+                  ),
+                ]);
+                return Astro.redirect(`${routes.adminBackups}?restored=1`, 303);
+              }
+            } catch (error) {
+              await releaseRestoreLock(db);
+              formError = error instanceof Error ? error.message : 'Không import được file.';
+            }
+          }
+        }
+      }
+    } else if (intent === 'resync-drive') {
+      const jobId = Number(form.get('jobId'));
+      const job = Number.isInteger(jobId) ? await getBackupJob(db, jobId) : null;
+      if (!job || job.status !== 'success' || !job.r2Key) {
+        formError = 'Backup không sẵn sàng để đẩy Drive.';
+      } else if (!driveConfigured(env as { GOOGLE_CLIENT_ID?: string; GOOGLE_CLIENT_SECRET?: string; GOOGLE_REFRESH_TOKEN?: string })) {
+        formError = 'Chưa cấu hình secrets Google Drive.';
+      } else {
+        try {
+          const bucket = getBackupBucket();
+          const obj = await bucket.get(job.r2Key);
+          if (!obj) {
+            formError = 'Không tìm thấy file trên R2.';
+          } else {
+            const bytes = await obj.arrayBuffer();
+            const day = new Date(job.createdAt).toISOString().slice(0, 10);
+            const fileId = await uploadBackupToDrive(env as Parameters<typeof uploadBackupToDrive>[0], {
+              name: `vongdautambyanh-${day}-${job.id}.sql`,
+              bytes,
+            });
+            await markDriveResult(db, job.id, 'success', fileId);
+            return Astro.redirect(`${routes.adminBackups}?drive=1`, 303);
+          }
+        } catch (error) {
+          await markDriveResult(db, job.id, 'failed', null);
+          formError = error instanceof Error ? error.message : 'Đồng bộ Drive thất bại.';
+        }
+      }
+    } else if (intent === 'delete') {
+      const jobId = Number(form.get('jobId'));
+      try {
+        const bucket = getBackupBucket();
+        const removed = await deleteBackupById(
+          db,
+          {
+            BACKUPS: bucket,
+            GOOGLE_CLIENT_ID: (env as { GOOGLE_CLIENT_ID?: string }).GOOGLE_CLIENT_ID,
+            GOOGLE_CLIENT_SECRET: (env as { GOOGLE_CLIENT_SECRET?: string }).GOOGLE_CLIENT_SECRET,
+            GOOGLE_REFRESH_TOKEN: (env as { GOOGLE_REFRESH_TOKEN?: string }).GOOGLE_REFRESH_TOKEN,
+            GOOGLE_DRIVE_FOLDER_ID: (env as { GOOGLE_DRIVE_FOLDER_ID?: string }).GOOGLE_DRIVE_FOLDER_ID,
+          },
+          jobId,
+        );
+        if (!removed.ok) {
+          formError = removed.error;
+        } else {
+          await commitWrites(db, [
+            activityWrite(
+              db,
+              {
+                actorId: actor.id,
+                actorName: actor.name,
+                action: 'backup.delete',
+                objectType: 'backup',
+                objectId: String(removed.job.id),
+                summary: `Xóa backup #${removed.job.id} (${removed.job.kind})`,
+                createdAt: Date.now(),
+              },
+              false,
+            ),
+          ]);
+          return Astro.redirect(`${routes.adminBackups}?deleted=1`, 303);
+        }
+      } catch (error) {
+        formError = error instanceof Error ? error.message : 'Không xóa được backup.';
+      }
+    }
+  }
+}
+
+const jobs = await listBackupJobs(db, 40);
+const settings = await getBackupSettings(db);
+const created = Astro.url.searchParams.get('created') === '1';
+const saved = Astro.url.searchParams.get('saved') === '1';
+const restored = Astro.url.searchParams.get('restored') === '1';
+const driveOk = Astro.url.searchParams.get('drive') === '1';
+const deleted = Astro.url.searchParams.get('deleted') === '1';
+
+function statusLabel(job: BackupJob): string {
+  if (job.status === 'queued') return 'Chờ';
+  if (job.status === 'running') return 'Đang chạy';
+  if (job.status === 'success') return 'Xong';
+  return 'Lỗi';
+}
+
+function statusTone(job: BackupJob): 'active' | 'oos' | 'inactive' {
+  if (job.status === 'success') return 'active';
+  if (job.status === 'failed') return 'oos';
+  return 'inactive';
+}
+
+function triggerLabel(trigger: BackupJob['trigger']): string {
+  if (trigger === 'manual') return 'Thủ công';
+  if (trigger === 'schedule') return 'Lịch ngày';
+  return 'Trước restore';
+}
+
+function driveLabel(status: BackupJob['driveStatus']): string {
+  if (status === 'success') return 'Đã lên Drive';
+  if (status === 'failed') return 'Drive lỗi';
+  if (status === 'pending') return 'Đang đẩy';
+  return '—';
+}
+
+function formatBytes(n: number | null): string {
+  if (n == null) return '—';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function formatJobTime(ms: number): string {
+  return new Date(ms).toLocaleString('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function shortError(message: string | null): string {
+  if (!message) return '';
+  const oneLine = message.replace(/\s+/g, ' ').trim();
+  return oneLine.length > 96 ? `${oneLine.slice(0, 93)}…` : oneLine;
+}
+
+const hourVn = utcHourToVnHour(settings.scheduleHourUtc);
+const todayVn = formatVnDateInput();
+const scheduleStatus = describeDailySchedule({
+  scheduleEnabled: settings.scheduleEnabled,
+  scheduleHourUtc: settings.scheduleHourUtc,
+  lastScheduleDay: settings.lastScheduleDay,
+});
+const scheduleStatusText = (() => {
+  if (!settings.scheduleEnabled) return 'Lịch đang tắt.';
+  const hh = String(scheduleStatus.hourVn).padStart(2, '0');
+  if (scheduleStatus.ranToday) {
+    return `Hôm nay (${scheduleStatus.todayVn}) đã xếp chạy lúc ${hh}:00 (giờ VN). Lần kế: ${
+      scheduleStatus.nextAt ? new Date(scheduleStatus.nextAt).toLocaleString('vi-VN') : '—'
+    }.`;
+  }
+  if (scheduleStatus.dueAtToday != null && Date.now() >= scheduleStatus.dueAtToday) {
+    return `Đến hạn hôm nay ${hh}:00 (giờ VN) — sẽ chạy khi cron rảnh (mỗi giờ).`;
+  }
+  return `Lần chạy tiếp theo: ${
+    scheduleStatus.nextAt ? new Date(scheduleStatus.nextAt).toLocaleString('vi-VN') : `${hh}:00 hôm nay`
+  } (giờ VN).`;
+})();
+const RETENTION_OPTIONS = [7, 14, 30, 60, 90];
+const retentionChoices = RETENTION_OPTIONS.includes(settings.retentionCount)
+  ? RETENTION_OPTIONS
+  : [...RETENTION_OPTIONS, settings.retentionCount].sort((a, b) => a - b);
+---
+
+<AdminLayout title="Backup dữ liệu">
+  <p class="settings-lead">
+    Sao lưu database lên R2. Google Drive là bản sao tùy chọn. Trong lúc backup, website có thể chậm vài giây đến vài phút.
+  </p>
+
+  {
+    (created || saved || restored || driveOk || deleted || formOk) && (
+      <p class="mb-4 text-primary-strong" role="status">
+        {formOk ||
+          (created
+            ? 'Đã tạo job backup.'
+            : restored
+              ? 'Đã gửi lệnh khôi phục.'
+              : driveOk
+                ? 'Đã đồng bộ lên Google Drive.'
+                : deleted
+                  ? 'Đã xóa backup.'
+                  : 'Đã lưu cài đặt.')}
+      </p>
+    )
+  }
+  {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
+
+  <div data-backup data-active-tab={activeTab}>
+    <div class="settings-tabs" role="tablist" aria-label="Backup">
+      <button type="button" role="tab" data-backup-tab="list" aria-selected={activeTab === 'list' ? 'true' : 'false'}>Danh sách</button>
+      <button type="button" role="tab" data-backup-tab="create" aria-selected={activeTab === 'create' ? 'true' : 'false'}>Tạo backup</button>
+      <button type="button" role="tab" data-backup-tab="restore" aria-selected={activeTab === 'restore' ? 'true' : 'false'}>Khôi phục</button>
+      <button type="button" role="tab" data-backup-tab="settings" aria-selected={activeTab === 'settings' ? 'true' : 'false'}>Lịch & Drive</button>
+    </div>
+
+    <div data-backup-panel="list" hidden={activeTab !== 'list'}>
+      {
+        jobs.length === 0 ? (
+          <section class="cms-empty">
+            <span class="cms-empty-icon" aria-hidden="true">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 4.5v9.2M9 11l3 3 3-3M5.5 16.5v2a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5v-2" />
+              </svg>
+            </span>
+            <h2 class="cms-empty-title">Chưa có bản backup nào</h2>
+            <p class="cms-empty-text">
+              Tạo bản sao lưu database để phòng sự cố. File lưu trên R2; có thể hẹn giờ một lần hoặc bật lịch chạy mỗi ngày.
+            </p>
+            <ul class="cms-empty-points">
+              <li>Full: sao lưu toàn bộ và có thể khôi phục lại khi cần.</li>
+              <li>Partial: chọn bảng để tải về, không dùng để khôi phục.</li>
+              <li>Khôi phục: từ bản Full trong danh sách, hoặc import file .sql đã tải về.</li>
+            </ul>
+            <button type="button" class="btn btn-primary" data-backup-open="create"><AdminPlusIcon />Tạo backup đầu tiên</button>
+          </section>
+        ) : (
+          <div class="table-scroll">
+            <table class="post-table backup-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Loại</th>
+                  <th>Nguồn</th>
+                  <th>Trạng thái</th>
+                  <th>Dung lượng</th>
+                  <th>Drive</th>
+                  <th>Thời gian</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {
+                  jobs.map((job) => {
+                    const err = shortError(job.error);
+                    const partialTables = job.kind === 'partial' ? parseJobTables(job) : null;
+                    const canDownload = job.status === 'success' && Boolean(job.r2Key);
+                    const canDrive =
+                      canDownload && (job.driveStatus === 'failed' || job.driveStatus === 'skipped');
+                    const canRestore = job.kind === 'full' && job.status === 'success' && Boolean(job.r2Key);
+                    const canDelete = job.status === 'success' || job.status === 'failed';
+                    const hasActions = canDownload || canDrive || canRestore || canDelete;
+                    return (
+                      <tr>
+                        <td data-label="#">{job.id}</td>
+                        <td data-label="Loại">
+                          {job.kind === 'full' ? 'Full' : 'Partial'}
+                          {partialTables?.length ? (
+                            <span class="backup-partial-tables" title={partialTables.join(', ')}>
+                              {partialTables.length} bảng
+                            </span>
+                          ) : null}
+                        </td>
+                        <td data-label="Nguồn">{triggerLabel(job.trigger)}</td>
+                        <td data-label="Trạng thái">
+                          <span class="post-status" data-status={statusTone(job)}>{statusLabel(job)}</span>
+                          {err ? <span class="backup-row-error error-text" title={job.error || undefined}>{err}</span> : null}
+                        </td>
+                        <td data-label="Dung lượng">{formatBytes(job.bytes)}</td>
+                        <td data-label="Drive">{driveLabel(job.driveStatus)}</td>
+                        <td data-label="Thời gian">
+                          <time datetime={new Date(job.createdAt).toISOString()}>{formatJobTime(job.createdAt)}</time>
+                        </td>
+                        <td data-label="Thao tác">
+                          {
+                            !hasActions ? (
+                              <span class="text-muted">—</span>
+                            ) : (
+                              <div class="order-row-actions backup-row-actions">
+                                {canDownload ? (
+                                  <a
+                                    class="order-icon-btn is-view"
+                                    href={routes.adminBackupDownload(job.id)}
+                                    aria-label={`Tải backup #${job.id}`}
+                                    title="Tải"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M7.5 10.5 12 15m0 0 4.5-4.5M12 15V3" />
+                                    </svg>
+                                  </a>
+                                ) : null}
+                                {canDrive ? (
+                                  <form method="post" data-busy>
+                                    <input type="hidden" name="csrf" value={session.csrfToken} />
+                                    <input type="hidden" name="intent" value="resync-drive" />
+                                    <input type="hidden" name="jobId" value={String(job.id)} />
+                                    <button
+                                      class="order-icon-btn is-edit"
+                                      type="submit"
+                                      aria-label={`Đẩy backup #${job.id} lên Drive`}
+                                      title="Đẩy Drive"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
+                                      </svg>
+                                    </button>
+                                  </form>
+                                ) : null}
+                                {canRestore ? (
+                                  <a
+                                    class="order-icon-btn is-duplicate"
+                                    href={routes.adminBackupRestore(job.id)}
+                                    aria-label={`Khôi phục từ backup #${job.id}`}
+                                    title="Khôi phục"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
+                                    </svg>
+                                  </a>
+                                ) : null}
+                                {canDelete ? (
+                                  <form
+                                    method="post"
+                                    data-busy
+                                    data-confirm-title={`Xóa backup #${job.id}?`}
+                                    data-confirm={
+                                      job.status === 'success'
+                                        ? 'File SQL trên R2 (và Drive nếu có) sẽ bị xóa vĩnh viễn, không khôi phục được.'
+                                        : 'Bản ghi lỗi sẽ bị xóa khỏi danh sách.'
+                                    }
+                                    data-confirm-ok="Xóa"
+                                    data-confirm-tone="danger"
+                                  >
+                                    <input type="hidden" name="csrf" value={session.csrfToken} />
+                                    <input type="hidden" name="intent" value="delete" />
+                                    <input type="hidden" name="jobId" value={String(job.id)} />
+                                    <button
+                                      class="order-icon-btn is-delete"
+                                      type="submit"
+                                      aria-label={`Xóa backup #${job.id}`}
+                                      title="Xóa"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                                      </svg>
+                                    </button>
+                                  </form>
+                                ) : null}
+                              </div>
+                            )
+                          }
+                        </td>
+                      </tr>
+                    );
+                  })
+                }
+              </tbody>
+            </table>
+          </div>
+        )
+      }
+    </div>
+
+    <form method="post" class="settings-panel" id="backup-create-form" data-backup-panel="create" data-busy hidden={activeTab !== 'create'}>
+      <input type="hidden" name="csrf" value={session.csrfToken} />
+      <input type="hidden" name="intent" value="create" />
+
+      <div>
+        <span class="mb-1 block font-semibold" id="backup-kind-label">Loại backup</span>
+        <div class="category-presets" role="radiogroup" aria-labelledby="backup-kind-label">
+          <label class="category-preset">
+            <input type="radio" name="kind" value="full" checked />
+            <span>Full — có thể khôi phục</span>
+          </label>
+          <label class="category-preset">
+            <input type="radio" name="kind" value="partial" />
+            <span>Partial — chỉ tải về</span>
+          </label>
+        </div>
+        <p class="seo-hint" id="backup-full-note">Full sao lưu toàn bộ database (mọi bảng bên dưới).</p>
+      </div>
+
+      <div class="mt-5" id="backup-tables-step">
+        <span class="mb-1 block font-semibold">Bảng</span>
+        <p class="seo-hint" id="backup-tables-hint">Full: tất cả bảng được chọn. Partial: bỏ tick bảng không cần — chỉ tải về, không khôi phục.</p>
+        <div class="backup-table-grid">
+          {BACKUP_TABLE_WHITELIST.map((name) => (
+            <label class="backup-table-item">
+              <input type="checkbox" name="tables" value={name} checked disabled />
+              <span>{name}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div class="mt-5">
+        <span class="mb-1 block font-semibold" id="backup-when-label">Khi nào chạy?</span>
+        <div class="category-presets" role="radiogroup" aria-labelledby="backup-when-label">
+          <label class="category-preset">
+            <input type="radio" name="when" value="now" checked />
+            <span>Chạy ngay</span>
+          </label>
+          <label class="category-preset">
+            <input type="radio" name="when" value="later" />
+            <span>Hẹn giờ</span>
+          </label>
+        </div>
+        <div id="backup-later-fields" class="backup-later mt-3" hidden>
+          <div class="backup-later-row">
+            <label class="block">
+              <span class="mb-1 block font-semibold">Ngày</span>
+              <input class="field" type="date" name="runDate" value={todayVn} min={todayVn} />
+            </label>
+            <label class="block">
+              <span class="mb-1 block font-semibold">Giờ (VN)</span>
+              <select class="field" name="runHourVn">
+                {HOUR_OPTIONS_VN.map((opt) => (
+                  <option value={opt.hour} selected={opt.hour === 22}>{opt.label}</option>
+                ))}
+              </select>
+            </label>
+            <label class="block">
+              <span class="mb-1 block font-semibold">Phút</span>
+              <select class="field" name="runMinuteVn">
+                {MINUTE_OPTIONS.map((m) => (
+                  <option value={m}>{String(m).padStart(2, '0')}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p class="seo-hint">Giờ Việt Nam. Ví dụ tối nay 22:00: chọn ngày hôm nay và giờ 22:00.</p>
+        </div>
+      </div>
+
+      <div class="settings-save">
+        <button class="btn btn-primary" type="submit">Tạo backup</button>
+      </div>
+    </form>
+
+    <form
+      method="post"
+      class="settings-panel"
+      data-backup-panel="restore"
+      data-busy
+      enctype="multipart/form-data"
+      hidden={activeTab !== 'restore'}
+    >
+      <input type="hidden" name="csrf" value={session.csrfToken} />
+      <input type="hidden" name="intent" value="import-restore" />
+      <p class="seo-hint mb-4">
+        Import file <strong>.sql</strong> đã tải về (nên là bản Full). Hệ thống tự tạo backup trước khi ghi đè database.
+        Trong lúc khôi phục, website có thể gián đoạn.
+      </p>
+      <label class="block">
+        <span class="mb-1 block font-semibold">File backup (.sql)</span>
+        <input class="field" type="file" name="sqlFile" accept=".sql,text/plain,application/sql" required />
+      </label>
+      <label class="mt-4 block">
+        <span class="mb-1 block font-semibold">Gõ K để xác nhận ghi đè database</span>
+        <input class="field" name="confirm" maxlength="1" autocomplete="off" required style="max-width: 4rem" />
+      </label>
+      <div class="settings-save">
+        <button class="btn btn-danger" type="submit">Import và khôi phục</button>
+      </div>
+    </form>
+
+    <form method="post" class="settings-panel" data-backup-panel="settings" data-busy hidden={activeTab !== 'settings'}>
+      <input type="hidden" name="csrf" value={session.csrfToken} />
+      <input type="hidden" name="intent" value="settings" />
+
+      <label class="flex items-start gap-2">
+        <input type="checkbox" name="scheduleEnabled" value="1" checked={settings.scheduleEnabled} class="mt-1" />
+        <span>
+          <span class="block font-semibold">Tự động backup full mỗi ngày</span>
+          <span class="seo-hint">Chạy một lần mỗi ngày theo giờ Việt Nam (UTC+7).</span>
+        </span>
+      </label>
+
+      <div class="mt-4">
+        <span class="mb-1 block font-semibold" id="backup-hour-label">Giờ chạy (giờ Việt Nam)</span>
+        <div class="category-presets" role="radiogroup" aria-labelledby="backup-hour-label">
+          {
+            HOUR_OPTIONS_VN.map((opt) => (
+              <label class="category-preset">
+                <input type="radio" name="scheduleHourVn" value={opt.hour} checked={opt.hour === hourVn} required />
+                <span>{String(opt.hour).padStart(2, '0')}:00</span>
+              </label>
+            ))
+          }
+        </div>
+        <p class="seo-hint">Ví dụ 00:00 = nửa đêm, 22:00 = tối.</p>
+        <p class="seo-hint mt-2" role="status">{scheduleStatusText}</p>
+      </div>
+
+      <div class="mt-4">
+        <span class="mb-1 block font-semibold" id="backup-retention-label">Số bản full giữ lại</span>
+        <div class="category-presets" role="radiogroup" aria-labelledby="backup-retention-label">
+          {
+            retentionChoices.map((n) => (
+              <label class="category-preset">
+                <input type="radio" name="retentionCount" value={n} checked={n === settings.retentionCount} required />
+                <span>{n} bản</span>
+              </label>
+            ))
+          }
+        </div>
+        <p class="seo-hint">Bản cũ hơn sẽ tự xóa. Mặc định 14.</p>
+      </div>
+
+      <label class="mt-5 flex items-start gap-2">
+        <input type="checkbox" name="driveEnabled" value="1" checked={settings.driveEnabled} class="mt-1" />
+        <span>
+          <span class="block font-semibold">Sao thêm lên Google Drive</span>
+          <span class="seo-hint">Cần cấu hình secrets Google. Thiếu cấu hình thì Drive lỗi nhưng bản R2 vẫn giữ.</span>
+        </span>
+      </label>
+
+      <div class="settings-save">
+        <button class="btn btn-primary" type="submit">Lưu cài đặt</button>
+      </div>
+    </form>
+  </div>
+</AdminLayout>
+
+<script>
+  const root = document.querySelector('[data-backup]');
+  if (root instanceof HTMLElement) {
+    const tabs = [...root.querySelectorAll('[data-backup-tab]')];
+    const panels = [...root.querySelectorAll('[data-backup-panel]')];
+    const show = (id: string) => {
+      for (const tab of tabs) {
+        if (!(tab instanceof HTMLButtonElement)) continue;
+        const selected = tab.dataset.backupTab === id;
+        tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+        tab.tabIndex = selected ? 0 : -1;
+      }
+      for (const panel of panels) {
+        if (panel instanceof HTMLElement) panel.hidden = panel.dataset.backupPanel !== id;
+      }
+      const url = new URL(location.href);
+      if (id === 'list') url.searchParams.delete('tab');
+      else url.searchParams.set('tab', id);
+      history.replaceState(null, '', url);
+    };
+    show(root.dataset.activeTab || 'list');
+    for (const tab of tabs) {
+      tab.addEventListener('click', () => {
+        const id = tab instanceof HTMLElement ? tab.dataset.backupTab : '';
+        if (id) show(id);
+      });
+    }
+    for (const open of root.querySelectorAll('[data-backup-open]')) {
+      open.addEventListener('click', () => {
+        const id = open instanceof HTMLElement ? open.dataset.backupOpen : '';
+        if (id) show(id);
+      });
+    }
+  }
+
+  const form = document.getElementById('backup-create-form');
+  if (form instanceof HTMLFormElement) {
+    const fullNote = document.getElementById('backup-full-note');
+    const later = document.getElementById('backup-later-fields');
+    const syncKind = () => {
+      const full = form.querySelector('input[name="kind"][value="full"]:checked') != null;
+      if (fullNote instanceof HTMLElement) fullNote.hidden = !full;
+      for (const box of form.querySelectorAll('input[name="tables"]')) {
+        if (!(box instanceof HTMLInputElement)) continue;
+        box.disabled = full;
+        if (full) box.checked = true;
+      }
+    };
+    const syncWhen = () => {
+      const isLater = form.querySelector('input[name="when"][value="later"]:checked') != null;
+      if (later instanceof HTMLElement) later.hidden = !isLater;
+    };
+    form.querySelectorAll('input[name="kind"]').forEach((el) => el.addEventListener('change', syncKind));
+    form.querySelectorAll('input[name="when"]').forEach((el) => el.addEventListener('change', syncWhen));
+    syncKind();
+    syncWhen();
+  }
+</script>
+
+<style>
+  .backup-row-error {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    max-width: 28rem;
+  }
+  .backup-partial-tables {
+    display: block;
+    margin-top: 0.15rem;
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .backup-row-actions {
+    justify-content: flex-start;
+  }
+  .settings-panel {
+    max-width: none;
+  }
+  .backup-table-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+    gap: 0.45rem 1rem;
+    width: 100%;
+    margin-top: 0.75rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--color-line);
+    border-radius: 0.75rem;
+    background: var(--color-surface);
+  }
+  .backup-table-item {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    font-size: 0.875rem;
+  }
+  .backup-later-row {
+    display: grid;
+    grid-template-columns: minmax(9rem, 1.2fr) minmax(8rem, 1fr) 5.5rem;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  @media (max-width: 640px) {
+    .backup-later-row {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

@@ -41,23 +41,106 @@ body {
 }
 
 .panel-auth {
-  padding: 0.75rem;
-  border: 1px solid #fde68a;
-  border-radius: var(--radius);
-  background: #fffbeb;
-  margin-bottom: 0.75rem;
+  display: grid;
+  place-items: center;
+  min-height: calc(100vh - 1.5rem);
+  margin: 0;
+  padding: 1.5rem 0.85rem 2.5rem;
+  border: 0;
+  background:
+    radial-gradient(ellipse 80% 55% at 50% 18%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
+    radial-gradient(ellipse 70% 50% at 80% 90%, color-mix(in srgb, #d4a574 12%, transparent), transparent 65%),
+    transparent;
 }
 
-.panel-auth p {
-  margin: 0 0 0.55rem;
-  color: #92400e;
-  font-size: 0.82rem;
+body.is-auth .panel {
+  padding-bottom: 1rem;
+}
+
+body.is-auth .panel-saved,
+body.is-auth .panel-error,
+body.is-auth .panel-edit {
+  display: none !important;
+}
+
+body.is-auth .panel-status:not([hidden]) {
+  text-align: center;
+  color: var(--muted);
+}
+
+.panel-auth-card {
+  width: min(100%, 17.5rem);
+  text-align: center;
+}
+
+.panel-auth-mark {
+  width: 4.25rem;
+  height: 4.25rem;
+  margin: 0 auto 0.95rem;
+  color: var(--accent-strong);
+}
+
+.panel-auth-mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 8px 18px color-mix(in srgb, var(--accent) 22%, transparent));
+}
+
+.panel-auth-title {
+  margin: 0 0 0.35rem;
+  color: color-mix(in srgb, var(--primary) 72%, var(--ink));
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.panel-auth-text {
+  margin: 0 0 1.15rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .panel-auth-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
+  display: grid;
+  gap: 0.55rem;
+  justify-items: stretch;
+}
+
+.panel-auth-primary {
+  width: 100%;
+  border-radius: 999px;
+  padding: 0.72rem 1rem;
+  font-size: 0.9rem;
+  letter-spacing: 0.01em;
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.panel-auth-primary:hover {
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--accent-strong) 30%, transparent);
+  transform: translateY(-1px);
+}
+
+.panel-auth-ghost {
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--primary) 55%, var(--muted));
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  text-underline-offset: 0.18em;
+}
+
+.panel-auth-ghost:hover {
+  color: var(--accent-strong);
+  text-decoration-color: color-mix(in srgb, var(--accent-strong) 45%, transparent);
 }
 
 .panel-saved {

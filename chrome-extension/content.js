@@ -264,8 +264,14 @@ void prefetchPosUrl();
 void syncSession();
 void runtimeSend({ type: 'vdt-pos-bootstrap-warm' });
 void storageGet('local', [POS_URL_CACHE_KEY]).then((stored) => {
-  if (!cachedPosUrl && typeof stored?.[POS_URL_CACHE_KEY] === 'string' && stored[POS_URL_CACHE_KEY]) {
+  if (cachedPosUrl || typeof stored?.[POS_URL_CACHE_KEY] !== 'string' || !stored[POS_URL_CACHE_KEY]) return;
+  try {
+    const host = new URL(stored[POS_URL_CACHE_KEY]).hostname.toLowerCase();
+    // Bỏ cache staging cũ; chờ background trả URL production.
+    if (host.endsWith('.workers.dev') || host.endsWith('.pages.dev')) return;
     cachedPosUrl = stored[POS_URL_CACHE_KEY];
+  } catch {
+    /* URL cache hỏng — bỏ qua */
   }
 });
 
@@ -1125,7 +1131,7 @@ function setAuthBanner(root, show, message = '') {
   if (!(box instanceof HTMLElement)) return;
   box.hidden = !show;
   const text = box.querySelector('[data-vdt-auth-text]');
-  if (text) text.textContent = message || 'Chưa đăng nhập admin. Đăng nhập trên trang quản trị một lần — sidebar dùng chung phiên.';
+  if (text) text.textContent = message || 'Cần đăng nhập admin để tiếp tục.';
 }
 
 function setCustomerStatus(root, text) {
@@ -3475,10 +3481,10 @@ function ensureRoot() {
         <ul class="vdt-pending-list" data-vdt-pending-list></ul>
       </div>
       <div class="vdt-auth" data-vdt-auth hidden>
-        <p data-vdt-auth-text>Chưa đăng nhập admin. Đăng nhập trên trang quản trị một lần — sidebar dùng chung phiên.</p>
+        <p data-vdt-auth-text>Cần đăng nhập admin để tiếp tục.</p>
         <div class="vdt-auth-actions">
-          <button type="button" data-vdt-login>Mở đăng nhập</button>
-          <button type="button" data-vdt-resync>Đã đăng nhập — tải lại</button>
+          <button type="button" data-vdt-login>Đăng nhập</button>
+          <button type="button" class="vdt-auth-ghost" data-vdt-resync>Tải lại</button>
         </div>
       </div>
       <div class="vdt-customer" data-vdt-customer hidden></div>

@@ -151,7 +151,7 @@
       return;
     }
     closeReply();
-    flash('Đã trả lời với nhãn Shop (hiện ngay).');
+    flash('Đã trả lời (hiện ngay).');
   }
 </script>
 
@@ -191,7 +191,14 @@
             <time class="pcm-time">{formatTime(item.createdAt)}</time>
           </div>
           <p class="pcm-product">
-            <a href={routes.product(item.productSlug)} target="_blank" rel="noopener noreferrer">{item.productName}</a>
+            <span class="pcm-product-label">Sản phẩm</span>
+            <a
+              class="pcm-product-link"
+              href={`${routes.product(item.productSlug)}#binh-luan`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Mở trang sản phẩm"
+            >{item.productName}</a>
             {#if item.parentId != null}
               <span class="pcm-reply-tag">Trả lời #{item.parentId}</span>
             {/if}
@@ -212,7 +219,7 @@
               <button class="btn btn-compact" type="button" disabled={busyId === item.id} onclick={() => hide(item)}>Ẩn</button>
             {/if}
             {#if item.parentId == null && item.status === 'approved'}
-              <button class="btn btn-compact" type="button" onclick={() => openReply(item)}>Trả lời Shop</button>
+              <button class="btn btn-compact" type="button" onclick={() => openReply(item)}>Trả lời</button>
             {/if}
             <button class="btn btn-compact pcm-danger" type="button" disabled={busyId === item.id} onclick={() => remove(item)}>
               Xóa
@@ -240,10 +247,19 @@
   <div class="pcm-modal" role="dialog" aria-modal="true" aria-labelledby="pcm-reply-title">
     <form class="pcm-modal-card" onsubmit={submitReply}>
       <div class="pcm-modal-head">
-        <h2 id="pcm-reply-title">Trả lời với nhãn Shop</h2>
+        <h2 id="pcm-reply-title">Trả lời bình luận</h2>
         <button type="button" class="pcm-modal-close" onclick={closeReply} aria-label="Đóng">×</button>
       </div>
-      <p class="pcm-modal-meta">Trả lời <strong>{replyFor.authorName}</strong> · {replyFor.productName}</p>
+      <p class="pcm-modal-meta">
+        Trả lời <strong>{replyFor.authorName}</strong>
+        ·
+        <a
+          class="pcm-product-link"
+          href={`${routes.product(replyFor.productSlug)}#binh-luan`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >{replyFor.productName}</a>
+      </p>
       <textarea class="field" rows="4" maxlength="1000" required bind:value={replyBody}></textarea>
       {#if replyError}
         <p class="error-text" role="alert">{replyError}</p>
@@ -357,11 +373,30 @@
     color: var(--color-muted);
   }
   .pcm-product {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem 0.5rem;
     margin-top: 0.35rem;
     font-size: 0.875rem;
   }
+  .pcm-product-label {
+    color: var(--color-muted);
+    font-weight: 600;
+  }
+  .pcm-product-label::after {
+    content: ':';
+  }
+  .pcm-product-link {
+    color: var(--color-primary-strong);
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 0.12em;
+  }
+  .pcm-product-link:hover {
+    color: var(--color-accent-strong);
+  }
   .pcm-reply-tag {
-    margin-left: 0.5rem;
     color: var(--color-muted);
   }
   .pcm-body {

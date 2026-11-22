@@ -62,6 +62,10 @@ export const ACTIVITY_ACTIONS = [
   'customer.update',
   'customer.hide',
   'customer.restore',
+  'backup.create',
+  'backup.settings',
+  'backup.restore',
+  'backup.delete',
 ] as const;
 
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];
@@ -120,9 +124,30 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'customer.update': 'Sửa khách hàng',
   'customer.hide': 'Ẩn khách hàng',
   'customer.restore': 'Khôi phục khách hàng',
+  'backup.create': 'Tạo backup',
+  'backup.settings': 'Cài đặt backup',
+  'backup.restore': 'Khôi phục backup',
+  'backup.delete': 'Xóa backup',
 };
 
-export type ActivityObject = 'post' | 'category' | 'tag' | 'product_category' | 'user' | 'media' | 'settings' | 'redirect' | 'order' | 'material' | 'material_group' | 'order_cost' | 'ad_spend' | 'product' | 'discount' | 'customer';
+export type ActivityObject =
+  | 'post'
+  | 'category'
+  | 'tag'
+  | 'product_category'
+  | 'user'
+  | 'media'
+  | 'settings'
+  | 'redirect'
+  | 'order'
+  | 'material'
+  | 'material_group'
+  | 'order_cost'
+  | 'ad_spend'
+  | 'product'
+  | 'discount'
+  | 'customer'
+  | 'backup';
 
 export type ActivityActor = { id: number; name: string };
 

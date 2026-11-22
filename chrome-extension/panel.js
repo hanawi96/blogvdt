@@ -133,6 +133,7 @@
 
   function show(el, on) {
     if (el instanceof HTMLElement) el.hidden = !on;
+    if (el === authBox) document.body.classList.toggle('is-auth', Boolean(on));
   }
 
   function setBoot(text) {
@@ -3032,7 +3033,7 @@
     if (data?.error === 'auth' || (!data?.ok && data?.error === 'auth')) {
       setBoot('');
       if (authText instanceof HTMLElement) {
-        authText.textContent = 'Chưa đăng nhập admin. Đăng nhập trên trang quản trị một lần — sidebar dùng chung phiên.';
+        authText.textContent = 'Đăng nhập admin một lần — sidebar dùng chung phiên.';
       }
       show(authBox, true);
       show(form, false);
@@ -3181,7 +3182,7 @@
             show(form, false);
             show(authBox, true);
             if (authText instanceof HTMLElement) {
-              authText.textContent = 'Phiên đăng nhập hết hạn. Đăng nhập lại rồi bấm tải lại.';
+              authText.textContent = 'Phiên hết hạn. Đăng nhập lại rồi tải lại.';
             }
             setFormError(isEditing() ? 'Cần đăng nhập admin để sửa đơn.' : 'Cần đăng nhập admin để tạo đơn.');
             return;
@@ -3256,7 +3257,7 @@
           show(form, false);
           show(authBox, true);
           if (authText instanceof HTMLElement) {
-            authText.textContent = 'Phiên đăng nhập hết hạn. Đăng nhập lại rồi bấm tải lại.';
+            authText.textContent = 'Phiên hết hạn. Đăng nhập lại rồi tải lại.';
           }
           setFormError(wasEditing ? 'Cần đăng nhập admin để sửa đơn.' : 'Cần đăng nhập admin để tạo đơn.');
           return;

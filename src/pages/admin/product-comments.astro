@@ -76,6 +76,7 @@ if (Astro.request.method === 'POST') {
     const result = await createShopReply(db, optionalMediaBucket(), {
       productId: target.productId,
       parentId: target.parentId,
+      adminUserId: session.userId,
       authorName: session.displayName,
       body: String(form.get('body') ?? ''),
       image: parsedImage.image,
