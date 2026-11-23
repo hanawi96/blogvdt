@@ -14,6 +14,7 @@ import {
 } from '../features/products/catalog';
 import { getPublicSite } from '../features/settings/settings';
 import OrderDialog from '../components/public/OrderDialog.astro';
+import { listPublicAddons, type PublicAddon } from '../features/products/addons';
 import PublicLayout from '../layouts/PublicLayout.astro';
 import { createDb } from '../lib/db/client';
 import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
@@ -50,12 +51,16 @@ async function loadCatalog() {
   try {
     const db = createDb(getDbBinding());
     const site = await getPublicSite(db);
-    if (!site) return { site: null, failed: false, products: [], categories: [], total: 0, pageCount: 1 };
-    const [list, categories] = await Promise.all([listCatalogProducts(db, query), listSellableProductCategories(db)]);
-    return { site, failed: false, products: list.products, categories, total: list.total, pageCount: list.pageCount };
+    if (!site) return { site: null, failed: false, products: [], categories: [], addons: [] as PublicAddon[], total: 0, pageCount: 1 };
+    const [list, categories, addons] = await Promise.all([
+      listCatalogProducts(db, query),
+      listSellableProductCategories(db),
+      listPublicAddons(db),
+    ]);
+    return { site, failed: false, products: list.products, categories, addons, total: list.total, pageCount: list.pageCount };
   } catch (error) {
     console.error(JSON.stringify({ event: 'catalog_public_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
-    return { site: null, failed: true, products: [], categories: [], total: 0, pageCount: 1 };
+    return { site: null, failed: true, products: [], categories: [], addons: [] as PublicAddon[], total: 0, pageCount: 1 };
   }
 }
 ---
@@ -150,7 +155,7 @@ async function loadCatalog() {
         <div class="catalog-story">
           <ProductStory />
         </div>
-        {loaded.products.length > 0 && <OrderDialog />}
+        {loaded.products.length > 0 && <OrderDialog addons={loaded.addons} />}
       </main>
     )
   }

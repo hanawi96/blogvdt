@@ -1,8 +1,10 @@
 ---
 import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
+import { addonShipHint, type PublicAddon } from '../../features/products/addons';
 import { TAG_NAME_MAX } from '../../features/products/tag-name';
 import { WEIGHT_SCALES, weightExtras } from '../../features/products/weight';
 import { routes } from '../../lib/routes';
+import AddonPicker from './AddonPicker.astro';
 import AddressField from './AddressField.astro';
 import DiscountCodeField from './DiscountCodeField.astro';
 import PaymentField from './PaymentField.astro';
@@ -10,8 +12,15 @@ import QtyStepper from './QtyStepper.astro';
 
 // Modal đặt hàng dùng chung cho cả trang. Nút [data-order-open] truyền sản phẩm vào modal;
 // khi tắt JS, nút vẫn là link tới /dat-hang nên đặt hàng không bị chặn.
+interface Props {
+  addons?: PublicAddon[];
+}
+
+const { addons = [] } = Astro.props;
 const scaleGroups = Object.entries(WEIGHT_SCALES).filter(([, labels]) => labels.length > 0);
 const babyExtras = weightExtras('baby');
+const showAddons = addons.length > 0;
+const addonHint = addonShipHint(0);
 ---
 
 <dialog id="order-dialog" class="order-dialog" aria-labelledby="order-dialog-title">
@@ -66,6 +75,13 @@ const babyExtras = weightExtras('baby');
       Tên cần in lên thẻ
       <input id="od-tag" class="field mt-1" name="tagName" maxlength={TAG_NAME_MAX} autocomplete="off" placeholder="Ví dụ: Minh An" data-od-tag disabled />
     </label>
+    {
+      showAddons && (
+        <div class="order-dialog-addons" data-od-addons hidden>
+          <AddonPicker addons={addons} hint={addonHint} idPrefix="od-addon" class="mt-3" />
+        </div>
+      )
+    }
     <PaymentField small />
     <label class="mt-3 block text-sm font-semibold" for="od-name">
       Họ tên
@@ -82,11 +98,12 @@ const babyExtras = weightExtras('baby');
     </label>
     <DiscountCodeField id="od-discount" />
     <p class="order-total">Tạm tính <strong data-od-total data-payable-amount="0"></strong></p>
-    <p class="mt-2 text-sm text-muted">Xưởng gọi lại để chốt đơn. Website không thu tiền trực tuyến.</p>
     <button class="btn btn-primary mt-4 w-full" type="submit">Gửi đơn</button>
   </form>
 </dialog>
 <script>
+  // Chỉ import module thuần — không kéo addons.ts (DB/Drizzle) vào bundle client.
+  import { addonShipHint, addonShipHintText } from '../../features/products/addon-hint';
   import { productRequiresTagName } from '../../features/products/tag-name';
   import { applyWeightPrice, weightOptionLabel, weightSurchargeLabel } from '../../features/products/weight';
 
@@ -107,6 +124,8 @@ const babyExtras = weightExtras('baby');
     const tagWrap = form.querySelector('[data-od-tag-wrap]');
     const tagField = form.querySelector('[data-od-tag]');
     const quantity = form.querySelector('#od-quantity');
+    const addonsWrap = form.querySelector('[data-od-addons]');
+    const addonHintEl = addonsWrap?.querySelector('.addon-picker-hint');
     const submit = form.querySelector('button[type="submit"]:not([value="apply"])');
     let price = 0;
 
@@ -117,19 +136,52 @@ const babyExtras = weightExtras('baby');
       return '';
     };
 
+    const selectedAddonGoods = (): number => {
+      let sum = 0;
+      form.querySelectorAll('input[name="addonSlug"][data-addon-toggle]:checked').forEach((node) => {
+        if (!(node instanceof HTMLInputElement)) return;
+        const addonPrice = Number(node.dataset.addonPrice || '0');
+        if (Number.isSafeInteger(addonPrice) && addonPrice > 0) sum += addonPrice;
+      });
+      return sum;
+    };
+
+    const resetAddons = () => {
+      form.querySelectorAll<HTMLInputElement>('input[name="addonSlug"][data-addon-toggle]').forEach((input) => {
+        input.checked = false;
+        const card = input.closest('[data-addon-card]');
+        const button = card?.querySelector('[data-addon-confirm-open]');
+        const mark = button?.querySelector('span[aria-hidden="true"]');
+        if (mark) mark.textContent = '+';
+        button?.classList.remove('is-added');
+        if (button instanceof HTMLButtonElement) {
+          button.setAttribute('aria-pressed', 'false');
+          const name = card instanceof HTMLElement ? card.dataset.addonName || 'Bó dâu' : 'Bó dâu';
+          button.setAttribute('aria-label', `Thêm ${name}`);
+          button.title = 'Thêm bán kèm';
+        }
+        card?.classList.remove('is-selected');
+      });
+    };
+
     const paintTotal = () => {
       if (!(total instanceof HTMLElement) || !(quantity instanceof HTMLInputElement)) return;
       const weight = selectedWeight();
       const unit = price > 0 ? applyWeightPrice(price, weight) : 0;
       const count = Number(quantity.value);
       const valid = Number.isInteger(count) && count >= 1;
-      total.textContent = valid ? money.format(unit * count) : '—';
-      total.dataset.payableAmount = valid ? String(unit * count) : '0';
+      const braceletGoods = valid ? unit * count : 0;
+      const goods = braceletGoods + selectedAddonGoods();
+      total.textContent = valid ? money.format(goods) : '—';
+      total.dataset.payableAmount = valid ? String(goods) : '0';
       if (priceText instanceof HTMLElement && unit > 0) priceText.textContent = money.format(unit);
       const surcharge = weightSurchargeLabel(weight, price);
       if (weightNote instanceof HTMLElement) {
         weightNote.hidden = !(surcharge && unit > 0);
         weightNote.textContent = surcharge && unit > 0 ? `Vòng lớn hơn, cộng ${surcharge} nguyên liệu → ${money.format(unit)}/chiếc` : '';
+      }
+      if (addonHintEl && addonsWrap instanceof HTMLElement && !addonsWrap.hidden) {
+        addonHintEl.textContent = addonShipHintText(addonShipHint(braceletGoods));
       }
     };
 
@@ -192,6 +244,14 @@ const babyExtras = weightExtras('baby');
         tagField.required = needsTag;
         tagField.value = '';
       }
+      // Badge free / with-addon chỉ gắn vòng → hiện bán kèm; bạc/bó riêng thì ẩn.
+      const shipBadge = trigger.dataset.shipBadge ?? 'none';
+      const allowAddons = shipBadge === 'free' || shipBadge === 'with-addon';
+      if (addonsWrap instanceof HTMLElement) {
+        addonsWrap.hidden = !allowAddons;
+        resetAddons();
+        if (addonHintEl) addonHintEl.textContent = addonShipHintText(addonShipHint(price));
+      }
       paintTotal();
     };
 
@@ -208,6 +268,7 @@ const babyExtras = weightExtras('baby');
     });
 
     quantity?.addEventListener('input', paintTotal);
+    form.addEventListener('addon-change', paintTotal);
     if (moreBtn instanceof HTMLButtonElement && extraWrap instanceof HTMLElement) {
       moreBtn.addEventListener('click', () => {
         extraWrap.hidden = !extraWrap.hidden;

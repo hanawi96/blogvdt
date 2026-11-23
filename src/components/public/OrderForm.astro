@@ -1,6 +1,12 @@
 ---
+import AddonPicker from './AddonPicker.astro';
 import AddressField from './AddressField.astro';
 import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
+import {
+  addonShipHint,
+  type AddonShipHint,
+  type PublicAddon,
+} from '../../features/products/addons';
 import { productRequiresTagName, TAG_NAME_MAX } from '../../features/products/tag-name';
 import { requiresWeight, weightChips, weightExtras, weightOptionLabel, type WeightScale } from '../../features/products/weight';
 import DiscountCodeField from './DiscountCodeField.astro';
@@ -25,6 +31,8 @@ interface Props {
     weight: string;
     paymentMethod: string;
     discountCode?: string;
+    addonSlug?: string;
+    addonSlugs?: string[];
   };
   errors?: FieldErrors;
   quote?: { code: string; discountAmount: number; totalPrice: number } | null;
@@ -34,11 +42,27 @@ interface Props {
   /** Phí ship gốc (trước miễn ship) — dùng cập nhật live khi đổi SL/cân nặng. */
   shipBaseFee?: number;
   shipGroup?: ShipGroup;
+  addons?: PublicAddon[];
+  addonHint?: AddonShipHint;
+  /** false khi trang SP đã có modal xác nhận bán kèm. */
+  addonConfirmDialog?: boolean;
 }
 
 const {
   product,
-  values = { customerName: '', phone: '', address: '', note: '', tagName: '', quantity: '1', weight: '', paymentMethod: '', discountCode: '' },
+  values = {
+    customerName: '',
+    phone: '',
+    address: '',
+    note: '',
+    tagName: '',
+    quantity: '1',
+    weight: '',
+    paymentMethod: '',
+    discountCode: '',
+    addonSlug: '',
+    addonSlugs: [],
+  },
   errors = {},
   quote = null,
   landing = '',
@@ -46,7 +70,11 @@ const {
   goodsTotal = 0,
   shipBaseFee = 0,
   shipGroup = 'other',
+  addons = [],
+  addonHint = addonShipHint(goodsTotal),
+  addonConfirmDialog = true,
 } = Astro.props;
+const showAddons = shipGroup === 'bracelet' && addons.length > 0;
 const chips = weightChips(product.weightScale);
 const extras = weightExtras(product.weightScale);
 const hasWeight = requiresWeight(product.weightScale);
@@ -113,6 +141,27 @@ const showSummary = Boolean(shipping) && (goodsTotal > 0 || (typeof product.pric
         <input id="tag-name" class="field" name="tagName" required maxlength={TAG_NAME_MAX} autocomplete="off" placeholder="Ví dụ: Minh An" value={values.tagName ?? ''} />
         {errors.tagName && <span class="error-text">{errors.tagName}</span>}
       </label>
+    )
+  }
+  {
+    showAddons && (
+      <>
+        <AddonPicker
+          addons={addons}
+          hint={addonHint}
+          selectedSlugs={
+            values.addonSlugs && values.addonSlugs.length > 0
+              ? values.addonSlugs
+              : values.addonSlug
+                ? [values.addonSlug]
+                : []
+          }
+          idPrefix="order-addon"
+          confirmDialog={addonConfirmDialog}
+          class="mt-4"
+        />
+        {errors.addonSlug && <span class="error-text mt-1 block">{errors.addonSlug}</span>}
+      </>
     )
   }
   <PaymentField value={values.paymentMethod} error={errors.paymentMethod} />
@@ -208,7 +257,18 @@ const showSummary = Boolean(shipping) && (goodsTotal > 0 || (typeof product.pric
       return '';
     };
 
-    // Đồng bộ số tiền hiển thị, phụ thu, phí ship và QR theo cân nặng + số lượng.
+    const selectedAddons = (): { price: number }[] => {
+      const rows: { price: number }[] = [];
+      form.querySelectorAll('input[name="addonSlug"]:checked').forEach((node) => {
+        if (!(node instanceof HTMLInputElement) || !node.value) return;
+        const price = Number(node.dataset.addonPrice || '0');
+        if (!Number.isSafeInteger(price) || price < 0) return;
+        rows.push({ price });
+      });
+      return rows;
+    };
+
+    // Đồng bộ số tiền hiển thị, phụ thu, phí ship và QR theo cân nặng + số lượng + bán kèm.
     const sync = () => {
       const weight = selectedWeight();
       const unit = basePrice > 0 ? applyWeightPrice(basePrice, weight) : 0;
@@ -224,16 +284,26 @@ const showSummary = Boolean(shipping) && (goodsTotal > 0 || (typeof product.pric
       }
       const count = quantity instanceof HTMLInputElement ? Number(quantity.value) : 1;
       const qty = Number.isInteger(count) && count >= 1 ? count : 1;
-      const goods = unit > 0 ? unit * qty : 0;
+      const mainGoods = unit > 0 ? unit * qty : 0;
+      const addonsPicked = selectedAddons();
+      const addonGoods = addonsPicked.reduce((sum, item) => sum + item.price, 0);
+      const goods = mainGoods + addonGoods;
       const afterDiscount = Math.max(0, goods - discountAmount);
+      const shipLines: { group: ShipGroup; lineTotal: number }[] = [
+        { group: shipGroup, lineTotal: mainGoods },
+        ...addonsPicked.map((item) => ({ group: 'addon' as const, lineTotal: item.price })),
+      ];
       const shipping = resolveCustomerShippingFee({
-        lines: [{ group: shipGroup, lineTotal: afterDiscount > 0 ? afterDiscount : goods }],
+        lines: shipLines,
         baseFee: shipBase,
       });
       const payable = afterDiscount + shipping.fee;
       if (amountEl instanceof HTMLElement) {
         amountEl.dataset.payableAmount = String(payable > 0 ? payable : unit);
       }
+      // Sticky bar trang SP: cập nhật tổng hàng (vòng + bán kèm) khi đổi lựa chọn.
+      const stickyPrice = document.querySelector('[data-product-sticky-price]');
+      if (stickyPrice) stickyPrice.textContent = money.format(goods > 0 ? goods : unit);
       if (!(shipRoot instanceof HTMLElement)) return;
       const goodsOut = shipRoot.querySelector('[data-order-goods]');
       if (goodsOut) goodsOut.textContent = money.format(goods);
@@ -291,6 +361,10 @@ const showSummary = Boolean(shipping) && (goodsTotal > 0 || (typeof product.pric
     form.querySelectorAll('[data-qty-dec], [data-qty-inc]').forEach((button) => {
       button.addEventListener('click', () => window.requestAnimationFrame(sync));
     });
+    form.querySelectorAll('input[name="addonSlug"]').forEach((input) => {
+      input.addEventListener('change', sync);
+    });
+    form.addEventListener('addon-change', sync);
     sync();
 
     form.addEventListener('submit', (event) => {

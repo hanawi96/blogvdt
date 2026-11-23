@@ -205,7 +205,7 @@ function boot() {
         <p class="home-shop-price"><span class="home-shop-price-now">${formatVnd(product.price)}</span>${compare}</p>
         ${shipBadge}
         <div class="home-shop-actions">
-          <a class="btn btn-primary home-shop-buy" href="${orderHref}" data-order-open data-slug="${escapeHtml(product.slug)}" data-name="${name}" data-price="${product.price}" data-scale="${escapeHtml(product.weightScale)}" data-cover="${escapeHtml(product.coverUrl ?? '')}">${buyIcon} Mua ngay</a>
+          <a class="btn btn-primary home-shop-buy" href="${orderHref}" data-order-open data-slug="${escapeHtml(product.slug)}" data-name="${name}" data-price="${product.price}" data-scale="${escapeHtml(product.weightScale)}" data-cover="${escapeHtml(product.coverUrl ?? '')}" data-ship-badge="${escapeHtml(product.shipBadge ?? 'none')}">${buyIcon} Mua ngay</a>
           ${cart}
         </div>
       </div>

@@ -3,12 +3,21 @@ import AddressField from '../components/public/AddressField.astro';
 import DataError from '../components/public/DataError.astro';
 import DiscountCodeField from '../components/public/DiscountCodeField.astro';
 import PaymentField from '../components/public/PaymentField.astro';
+import AddonPicker from '../components/public/AddonPicker.astro';
 import { addCartLine, CART_COOKIE, CART_MAX_NOTE, CART_MAX_QUANTITY, cartCookieOptions, parseCart, postedCartLines, serializeCart, type CartLine } from '../features/cart/cart';
 import { applyDiscount, type DiscountQuote } from '../features/discounts/quote';
 import { priceDiscount } from '../features/discounts/discounts';
 import { listOrderCosts } from '../features/costs/order-costs';
 import { parseCartOrder, type CatalogProduct } from '../features/orders/order';
 import { placeCartOrder, placeOrder } from '../features/orders/orders';
+import {
+  addonShipHint,
+  cartShowsAddonUpsell,
+  findAddonInCatalog,
+  findAddonsInCatalog,
+  listPublicAddons,
+  type PublicAddon,
+} from '../features/products/addons';
 import { listOrderCatalog } from '../features/products/public';
 import { productRequiresTagName, TAG_NAME_MAX } from '../features/products/tag-name';
 import { applyWeightPrice, isValidWeight, requiresWeight, weightSurchargeLabel } from '../features/products/weight';
@@ -68,15 +77,46 @@ if (Astro.request.method === 'POST') {
       note: tagName,
     });
     const product = loaded.catalog.find((item) => item.slug === read('slug'));
+    const addonRaws = strings(form, 'addonSlug');
+    const pickedAddons = findAddonsInCatalog(addonRaws, loaded.catalog);
     if (!added.ok) formError = added.error;
     else if (!product) formError = 'Sản phẩm không còn bán.';
     else if (requiresWeight(product.weightScale) && !read('weight').trim()) formError = 'Chọn cân nặng cho bé.';
     else if (!isValidWeight(product.weightScale, read('weight'))) formError = 'Cân nặng không hợp lệ.';
     else if (productRequiresTagName(product.name) && !tagName) formError = 'Nhập tên cần in lên thẻ.';
     else if (productRequiresTagName(product.name) && tagName.length > TAG_NAME_MAX) formError = `Tên in thẻ tối đa ${TAG_NAME_MAX} ký tự.`;
+    else if (addonRaws.length > 0 && pickedAddons.length !== [...new Set(addonRaws.map((item) => item.trim()).filter(Boolean))].length) {
+      formError = 'Bó dâu bán kèm không còn bán.';
+    } else {
+      let next = added.lines;
+      let failed = '';
+      for (const addon of pickedAddons) {
+        const withAddon = addCartLine(next, { slug: addon.slug, quantity: 1, weight: '', note: '' });
+        if (!withAddon.ok) {
+          failed = withAddon.error;
+          break;
+        }
+        next = withAddon.lines;
+      }
+      if (failed) formError = failed;
+      else {
+        remember(next);
+        return Astro.redirect(routes.cart, 303);
+      }
+    }
+  } else if (intent === 'add-addon' || intent.startsWith('add-addon:')) {
+    const posted = linesFrom(form, 'save');
+    const addonSlug = intent.startsWith('add-addon:') ? intent.slice('add-addon:'.length) : read('addonSlug');
+    const addon = findAddonInCatalog(addonSlug, loaded.catalog);
+    if (!posted.ok) formError = posted.error;
+    else if (!addon) formError = 'Chọn bó dâu đang bán.';
     else {
-      remember(added.lines);
-      return Astro.redirect(routes.cart, 303);
+      const withAddon = addCartLine(posted.lines, { slug: addon.slug, quantity: 1, weight: '', note: '' });
+      if (!withAddon.ok) formError = withAddon.error;
+      else {
+        remember(withAddon.lines);
+        return Astro.redirect(routes.cart, 303);
+      }
     }
   } else if (intent === 'save' || intent.startsWith('remove:')) {
     const posted = linesFrom(form, intent);
@@ -209,6 +249,12 @@ const shipping = resolveCustomerShippingFee({
   baseFee: shipBaseFee,
 });
 const payable = goodsPayable + shipping.fee;
+const showAddonUpsell = cartShowsAddonUpsell(resolved) && loaded.addons.length > 0;
+const addedAddonSlugs = resolved.filter((line) => line.shipGroup === 'addon').map((line) => line.slug);
+const braceletGoods = resolved
+  .filter((line) => line.shipGroup === 'bracelet')
+  .reduce((sum, line) => sum + line.lineTotal, 0);
+const cartAddonHint = addonShipHint(braceletGoods);
 
 function linesFrom(form: FormData, intent: string): { ok: true; lines: CartLine[] } | { ok: false; error: string } {
   const slugs = strings(form, 'slug');
@@ -260,15 +306,22 @@ async function visitorHash(): Promise<string> {
   return hashIp(clientIp(Astro.request, address));
 }
 
-async function loadCart() {
+async function loadCart(): Promise<{
+  site: Awaited<ReturnType<typeof getPublicSite>>;
+  failed: boolean;
+  catalog: Awaited<ReturnType<typeof listOrderCatalog>>;
+  addons: PublicAddon[];
+  db: ReturnType<typeof createDb> | null;
+}> {
   try {
     const db = createDb(getDbBinding());
     const site = await getPublicSite(db);
-    if (!site) return { site: null, failed: false, catalog: [], db: null };
-    return { site, failed: false, catalog: await listOrderCatalog(db), db };
+    if (!site) return { site: null, failed: false, catalog: [], addons: [], db: null };
+    const [catalog, addons] = await Promise.all([listOrderCatalog(db), listPublicAddons(db)]);
+    return { site, failed: false, catalog, addons, db };
   } catch (error) {
     console.error(JSON.stringify({ event: 'cart_load_failed', name: error instanceof Error ? error.name : 'unknown' }));
-    return { site: null, failed: true, catalog: [], db: null };
+    return { site: null, failed: true, catalog: [], addons: [], db: null };
   }
 }
 ---
@@ -445,6 +498,18 @@ async function loadCart() {
               <div class="cart-tools">
                 <a href={routes.catalog}>← Xem thêm mẫu</a>
               </div>
+              {
+                showAddonUpsell && (
+                  <AddonPicker
+                    addons={loaded.addons}
+                    hint={cartAddonHint}
+                    addedSlugs={addedAddonSlugs}
+                    upsell
+                    idPrefix="cart-addon"
+                    class="mt-5"
+                  />
+                )
+              }
             </div>
             <section class="cart-card cart-checkout" aria-labelledby="cart-checkout-title">
               <h2 id="cart-checkout-title" class="cart-card-title text-lg font-semibold">Thông tin nhận hàng</h2>
@@ -510,7 +575,18 @@ async function loadCart() {
   }
 </PublicLayout>
 <script>
-  import { CART_COOKIE, CART_MAX_AGE, cartCount, postedCartLines, serializeCart, type CartLine } from '../features/cart/cart';
+  import {
+    addCartLine,
+    CART_COOKIE,
+    CART_MAX_AGE,
+    CART_MAX_NOTE,
+    CART_MAX_QUANTITY,
+    cartCount,
+    parseCart,
+    postedCartLines,
+    serializeCart,
+    type CartLine,
+  } from '../features/cart/cart';
   import { resolveCustomerShippingFee, type ShipGroup } from '../features/shipping/customer-fee';
 
   const form = document.querySelector('form[data-cart-page]');
@@ -518,6 +594,18 @@ async function loadCart() {
     const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
     const shipRoot = form.querySelector('[data-cart-ship]');
     const shipBase = shipRoot instanceof HTMLElement ? Number(shipRoot.dataset.shipBase || '0') : 0;
+    const cartList = form.querySelector('.cart-list');
+
+    const readCookie = (): CartLine[] => {
+      const raw = document.cookie.split('; ').find((part) => part.startsWith(`${CART_COOKIE}=`));
+      if (!raw) return [];
+      const value = raw.slice(CART_COOKIE.length + 1);
+      try {
+        return parseCart(value.includes('%') ? decodeURIComponent(value) : value);
+      } catch {
+        return [];
+      }
+    };
 
     // Tính lại tiền từng dòng, phí ship và tổng ngay khi đổi số lượng (server vẫn tính lại khi gửi).
     const recalc = (goodsPayable?: number) => {
@@ -552,9 +640,12 @@ async function loadCart() {
       }
       const countOut = document.querySelector('[data-cart-sum-count]');
       if (countOut) countOut.textContent = String(pieces);
+      const linesOut = document.querySelector('[data-cart-sum-lines]');
+      const remaining = form.querySelectorAll('[data-cart-item]').length;
+      if (linesOut) linesOut.textContent = `${remaining} mẫu`;
     };
 
-    form.querySelectorAll<HTMLButtonElement>('[data-qty-step]').forEach((button) => {
+    const bindQtyButton = (button: HTMLButtonElement) => {
       button.hidden = false;
       button.addEventListener('click', () => {
         const input = button.closest('.qty')?.querySelector('input[name="quantity"]');
@@ -566,7 +657,9 @@ async function loadCart() {
         markQuoteStale();
         persist();
       });
-    });
+    };
+    form.querySelectorAll<HTMLButtonElement>('[data-qty-step]').forEach(bindQtyButton);
+
     const store = (lines: CartLine[]) => {
       const secure = location.protocol === 'https:' ? '; Secure' : '';
       const maxAge = lines.length === 0 ? 0 : CART_MAX_AGE;
@@ -591,6 +684,171 @@ async function loadCart() {
       const notes = items.map((item) => (item.querySelector('input[name="lineNote"]') as HTMLInputElement | null)?.value ?? '');
       const posted = postedCartLines(slugs, quantities, weights, notes);
       if (posted.ok) store(posted.lines);
+    };
+
+    const setAddonButtonState = (slug: string, added: boolean) => {
+      const card = form.querySelector(`[data-addon-card="${CSS.escape(slug)}"]`);
+      const button = card?.querySelector('.addon-add-icon');
+      if (!(button instanceof HTMLButtonElement)) return;
+      const name = card instanceof HTMLElement ? card.dataset.addonName || 'Bó dâu' : 'Bó dâu';
+      button.classList.toggle('is-added', added);
+      button.disabled = added;
+      button.title = added ? 'Đã thêm' : 'Thêm vào giỏ';
+      button.setAttribute('aria-label', added ? `${name} đã có trong giỏ` : `Thêm ${name} vào giỏ`);
+      const mark = button.querySelector('span');
+      if (mark) mark.textContent = added ? '✓' : '+';
+    };
+
+    const syncAddonButtons = () => {
+      const inCart = new Set(
+        [...form.querySelectorAll<HTMLInputElement>('[data-cart-item] input[name="slug"]')]
+          .map((input) => input.value)
+          .filter(Boolean),
+      );
+      form.querySelectorAll<HTMLElement>('[data-addon-card]').forEach((card) => {
+        const slug = card.dataset.addonCard;
+        if (!slug) return;
+        setAddonButtonState(slug, inCart.has(slug));
+      });
+    };
+
+    const appendAddonLine = (card: HTMLElement) => {
+      if (!(cartList instanceof HTMLElement)) return;
+      const slug = card.dataset.addonCard ?? '';
+      const name = card.dataset.addonName ?? '';
+      const price = Number(card.dataset.addonPrice || '0');
+      const cover = card.dataset.addonCover ?? '';
+      const href = card.dataset.addonHref || `/san-pham/${slug}`;
+      if (!slug || !name || !Number.isSafeInteger(price) || price < 0) return;
+
+      const index = form.querySelectorAll('[data-cart-item]').length;
+      const noteId = `cart-note-${index}-${slug}`;
+      const item = document.createElement('li');
+      item.className = 'cart-item';
+      item.dataset.cartItem = '';
+      item.dataset.price = String(price);
+      item.dataset.shipGroup = 'addon';
+
+      const main = document.createElement('div');
+      main.className = 'cart-item-main';
+      if (cover) {
+        const img = document.createElement('img');
+        img.className = 'cart-thumb';
+        img.src = cover;
+        img.alt = name;
+        img.width = 88;
+        img.height = 88;
+        img.loading = 'lazy';
+        main.append(img);
+      } else {
+        const thumb = document.createElement('span');
+        thumb.className = 'cart-thumb';
+        thumb.setAttribute('aria-hidden', 'true');
+        main.append(thumb);
+      }
+
+      const info = document.createElement('div');
+      info.className = 'cart-info';
+      const link = document.createElement('a');
+      link.className = 'cart-name';
+      link.href = href;
+      link.textContent = name;
+      const slugInput = document.createElement('input');
+      slugInput.type = 'hidden';
+      slugInput.name = 'slug';
+      slugInput.value = slug;
+      const weightInput = document.createElement('input');
+      weightInput.type = 'hidden';
+      weightInput.name = 'weight';
+      weightInput.value = '';
+      const priceRow = document.createElement('p');
+      priceRow.className = 'cart-price-row';
+      const priceNow = document.createElement('span');
+      priceNow.className = 'cart-price-now';
+      priceNow.textContent = money.format(price);
+      priceRow.append(priceNow);
+      info.append(link, slugInput, weightInput, priceRow);
+
+      const qtyWrap = document.createElement('div');
+      qtyWrap.className = 'cart-qty-wrap';
+      const qty = document.createElement('div');
+      qty.className = 'qty';
+      qty.setAttribute('aria-label', `Số lượng ${name}`);
+      const dec = document.createElement('button');
+      dec.className = 'qty-btn';
+      dec.type = 'button';
+      dec.dataset.qtyStep = '-1';
+      dec.setAttribute('aria-label', `Giảm số lượng ${name}`);
+      dec.textContent = '−';
+      const qtyInput = document.createElement('input');
+      qtyInput.className = 'qty-input';
+      qtyInput.name = 'quantity';
+      qtyInput.type = 'number';
+      qtyInput.inputMode = 'numeric';
+      qtyInput.min = '1';
+      qtyInput.max = String(CART_MAX_QUANTITY);
+      qtyInput.required = true;
+      qtyInput.value = '1';
+      qtyInput.setAttribute('aria-label', `Số lượng ${name}`);
+      const inc = document.createElement('button');
+      inc.className = 'qty-btn';
+      inc.type = 'button';
+      inc.dataset.qtyStep = '1';
+      inc.setAttribute('aria-label', `Tăng số lượng ${name}`);
+      inc.textContent = '+';
+      qty.append(dec, qtyInput, inc);
+      const lineTotal = document.createElement('p');
+      lineTotal.className = 'cart-line-total';
+      lineTotal.dataset.lineTotal = '';
+      lineTotal.textContent = money.format(price);
+      qtyWrap.append(qty, lineTotal);
+      main.append(info, qtyWrap);
+
+      const foot = document.createElement('div');
+      foot.className = 'cart-item-foot';
+      const noteOpen = document.createElement('button');
+      noteOpen.className = 'cart-note-open';
+      noteOpen.type = 'button';
+      noteOpen.dataset.cartNoteOpen = '';
+      noteOpen.textContent = '+ Thêm lưu ý cho sản phẩm';
+      const noteLabel = document.createElement('label');
+      noteLabel.className = 'cart-note';
+      noteLabel.htmlFor = noteId;
+      noteLabel.hidden = true;
+      noteLabel.dataset.cartNoteWrap = '';
+      const noteInput = document.createElement('input');
+      noteInput.id = noteId;
+      noteInput.className = 'field cart-note-input';
+      noteInput.name = 'lineNote';
+      noteInput.type = 'text';
+      noteInput.maxLength = CART_MAX_NOTE;
+      noteInput.value = '';
+      noteInput.autocomplete = 'off';
+      noteInput.placeholder = 'Ghi chú thêm…';
+      noteInput.dataset.cartNote = '';
+      noteInput.setAttribute('aria-label', `Lưu ý — ${name}`);
+      const noteIcon = document.createElement('span');
+      noteIcon.className = 'cart-note-icon';
+      noteIcon.setAttribute('aria-hidden', 'true');
+      const noteLabelText = document.createElement('span');
+      noteLabelText.className = 'cart-note-label';
+      noteLabelText.textContent = 'Lưu ý';
+      noteLabel.append(noteIcon, noteLabelText, noteInput);
+      const remove = document.createElement('button');
+      remove.className = 'cart-remove';
+      remove.type = 'submit';
+      remove.name = 'intent';
+      remove.value = `remove:${index}`;
+      remove.formNoValidate = true;
+      remove.setAttribute('aria-label', `Xóa ${name}`);
+      remove.title = 'Xóa';
+      remove.innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>';
+      foot.append(noteOpen, noteLabel, remove);
+      item.append(main, foot);
+      cartList.append(item);
+      bindQtyButton(dec);
+      bindQtyButton(inc);
     };
     let saveTimer = 0;
     let applySerial = 0;
@@ -700,10 +958,10 @@ async function loadCart() {
       if (!(button instanceof HTMLButtonElement)) return;
       if (button.value.startsWith('remove:')) {
         event.preventDefault();
-        button.closest('[data-cart-item]')?.remove();
-        const linesOut = document.querySelector('[data-cart-sum-lines]');
+        const row = button.closest('[data-cart-item]');
+        row?.remove();
         const remaining = form.querySelectorAll('[data-cart-item]').length;
-        if (linesOut) linesOut.textContent = `${remaining} mẫu`;
+        syncAddonButtons();
         recalc();
         markQuoteStale();
         persist();
@@ -714,13 +972,49 @@ async function loadCart() {
         event.preventDefault();
         void previewDiscount(button);
       }
+      // Icon +: thêm bó vào giỏ, đánh dấu ✓, không reload — vẫn thêm được bó còn lại.
+      if (button.value === 'add-addon' || button.value.startsWith('add-addon:')) {
+        event.preventDefault();
+        if (button.disabled || button.classList.contains('is-added')) return;
+        const slug =
+          button.value.startsWith('add-addon:') ? button.value.slice('add-addon:'.length).trim() : '';
+        const card = button.closest('[data-addon-card]');
+        if (!slug || !(card instanceof HTMLElement)) {
+          window.alert('Chọn bó dâu để thêm vào giỏ.');
+          return;
+        }
+        persist();
+        const added = addCartLine(readCookie(), {
+          slug,
+          quantity: 1,
+          weight: '',
+          note: '',
+        });
+        if (!added.ok) {
+          window.alert(added.error);
+          return;
+        }
+        store(added.lines);
+        const alreadyInDom = [...form.querySelectorAll<HTMLInputElement>('[data-cart-item] input[name="slug"]')].some(
+          (input) => input.value === slug,
+        );
+        if (!alreadyInDom) appendAddonLine(card);
+        setAddonButtonState(slug, true);
+        recalc();
+        markQuoteStale();
+      }
     });
 
-    // Chặn bấm "Gửi đơn" hai lần; không vô hiệu hóa nút vì giá trị intent cần được gửi đi.
+    // Chỉ cho POST "Gửi đơn" (và no-JS add-addon). Chặn submit ẩn / Enter làm mất intent.
     let sending = false;
     form.addEventListener('submit', (event) => {
       const submitter = event instanceof SubmitEvent ? event.submitter : null;
-      if (!(submitter instanceof HTMLButtonElement) || submitter.value !== 'order') {
+      if (!(submitter instanceof HTMLButtonElement)) {
+        event.preventDefault();
+        return;
+      }
+      if (submitter.value === 'add-addon' || submitter.value.startsWith('add-addon:')) return;
+      if (submitter.value !== 'order') {
         event.preventDefault();
         return;
       }

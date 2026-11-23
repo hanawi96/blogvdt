@@ -388,7 +388,6 @@ body.is-auth .panel-status:not([hidden]) {
 }
 
 .btn {
-  border: 1px solid var(--line);
   border-radius: 0.5rem;
   padding: 0.4rem 0.7rem;
   background: #fff;

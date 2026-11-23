@@ -1,0 +1,332 @@
+---
+import {
+  addonShipHintText,
+  recommendedAddonSlug,
+  type AddonShipHint,
+  type PublicAddon,
+} from '../../features/products/addons';
+import { formatVnd } from '../../lib/money';
+import { routes } from '../../lib/routes';
+
+interface Props {
+  addons: PublicAddon[];
+  hint: AddonShipHint;
+  /** @deprecated Dùng selectedSlugs. */
+  selected?: string;
+  /** Slug đang chọn (trang SP / đặt hàng — chọn nhiều). */
+  selectedSlugs?: readonly string[];
+  /** Khi true: thẻ bó + nút thêm nhanh (giỏ), không có checkbox. */
+  upsell?: boolean;
+  /** Slug bó đã có trong giỏ — hiện icon đã thêm. */
+  addedSlugs?: readonly string[];
+  /** Gắn input vào form khác (vd. form thêm giỏ). */
+  form?: string;
+  name?: string;
+  idPrefix?: string;
+  /** Render modal xác nhận (chỉ một lần / trang). */
+  confirmDialog?: boolean;
+  class?: string;
+}
+
+const {
+  addons,
+  hint,
+  selected = '',
+  selectedSlugs,
+  upsell = false,
+  addedSlugs = [],
+  form,
+  name = 'addonSlug',
+  idPrefix = 'addon',
+  confirmDialog = !upsell,
+  class: className,
+} = Astro.props;
+
+const recommended = recommendedAddonSlug(addons);
+const added = new Set(addedSlugs);
+const chosen = new Set(
+  selectedSlugs && selectedSlugs.length > 0
+    ? selectedSlugs
+    : selected
+      ? [selected]
+      : [],
+);
+const showConfirmDialog = Boolean(confirmDialog) && !upsell && addons.length > 0;
+---
+
+{
+  addons.length > 0 && (
+    <fieldset
+      class:list={['addon-picker', className]}
+      data-addon-picker
+      data-addon-hint={hint}
+      data-addon-upsell={upsell ? 'true' : undefined}
+      data-addon-multi={upsell ? undefined : 'true'}
+      data-addon-need-confirm={upsell ? undefined : 'true'}
+    >
+      <legend class="addon-picker-title">Mua kèm bó dâu để giường?</legend>
+      <div class="addon-picker-panel">
+        <p class="addon-picker-hint">{addonShipHintText(hint)}</p>
+        <ul class="addon-picker-grid" aria-label="Bó dâu bán kèm">
+          {
+            addons.map((addon) => {
+              const isRecommended = recommended === addon.slug;
+              const isAdded = upsell && added.has(addon.slug);
+              const isChosen = !upsell && chosen.has(addon.slug);
+              const inputId = `${idPrefix}-${addon.slug}`;
+              const priceText = formatVnd(addon.price);
+              return (
+                <li
+                  class:list={['addon-option', 'addon-option-upsell', (isAdded || isChosen) && 'is-selected']}
+                  data-addon-card={addon.slug}
+                  data-addon-name={addon.name}
+                  data-addon-price={addon.price}
+                  data-addon-price-text={priceText}
+                  data-addon-cover={addon.coverUrl ?? ''}
+                  data-addon-href={routes.product(addon.slug)}
+                >
+                  <div class="addon-option-body">
+                    {addon.coverUrl ? (
+                      <img
+                        class="addon-option-thumb"
+                        src={addon.coverUrl}
+                        alt=""
+                        width="48"
+                        height="48"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <span class="addon-option-thumb addon-option-thumb-empty" aria-hidden="true" />
+                    )}
+                    <span class="addon-option-copy">
+                      <span class="addon-option-badge-slot">
+                        {isRecommended ? <span class="addon-option-badge">Nhiều mẹ chọn</span> : null}
+                      </span>
+                      <span class="addon-option-name">{addon.name}</span>
+                      <span class="addon-option-price">{priceText}</span>
+                    </span>
+                    {
+                      upsell ? (
+                        <button
+                          class:list={['addon-add-icon', isAdded && 'is-added']}
+                          type="submit"
+                          name="intent"
+                          value={`add-addon:${addon.slug}`}
+                          formnovalidate
+                          disabled={isAdded}
+                          aria-label={isAdded ? `${addon.name} đã có trong giỏ` : `Thêm ${addon.name} vào giỏ`}
+                          title={isAdded ? 'Đã thêm' : 'Thêm vào giỏ'}
+                        >
+                          <span aria-hidden="true">{isAdded ? '✓' : '+'}</span>
+                        </button>
+                      ) : (
+                        <>
+                          <input
+                            id={inputId}
+                            class="sr-only"
+                            type="checkbox"
+                            name={name}
+                            value={addon.slug}
+                            checked={isChosen}
+                            form={form}
+                            data-addon-price={addon.price}
+                            data-addon-toggle
+                            tabindex="-1"
+                          />
+                          <button
+                            class:list={['addon-add-icon', isChosen && 'is-added']}
+                            type="button"
+                            data-addon-confirm-open={addon.slug}
+                            aria-pressed={isChosen ? 'true' : 'false'}
+                            aria-label={isChosen ? `${addon.name} đã chọn — bấm để bỏ` : `Thêm ${addon.name}`}
+                            title={isChosen ? 'Đã chọn — bấm để bỏ' : 'Thêm bán kèm'}
+                          >
+                            <span aria-hidden="true">{isChosen ? '✓' : '+'}</span>
+                          </button>
+                        </>
+                      )
+                    }
+                  </div>
+                </li>
+              );
+            })
+          }
+        </ul>
+      </div>
+    </fieldset>
+  )
+}
+
+{
+  showConfirmDialog && (
+    <dialog id="addon-confirm-dialog" class="add-dialog addon-confirm-dialog" aria-labelledby="addon-confirm-title">
+      <div class="add-form">
+        <div class="add-head">
+          <p id="addon-confirm-title" class="font-semibold">Thêm bán kèm?</p>
+          <button class="add-close" type="button" data-addon-confirm-close aria-label="Đóng">×</button>
+        </div>
+        <div class="addon-confirm-summary">
+          <img class="addon-confirm-thumb" data-addon-confirm-thumb alt="" width="64" height="64" hidden />
+          <span class="addon-confirm-thumb addon-confirm-thumb-empty" data-addon-confirm-thumb-empty aria-hidden="true"></span>
+          <div class="min-w-0">
+            <p class="font-semibold" data-addon-confirm-name></p>
+            <p class="font-semibold text-primary-strong" data-addon-confirm-price></p>
+          </div>
+        </div>
+        <p class="addon-confirm-note">Xác nhận để thêm bó này vào đơn cùng vòng dâu.</p>
+        <div class="addon-confirm-actions">
+          <button class="btn" type="button" data-addon-confirm-close>Hủy</button>
+          <button class="btn btn-primary" type="button" data-addon-confirm-ok>Xác nhận</button>
+        </div>
+      </div>
+    </dialog>
+  )
+}
+
+{
+  !upsell && addons.length > 0 && (
+    <script>
+      const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
+
+      const paintToggle = (input: HTMLInputElement) => {
+        const card = input.closest('[data-addon-card]');
+        const button = card?.querySelector('[data-addon-confirm-open]');
+        const mark = button?.querySelector('span[aria-hidden="true"]');
+        if (mark) mark.textContent = input.checked ? '✓' : '+';
+        button?.classList.toggle('is-added', input.checked);
+        if (button instanceof HTMLButtonElement) {
+          button.setAttribute('aria-pressed', input.checked ? 'true' : 'false');
+          const name = card instanceof HTMLElement ? card.dataset.addonName || 'Bó dâu' : 'Bó dâu';
+          button.setAttribute(
+            'aria-label',
+            input.checked ? `${name} đã chọn — bấm để bỏ` : `Thêm ${name}`,
+          );
+          button.title = input.checked ? 'Đã chọn — bấm để bỏ' : 'Thêm bán kèm';
+        }
+        card?.classList.toggle('is-selected', input.checked);
+      };
+
+      const syncHiddens = () => {
+        document.querySelectorAll('[data-addon-root]').forEach((root) => {
+          if (!(root instanceof HTMLElement)) return;
+          const slugs = [
+            ...new Set(
+              [...root.querySelectorAll<HTMLInputElement>('input[name="addonSlug"][data-addon-toggle]:checked')].map(
+                (input) => input.value,
+              ),
+            ),
+          ];
+          root.querySelectorAll('[data-addon-sync-list]').forEach((list) => {
+            if (!(list instanceof HTMLElement)) return;
+            list.replaceChildren(
+              ...slugs.map((slug) => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'addonSlug';
+                input.value = slug;
+                return input;
+              }),
+            );
+          });
+          root.querySelector('form[data-order-form]')?.dispatchEvent(new Event('addon-change'));
+        });
+        // Form đặt hàng / modal mua ngay (không bọc data-addon-root).
+        document.querySelectorAll('form[data-order-form], form[data-order-dialog-form]').forEach((form) => {
+          form.dispatchEvent(new Event('addon-change'));
+        });
+      };
+
+      const setAddonChecked = (slug: string, on: boolean) => {
+        document
+          .querySelectorAll(`input[name="addonSlug"][value="${CSS.escape(slug)}"][data-addon-toggle]`)
+          .forEach((node) => {
+            if (!(node instanceof HTMLInputElement)) return;
+            node.checked = on;
+            paintToggle(node);
+          });
+        syncHiddens();
+      };
+
+      let pendingSlug = '';
+      const dialog = document.getElementById('addon-confirm-dialog');
+
+      const closeDialog = () => {
+        pendingSlug = '';
+        if (dialog instanceof HTMLDialogElement && dialog.open) dialog.close();
+      };
+
+      const fillDialog = (card: HTMLElement) => {
+        if (!(dialog instanceof HTMLDialogElement)) return;
+        const name = card.dataset.addonName || '';
+        const priceText = card.dataset.addonPriceText || money.format(Number(card.dataset.addonPrice || '0'));
+        const cover = card.dataset.addonCover || '';
+        const nameEl = dialog.querySelector('[data-addon-confirm-name]');
+        const priceEl = dialog.querySelector('[data-addon-confirm-price]');
+        const thumb = dialog.querySelector('[data-addon-confirm-thumb]');
+        const thumbEmpty = dialog.querySelector('[data-addon-confirm-thumb-empty]');
+        if (nameEl) nameEl.textContent = name;
+        if (priceEl) priceEl.textContent = priceText;
+        if (thumb instanceof HTMLImageElement) {
+          if (cover) {
+            thumb.src = cover;
+            thumb.alt = name;
+            thumb.hidden = false;
+            if (thumbEmpty instanceof HTMLElement) thumbEmpty.hidden = true;
+          } else {
+            thumb.removeAttribute('src');
+            thumb.hidden = true;
+            if (thumbEmpty instanceof HTMLElement) thumbEmpty.hidden = false;
+          }
+        }
+      };
+
+      if (!(window as unknown as { __addonConfirmBound?: boolean }).__addonConfirmBound) {
+        (window as unknown as { __addonConfirmBound?: boolean }).__addonConfirmBound = true;
+
+        document.addEventListener('click', (event) => {
+          const target = event.target instanceof Element ? event.target : null;
+          if (!target) return;
+
+          const openBtn = target.closest('[data-addon-confirm-open]');
+          if (openBtn instanceof HTMLButtonElement) {
+            event.preventDefault();
+            const slug = openBtn.getAttribute('data-addon-confirm-open')?.trim() || '';
+            const card = openBtn.closest('[data-addon-card]');
+            if (!slug || !(card instanceof HTMLElement)) return;
+            const checkbox = card.querySelector('input[data-addon-toggle]');
+            // Đã chọn → bỏ chọn ngay, không cần modal.
+            if (checkbox instanceof HTMLInputElement && checkbox.checked) {
+              setAddonChecked(slug, false);
+              return;
+            }
+            pendingSlug = slug;
+            fillDialog(card);
+            if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
+            return;
+          }
+
+          if (target.closest('[data-addon-confirm-close]')) {
+            event.preventDefault();
+            closeDialog();
+            return;
+          }
+
+          if (target.closest('[data-addon-confirm-ok]')) {
+            event.preventDefault();
+            if (pendingSlug) setAddonChecked(pendingSlug, true);
+            closeDialog();
+            return;
+          }
+
+          if (target === dialog) {
+            closeDialog();
+          }
+        });
+
+        dialog?.addEventListener('cancel', () => {
+          pendingSlug = '';
+        });
+      }
+    </script>
+  )
+}

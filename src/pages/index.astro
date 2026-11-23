@@ -3,6 +3,7 @@ import DataError from '../components/public/DataError.astro';
 import FaqSection from '../components/public/FaqSection.astro';
 import HomeProductCard from '../components/public/HomeProductCard.astro';
 import OrderDialog from '../components/public/OrderDialog.astro';
+import { listPublicAddons, type PublicAddon } from '../features/products/addons';
 import { BRACELET_PROCESS_STEPS, BRACELET_PROCESS_VIDEO_ID } from '../features/content/bracelet-process';
 import { FAQ_ITEMS } from '../features/content/faq';
 import { listHomeCatalogCategories } from '../features/products/categories';
@@ -177,6 +178,7 @@ async function loadHome(query: CatalogQuery) {
     photos: [] as Awaited<ReturnType<typeof listFeaturedProducts>>,
     feedback: [] as Awaited<ReturnType<typeof listHomeFeedback>>,
     categories: [] as Awaited<ReturnType<typeof listHomeCatalogCategories>>,
+    addons: [] as PublicAddon[],
     total: 0,
     page: 1,
     pageCount: 1,
@@ -186,11 +188,12 @@ async function loadHome(query: CatalogQuery) {
     const siteRow = await getPublicSite(db);
     if (!siteRow) return empty;
     // Query hẹp song song: cover hero, danh mục, SP trang 1, feedback rail.
-    const [photos, categories, shop, feedback] = await Promise.all([
+    const [photos, categories, shop, feedback, addons] = await Promise.all([
       listFeaturedProducts(db, HOME_PHOTO_LIMIT),
       listHomeCatalogCategories(db),
       listCatalogProducts(db, query),
       listHomeFeedback(db),
+      listPublicAddons(db),
     ]);
     return {
       site: siteRow,
@@ -199,6 +202,7 @@ async function loadHome(query: CatalogQuery) {
       feedback,
       categories,
       products: shop.products,
+      addons,
       total: shop.total,
       page: shop.page,
       pageCount: shop.pageCount,
@@ -563,7 +567,7 @@ async function loadHome(query: CatalogQuery) {
               Xem tiếp {CATALOG_PAGE_SIZE} mẫu
             </a>
           </div>
-          <OrderDialog />
+          <OrderDialog addons={loaded.addons} />
         </section>
         <script>
           import '../scripts/home-shop';

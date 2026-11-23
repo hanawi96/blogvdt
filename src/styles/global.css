@@ -6596,6 +6596,240 @@
     flex: none;
     color: var(--color-primary);
   }
+  /* fieldset chỉ bao ngữ nghĩa; hộp nền nằm ở panel — tránh legend đè border. */
+  .addon-picker {
+    margin-top: 1.25rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    min-inline-size: 0;
+  }
+  .order-dialog .addon-picker,
+  .add-dialog .addon-picker {
+    margin-top: 0.85rem;
+  }
+  .addon-picker-title {
+    display: block;
+    float: none;
+    width: 100%;
+    margin: 0 0 0.45rem;
+    padding: 0;
+    font-size: 0.98rem;
+    font-weight: 650;
+    color: var(--color-ink);
+  }
+  .addon-picker-panel {
+    container-type: inline-size;
+    container-name: addon-picker;
+    padding: 0.85rem 0.9rem;
+    border-radius: 0.85rem;
+    background: color-mix(in srgb, var(--color-surface) 88%, var(--color-primary) 12%);
+  }
+  .order-dialog .addon-picker-panel,
+  .add-dialog .addon-picker-panel {
+    padding: 0.75rem 0.8rem;
+  }
+  .addon-picker-hint {
+    margin: 0;
+    font-size: 0.86rem;
+    line-height: 1.4;
+    color: var(--color-muted);
+  }
+  .addon-picker-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+    margin-top: 0.7rem;
+    padding: 0;
+    list-style: none;
+    align-items: stretch;
+  }
+  /* Theo bề rộng panel (không theo viewport) — tránh 2 cột chật trong modal ~26rem. */
+  @container addon-picker (min-width: 34rem) {
+    .addon-picker-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.65rem;
+    }
+  }
+  @container addon-picker (min-width: 52rem) {
+    .addon-picker-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  .addon-option.is-selected .addon-option-body {
+    border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-line));
+  }
+  .addon-option {
+    position: relative;
+    display: flex;
+    margin: 0;
+    min-width: 0;
+    cursor: pointer;
+  }
+  .addon-option-upsell {
+    cursor: default;
+  }
+  .addon-option input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .addon-option-body {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    width: 100%;
+    min-height: 4.25rem;
+    padding: 0.5rem 0.45rem 0.5rem 0.55rem;
+    border-radius: 0.7rem;
+    background: var(--color-surface);
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .addon-option-none .addon-option-body {
+    justify-content: center;
+    text-align: center;
+  }
+  .addon-option:hover .addon-option-body {
+    border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-line));
+  }
+  .addon-option input:checked + .addon-option-body {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 55%, transparent);
+  }
+  .addon-option input:focus-visible + .addon-option-body {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  .addon-option-thumb {
+    flex: none;
+    width: 2.6rem;
+    height: 2.6rem;
+    object-fit: cover;
+    border-radius: 0.45rem;
+    background: color-mix(in srgb, var(--color-line) 55%, transparent);
+  }
+  .addon-option-thumb-empty {
+    display: block;
+  }
+  .addon-option-copy {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.08rem;
+  }
+  /* Khi có badge trong lưới → mọi thẻ giữ slot cùng cao. */
+  .addon-option-badge-slot {
+    display: block;
+    line-height: 1;
+  }
+  .addon-picker-grid:has(.addon-option-badge) .addon-option-badge-slot {
+    min-height: 0.95rem;
+  }
+  .addon-option-badge {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 0.68rem;
+    font-weight: 650;
+    line-height: 0.95rem;
+    color: var(--color-primary-strong);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .addon-option-name {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    font-size: 0.88rem;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--color-ink);
+  }
+  .addon-option-price {
+    font-size: 0.84rem;
+    font-weight: 650;
+    color: var(--color-primary-strong);
+  }
+  .addon-add-icon {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--color-muted);
+    font-size: 1.4rem;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      color 0.15s ease,
+      transform 0.12s ease;
+  }
+  .addon-add-icon:hover:not(:disabled):not(.is-added) {
+    color: var(--color-primary-strong);
+  }
+  .addon-add-icon:focus-visible,
+  .addon-add-icon:has(input:focus-visible) {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  .addon-add-icon:active:not(:disabled) {
+    transform: scale(0.96);
+  }
+  .addon-add-icon.is-added,
+  .addon-add-icon:disabled,
+  .addon-add-icon:has(input:checked) {
+    color: #1f7a4d;
+    font-size: 1.15rem;
+  }
+  .addon-add-icon:disabled {
+    cursor: default;
+  }
+  .addon-confirm-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.85rem;
+  }
+  .addon-confirm-thumb {
+    flex: none;
+    width: 4rem;
+    height: 4rem;
+    object-fit: cover;
+    border-radius: 0.55rem;
+    background: color-mix(in srgb, var(--color-line) 55%, transparent);
+  }
+  .addon-confirm-thumb-empty {
+    display: block;
+  }
+  .addon-confirm-note {
+    margin: 0.85rem 0 0;
+    font-size: 0.9rem;
+    line-height: 1.4;
+    color: var(--color-muted);
+  }
+  .addon-confirm-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    margin-top: 1.1rem;
+  }
+  .addon-confirm-actions .btn {
+    flex: 1 1 7rem;
+    min-height: 2.75rem;
+    justify-content: center;
+  }
   .product-cta-row {
     display: flex;
     flex-wrap: wrap;

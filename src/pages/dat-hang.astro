@@ -4,9 +4,17 @@ import OrderForm from '../components/public/OrderForm.astro';
 import { listOrderCosts } from '../features/costs/order-costs';
 import { applyDiscount } from '../features/discounts/quote';
 import { priceDiscount } from '../features/discounts/discounts';
-import { ORDER_MAX_QUANTITY, parseOrderSubmission } from '../features/orders/order';
-import { placeOrder } from '../features/orders/orders';
+import { ORDER_MAX_QUANTITY, parseCartOrder, parseOrderSubmission } from '../features/orders/order';
+import { placeCartOrder, placeOrder } from '../features/orders/orders';
+import {
+  addonShipHint,
+  findAddonsInCatalog,
+  listPublicAddons,
+  readAddonSlugFields,
+  type PublicAddon,
+} from '../features/products/addons';
 import { listOrderCatalog } from '../features/products/public';
+import { applyWeightPrice } from '../features/products/weight';
 import { getPublicSite } from '../features/settings/settings';
 import { baseCustomerShippingFee, resolveCustomerShippingFee, shipGroupOf } from '../features/shipping/customer-fee';
 import PublicLayout from '../layouts/PublicLayout.astro';
@@ -21,6 +29,7 @@ import type { DiscountQuote } from '../features/discounts/quote';
 
 let site: Awaited<ReturnType<typeof getPublicSite>> = null;
 let catalog: Awaited<ReturnType<typeof listOrderCatalog>> = [];
+let addons: PublicAddon[] = [];
 let shipBaseFee = 0;
 let failed = false;
 let db: ReturnType<typeof createDb> | null = null;
@@ -28,8 +37,14 @@ try {
   db = createDb(getDbBinding());
   site = await getPublicSite(db);
   if (site) {
-    catalog = await listOrderCatalog(db);
-    shipBaseFee = baseCustomerShippingFee(await listOrderCosts(db));
+    const [orderCatalog, publicAddons, costs] = await Promise.all([
+      listOrderCatalog(db),
+      listPublicAddons(db),
+      listOrderCosts(db),
+    ]);
+    catalog = orderCatalog;
+    addons = publicAddons;
+    shipBaseFee = baseCustomerShippingFee(costs);
   }
 } catch (error) {
   failed = true;
@@ -44,6 +59,8 @@ const read = (name: string) => {
 };
 const selectedSlug = posted ? read('productSlug') : (Astro.url.searchParams.get('san-pham') ?? '');
 const selected = catalog.find((product) => product.slug === selectedSlug) ?? null;
+const postedAddonSlugs = form ? readAddonSlugFields(form) : [];
+const pickedAddons = findAddonsInCatalog(postedAddonSlugs, catalog);
 const values = {
   customerName: read('customerName'),
   phone: read('phone'),
@@ -57,11 +74,28 @@ const values = {
   weight: read('weight'),
   paymentMethod: read('paymentMethod'),
   discountCode: read('discountCode'),
+  addonSlug: postedAddonSlugs[0] ?? '',
+  addonSlugs: postedAddonSlugs,
 };
 const landing = read('landing');
 let errors: FieldErrors = {};
 let formError = '';
 let quote: DiscountQuote | null = null;
+
+function merchandiseWithAddon(): { ok: true; subtotal: number } | { ok: false; error: string } {
+  if (!selected) return { ok: false, error: 'Chọn sản phẩm đang bán.' };
+  const quantity = Number(values.quantity);
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > ORDER_MAX_QUANTITY) {
+    return { ok: false, error: `Số lượng là số nguyên từ 1 đến ${ORDER_MAX_QUANTITY}.` };
+  }
+  const uniquePosted = [...new Set(postedAddonSlugs)];
+  if (uniquePosted.length > 0 && pickedAddons.length !== uniquePosted.length) {
+    return { ok: false, error: 'Bó dâu bán kèm không còn bán.' };
+  }
+  const main = applyWeightPrice(selected.price, values.weight) * quantity;
+  const addonTotal = pickedAddons.reduce((sum, item) => sum + item.price, 0);
+  return { ok: true, subtotal: main + addonTotal };
+}
 
 if (posted) {
   Astro.response.headers.set('Cache-Control', 'no-store');
@@ -74,19 +108,18 @@ if (posted) {
     if (read('company').trim()) {
       Astro.response.status = 403;
       formError = 'Không gửi được đơn.';
-    } else if (!selected) {
-      Astro.response.status = 422;
-      errors = { productSlug: 'Chọn sản phẩm đang bán.' };
     } else {
-      const quantity = Number(values.quantity);
-      if (!Number.isInteger(quantity) || quantity < 1 || quantity > ORDER_MAX_QUANTITY) {
+      const goods = merchandiseWithAddon();
+      if (!goods.ok) {
         Astro.response.status = 422;
-        errors = { quantity: `Số lượng là số nguyên từ 1 đến ${ORDER_MAX_QUANTITY}.` };
+        if (goods.error.includes('Số lượng')) errors = { quantity: goods.error };
+        else if (goods.error.includes('Bó dâu')) errors = { addonSlug: goods.error };
+        else errors = { productSlug: goods.error };
       } else if (!db) {
         Astro.response.status = 503;
         formError = 'Chưa kiểm được mã. Thử lại sau.';
       } else {
-        const priced = await priceDiscount(db, selected.price * quantity, values.discountCode, await visitorHash(), Date.now(), true);
+        const priced = await priceDiscount(db, goods.subtotal, values.discountCode, await visitorHash(), Date.now(), true);
         if (!priced.ok) {
           Astro.response.status = 422;
           errors = { discountCode: priced.error };
@@ -96,39 +129,104 @@ if (posted) {
       }
     }
   } else {
-    const parsed = parseOrderSubmission(
-      { ...values, productSlug: selectedSlug, company: read('company'), landing },
-      catalog,
-    );
-    if (!parsed.ok) {
-      Astro.response.status = parsed.blocked ? 403 : 422;
-      formError = parsed.blocked ? 'Không gửi được đơn.' : '';
-      errors = parsed.errors;
-    } else if (!db) {
-      Astro.response.status = 503;
-      formError = 'Chưa lưu được đơn. Thử lại sau.';
-    } else {
-      try {
-        const ipHash = await visitorHash();
-        const priced = await priceDiscount(db, parsed.draft.subtotal, values.discountCode, ipHash);
-        if (!priced.ok) {
-          Astro.response.status = 422;
-          errors = { discountCode: priced.error };
-        } else {
-          const saved = await placeOrder(db, { ...parsed.draft, ...applyDiscount(parsed.draft.subtotal, priced.discount) }, ipHash);
-          if (!saved.ok) {
-            Astro.response.status = saved.status;
-            formError = saved.error;
-          } else {
-            const response = Astro.redirect(`${routes.checkoutSuccess}?ma=${saved.code}`, 303);
-            response.headers.set('Cache-Control', 'no-store');
-            return response;
-          }
-        }
-      } catch (error) {
+    const uniquePosted = [...new Set(postedAddonSlugs)];
+    if (uniquePosted.length > 0 && pickedAddons.length !== uniquePosted.length) {
+      Astro.response.status = 422;
+      errors = { addonSlug: 'Bó dâu bán kèm không còn bán.' };
+    } else if (pickedAddons.length > 0 && selected) {
+      const parsed = parseCartOrder(
+        {
+          customerName: values.customerName,
+          phone: values.phone,
+          address: values.address,
+          note: values.note,
+          paymentMethod: values.paymentMethod,
+          company: read('company'),
+          lines: [
+            {
+              slug: selected.slug,
+              quantity: Number(values.quantity) || 1,
+              weight: values.weight,
+              note: values.tagName,
+            },
+            ...pickedAddons.map((addon) => ({ slug: addon.slug, quantity: 1, weight: '', note: '' })),
+          ],
+        },
+        catalog,
+      );
+      if (!parsed.ok) {
+        Astro.response.status = parsed.blocked ? 403 : 422;
+        formError = parsed.blocked ? 'Không gửi được đơn.' : '';
+        errors = parsed.errors;
+      } else if (!db) {
         Astro.response.status = 503;
         formError = 'Chưa lưu được đơn. Thử lại sau.';
-        console.error(JSON.stringify({ event: 'order_create_failed', name: error instanceof Error ? error.name : 'unknown' }));
+      } else {
+        try {
+          const ipHash = await visitorHash();
+          const base = parsed.single ?? parsed.cart;
+          const priced = base
+            ? await priceDiscount(db, base.subtotal, values.discountCode, ipHash)
+            : { ok: false as const, error: 'Giỏ đang trống.' };
+          if (!priced.ok) {
+            Astro.response.status = 422;
+            errors = { discountCode: priced.error };
+          } else {
+            const saved = parsed.single
+              ? await placeOrder(db, { ...parsed.single, ...applyDiscount(parsed.single.subtotal, priced.discount) }, ipHash)
+              : parsed.cart
+                ? await placeCartOrder(db, { ...parsed.cart, ...applyDiscount(parsed.cart.subtotal, priced.discount) }, ipHash)
+                : { ok: false as const, status: 422 as const, error: 'Giỏ đang trống.' };
+            if (!saved.ok) {
+              Astro.response.status = saved.status;
+              formError = saved.error;
+            } else {
+              const response = Astro.redirect(`${routes.checkoutSuccess}?ma=${saved.code}`, 303);
+              response.headers.set('Cache-Control', 'no-store');
+              return response;
+            }
+          }
+        } catch (error) {
+          Astro.response.status = 503;
+          formError = 'Chưa lưu được đơn. Thử lại sau.';
+          console.error(JSON.stringify({ event: 'order_create_failed', name: error instanceof Error ? error.name : 'unknown' }));
+        }
+      }
+    } else {
+      const parsed = parseOrderSubmission(
+        { ...values, productSlug: selectedSlug, company: read('company'), landing },
+        catalog,
+      );
+      if (!parsed.ok) {
+        Astro.response.status = parsed.blocked ? 403 : 422;
+        formError = parsed.blocked ? 'Không gửi được đơn.' : '';
+        errors = parsed.errors;
+      } else if (!db) {
+        Astro.response.status = 503;
+        formError = 'Chưa lưu được đơn. Thử lại sau.';
+      } else {
+        try {
+          const ipHash = await visitorHash();
+          const priced = await priceDiscount(db, parsed.draft.subtotal, values.discountCode, ipHash);
+          if (!priced.ok) {
+            Astro.response.status = 422;
+            errors = { discountCode: priced.error };
+          } else {
+            const saved = await placeOrder(db, { ...parsed.draft, ...applyDiscount(parsed.draft.subtotal, priced.discount) }, ipHash);
+            if (!saved.ok) {
+              Astro.response.status = saved.status;
+              formError = saved.error;
+            } else {
+              const response = Astro.redirect(`${routes.checkoutSuccess}?ma=${saved.code}`, 303);
+              response.headers.set('Cache-Control', 'no-store');
+              return response;
+            }
+          }
+        } catch (error) {
+          Astro.response.status = 503;
+          formError = 'Chưa lưu được đơn. Thử lại sau.';
+          console.error(JSON.stringify({ event: 'order_create_failed', name: error instanceof Error ? error.name : 'unknown' }));
+        }
       }
     }
   }
@@ -157,14 +255,26 @@ const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
 });
 
 const selectedQty = Number(values.quantity);
-const goodsTotal =
-  selected && Number.isInteger(selectedQty) && selectedQty > 0 ? selected.price * selectedQty : selected ? selected.price : 0;
+const selectedGroup = selected ? shipGroupOf(selected.categorySlug) : 'other';
+const formAddons = selectedGroup === 'bracelet' ? addons : [];
+const mainGoodsTotal =
+  selected && Number.isInteger(selectedQty) && selectedQty > 0
+    ? applyWeightPrice(selected.price, values.weight) * selectedQty
+    : selected
+      ? selected.price
+      : 0;
+const addonGoodsTotal = pickedAddons.reduce((sum, item) => sum + item.price, 0);
+const goodsTotal = mainGoodsTotal + addonGoodsTotal;
 const shipping = selected
   ? resolveCustomerShippingFee({
-      lines: [{ group: shipGroupOf(selected.categorySlug), lineTotal: goodsTotal }],
+      lines: [
+        { group: selectedGroup, lineTotal: mainGoodsTotal },
+        ...pickedAddons.map((item) => ({ group: 'addon' as const, lineTotal: item.price })),
+      ],
       baseFee: shipBaseFee,
     })
   : null;
+const checkoutAddonHint = addonShipHint(mainGoodsTotal);
 ---
 
 <PublicLayout
@@ -213,7 +323,9 @@ const shipping = selected
               shipping={shipping}
               goodsTotal={goodsTotal}
               shipBaseFee={shipBaseFee}
-              shipGroup={shipGroupOf(selected.categorySlug)}
+              shipGroup={selectedGroup}
+              addons={formAddons}
+              addonHint={checkoutAddonHint}
             />
           </section>
         )}

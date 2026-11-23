@@ -4,6 +4,7 @@ import HomeProductCard from '../../components/public/HomeProductCard.astro';
 import OrderDialog from '../../components/public/OrderDialog.astro';
 import Pagination from '../../components/public/Pagination.astro';
 import PostCard from '../../components/public/PostCard.astro';
+import { listPublicAddons, type PublicAddon } from '../../features/products/addons';
 import { applyCoverMeasure } from '../../features/media/media';
 import {
   normalizeSearchQuery,
@@ -72,6 +73,7 @@ async function loadSearch() {
     failed: false,
     posts: [] as Awaited<ReturnType<typeof searchOverview>>['posts'],
     products: [] as Awaited<ReturnType<typeof searchOverview>>['products'],
+    addons: [] as PublicAddon[],
     postTotal: 0,
     productTotal: 0,
     page: 1,
@@ -84,7 +86,7 @@ async function loadSearch() {
     if (!ready) return { ...emptyState, site };
     const bucket = optionalMediaBucket();
     if (kind) {
-      const found = await searchByKind(db, q, kind, page);
+      const [found, addons] = await Promise.all([searchByKind(db, q, kind, page), listPublicAddons(db)]);
       const [posts, products] = await Promise.all([
         applyCoverMeasure(bucket, found.posts),
         applyCoverMeasure(bucket, found.products),
@@ -94,13 +96,14 @@ async function loadSearch() {
         failed: false,
         posts,
         products,
+        addons,
         postTotal: kind === 'bai-viet' ? found.total : 0,
         productTotal: kind === 'san-pham' ? found.total : 0,
         page: found.page,
         pageCount: found.pageCount,
       };
     }
-    const found = await searchOverview(db, q);
+    const [found, addons] = await Promise.all([searchOverview(db, q), listPublicAddons(db)]);
     const [posts, products] = await Promise.all([
       applyCoverMeasure(bucket, found.posts),
       applyCoverMeasure(bucket, found.products),
@@ -110,6 +113,7 @@ async function loadSearch() {
       failed: false,
       posts,
       products,
+      addons,
       postTotal: found.postTotal,
       productTotal: found.productTotal,
       page: 1,
@@ -266,7 +270,7 @@ function countLabel(total: number, one: string, many: string): string {
             </div>
           )
         }
-        {showProducts && <OrderDialog />}
+        {showProducts && <OrderDialog addons={loaded.addons} />}
       </main>
     )
   }

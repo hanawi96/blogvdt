@@ -737,7 +737,24 @@ function current(href: string): boolean {
       showCartToast('Giỏ đã đầy', 'err');
       return;
     }
-    store(result.lines);
+    let nextLines = result.lines;
+    const addonSlugs = [
+      ...new Set(
+        data
+          .getAll('addonSlug')
+          .flatMap((value) => (typeof value === 'string' ? [value.trim()] : []))
+          .filter((value) => value.length > 0),
+      ),
+    ];
+    for (const addonSlug of addonSlugs) {
+      const withAddon = addCartLine(nextLines, { slug: addonSlug, weight: '', quantity: 1, note: '' });
+      if (!withAddon.ok) {
+        showCartToast(withAddon.error, 'err');
+        return;
+      }
+      nextLines = withAddon.lines;
+    }
+    store(nextLines);
     // Bắn AddToCart cho Meta Pixel. content_ids = slug SP (khớp ViewContent / Purchase).
     // fbq chỉ tồn tại khi admin đã dán Pixel ID.
     try {
@@ -774,10 +791,29 @@ function current(href: string): boolean {
     if (dialog instanceof HTMLDialogElement) {
       dialog.close();
       node.reset();
+      // Giữ lựa chọn bó bán kèm sau reset form dialog.
+      const syncList = node.querySelector('[data-addon-sync-list]');
+      if (syncList instanceof HTMLElement) {
+        syncList.replaceChildren(
+          ...addonSlugs.map((slug) => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'addonSlug';
+            input.value = slug;
+            return input;
+          }),
+        );
+      }
       if (notice instanceof HTMLElement) notice.hidden = true;
     }
     const qty = Number.isInteger(quantity) ? quantity : 1;
-    showCartToast(qty > 1 ? `Đã thêm ${qty} chiếc vào giỏ` : 'Đã thêm vào giỏ');
+    showCartToast(
+      addonSlugs.length > 0
+        ? 'Đã thêm vòng và bó dâu vào giỏ'
+        : qty > 1
+          ? `Đã thêm ${qty} chiếc vào giỏ`
+          : 'Đã thêm vào giỏ',
+    );
     bumpCart();
   });
 </script>

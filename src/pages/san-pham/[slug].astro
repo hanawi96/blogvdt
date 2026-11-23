@@ -1,4 +1,5 @@
 ---
+import AddonPicker from '../../components/public/AddonPicker.astro';
 import DataError from '../../components/public/DataError.astro';
 import FaqSection from '../../components/public/FaqSection.astro';
 import FreeShipBadge from '../../components/public/FreeShipBadge.astro';
@@ -11,6 +12,7 @@ import QtyStepper from '../../components/public/QtyStepper.astro';
 import { CART_MAX_QUANTITY } from '../../features/cart/cart';
 import { listOrderCosts } from '../../features/costs/order-costs';
 import { listPublicCommentThreads } from '../../features/product-comments/comments';
+import { addonShipHint, listPublicAddons, type PublicAddon } from '../../features/products/addons';
 import { getPublicProduct } from '../../features/products/public';
 import { isPubliclySellable } from '../../features/products/status';
 import { productRequiresTagName, TAG_NAME_MAX } from '../../features/products/tag-name';
@@ -37,13 +39,17 @@ const loaded = await loadProduct();
 if (loaded.http) return loaded.http;
 const visible = loaded.product && isPubliclySellable(loaded.product) ? loaded.product : null;
 const commentThreads = visible ? loaded.comments : [];
+const productShipGroup = visible ? shipGroupOf(visible.categorySlug) : 'other';
+const showAddonPicker = productShipGroup === 'bracelet' && loaded.addons.length > 0;
+const addons = showAddonPicker ? loaded.addons : [];
 const goodsTotal = visible ? visible.price : 0;
 const shipping = visible
   ? resolveCustomerShippingFee({
-      lines: [{ group: shipGroupOf(visible.categorySlug), lineTotal: goodsTotal }],
+      lines: [{ group: productShipGroup, lineTotal: goodsTotal }],
       baseFee: loaded.shipBaseFee,
     })
   : null;
+const addonHint = addonShipHint(goodsTotal);
 if (!visible) {
   Astro.response.status = loaded.site ? 404 : 503;
   Astro.response.headers.set('Cache-Control', 'no-store');
@@ -70,8 +76,8 @@ const crumbs = visible && loaded.site
   : [];
 const trail = visible && loaded.site ? breadcrumbSchema(origin, crumbs) : null;
 const shipBadge = visible ? productShipBadge(visible.price, visible.categorySlug) : 'none';
-/** Bi/charm bạc: không hiện cam kết vòng dâu và câu chuyện người làm vòng. */
-const showBraceletStory = visible ? shipGroupOf(visible.categorySlug) !== 'silver' : false;
+/** Chỉ vòng: cam kết / quy trình / FAQ. Bạc và bán kèm (bó dâu) không hiện. */
+const showBraceletStory = productShipGroup === 'bracelet';
 const jsonLdBlocks = visible && loaded.site
   ? [
       ...(trail ? [jsonLd(trail)] : []),
@@ -100,27 +106,46 @@ const needsAddDialog = needsWeight || needsTag;
 const addChips = needsWeight && visible ? weightChips(visible.weightScale) : [];
 const addExtras = needsWeight && visible ? weightExtras(visible.weightScale) : [];
 
-async function loadProduct() {
+async function loadProduct(): Promise<{
+  site: Awaited<ReturnType<typeof getPublicSite>>;
+  failed: boolean;
+  product: Awaited<ReturnType<typeof getPublicProduct>>;
+  http: Response | null;
+  shipBaseFee: number;
+  comments: Awaited<ReturnType<typeof listPublicCommentThreads>>;
+  addons: PublicAddon[];
+}> {
   try {
     const db = createDb(getDbBinding());
     const site = await getPublicSite(db);
-    if (!site) return { site: null, failed: false, product: null, http: null, shipBaseFee: 0, comments: [] };
-    const [product, shipBaseFee] = await Promise.all([
+    if (!site) {
+      return { site: null, failed: false, product: null, http: null, shipBaseFee: 0, comments: [], addons: [] };
+    }
+    const [product, shipBaseFee, addons] = await Promise.all([
       getPublicProduct(db, slug),
       listOrderCosts(db).then((costs) => baseCustomerShippingFee(costs)),
+      listPublicAddons(db),
     ]);
     if (product && !isPubliclySellable(product)) {
       const outcome = await resolvePublicRedirect(db, routes.product(slug));
       if (outcome?.type === 'redirect') {
-        return { site, failed: false, product: null, http: redirectHttpResponse(outcome), shipBaseFee, comments: [] };
+        return {
+          site,
+          failed: false,
+          product: null,
+          http: redirectHttpResponse(outcome),
+          shipBaseFee,
+          comments: [],
+          addons: [],
+        };
       }
     }
     const comments =
       product && isPubliclySellable(product) ? await listPublicCommentThreads(db, product.id) : [];
-    return { site, failed: false, product, http: null, shipBaseFee, comments };
+    return { site, failed: false, product, http: null, shipBaseFee, comments, addons };
   } catch (error) {
     console.error(JSON.stringify({ event: 'product_public_failed', name: error instanceof Error ? error.name : 'unknown' }));
-    return { site: null, failed: true, product: null, http: null, shipBaseFee: 0, comments: [] };
+    return { site: null, failed: true, product: null, http: null, shipBaseFee: 0, comments: [], addons: [] };
   }
 }
 ---
@@ -194,6 +219,7 @@ async function loadProduct() {
             </ul>
           </section>
         )}
+        <div data-addon-root={showAddonPicker ? '' : undefined}>
         {!needsAddDialog && (
           <form id="cart-add-form" method="post" action={routes.cart} data-cart-form data-cart-from="order">
             <input type="hidden" name="intent" value="add" />
@@ -202,7 +228,11 @@ async function loadProduct() {
             <input type="hidden" name="weight" value="" />
             <input type="hidden" name="quantity" value="1" />
             <input type="hidden" name="price" value={visible.price} />
+            {showAddonPicker && <span data-addon-sync-list></span>}
           </form>
+        )}
+        {showAddonPicker && (
+          <AddonPicker addons={addons} hint={addonHint} idPrefix="product-addon" />
         )}
         <div class="product-cta-row mt-6">
           <a class="btn btn-cta product-buy-cta" href="#dat-hang" data-scroll-to="dat-hang">
@@ -233,6 +263,7 @@ async function loadProduct() {
               <input type="hidden" name="slug" value={visible.slug} />
               <input type="hidden" name="product_name" value={visible.name} />
               <input type="hidden" name="price" value={visible.price} />
+              {showAddonPicker && <span data-addon-sync-list></span>}
               {
                 needsWeight ? (
                   <fieldset class="mt-3" data-weight-field data-base-price={visible.price}>
@@ -295,15 +326,18 @@ async function loadProduct() {
           inert
         >
           <h2 id="order-heading" class="text-xl font-semibold">Đặt hàng</h2>
-          <p class="mt-2 text-muted">Xưởng gọi lại để chốt đơn. Website không thu tiền trực tuyến.</p>
           <OrderForm
             product={visible}
             shipping={shipping}
             goodsTotal={goodsTotal}
             shipBaseFee={loaded.shipBaseFee}
-            shipGroup={shipGroupOf(visible.categorySlug)}
+            shipGroup={productShipGroup}
+            addons={addons}
+            addonHint={addonHint}
+            addonConfirmDialog={false}
           />
         </section>
+        </div>
         <noscript>
           <style>
             #dat-hang[data-order-panel] {
@@ -313,7 +347,13 @@ async function loadProduct() {
         </noscript>
         <div class="product-sticky-order" data-product-sticky-order>
           <div class="product-sticky-order-inner">
-            <p class="product-sticky-order-price">{formatVnd(visible.price)}</p>
+            <p
+              class="product-sticky-order-price"
+              data-product-sticky-price
+              data-sticky-base={visible.price}
+            >
+              {formatVnd(visible.price)}
+            </p>
             <a class="btn btn-cta product-sticky-order-btn" href="#dat-hang" data-scroll-to="dat-hang">
               <span class="product-sticky-order-label">
                 <span class="product-sticky-order-title">

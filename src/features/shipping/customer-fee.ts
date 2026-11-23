@@ -8,7 +8,9 @@ export const FREE_SHIP_BRACELET_MIN = 100_000;
 export const FREE_SHIP_WITH_ADDON_LABEL = 'Miễn ship khi mua kèm bó dâu để giường';
 
 const SILVER_SLUG = 'bi-charm-bac';
-const ADDON_SLUG = 'san-pham-ban-kem';
+/** Danh mục sản phẩm bán kèm (bó dâu…): slug cố định dùng ship + catalog. */
+export const ADDON_CATEGORY_SLUG = 'san-pham-ban-kem';
+const ADDON_SLUG = ADDON_CATEGORY_SLUG;
 
 export type ShipFeeLine = { group: ShipGroup; lineTotal: number };
 /** Badge trên thẻ SP: miễn hẳn / gợi ý mua kèm bán kèm / không hiện. */
