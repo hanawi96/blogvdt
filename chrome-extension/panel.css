@@ -177,6 +177,62 @@ body.is-auth .panel-status:not([hidden]) {
   font-weight: 650;
 }
 
+.edit-switch-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 0.85rem;
+  box-sizing: border-box;
+}
+
+.edit-switch-modal[hidden] {
+  display: none !important;
+}
+
+.edit-switch-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: color-mix(in srgb, var(--ink) 32%, transparent);
+  cursor: pointer;
+}
+
+.edit-switch-sheet {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 18.5rem);
+  border-radius: 0.85rem;
+  background: #fff;
+  box-shadow: 0 16px 36px color-mix(in srgb, var(--ink) 18%, transparent);
+  padding: 0.95rem 0.95rem 1rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.edit-switch-sheet h3 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--primary) 70%, var(--ink));
+}
+
+.edit-switch-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.edit-switch-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
 .panel-error {
   margin: 0 0 0.65rem;
   padding: 0.45rem 0.55rem;

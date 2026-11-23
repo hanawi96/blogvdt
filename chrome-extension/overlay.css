@@ -29,6 +29,11 @@ html.vdt-zalo-inset.vdt-zalo-resizing #chatViewContainer {
   box-sizing: border-box;
 }
 
+/* Author `display:` (vd. .vdt-auth { display:flex }) không được ghi đè [hidden]. */
+#vdt-pos-overlay-root [hidden] {
+  display: none !important;
+}
+
 #vdt-pos-overlay-root .vdt-shell {
   pointer-events: auto;
   position: absolute;
@@ -361,6 +366,10 @@ html.vdt-zalo-inset.vdt-zalo-resizing #chatViewContainer {
   border-bottom: 1px solid color-mix(in srgb, #c4785a 18%, #e5e0d8);
   background:
     linear-gradient(180deg, color-mix(in srgb, #c4785a 8%, #fffaf4), color-mix(in srgb, #f7f3ec 70%, #fff));
+}
+
+#vdt-pos-overlay-root .vdt-auth[hidden] {
+  display: none !important;
 }
 
 #vdt-pos-overlay-root .vdt-auth p {

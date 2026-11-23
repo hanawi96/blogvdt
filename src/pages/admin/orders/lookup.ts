@@ -11,9 +11,15 @@ function json(data: unknown, status = 200) {
   });
 }
 
-export const GET: APIRoute = async ({ locals, url, redirect }) => {
+export const GET: APIRoute = async ({ locals, url }) => {
   const session = locals.adminSession;
-  if (!session) return redirect(routes.adminLogin);
+  // JSON 401 (không redirect) — đồng bộ chat-phone / pos-* cho extension SW.
+  if (!session) {
+    return json(
+      { ok: false, error: 'auth', loginUrl: `${url.origin}${routes.adminLogin}?next=${encodeURIComponent(routes.admin)}` },
+      401,
+    );
+  }
   const phone = url.searchParams.get('phone') ?? '';
   if (!phone.trim()) return json({ ok: false, error: 'Nhập số điện thoại.' }, 422);
   try {

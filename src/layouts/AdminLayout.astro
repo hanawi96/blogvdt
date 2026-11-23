@@ -35,7 +35,8 @@ const { title } = Astro.props;
 const session = Astro.locals.adminSession;
 const path = Astro.url.pathname;
 const isAdmin = session?.role === 'admin';
-const items: { href: string; label: string; icon: NavIcon }[] = [
+type NavItem = { href: string; label: string; icon: NavIcon };
+const items: NavItem[] = [
   { href: routes.admin, label: 'Tổng quan', icon: 'overview' },
   { href: routes.adminPosts, label: 'Bài viết', icon: 'posts' },
   { href: routes.adminCategories, label: 'Danh mục', icon: 'categories' },
@@ -55,22 +56,24 @@ const items: { href: string; label: string; icon: NavIcon }[] = [
   { href: routes.adminMedia, label: 'Thư viện ảnh', icon: 'media' },
   { href: routes.adminFeedback, label: 'Feedback', icon: 'media' },
   { href: routes.adminProductComments, label: 'Bình luận SP', icon: 'posts' },
-  ...(isAdmin
-    ? [
-        { href: routes.adminSeo, label: 'Kiểm tra SEO', icon: 'seo' as const },
-        { href: routes.adminRedirects, label: 'Chuyển hướng', icon: 'redirects' as const },
-        { href: routes.adminBackups, label: 'Backup', icon: 'backups' as const },
-        { href: routes.adminUsers, label: 'Người dùng', icon: 'users' as const },
-        { href: routes.adminActivity, label: 'Nhật ký', icon: 'activity' as const },
-        { href: routes.adminSettings, label: 'Cài đặt', icon: 'settings' as const },
-      ]
-    : []),
 ];
+const systemItems: NavItem[] = isAdmin
+  ? [
+      { href: routes.adminSeo, label: 'Kiểm tra SEO', icon: 'seo' },
+      { href: routes.adminRedirects, label: 'Chuyển hướng', icon: 'redirects' },
+      { href: routes.adminBackups, label: 'Backup', icon: 'backups' },
+      { href: routes.adminUsers, label: 'Người dùng', icon: 'users' },
+      { href: routes.adminActivity, label: 'Nhật ký', icon: 'activity' },
+      { href: routes.adminSettings, label: 'Cài đặt', icon: 'settings' },
+    ]
+  : [];
 
 function current(href: string): boolean {
   if (href === routes.admin) return path === href;
   return path === href || path.startsWith(`${href}/`);
 }
+
+const systemOpen = systemItems.some((item) => current(item.href));
 ---
 
 <!doctype html>
@@ -140,6 +143,37 @@ function current(href: string): boolean {
                   <span class="admin-nav-label">{item.label}</span>
                 </a>
               ))}
+              {systemItems.length > 0 && (
+                <div class:list={['admin-nav-group', systemOpen && 'is-open']} data-nav-group data-nav-group-id="system">
+                  <button
+                    class="admin-nav-group-toggle"
+                    type="button"
+                    data-nav-group-toggle
+                    aria-expanded={systemOpen ? 'true' : 'false'}
+                    aria-controls="admin-nav-system"
+                  >
+                    <AdminNavIcon name="settings" />
+                    <span class="admin-nav-label">Hệ thống</span>
+                    <svg class="admin-nav-group-chevron" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M4 6.5 8 10.5 12 6.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+                    </svg>
+                  </button>
+                  <div class="admin-nav-group-items" id="admin-nav-system" data-nav-group-items hidden={!systemOpen}>
+                    {systemItems.map((item) => (
+                      <a
+                        href={item.href}
+                        title={item.label}
+                        aria-label={item.label}
+                        aria-current={current(item.href) ? 'page' : undefined}
+                        class:list={[current(item.href) && 'is-current']}
+                      >
+                        <AdminNavIcon name={item.icon} />
+                        <span class="admin-nav-label">{item.label}</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </nav>
             <div class="admin-account" data-account>
               <button
@@ -194,6 +228,35 @@ function current(href: string): boolean {
                   <span class="admin-nav-label">{item.label}</span>
                 </a>
               ))}
+              {systemItems.length > 0 && (
+                <div class:list={['admin-nav-group', systemOpen && 'is-open']} data-nav-group data-nav-group-id="system">
+                  <button
+                    class="admin-nav-group-toggle"
+                    type="button"
+                    data-nav-group-toggle
+                    aria-expanded={systemOpen ? 'true' : 'false'}
+                    aria-controls="admin-drawer-nav-system"
+                  >
+                    <AdminNavIcon name="settings" />
+                    <span class="admin-nav-label">Hệ thống</span>
+                    <svg class="admin-nav-group-chevron" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M4 6.5 8 10.5 12 6.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+                    </svg>
+                  </button>
+                  <div class="admin-nav-group-items" id="admin-drawer-nav-system" data-nav-group-items hidden={!systemOpen}>
+                    {systemItems.map((item) => (
+                      <a
+                        href={item.href}
+                        aria-current={current(item.href) ? 'page' : undefined}
+                        class:list={[current(item.href) && 'is-current']}
+                      >
+                        <AdminNavIcon name={item.icon} />
+                        <span class="admin-nav-label">{item.label}</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </nav>
           </dialog>
           <div>
@@ -263,6 +326,49 @@ function current(href: string): boolean {
           syncCollapse(!shell.classList.contains('is-nav-collapsed'));
         });
       }
+
+      const NAV_GROUP_KEY = 'admin-nav-groups';
+      const readGroupState = (): Record<string, boolean> => {
+        try {
+          const raw = localStorage.getItem(NAV_GROUP_KEY);
+          if (!raw) return {};
+          const parsed: unknown = JSON.parse(raw);
+          if (!parsed || typeof parsed !== 'object') return {};
+          return parsed as Record<string, boolean>;
+        } catch {
+          return {};
+        }
+      };
+      const writeGroupState = (id: string, open: boolean) => {
+        try {
+          const next = { ...readGroupState(), [id]: open };
+          localStorage.setItem(NAV_GROUP_KEY, JSON.stringify(next));
+        } catch {
+          /* ignore */
+        }
+      };
+      const setGroupOpen = (group: HTMLElement, open: boolean, persist: boolean) => {
+        const toggle = group.querySelector('[data-nav-group-toggle]');
+        const itemsEl = group.querySelector('[data-nav-group-items]');
+        group.classList.toggle('is-open', open);
+        if (toggle instanceof HTMLButtonElement) toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (itemsEl instanceof HTMLElement) itemsEl.hidden = !open;
+        const id = group.dataset.navGroupId;
+        if (persist && id) writeGroupState(id, open);
+      };
+      const savedGroups = readGroupState();
+      document.querySelectorAll<HTMLElement>('[data-nav-group]').forEach((group) => {
+        const id = group.dataset.navGroupId;
+        const hasCurrent = Boolean(group.querySelector('a[aria-current="page"]'));
+        if (id && Object.prototype.hasOwnProperty.call(savedGroups, id) && !hasCurrent) {
+          setGroupOpen(group, Boolean(savedGroups[id]), false);
+        } else if (hasCurrent) {
+          setGroupOpen(group, true, false);
+        }
+        group.querySelector('[data-nav-group-toggle]')?.addEventListener('click', () => {
+          setGroupOpen(group, !group.classList.contains('is-open'), true);
+        });
+      });
       const account = document.querySelector('[data-account]');
       const accountTrigger = account?.querySelector('[data-account-trigger]');
       const accountPanel = account?.querySelector('[data-account-panel]');

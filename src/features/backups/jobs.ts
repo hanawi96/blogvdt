@@ -152,19 +152,28 @@ export async function listDueQueuedJobs(db: AppDb, now = Date.now()): Promise<Ba
   return rows.map(mapJob);
 }
 
+/** Giữ 1–90 bản; ngoài khoảng → mặc định 14 (khớp settings). */
+export function clampRetentionKeep(keep: number): number {
+  if (!Number.isInteger(keep) || keep < 1 || keep > 90) return 14;
+  return keep;
+}
+
+/** Mới nhất trước — phần sau `keep` là bản cần xóa. */
+export function pickStaleBeyondRetention<T>(newestFirst: T[], keep: number): T[] {
+  return newestFirst.slice(clampRetentionKeep(keep));
+}
+
+/**
+ * Bản full thành công vượt hạn mức giữ lại (mọi trigger: manual / schedule / pre_restore).
+ * Partial và failed không nằm trong hạn mức «số bản full».
+ */
 export async function listOldFullSuccessBeyondRetention(db: AppDb, keep: number): Promise<BackupJob[]> {
   const rows = await db
     .select()
     .from(backupJobs)
-    .where(
-      and(
-        eq(backupJobs.kind, 'full'),
-        eq(backupJobs.status, 'success'),
-        sql`${backupJobs.trigger} in ('manual', 'schedule')`,
-      ),
-    )
+    .where(and(eq(backupJobs.kind, 'full'), eq(backupJobs.status, 'success')))
     .orderBy(desc(backupJobs.createdAt), desc(backupJobs.id));
-  return rows.slice(keep).map(mapJob);
+  return pickStaleBeyondRetention(rows.map(mapJob), keep);
 }
 
 export async function deleteBackupJobRow(db: AppDb, id: number): Promise<void> {

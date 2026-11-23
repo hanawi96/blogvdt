@@ -414,15 +414,50 @@ function isZalo() {
   return pageHost() === 'chat.zalo.me' || pageHost().endsWith('.zalo.me');
 }
 
-/** Chỉ hiện sidebar trên page inbox đã chọn — không gắn mọi trang pancake.vn. */
+/** Mọi trang trong page Pancake (inbox, setting, …). */
+function isPancakePageWorkspace(pathname) {
+  return /^\/vongdautambyvui(?:\/|$)/i.test(String(pathname || ''));
+}
+
+/** Inbox chat — được mở sidebar mặc định. */
+function isPancakeInboxPath(pathname) {
+  const path = String(pathname || '');
+  if (/^\/vongdautambyvui\/?$/i.test(path)) return true;
+  return /^\/vongdautambyvui\/(?:inbox|conversation|conversations)(?:\/|$)/i.test(path);
+}
+
+/**
+ * Gắn shell overlay:
+ * - Zalo chat
+ * - Mọi path `/vongdautambyvui…` (setting chỉ thu, vẫn còn nút «Tạo đơn»)
+ */
 function isAllowedOverlayPage() {
   const host = pageHost();
   if (host === 'chat.zalo.me') return true;
-  if (host === 'pancake.vn') return /^\/vongdautambyvui(?:\/|$)/i.test(location.pathname);
+  if (host === 'pancake.vn') return isPancakePageWorkspace(location.pathname);
   return false;
 }
 
+/** 'zalo' | 'inbox' | 'page-other' | 'none' */
+function overlayGateMode() {
+  const host = pageHost();
+  if (host === 'chat.zalo.me') return 'zalo';
+  if (host === 'pancake.vn') {
+    if (!isPancakePageWorkspace(location.pathname)) return 'none';
+    return isPancakeInboxPath(location.pathname) ? 'inbox' : 'page-other';
+  }
+  return 'none';
+}
+
 function tearDownOverlayShell() {
+  desiredOpen = false;
+  panelReady = false;
+  posReady = false;
+  pendingPosMessages = [];
+  window.clearTimeout(bootRevealTimer);
+  bootRevealTimer = 0;
+  window.clearTimeout(todayStatsPollTimer);
+  todayStatsPollTimer = 0;
   try {
     document.getElementById(ROOT_ID)?.remove();
   } catch {
@@ -1126,12 +1161,28 @@ function authBox(root) {
   return root.querySelector('[data-vdt-auth]');
 }
 
+function sessionLooksAlive() {
+  return Boolean(panelReady || todayStatsState.ready);
+}
+
 function setAuthBanner(root, show, message = '') {
   const box = authBox(root);
   if (!(box instanceof HTMLElement)) return;
+  // Stats/form đã chạy = phiên admin còn dùng được. Không để 1 request auth lỗi (race Zalo)
+  // kéo banner «Đăng nhập» đè lên UI đang hoạt động.
+  if (show && sessionLooksAlive()) {
+    box.hidden = true;
+    return;
+  }
   box.hidden = !show;
   const text = box.querySelector('[data-vdt-auth-text]');
   if (text) text.textContent = message || 'Cần đăng nhập admin để tiếp tục.';
+}
+
+/** Có bằng chứng phiên admin còn sống → ẩn banner (tránh kẹt sau lỗi tạm / cache hit). */
+function clearAuthBanner(root = ensureRoot()) {
+  const box = authBox(root);
+  if (box instanceof HTMLElement) box.hidden = true;
 }
 
 function setCustomerStatus(root, text) {
@@ -1202,6 +1253,7 @@ function refreshPendingChats() {
       pendingFetchInflight = null;
       if (!isExtensionAlive()) return;
       if (!result?.ok) return;
+      clearAuthBanner();
       pendingChatState = {
         count: Number(result.count) || 0,
         items: Array.isArray(result.items) ? result.items : [],
@@ -1284,6 +1336,7 @@ function refreshTodayStats() {
         }
         return;
       }
+      clearAuthBanner();
       todayStatsState = {
         orders: Number(result.orders) || 0,
         revenue: Number(result.revenue) || 0,
@@ -2877,6 +2930,8 @@ function requestLookup(phone, convId, name) {
     customerSaving = false;
     customerDeleteConfirm = false;
     customerCanDelete = Boolean(cached.canDelete);
+    // Cache hit = đã tra thành công trước đó — không để banner auth cũ treo.
+    clearAuthBanner(root);
     renderCustomer(root, cached);
     postCustomerFill({ phone, name: name || '', channel, chatId: convId });
     return;
@@ -2904,7 +2959,7 @@ function requestLookup(phone, convId, name) {
       setCustomerStatus(root, result.error || 'Không tra được khách.');
       return;
     }
-    setAuthBanner(root, false);
+    clearAuthBanner(root);
     customerCanDelete = Boolean(result.canDelete);
     if (!result.found || !result.customer) {
       activeCustomer = null;
@@ -3501,9 +3556,12 @@ function ensureRoot() {
     void runtimeSend({ type: 'vdt-open-login' });
   });
   root.querySelector('[data-vdt-resync]')?.addEventListener('click', () => {
+    clearAuthBanner(root);
+    lookupCache.clear();
     void preparePosFrame(frame, { forceReload: true }).then(() => {
       scheduleSync();
       schedulePendingRefresh(200);
+      scheduleTodayStatsRefresh(200);
     });
   });
   root.querySelector('[data-vdt-pending-badge]')?.addEventListener('click', () => {
@@ -3634,6 +3692,8 @@ async function mount() {
     if (data.type === 'vdt-pos-ready') {
       posReady = true;
       panelReady = true;
+      // Bootstrap OK = phiên admin còn dùng được — đừng để banner auth cũ treo trên Zalo/Pancake.
+      clearAuthBanner();
       flushPendingPosMessages();
       postToPos({ type: 'vdt-host-channel', channel: chatChannel() || '' }, true);
       pushActiveOrderToPos();
@@ -3758,13 +3818,34 @@ try {
   markExtensionDead();
 }
 
+/** @type {'zalo' | 'inbox' | 'page-other' | 'none' | null} */
+let lastOverlayGateMode = null;
+
 function syncOverlayPageGate() {
   if (!isExtensionAlive()) return;
-  if (!isAllowedOverlayPage()) {
-    tearDownOverlayShell();
+  const mode = overlayGateMode();
+  const root = document.getElementById(ROOT_ID);
+
+  if (mode === 'none') {
+    if (root) tearDownOverlayShell();
+    lastOverlayGateMode = mode;
     return;
   }
-  if (!document.getElementById(ROOT_ID)) void mount();
+
+  const leftInbox = lastOverlayGateMode === 'inbox' && mode === 'page-other';
+  const enteredOther = mode === 'page-other' && lastOverlayGateMode !== 'page-other';
+  lastOverlayGateMode = mode;
+
+  if (!root) {
+    void mount().then(() => {
+      // Setting/customer…: thu sidebar nhưng giữ nút «Tạo đơn» để mở lại.
+      if (overlayGateMode() === 'page-other') void setOpen(false);
+    });
+    return;
+  }
+
+  // Vừa vào trang không phải inbox → thu lại, không gỡ nút.
+  if (leftInbox || enteredOther) void setOpen(false);
 }
 
 function installOverlayPageGate() {
@@ -3775,11 +3856,12 @@ function installOverlayPageGate() {
     syncOverlayPageGate();
   };
   window.addEventListener('popstate', tick);
+  window.addEventListener('pageshow', () => syncOverlayPageGate());
   try {
     const wrap = (fn) =>
       function patchedHistory(...args) {
         const result = fn.apply(this, args);
-        queuePromise.resolve().then(tick);
+        void Promise.resolve().then(tick);
         return result;
       };
     history.pushState = wrap(history.pushState.bind(history));
@@ -3787,10 +3869,8 @@ function installOverlayPageGate() {
   } catch {
     /* ignore */
   }
-  window.setInterval(tick, 1200);
+  window.setInterval(tick, 800);
 }
 
 installOverlayPageGate();
-if (isAllowedOverlayPage()) {
-  void mount();
-}
+syncOverlayPageGate();

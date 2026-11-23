@@ -54,6 +54,7 @@ export async function deleteBackupById(
   return { ok: true, job };
 }
 
+/** Xóa bản full success cũ hơn hạn mức; trả số bản đã gỡ (R2/Drive/DB). */
 export async function applyBackupRetention(db: AppDb, env: EnvLike, keep: number): Promise<number> {
   const stale = await listOldFullSuccessBeyondRetention(db, keep);
   let removed = 0;

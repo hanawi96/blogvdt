@@ -18,7 +18,7 @@ import {
   parseJobTables,
   type BackupJob,
 } from '../../../features/backups/jobs';
-import { deleteBackupById } from '../../../features/backups/retention';
+import { applyBackupRetention, deleteBackupById } from '../../../features/backups/retention';
 import { releaseRestoreLock, tryAcquireRestoreLock } from '../../../features/backups/restore-lock';
 import { describeDailySchedule } from '../../../features/backups/schedule';
 import { enqueueBackup } from '../../../features/backups/service';
@@ -117,15 +117,38 @@ if (Astro.request.method === 'POST') {
       }
     } else if (intent === 'settings') {
       const hourVnInput = Number(form.get('scheduleHourVn'));
+      const retentionCount = Number(form.get('retentionCount'));
       const saved = await saveBackupSettings(db, {
         scheduleEnabled: form.get('scheduleEnabled') === '1',
         scheduleHourUtc: Number.isInteger(hourVnInput) ? vnHourToUtcHour(hourVnInput) : Number.NaN,
-        retentionCount: Number(form.get('retentionCount')),
+        retentionCount,
         driveEnabled: form.get('driveEnabled') === '1',
       });
       if (!saved.ok) {
         formError = saved.error;
       } else {
+        // Áp dụng ngay hạn mức giữ lại — không đợi backup kế tiếp.
+        try {
+          const bucket = getBackupBucket();
+          await applyBackupRetention(
+            db,
+            {
+              BACKUPS: bucket,
+              GOOGLE_CLIENT_ID: (env as { GOOGLE_CLIENT_ID?: string }).GOOGLE_CLIENT_ID,
+              GOOGLE_CLIENT_SECRET: (env as { GOOGLE_CLIENT_SECRET?: string }).GOOGLE_CLIENT_SECRET,
+              GOOGLE_REFRESH_TOKEN: (env as { GOOGLE_REFRESH_TOKEN?: string }).GOOGLE_REFRESH_TOKEN,
+              GOOGLE_DRIVE_FOLDER_ID: (env as { GOOGLE_DRIVE_FOLDER_ID?: string }).GOOGLE_DRIVE_FOLDER_ID,
+            },
+            retentionCount,
+          );
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              event: 'backup_retention_on_settings_failed',
+              name: error instanceof Error ? error.name : 'unknown',
+            }),
+          );
+        }
         await commitWrites(db, [
           activityWrite(
             db,
@@ -687,7 +710,10 @@ const retentionChoices = RETENTION_OPTIONS.includes(settings.retentionCount)
             ))
           }
         </div>
-        <p class="seo-hint">Bản cũ hơn sẽ tự xóa. Mặc định 14.</p>
+        <p class="seo-hint">
+          Giữ N bản full mới nhất (manual, lịch và trước restore). Bản cũ hơn tự xóa khi lưu cài đặt hoặc sau mỗi backup
+          thành công. Mặc định 14.
+        </p>
       </div>
 
       <label class="mt-5 flex items-start gap-2">

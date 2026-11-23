@@ -43,6 +43,20 @@
         <button type="button" class="btn" data-edit-cancel>Hủy sửa</button>
       </div>
 
+      <div class="edit-switch-modal" data-edit-switch hidden>
+        <button type="button" class="edit-switch-backdrop" data-edit-switch-stay aria-label="Đóng"></button>
+        <div class="edit-switch-sheet" role="alertdialog" aria-modal="true" aria-labelledby="edit-switch-title">
+          <h3 id="edit-switch-title">Đang sửa đơn chưa lưu</h3>
+          <p class="edit-switch-text">
+            Đổi sang chat khác sẽ hủy chỉnh sửa chưa lưu. Bạn muốn tiếp tục sửa hay đổi chat?
+          </p>
+          <div class="edit-switch-actions">
+            <button type="button" class="btn" data-edit-switch-stay>Tiếp tục sửa</button>
+            <button type="button" class="btn btn-primary" data-edit-switch-leave>Đổi chat</button>
+          </div>
+        </div>
+      </div>
+
       <form class="panel-form" data-form hidden autocomplete="off" novalidate>
         <section class="card" data-section="customer">
           <h2>Khách hàng</h2>

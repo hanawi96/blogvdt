@@ -5411,6 +5411,77 @@
     background: var(--color-primary);
     color: var(--color-surface);
   }
+  .admin-nav-group {
+    display: grid;
+    gap: 0.15rem;
+  }
+  .admin-nav-group-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.625rem;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    padding: 0.5rem 0.75rem;
+    color: var(--color-ink);
+    font: inherit;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .admin-nav-group-toggle:hover {
+    background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+  }
+  .admin-nav-group.is-open .admin-nav-group-toggle {
+    color: var(--color-ink);
+  }
+  .admin-nav-group-chevron {
+    margin-left: auto;
+    flex: none;
+    color: var(--color-muted);
+    transition: transform 160ms ease;
+  }
+  .admin-nav-group.is-open .admin-nav-group-chevron {
+    transform: rotate(180deg);
+  }
+  .admin-nav-group-items {
+    display: grid;
+    gap: 0.1rem;
+    padding-left: 0.55rem;
+  }
+  .admin-nav-group-items[hidden] {
+    display: none;
+  }
+  .admin-nav-group-items a {
+    padding-left: 0.65rem;
+  }
+  .admin-drawer-nav .admin-nav-group-toggle {
+    display: flex;
+    width: 100%;
+    min-height: 2.75rem;
+    align-items: center;
+    gap: 0.625rem;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    padding: 0 0.75rem;
+    color: var(--color-ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .admin-drawer-nav .admin-nav-group-toggle:hover {
+    background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+  }
+  .admin-drawer-nav .admin-nav-group-items {
+    display: grid;
+    gap: 0.15rem;
+    padding-left: 0.55rem;
+  }
+  .admin-drawer-nav .admin-nav-group-items[hidden] {
+    display: none;
+  }
   .admin-account {
     position: relative;
     padding: 0.75rem;
@@ -5650,7 +5721,8 @@
     .admin-shell.is-nav-collapsed .admin-brand,
     .admin-shell.is-nav-collapsed .admin-nav-label,
     .admin-shell.is-nav-collapsed .admin-account-meta,
-    .admin-shell.is-nav-collapsed .admin-account-chevron {
+    .admin-shell.is-nav-collapsed .admin-account-chevron,
+    .admin-shell.is-nav-collapsed .admin-nav-group-chevron {
       display: none;
     }
     .admin-shell.is-nav-collapsed .admin-side-head {
@@ -5667,6 +5739,18 @@
       justify-content: center;
       gap: 0;
       padding-inline: 0.5rem;
+    }
+    /* Sidebar thu gọn: hiện icon mục con Hệ thống, ẩn nút nhóm. */
+    .admin-shell.is-nav-collapsed .admin-nav-group-toggle {
+      display: none;
+    }
+    .admin-shell.is-nav-collapsed .admin-nav-group-items {
+      display: grid !important;
+      gap: 0.1rem;
+      padding-left: 0;
+    }
+    .admin-shell.is-nav-collapsed .admin-nav-group-items a {
+      padding-left: 0.5rem;
     }
     .admin-shell.is-nav-collapsed .admin-account {
       padding-inline: 0.45rem;
@@ -5690,7 +5774,8 @@
       .admin-shell {
         transition: none;
       }
-      .admin-nav-collapse svg {
+      .admin-nav-collapse svg,
+      .admin-nav-group-chevron {
         transition: none;
       }
     }

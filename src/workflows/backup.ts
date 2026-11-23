@@ -1,7 +1,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import { backupObjectKey, pollD1Export, sha256Hex, startD1Export } from '../features/backups/d1-api';
 import { driveConfigured, uploadBackupToDrive } from '../features/backups/drive';
-import { getBackupJob, markJobFailed, markJobSuccess } from '../features/backups/jobs';
+import { clampRetentionKeep, getBackupJob, markJobFailed, markJobSuccess } from '../features/backups/jobs';
 import { applyBackupRetention } from '../features/backups/retention';
 import { getBackupSettings } from '../features/backups/settings';
 import { tablesForD1Export } from '../features/backups/tables';
@@ -112,7 +112,7 @@ export class BackupWorkflow extends WorkflowEntrypoint<BackupEnv, BackupParams> 
       });
 
       await step.do('retention', async () => {
-        await applyBackupRetention(db, this.env, settings.retentionCount);
+        await applyBackupRetention(db, this.env, clampRetentionKeep(settings.retentionCount));
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Backup thất bại.';

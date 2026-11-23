@@ -528,22 +528,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return undefined;
 });
 
+function isPancakePageWorkspace(pathname) {
+  return /^\/vongdautambyvui(?:\/|$)/i.test(String(pathname || ''));
+}
+
+function isAllowedOverlayTabUrl(raw) {
+  try {
+    const url = new URL(String(raw || ''));
+    const host = url.hostname.replace(/^www\./i, '').toLowerCase();
+    if (host === 'chat.zalo.me') return true;
+    // Cho phép bật/tắt cả khi đang ở setting (nút «Tạo đơn» vẫn còn).
+    if (host === 'pancake.vn') return isPancakePageWorkspace(url.pathname);
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id) return;
+  // Chỉ bật/tắt overlay trên đúng 2 địa chỉ làm việc — không mở side panel chỗ khác.
+  if (!isAllowedOverlayTabUrl(tab.url)) return;
   try {
     await chrome.tabs.sendMessage(tab.id, { type: 'vdt-toggle-overlay' });
   } catch {
-    if (chrome.sidePanel?.open) {
-      try {
-        await chrome.sidePanel.open({ tabId: tab.id });
-      } catch {
-        const url = await getPosUrl();
-        const width = 420;
-        const height = Math.min(900, 800);
-        const left = Math.max(0, 1280 - width);
-        await chrome.windows.create({ url, type: 'popup', width, height, left, top: 0 });
-      }
-    }
+    /* content script chưa sẵn sàng */
   }
 });
 

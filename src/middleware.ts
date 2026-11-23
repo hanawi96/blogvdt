@@ -29,6 +29,20 @@ export const onRequest = defineMiddleware(async (context, next) => {
     const login = new URL(routes.adminLogin, context.url.origin);
     const next = `${pathname}${context.url.search}`;
     if (next !== routes.adminLogin && next.startsWith('/admin')) login.searchParams.set('next', next);
+    // Extension SW gửi Accept: application/json — trả 401 JSON, không redirect HTML
+    // (redirect + redirect:manual dễ bị hiểu nhầm thành mất phiên và banner kẹt).
+    const accept = context.request.headers.get('accept') || '';
+    if (accept.includes('application/json')) {
+      return finish(
+        context,
+        privateResponse(
+          new Response(JSON.stringify({ ok: false, error: 'auth', loginUrl: login.toString() }), {
+            status: 401,
+            headers: { 'content-type': 'application/json; charset=utf-8' },
+          }),
+        ),
+      );
+    }
     return finish(context, privateResponse(context.redirect(`${login.pathname}${login.search}`)));
   }
   if (session && !open && !canAccessPath(session.role, pathname)) {

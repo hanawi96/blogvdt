@@ -21,6 +21,15 @@
   const editBanner = document.querySelector('[data-edit-banner]');
   const editText = document.querySelector('[data-edit-text]');
   const editCancel = document.querySelector('[data-edit-cancel]');
+  const editSwitchModal = document.querySelector('[data-edit-switch]');
+  const editSwitchStayBtns = document.querySelectorAll('[data-edit-switch-stay]');
+  const editSwitchLeaveBtn = document.querySelector('[data-edit-switch-leave]');
+  /** @type {null | { key: string, channel: string, chatId: string, name: string, phone: string }} */
+  let pendingEditSwitch = null;
+  /** Chat user đã chọn «Tiếp tục sửa» — bỏ qua fill tới khi hủy/lưu sửa hoặc đổi chat khác. */
+  let editSwitchIgnoredKey = '';
+  /** @type {null | { key: string, channel: string, chatId: string, name: string, phone: string }} */
+  let editSwitchIgnoredFill = null;
 
   const nameInput = document.querySelector('[data-customer-name]');
   const phoneInput = document.querySelector('[data-customer-phone]');
@@ -461,7 +470,10 @@
     if (!nextChatId) return false;
     if (nextChatId === hostChatId && nextChannel === hostChannel) return draftProtectActive();
 
-    if (hostChatId && !isEditing()) {
+    // Đang sửa: không đổi context — cần xác nhận ở offerEditChatSwitch.
+    if (isEditing()) return false;
+
+    if (hostChatId) {
       window.clearTimeout(draftSaveTimer);
       draftSaveTimer = 0;
       await saveCurrentDraft({ force: true });
@@ -471,8 +483,6 @@
     hostChannel = nextChannel;
     hostChatId = nextChatId;
 
-    if (isEditing()) return false;
-
     const draft = await loadDraft(nextChannel, nextChatId);
     if (draft) {
       await applyDraftToForm(draft);
@@ -481,6 +491,66 @@
     resetFormForChatSwitch();
     applyChannelSource(nextChannel, { force: true });
     return false;
+  }
+
+  function hideEditSwitchConfirm() {
+    pendingEditSwitch = null;
+    show(editSwitchModal, false);
+  }
+
+  function offerEditChatSwitch(pending) {
+    if (!pending?.key || !pending.chatId) return;
+    if (pendingEditSwitch?.key === pending.key) {
+      show(editSwitchModal, true);
+      return;
+    }
+    pendingEditSwitch = {
+      key: pending.key,
+      channel: String(pending.channel || ''),
+      chatId: String(pending.chatId || ''),
+      name: String(pending.name || ''),
+      phone: String(pending.phone || ''),
+    };
+    show(editSwitchModal, true);
+  }
+
+  async function applyFillAfterChatSwitch(payload, restored) {
+    const protect = restored || draftProtectActive();
+    if (typeof payload.name === 'string' && payload.name.trim() && nameInput instanceof HTMLInputElement) {
+      if (!protect || !nameInput.value.trim()) {
+        nameInput.value = payload.name.replace(/\s+/g, ' ').trim().slice(0, 80);
+      }
+    }
+    if (typeof payload.phone === 'string' && payload.phone.trim() && phoneInput instanceof HTMLInputElement) {
+      if (!protect || !phoneInput.value.trim()) {
+        phoneInput.value = payload.phone.trim();
+      }
+    }
+    if (typeof payload.channel === 'string') applyChannelSource(payload.channel);
+    if (!restored) scheduleDraftSave();
+  }
+
+  async function confirmLeaveEditForChat() {
+    const pending = pendingEditSwitch;
+    editSwitchIgnoredKey = '';
+    editSwitchIgnoredFill = null;
+    hideEditSwitchConfirm();
+    if (!pending?.chatId) return;
+    // clearEditMode không catch-up vì ignored đã xóa — tự chuyển sang chat đã chọn.
+    editingOrderId = null;
+    editingOrderCode = '';
+    paintEditMode();
+    resetAfterCreate();
+    const restored = await switchChatContext(pending.channel, pending.chatId);
+    await applyFillAfterChatSwitch(pending, restored);
+  }
+
+  function stayInEditAgainstChatSwitch() {
+    if (pendingEditSwitch) {
+      editSwitchIgnoredKey = pendingEditSwitch.key;
+      editSwitchIgnoredFill = { ...pendingEditSwitch };
+    }
+    hideEditSwitchConfirm();
   }
 
   /** Kiểm tra đủ thông tin bắt buộc; nếu thiếu thì báo lỗi + cuộn tới trường. */
@@ -602,10 +672,21 @@
   }
 
   function clearEditMode({ resetForm = false } = {}) {
+    const catchUp = editSwitchIgnoredFill;
     editingOrderId = null;
     editingOrderCode = '';
+    editSwitchIgnoredKey = '';
+    editSwitchIgnoredFill = null;
+    hideEditSwitchConfirm();
     paintEditMode();
     if (resetForm) resetAfterCreate();
+    // Host đã sang chat khác lúc đang sửa — sau khi thoát sửa thì bắt kịp fill đã bỏ qua.
+    if (catchUp?.chatId) {
+      void (async () => {
+        const restored = await switchChatContext(catchUp.channel, catchUp.chatId);
+        await applyFillAfterChatSwitch(catchUp, restored);
+      })();
+    }
   }
 
   function setSubmitBusy(busy) {
@@ -795,6 +876,9 @@
   async function beginEditOrder(orderId) {
     const order = await fetchOrderForForm(orderId, { forEdit: true });
     if (!order) return;
+    editSwitchIgnoredKey = '';
+    editSwitchIgnoredFill = null;
+    hideEditSwitchConfirm();
     editingOrderId = Number(order.id) || Number(orderId);
     editingOrderCode = String(order.code || '');
     loadOrderIntoForm(order);
@@ -3211,6 +3295,17 @@
     setFormError('');
   });
 
+  for (const btn of editSwitchStayBtns) {
+    btn.addEventListener('click', () => {
+      if (submitting) return;
+      stayInEditAgainstChatSwitch();
+    });
+  }
+  editSwitchLeaveBtn?.addEventListener('click', () => {
+    if (submitting) return;
+    void confirmLeaveEditForChat();
+  });
+
   sendConfirmBtn?.addEventListener('click', () => {
     if (sendingConfirm || submitting) return;
     sendingConfirm = true;
@@ -3331,24 +3426,35 @@
       const nextChatId = typeof data.chatId === 'string' ? data.chatId.trim() : '';
       const nextChannel = typeof data.channel === 'string' ? data.channel.trim() : hostChannel;
       void (async () => {
+        const switching =
+          Boolean(nextChatId) && (nextChatId !== hostChatId || nextChannel !== hostChannel);
+        if (switching && isEditing()) {
+          const key = `${nextChannel}:${nextChatId}`;
+          if (editSwitchIgnoredKey === key) return;
+          offerEditChatSwitch({
+            key,
+            channel: nextChannel,
+            chatId: nextChatId,
+            name: typeof data.name === 'string' ? data.name : '',
+            phone: typeof data.phone === 'string' ? data.phone : '',
+          });
+          return;
+        }
         const restored = nextChatId ? await switchChatContext(nextChannel, nextChatId) : false;
-        const protect = restored || draftProtectActive();
-        if (typeof data.name === 'string' && data.name.trim() && nameInput instanceof HTMLInputElement) {
-          if (!protect || !nameInput.value.trim()) {
-            nameInput.value = data.name.replace(/\s+/g, ' ').trim().slice(0, 80);
-          }
-        }
-        if (typeof data.phone === 'string' && data.phone.trim() && phoneInput instanceof HTMLInputElement) {
-          if (!protect || !phoneInput.value.trim()) {
-            phoneInput.value = data.phone.trim();
-          }
-        }
-        if (typeof data.channel === 'string') applyChannelSource(data.channel);
-        if (!restored) scheduleDraftSave();
+        await applyFillAfterChatSwitch(
+          {
+            name: typeof data.name === 'string' ? data.name : '',
+            phone: typeof data.phone === 'string' ? data.phone : '',
+            channel: typeof data.channel === 'string' ? data.channel : '',
+          },
+          restored,
+        );
       })();
       return;
     }
     if (data.type === 'vdt-fill-address') {
+      // Đang sửa đơn: không nhận địa chỉ từ chat khác cho tới khi xác nhận đổi chat / hủy sửa.
+      if (isEditing()) return;
       if (draftProtectActive() && addressSelection.provinceCode) {
         // Vừa restore draft — không đè địa chỉ đã lưu.
         return;
