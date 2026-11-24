@@ -6,6 +6,7 @@ import OrderDialog from '../components/public/OrderDialog.astro';
 import { listPublicAddons, type PublicAddon } from '../features/products/addons';
 import { BRACELET_PROCESS_STEPS, BRACELET_PROCESS_VIDEO_ID } from '../features/content/bracelet-process';
 import { FAQ_ITEMS } from '../features/content/faq';
+import { listOrderCosts } from '../features/costs/order-costs';
 import { listHomeCatalogCategories } from '../features/products/categories';
 import {
   catalogApiPath,
@@ -19,6 +20,7 @@ import {
 import { listFeaturedProducts } from '../features/products/featured';
 import { listHomeFeedback } from '../features/feedback/feedback';
 import { getPublicSite } from '../features/settings/settings';
+import { baseCustomerShippingFee } from '../features/shipping/customer-fee';
 import { createDb } from '../lib/db/client';
 import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
 import PublicLayout from '../layouts/PublicLayout.astro';
@@ -179,6 +181,7 @@ async function loadHome(query: CatalogQuery) {
     feedback: [] as Awaited<ReturnType<typeof listHomeFeedback>>,
     categories: [] as Awaited<ReturnType<typeof listHomeCatalogCategories>>,
     addons: [] as PublicAddon[],
+    shipBaseFee: 0,
     total: 0,
     page: 1,
     pageCount: 1,
@@ -188,12 +191,13 @@ async function loadHome(query: CatalogQuery) {
     const siteRow = await getPublicSite(db);
     if (!siteRow) return empty;
     // Query hẹp song song: cover hero, danh mục, SP trang 1, feedback rail.
-    const [photos, categories, shop, feedback, addons] = await Promise.all([
+    const [photos, categories, shop, feedback, addons, shipBaseFee] = await Promise.all([
       listFeaturedProducts(db, HOME_PHOTO_LIMIT),
       listHomeCatalogCategories(db),
       listCatalogProducts(db, query),
       listHomeFeedback(db),
       listPublicAddons(db),
+      listOrderCosts(db).then((costs) => baseCustomerShippingFee(costs)),
     ]);
     return {
       site: siteRow,
@@ -203,6 +207,7 @@ async function loadHome(query: CatalogQuery) {
       categories,
       products: shop.products,
       addons,
+      shipBaseFee,
       total: shop.total,
       page: shop.page,
       pageCount: shop.pageCount,
@@ -567,7 +572,7 @@ async function loadHome(query: CatalogQuery) {
               Xem tiếp {CATALOG_PAGE_SIZE} mẫu
             </a>
           </div>
-          <OrderDialog addons={loaded.addons} />
+          <OrderDialog addons={loaded.addons} shipBaseFee={loaded.shipBaseFee} />
         </section>
         <script>
           import '../scripts/home-shop';

@@ -389,7 +389,7 @@ export const orders = sqliteTable(
     shippingFee: integer('shipping_fee').notNull().default(0),
     shippingCost: integer('shipping_cost').notNull().default(0),
     // Ảnh chụp chi phí lúc đặt đơn, đổi giá nguyên liệu sau này không làm lệch đơn cũ.
-    // costGoods: tổng giá vốn các vòng (NULL nếu có sản phẩm chưa có công thức); costExtra: hộp, ship, thuế... của đơn.
+    // costGoods: tổng giá vốn các vòng (SP thiếu công thức tính 0); costExtra: hộp, thuế... của đơn.
     // NULL = đơn cũ chưa có số liệu, không tính lợi nhuận.
     costGoods: integer('cost_goods'),
     costExtra: integer('cost_extra'),

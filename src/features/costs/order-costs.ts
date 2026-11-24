@@ -53,18 +53,26 @@ type CostableLine = {
   unitCost?: number | null;
 };
 
-function resolveLineUnitCost(
-  line: CostableLine,
-  costByProduct: ReadonlyMap<number, number>,
-): number | undefined {
+function hasLineUnitCostOverride(line: CostableLine): boolean {
+  return typeof line.unitCost === 'number' && Number.isInteger(line.unitCost) && line.unitCost >= 0;
+}
+
+/** SP chưa có công thức / không còn trong catalog → vốn 0 (không chặn lãi cả đơn). */
+function resolveLineUnitCost(line: CostableLine, costByProduct: ReadonlyMap<number, number>): number {
   if (typeof line.unitCost === 'number' && Number.isInteger(line.unitCost) && line.unitCost >= 0) {
     return line.unitCost;
   }
-  if (line.productId === null) return undefined;
-  return costByProduct.get(line.productId);
+  if (line.productId === null) return 0;
+  return costByProduct.get(line.productId) ?? 0;
 }
 
-// Giá vốn cả đơn = tổng (giá vốn sản phẩm x số lượng). Thiếu công thức ở bất kỳ dòng nào thì chưa biết giá vốn (null).
+function lineMissingRecipe(line: CostableLine, costByProduct: ReadonlyMap<number, number>): boolean {
+  if (hasLineUnitCostOverride(line)) return false;
+  if (line.productId === null) return true;
+  return !costByProduct.has(line.productId);
+}
+
+// Giá vốn cả đơn = tổng (giá vốn sản phẩm × số lượng). SP thiếu công thức tính vốn 0.
 export function goodsCostOf(
   lines: ReadonlyArray<CostableLine>,
   costByProduct: ReadonlyMap<number, number>,
@@ -72,9 +80,7 @@ export function goodsCostOf(
   if (lines.length === 0) return null;
   let total = 0;
   for (const line of lines) {
-    const unit = resolveLineUnitCost(line, costByProduct);
-    if (unit === undefined) return null;
-    total += unit * line.quantity;
+    total += resolveLineUnitCost(line, costByProduct) * line.quantity;
   }
   return total;
 }
@@ -113,9 +119,8 @@ export function materialsForOrderLine(
   });
 }
 
-// costGoods = null khi còn sản phẩm chưa có công thức: không được bịa tổng giá vốn.
-// goods vẫn giữ các dòng đã tính được. extra là các khoản đang bật lúc đặt.
-// Phần trăm tính trên số khách phải trả.
+// SP thiếu công thức: unitCost = 0, ghi vào missing để admin biết; vẫn có costGoods để tính lãi.
+// extra là các khoản đang bật lúc đặt. Phần trăm tính trên số khách phải trả.
 export type OrderCostSnapshot = {
   goods: GoodsCostLine[];
   missing: string[];
@@ -135,25 +140,21 @@ export function costSnapshotOf(
   const missing: string[] = [];
   const goods: GoodsCostLine[] = [];
   for (const line of lines) {
-    const overridden =
-      typeof line.unitCost === 'number' && Number.isInteger(line.unitCost) && line.unitCost >= 0;
+    const overridden = hasLineUnitCostOverride(line);
     const unitCost = resolveLineUnitCost(line, costByProduct);
-    if (unitCost === undefined) missing.push(line.name);
-    else {
-      const materials =
-        !overridden && line.productId !== null
-          ? materialsForOrderLine(recipesByProduct?.get(line.productId), line.quantity)
-          : undefined;
-      goods.push({
-        name: line.name,
-        quantity: line.quantity,
-        unitCost,
-        amount: unitCost * line.quantity,
-        ...(materials ? { materials } : {}),
-      });
-    }
+    if (lineMissingRecipe(line, costByProduct)) missing.push(line.name);
+    const materials =
+      !overridden && line.productId !== null
+        ? materialsForOrderLine(recipesByProduct?.get(line.productId), line.quantity)
+        : undefined;
+    goods.push({
+      name: line.name,
+      quantity: line.quantity,
+      unitCost,
+      amount: unitCost * line.quantity,
+      ...(materials ? { materials } : {}),
+    });
   }
-  const known = lines.length > 0 && missing.length === 0;
   const active = costs.filter((cost) => cost.active);
   const lineOf = (cost: (typeof active)[number]): ExtraCostLine => ({
     name: cost.name,
@@ -167,7 +168,7 @@ export function costSnapshotOf(
     goods,
     missing,
     extra,
-    costGoods: known ? goods.reduce((sum, line) => sum + line.amount, 0) : null,
+    costGoods: lines.length > 0 ? goods.reduce((sum, line) => sum + line.amount, 0) : null,
     costExtra: extra.reduce((sum, line) => sum + line.amount, 0),
     shippingCost: shipping.reduce((sum, line) => sum + line.amount, 0),
   };

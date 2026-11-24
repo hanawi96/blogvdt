@@ -131,7 +131,7 @@ export function orderMatchesTheTenTag(input: {
 
 /**
  * Khớp thẻ tên trên SQL (tên SP «thẻ tên» / lưu ý đơn hoặc dòng SP có «thẻ»).
- * Dùng chung cho WHERE bộ lọc và ORDER BY ưu tiên thứ 2.
+ * Dùng cho WHERE bộ lọc thẻ tên.
  */
 function orderTheTenMatchSql() {
   const nameLike = `%${ORDER_TAG_THE_TEN_MATCH.productName}%`;
@@ -150,16 +150,15 @@ function orderTheTenMatchSql() {
   )`;
 }
 
-/** Có ô tìm → luôn đơn mới nhất trước; tab đã gửi theo ngày gửi; còn lại: ưu tiên → thẻ tên → ngày đặt. */
+/** Có ô tìm → luôn đơn mới nhất trước; tab đã gửi theo ngày gửi; còn lại: ưu tiên → ngày đặt. */
 function orderListOrderBy(filters: OrderListFilters) {
   const term = orderSearchTerm(filters.query);
   if (term.phone || term.text) return [desc(orders.createdAt), desc(orders.id)] as const;
   if (filters.status === 'shipped') return [desc(orders.shippedAt), desc(orders.id)] as const;
-  const theTenBoost = sql`case when ${orderTheTenMatchSql()} then 1 else 0 end`;
   if (filters.sort === 'newest') {
-    return [desc(orders.priority), desc(theTenBoost), desc(orders.createdAt), desc(orders.id)] as const;
+    return [desc(orders.priority), desc(orders.createdAt), desc(orders.id)] as const;
   }
-  return [desc(orders.priority), desc(theTenBoost), asc(orders.createdAt), asc(orders.id)] as const;
+  return [desc(orders.priority), asc(orders.createdAt), asc(orders.id)] as const;
 }
 
 export function orderAdminQuery(input: {

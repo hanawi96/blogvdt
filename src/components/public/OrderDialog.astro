@@ -3,6 +3,7 @@ import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
 import { addonShipHint, type PublicAddon } from '../../features/products/addons';
 import { TAG_NAME_MAX } from '../../features/products/tag-name';
 import { WEIGHT_SCALES, weightExtras } from '../../features/products/weight';
+import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
 import AddonPicker from './AddonPicker.astro';
 import AddressField from './AddressField.astro';
@@ -14,9 +15,12 @@ import QtyStepper from './QtyStepper.astro';
 // khi tắt JS, nút vẫn là link tới /dat-hang nên đặt hàng không bị chặn.
 interface Props {
   addons?: PublicAddon[];
+  /** Phí ship khách trả mặc định (từ chi phí đơn đang bật). */
+  shipBaseFee?: number;
 }
 
-const { addons = [] } = Astro.props;
+const { addons = [], shipBaseFee = 0 } = Astro.props;
+const shipFeeSafe = Number.isSafeInteger(shipBaseFee) && shipBaseFee > 0 ? shipBaseFee : 0;
 const scaleGroups = Object.entries(WEIGHT_SCALES).filter(([, labels]) => labels.length > 0);
 const babyExtras = weightExtras('baby');
 const showAddons = addons.length > 0;
@@ -98,6 +102,21 @@ const addonHint = addonShipHint(0);
         )
       }
       <DiscountCodeField id="od-discount" />
+      <div class="cart-sum-stack" data-od-ship data-ship-base={shipFeeSafe} hidden>
+        <div class="cart-sum">
+          <span>Tạm tính</span>
+          <strong data-od-goods>{formatVnd(0)}</strong>
+        </div>
+        <div class="cart-sum cart-sum-muted">
+          <span>Phí vận chuyển</span>
+          <strong data-od-ship-fee>{shipFeeSafe > 0 ? formatVnd(shipFeeSafe) : '—'}</strong>
+        </div>
+        <div class="cart-sum">
+          <span>Phải trả</span>
+          <strong data-od-payable>{formatVnd(0)}</strong>
+        </div>
+      </div>
+      <p class="cart-sum-note" data-od-ship-note hidden>Nhận hàng kiểm tra hàng thoải mái, ưng ý thì mới thanh toán.</p>
     </div>
     <div class="order-dialog-foot">
       <button class="btn btn-primary order-dialog-submit" type="submit">
@@ -117,6 +136,7 @@ const addonHint = addonShipHint(0);
   import { addonShipHint, addonShipHintText } from '../../features/products/addon-hint';
   import { productRequiresTagName } from '../../features/products/tag-name';
   import { applyWeightPrice, weightOptionLabel, weightSurchargeLabel } from '../../features/products/weight';
+  import { resolveCustomerShippingFee, type ShipGroup } from '../../features/shipping/customer-fee';
 
   const dialog = document.getElementById('order-dialog');
   const form = dialog?.querySelector('form[data-order-dialog-form]');
@@ -137,8 +157,12 @@ const addonHint = addonShipHint(0);
     const quantity = form.querySelector('#od-quantity');
     const addonsWrap = form.querySelector('[data-od-addons]');
     const addonHintEl = addonsWrap?.querySelector('.addon-picker-hint');
+    const shipRoot = form.querySelector('[data-od-ship]');
+    const shipNote = form.querySelector('[data-od-ship-note]');
     const submit = form.querySelector('button[type="submit"]:not([value="apply"])');
     let price = 0;
+    let shipGroup: ShipGroup = 'bracelet';
+    const shipBase = shipRoot instanceof HTMLElement ? Number(shipRoot.dataset.shipBase || '0') : 0;
 
     const selectedWeight = (): string => {
       const checked = form.querySelector('input[name="weight"]:checked');
@@ -147,15 +171,20 @@ const addonHint = addonShipHint(0);
       return '';
     };
 
-    const selectedAddonGoods = (): number => {
-      let sum = 0;
+    const selectedAddons = (): { price: number }[] => {
+      const rows: { price: number }[] = [];
       form.querySelectorAll('input[name="addonSlug"][data-addon-toggle]:checked').forEach((node) => {
         if (!(node instanceof HTMLInputElement)) return;
         const addonPrice = Number(node.dataset.addonPrice || '0');
-        if (Number.isSafeInteger(addonPrice) && addonPrice > 0) sum += addonPrice;
+        if (!Number.isSafeInteger(addonPrice) || addonPrice < 0) return;
+        rows.push({ price: addonPrice });
       });
-      return sum;
+      return rows;
     };
+
+    /** Badge free / with-addon = vòng; còn lại (bạc / bán kèm / khác) không miễn theo rule vòng. */
+    const shipGroupFromBadge = (badge: string): ShipGroup =>
+      badge === 'free' || badge === 'with-addon' ? 'bracelet' : 'other';
 
     const resetAddons = () => {
       form.querySelectorAll<HTMLInputElement>('input[name="addonSlug"][data-addon-toggle]').forEach((input) => {
@@ -181,10 +210,20 @@ const addonHint = addonShipHint(0);
       const unit = price > 0 ? applyWeightPrice(price, weight) : 0;
       const count = Number(quantity.value);
       const valid = Number.isInteger(count) && count >= 1;
-      const braceletGoods = valid ? unit * count : 0;
-      const goods = braceletGoods + selectedAddonGoods();
-      total.textContent = valid ? `(${money.format(goods)})` : '(—)';
-      total.dataset.payableAmount = valid ? String(goods) : '0';
+      const mainGoods = valid ? unit * count : 0;
+      const addonsPicked = selectedAddons();
+      const addonGoods = addonsPicked.reduce((sum, item) => sum + item.price, 0);
+      const goods = mainGoods + addonGoods;
+      const shipping = resolveCustomerShippingFee({
+        lines: [
+          { group: shipGroup, lineTotal: mainGoods },
+          ...addonsPicked.map((item) => ({ group: 'addon' as const, lineTotal: item.price })),
+        ],
+        baseFee: shipBase,
+      });
+      const payable = goods + shipping.fee;
+      total.textContent = valid ? `(${money.format(payable)})` : '(—)';
+      total.dataset.payableAmount = valid ? String(payable) : '0';
       if (priceText instanceof HTMLElement && unit > 0) priceText.textContent = money.format(unit);
       const surcharge = weightSurchargeLabel(weight, price);
       if (weightNote instanceof HTMLElement) {
@@ -192,7 +231,17 @@ const addonHint = addonShipHint(0);
         weightNote.textContent = surcharge && unit > 0 ? `Vòng lớn hơn, cộng ${surcharge} nguyên liệu → ${money.format(unit)}/chiếc` : '';
       }
       if (addonHintEl && addonsWrap instanceof HTMLElement && !addonsWrap.hidden) {
-        addonHintEl.textContent = addonShipHintText(addonShipHint(braceletGoods));
+        addonHintEl.textContent = addonShipHintText(addonShipHint(mainGoods));
+      }
+      if (shipRoot instanceof HTMLElement) {
+        shipRoot.hidden = !valid;
+        if (shipNote instanceof HTMLElement) shipNote.hidden = !valid;
+        const goodsOut = shipRoot.querySelector('[data-od-goods]');
+        if (goodsOut) goodsOut.textContent = money.format(goods);
+        const shipFeeOut = shipRoot.querySelector('[data-od-ship-fee]');
+        if (shipFeeOut) shipFeeOut.textContent = shipping.free ? 'Miễn phí' : money.format(shipping.fee);
+        const payableOut = shipRoot.querySelector('[data-od-payable]');
+        if (payableOut) payableOut.textContent = money.format(payable);
       }
     };
 
@@ -257,6 +306,7 @@ const addonHint = addonShipHint(0);
       }
       // Badge free / with-addon chỉ gắn vòng → hiện bán kèm; bạc/bó riêng thì ẩn.
       const shipBadge = trigger.dataset.shipBadge ?? 'none';
+      shipGroup = shipGroupFromBadge(shipBadge);
       const allowAddons = shipBadge === 'free' || shipBadge === 'with-addon';
       if (addonsWrap instanceof HTMLElement) {
         addonsWrap.hidden = !allowAddons;

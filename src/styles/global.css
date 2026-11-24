@@ -4431,6 +4431,12 @@
   .order-dialog-body .add-head {
     padding-right: 2.35rem;
   }
+  .order-dialog-body .cart-sum-stack {
+    margin-top: 1rem;
+  }
+  .order-dialog-body .cart-sum-note {
+    margin-bottom: 0.15rem;
+  }
   .order-dialog-foot {
     flex: none;
     padding: 0.65rem 1.15rem max(0.75rem, env(safe-area-inset-bottom, 0px));

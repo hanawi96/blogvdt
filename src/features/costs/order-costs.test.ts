@@ -52,9 +52,9 @@ describe('giá vốn cả đơn', () => {
     expect(goodsCostOf([{ productId: 1, quantity: 2 }, { productId: 2, quantity: 1 }], byProduct)).toBe(130000);
   });
 
-  it('thiếu công thức hoặc sản phẩm đã xóa thì chưa biết', () => {
-    expect(goodsCostOf([{ productId: 1, quantity: 1 }, { productId: 9, quantity: 1 }], byProduct)).toBeNull();
-    expect(goodsCostOf([{ productId: null, quantity: 1 }], byProduct)).toBeNull();
+  it('thiếu công thức hoặc sản phẩm đã xóa thì vốn 0', () => {
+    expect(goodsCostOf([{ productId: 1, quantity: 1 }, { productId: 9, quantity: 1 }], byProduct)).toBe(50000);
+    expect(goodsCostOf([{ productId: null, quantity: 2 }], byProduct)).toBe(0);
     expect(goodsCostOf([], byProduct)).toBeNull();
   });
 });
@@ -116,16 +116,16 @@ describe('ảnh chụp chi phí lúc đặt', () => {
     expect(orderShippingCost(19000, [{ name: 'Phí vận chuyển', amount: 19000 }])).toBe(19000);
   });
 
-  it('thiếu công thức thì không có lợi nhuận, vẫn giữ chi phí đơn', () => {
+  it('thiếu công thức thì vốn 0, vẫn tính lãi với chi phí đơn', () => {
     const shot = costSnapshotOf([{ name: 'Vòng lạ', productId: 9, quantity: 1 }], new Map(), costs, 100000);
-    expect(shot.goods).toEqual([]);
-    expect(shot.costGoods).toBeNull();
+    expect(shot.goods).toEqual([{ name: 'Vòng lạ', quantity: 1, unitCost: 0, amount: 0 }]);
+    expect(shot.costGoods).toBe(0);
     expect(shot.missing).toEqual(['Vòng lạ']);
     expect(shot.costExtra).toBe(15000);
-    expect(orderProfit({ totalPrice: 100000, costGoods: shot.costGoods, costExtra: shot.costExtra })).toBeNull();
+    expect(orderProfit({ totalPrice: 100000, costGoods: shot.costGoods, costExtra: shot.costExtra })).toBe(85000);
   });
 
-  it('giữ giá vốn dòng đã có và để trống tổng khi còn dòng thiếu', () => {
+  it('dòng thiếu công thức tính vốn 0, vẫn cộng tổng với dòng đã có', () => {
     const shot = costSnapshotOf(
       [
         { name: 'Vòng trơn', productId: 1, quantity: 1 },
@@ -135,9 +135,12 @@ describe('ảnh chụp chi phí lúc đặt', () => {
       costs,
       100000,
     );
-    expect(shot.goods).toEqual([{ name: 'Vòng trơn', quantity: 1, unitCost: 40000, amount: 40000 }]);
+    expect(shot.goods).toEqual([
+      { name: 'Vòng trơn', quantity: 1, unitCost: 40000, amount: 40000 },
+      { name: 'Vòng lạ', quantity: 1, unitCost: 0, amount: 0 },
+    ]);
     expect(shot.missing).toEqual(['Vòng lạ']);
-    expect(shot.costGoods).toBeNull();
+    expect(shot.costGoods).toBe(40000);
   });
 
   it('unitCost ghi đè công thức — dòng tùy chỉnh vẫn có lãi', () => {
