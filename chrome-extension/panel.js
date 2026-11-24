@@ -2185,19 +2185,22 @@
   }
 
   /**
-   * @param {{ name?: string, phone?: string, address?: string, lines?: Array<{ name?: string, quantity?: string|number, weight?: string }>, payValue?: string, payable?: number, ship?: number, free?: boolean }} parts
+   * @param {{ name?: string, phone?: string, address?: string, note?: string, lines?: Array<{ name?: string, quantity?: string|number, weight?: string, note?: string }>, payValue?: string, payable?: number, ship?: number, free?: boolean }} parts
    */
   function formatConfirmMessages(parts) {
     const name = String(parts.name || '').trim();
     const phone = String(parts.phone || '').trim();
     const address = String(parts.address || '').trim();
+    const orderNote = String(parts.note || '').trim();
     const payValue = parts.payValue || 'cod';
     const productLines = (Array.isArray(parts.lines) ? parts.lines : [])
       .map((line, index) => {
         const qty = Number(line.quantity) > 0 ? Number(line.quantity) : 1;
         const size = String(line.weight || '').trim();
+        const lineNote = String(line.note || '').trim();
         const partsLine = [`${index + 1}. ${line.name || 'Sản phẩm'}`, `SL: ${qty} chiếc`];
         if (size) partsLine.push(`Size: ${size}`);
+        if (lineNote) partsLine.push(`Lưu ý: ${lineNote}`);
         return partsLine.join('  ·  ');
       })
       .join('\n');
@@ -2222,6 +2225,7 @@
       '',
       `- Tổng tiền: ${totalPart}`,
       `- Thanh toán: ${payStateLabel(payValue)}`,
+      ...(orderNote ? ['', `- Lưu ý đơn: ${orderNote}`] : []),
     ].join('\n');
     const msg2 = 'Phiền c kiểm tra và xác nhận thông tin giúp em với nha để em lưu đơn lại chị ha';
     return [msg1, msg2];
@@ -2232,6 +2236,8 @@
     const name = nameInput instanceof HTMLInputElement ? nameInput.value.trim() : '';
     const phone = phoneInput instanceof HTMLInputElement ? phoneInput.value.trim() : '';
     const address = addressValue instanceof HTMLInputElement ? addressValue.value.trim() : '';
+    const noteEl = document.querySelector('[data-note]');
+    const note = noteEl instanceof HTMLInputElement ? noteEl.value.trim() : '';
     const payRadio = document.querySelector('input[name="payState"]:checked');
     const payValue = payRadio instanceof HTMLInputElement ? payRadio.value : 'cod';
     const payState = computePayState();
@@ -2239,6 +2245,7 @@
       name,
       phone,
       address,
+      note,
       lines: cart,
       payValue,
       payable: payState.payable,
@@ -2257,11 +2264,13 @@
       name: line.productName || line.name,
       quantity: line.quantity,
       weight: line.weight,
+      note: line.note,
     }));
     return formatConfirmMessages({
       name: order?.customerName,
       phone: order?.phone,
       address: order?.address,
+      note: order?.note,
       lines,
       payValue: flags.payState || 'cod',
       payable,

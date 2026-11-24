@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addonShowsPopularBadge,
   addonShipHint,
   addonShipHintText,
   cartShowsAddonUpsell,
   findAddonInCatalog,
   findAddonsInCatalog,
+  isKeychainAddon,
   recommendedAddonSlug,
   resolveAddonSlug,
   resolveAddonSlugs,
@@ -17,6 +19,7 @@ const addons: PublicAddon[] = [
     slug: 'bo-dau-7-canh',
     name: 'Bó dâu tằm 7 cành',
     price: 39_000,
+    sold: 0,
     isFeatured: false,
     coverUrl: null,
     coverAlt: '',
@@ -26,6 +29,7 @@ const addons: PublicAddon[] = [
     slug: 'bo-dau-9-canh',
     name: 'Bó dâu tằm 9 cành',
     price: 49_000,
+    sold: 0,
     isFeatured: false,
     coverUrl: null,
     coverAlt: '',
@@ -78,6 +82,16 @@ describe('recommendedAddonSlug', () => {
       ]),
     ).toBe('bo-dau-7-canh');
     expect(recommendedAddonSlug([])).toBeNull();
+  });
+});
+
+describe('addonShowsPopularBadge / isKeychainAddon', () => {
+  it('badge cho bó dâu; móc chìa khóa không badge và nhận diện đúng', () => {
+    expect(addonShowsPopularBadge({ slug: 'bo-dau-7-canh-be-trai' })).toBe(true);
+    expect(addonShowsPopularBadge({ slug: 'bo-dau-9-canh-be-gai' })).toBe(true);
+    expect(addonShowsPopularBadge({ slug: 'moc-chia-khoa-dau-tam' })).toBe(false);
+    expect(isKeychainAddon({ slug: 'moc-chia-khoa-dau-tam' })).toBe(true);
+    expect(isKeychainAddon({ slug: 'bo-dau-7-canh-be-trai' })).toBe(false);
   });
 });
 

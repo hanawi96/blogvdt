@@ -4400,6 +4400,81 @@
   .order-dialog {
     width: min(30rem, calc(100vw - 1.5rem));
   }
+  /* Body cuộn, chân (tạm tính + Gửi đơn) luôn hiện — sticky không kéo nút từ dưới fold lên. */
+  .order-dialog[open] {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* Chỉ nút đóng neo góc — không sticky cả header. */
+  .order-dialog-close {
+    position: absolute;
+    top: 0.7rem;
+    right: 0.7rem;
+    z-index: 6;
+  }
+  .order-dialog-form {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+  .order-dialog-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 1.1rem 1.15rem 0.85rem;
+  }
+  .order-dialog-body .add-head {
+    padding-right: 2.35rem;
+  }
+  .order-dialog-foot {
+    flex: none;
+    padding: 0.65rem 1.15rem max(0.75rem, env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--color-line);
+    background: color-mix(in oklab, var(--color-surface) 94%, var(--color-canvas));
+    box-shadow: 0 -10px 24px -18px color-mix(in oklab, var(--color-ink) 35%, transparent);
+  }
+  .order-dialog-submit {
+    width: 100%;
+    min-height: 2.85rem;
+    margin: 0;
+    padding-block: 0.45rem;
+    padding-inline: 1rem;
+  }
+  .order-dialog-submit-label {
+    display: grid;
+    width: 100%;
+    justify-items: center;
+    gap: 0.12rem;
+    line-height: 1.15;
+  }
+  .order-dialog-submit-row {
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 0.35rem;
+    width: 100%;
+    font-size: 0.98rem;
+    font-weight: 700;
+  }
+  .order-dialog-submit-title {
+    font-weight: inherit;
+  }
+  .order-dialog-submit-price {
+    font-weight: inherit;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
+  .order-dialog-submit-note {
+    font-size: 0.68rem;
+    font-weight: 500;
+    text-align: center;
+    opacity: 0.92;
+  }
   .order-summary {
     display: flex;
     align-items: center;
@@ -6722,13 +6797,13 @@
     justify-content: center;
     gap: 0.08rem;
   }
-  /* Khi có badge trong lưới → mọi thẻ giữ slot cùng cao. */
   .addon-option-badge-slot {
-    display: block;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+    min-height: 1.05rem;
     line-height: 1;
-  }
-  .addon-picker-grid:has(.addon-option-badge) .addon-option-badge-slot {
-    min-height: 0.95rem;
   }
   .addon-option-badge {
     display: inline-block;
@@ -6737,8 +6812,20 @@
     font-size: 0.68rem;
     font-weight: 650;
     line-height: 0.95rem;
-    color: var(--color-primary-strong);
+    color: var(--color-accent-strong);
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .addon-option-ship {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.05rem 0.35rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--color-primary) 14%, var(--color-surface));
+    color: var(--color-primary-strong);
+    font-size: 0.62rem;
+    font-weight: 650;
+    line-height: 1.15;
     white-space: nowrap;
   }
   .addon-option-name {
@@ -6751,10 +6838,24 @@
     line-height: 1.25;
     color: var(--color-ink);
   }
+  .addon-option-price-row {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.3rem;
+    min-width: 0;
+  }
   .addon-option-price {
     font-size: 0.84rem;
     font-weight: 650;
     color: var(--color-primary-strong);
+  }
+  .addon-option-sold {
+    font-size: 0.72rem;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--color-muted);
+    white-space: nowrap;
   }
   .addon-add-icon {
     flex: none;

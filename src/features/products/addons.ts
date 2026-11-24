@@ -1,9 +1,10 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { media, productCategories, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { listingMediaKey } from '../media/files';
 import { ADDON_CATEGORY_SLUG, shipGroupOf } from '../shipping/customer-fee';
+import { productSoldCount } from './catalog';
 import { sellableProductWhere } from './status';
 
 export type { AddonShipHint } from './addon-hint';
@@ -14,10 +15,21 @@ export type PublicAddon = {
   slug: string;
   name: string;
   price: number;
+  sold: number;
   isFeatured: boolean;
   coverUrl: string | null;
   coverAlt: string;
 };
+
+/** Móc chìa khóa — không gắn badge “Nhiều mẹ chọn”, luôn xếp cuối danh sách bán kèm. */
+export function isKeychainAddon(addon: { slug: string }): boolean {
+  return addon.slug.startsWith('moc-chia-khoa');
+}
+
+/** Badge chỉ cho bó dâu (7/9 cành), không cho móc chìa khóa. */
+export function addonShowsPopularBadge(addon: { slug: string }): boolean {
+  return addon.slug.startsWith('bo-dau');
+}
 
 /** SP bán kèm đang bán (danh mục san-pham-ban-kem). */
 export async function listPublicAddons(db: AppDb): Promise<PublicAddon[]> {
@@ -27,6 +39,7 @@ export async function listPublicAddons(db: AppDb): Promise<PublicAddon[]> {
       slug: products.slug,
       name: products.name,
       price: products.price,
+      sold: productSoldCount,
       isFeatured: products.isFeatured,
       coverKey: media.r2Key,
       cardKey: media.cardR2Key,
@@ -36,19 +49,23 @@ export async function listPublicAddons(db: AppDb): Promise<PublicAddon[]> {
     .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
     .leftJoin(media, eq(products.coverMediaId, media.id))
     .where(and(eq(productCategories.slug, ADDON_CATEGORY_SLUG), sellableProductWhere()))
-    .orderBy(asc(products.sortOrder), asc(products.id));
-  return rows.map((row) => {
+    // sort_order cao trước (bó dâu), móc chìa khóa (sort thấp) xuống cuối.
+    .orderBy(desc(products.sortOrder), asc(products.id));
+  const list = rows.map((row) => {
     const listKey = listingMediaKey(row.coverKey, row.cardKey);
     return {
       id: row.id,
       slug: row.slug,
       name: row.name,
       price: row.price,
+      sold: Math.max(0, Number(row.sold) || 0),
       isFeatured: row.isFeatured,
       coverUrl: listKey ? routes.media(listKey) : null,
       coverAlt: row.coverAlt ?? '',
     };
   });
+  // Đảm bảo móc chìa khóa luôn cuối dù sort_order đổi.
+  return list.sort((a, b) => Number(isKeychainAddon(a)) - Number(isKeychainAddon(b)));
 }
 
 /** Chuỗi form → slug addon hợp lệ trong danh sách; rỗng/không khớp → null. */

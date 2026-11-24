@@ -1,7 +1,7 @@
 ---
 import {
+  addonShowsPopularBadge,
   addonShipHintText,
-  recommendedAddonSlug,
   type AddonShipHint,
   type PublicAddon,
 } from '../../features/products/addons';
@@ -42,7 +42,6 @@ const {
   class: className,
 } = Astro.props;
 
-const recommended = recommendedAddonSlug(addons);
 const added = new Set(addedSlugs);
 const chosen = new Set(
   selectedSlugs && selectedSlugs.length > 0
@@ -70,11 +69,12 @@ const showConfirmDialog = Boolean(confirmDialog) && !upsell && addons.length > 0
         <ul class="addon-picker-grid" aria-label="Bó dâu bán kèm">
           {
             addons.map((addon) => {
-              const isRecommended = recommended === addon.slug;
               const isAdded = upsell && added.has(addon.slug);
               const isChosen = !upsell && chosen.has(addon.slug);
               const inputId = `${idPrefix}-${addon.slug}`;
               const priceText = formatVnd(addon.price);
+              const soldText = addon.sold > 0 ? `(${addon.sold.toLocaleString('vi-VN')} lượt bán)` : '';
+              const showPopular = addonShowsPopularBadge(addon);
               return (
                 <li
                   class:list={['addon-option', 'addon-option-upsell', (isAdded || isChosen) && 'is-selected']}
@@ -100,10 +100,14 @@ const showConfirmDialog = Boolean(confirmDialog) && !upsell && addons.length > 0
                     )}
                     <span class="addon-option-copy">
                       <span class="addon-option-badge-slot">
-                        {isRecommended ? <span class="addon-option-badge">Nhiều mẹ chọn</span> : null}
+                        {showPopular ? <span class="addon-option-badge">Nhiều mẹ chọn</span> : null}
+                        <span class="addon-option-ship">Miễn ship</span>
                       </span>
                       <span class="addon-option-name">{addon.name}</span>
-                      <span class="addon-option-price">{priceText}</span>
+                      <span class="addon-option-price-row">
+                        <span class="addon-option-price">{priceText}</span>
+                        {soldText && <span class="addon-option-sold">{soldText}</span>}
+                      </span>
                     </span>
                     {
                       upsell ? (

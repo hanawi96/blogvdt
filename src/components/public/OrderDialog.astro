@@ -24,81 +24,92 @@ const addonHint = addonShipHint(0);
 ---
 
 <dialog id="order-dialog" class="order-dialog" aria-labelledby="order-dialog-title">
-  <form class="add-form" method="post" action={routes.checkout} data-order-dialog-form>
-    <div class="add-head">
-      <p class="font-semibold">Đặt hàng</p>
-      <button class="add-close" type="button" data-order-close aria-label="Đóng">×</button>
-    </div>
-    <div class="order-summary">
-      <img class="order-thumb" data-od-thumb alt="" width="64" height="64" hidden />
-      <div class="min-w-0">
-        <p id="order-dialog-title" class="font-semibold" data-od-title></p>
-        <p class="font-semibold text-primary-strong" data-od-price></p>
+  <button class="add-close order-dialog-close" type="button" data-order-close aria-label="Đóng">×</button>
+  <form class="add-form order-dialog-form" method="post" action={routes.checkout} data-order-dialog-form>
+    <div class="order-dialog-body">
+      <div class="add-head">
+        <p class="font-semibold">Đặt hàng</p>
       </div>
-    </div>
-    <div class="absolute -left-[9999px]" aria-hidden="true">
-      <label for="od-company">Công ty</label>
-      <input id="od-company" name="company" tabindex="-1" autocomplete="off" />
-    </div>
-    <input type="hidden" name="productSlug" data-od-slug />
-    <fieldset class="mt-3" data-od-weight hidden>
-      <legend class="text-sm font-semibold">Cân nặng của bé</legend>
-      {
-        scaleGroups.map(([scale, labels]) => (
-          <div class="weight-grid mt-2" role="radiogroup" data-scale-group={scale} hidden>
-            {labels.map((label) => (
-              <label class="weight-chip">
-                <input type="radio" name="weight" value={label} disabled />
-                <span>{label}</span>
-              </label>
-            ))}
-            {scale === 'baby' && (
-              <button type="button" class="weight-chip weight-chip-more" data-weight-more aria-expanded="false" aria-label="Cân nặng khác">
-                <span aria-hidden="true">+</span>
-              </button>
-            )}
-          </div>
-        ))
-      }
-      <div class="weight-extra mt-2" data-weight-extra hidden>
-        <select class="field" data-weight-extra-select aria-label="Chọn cân nặng lớn hơn">
-          <option value="">Chọn cân nặng (16kg – 70kg)</option>
-          {babyExtras.map((weight) => (
-            <option value={weight} data-weight-value={weight}>{weight}</option>
-          ))}
-        </select>
-      </div>
-      <p class="weight-surcharge-note" data-weight-note hidden></p>
-    </fieldset>
-    <QtyStepper id="od-quantity" max={ORDER_MAX_QUANTITY} />
-    <label class="mt-3 block text-sm font-semibold" for="od-tag" data-od-tag-wrap hidden>
-      Tên cần in lên thẻ
-      <input id="od-tag" class="field mt-1" name="tagName" maxlength={TAG_NAME_MAX} autocomplete="off" placeholder="Ví dụ: Minh An" data-od-tag disabled />
-    </label>
-    {
-      showAddons && (
-        <div class="order-dialog-addons" data-od-addons hidden>
-          <AddonPicker addons={addons} hint={addonHint} idPrefix="od-addon" class="mt-3" />
+      <div class="order-summary">
+        <img class="order-thumb" data-od-thumb alt="" width="64" height="64" hidden />
+        <div class="min-w-0">
+          <p id="order-dialog-title" class="font-semibold" data-od-title></p>
+          <p class="font-semibold text-primary-strong" data-od-price></p>
         </div>
-      )
-    }
-    <PaymentField small />
-    <label class="mt-3 block text-sm font-semibold" for="od-name">
-      Họ tên
-      <input id="od-name" class="field mt-1" name="customerName" required maxlength="80" autocomplete="name" />
-    </label>
-    <label class="mt-3 block text-sm font-semibold" for="od-phone">
-      Số điện thoại
-      <input id="od-phone" class="field mt-1" name="phone" type="tel" required maxlength="20" autocomplete="tel" />
-    </label>
-    <AddressField idPrefix="od" compact />
-    <label class="mt-3 block text-sm font-semibold" for="od-note">
-      Ghi chú
-      <textarea id="od-note" class="field mt-1 min-h-16" name="note" maxlength="500"></textarea>
-    </label>
-    <DiscountCodeField id="od-discount" />
-    <p class="order-total">Tạm tính <strong data-od-total data-payable-amount="0"></strong></p>
-    <button class="btn btn-primary mt-4 w-full" type="submit">Gửi đơn</button>
+      </div>
+      <div class="absolute -left-[9999px]" aria-hidden="true">
+        <label for="od-company">Công ty</label>
+        <input id="od-company" name="company" tabindex="-1" autocomplete="off" />
+      </div>
+      <input type="hidden" name="productSlug" data-od-slug />
+      <fieldset class="mt-3" data-od-weight hidden>
+        <legend class="text-sm font-semibold">Cân nặng của bé</legend>
+        {
+          scaleGroups.map(([scale, labels]) => (
+            <div class="weight-grid mt-2" role="radiogroup" data-scale-group={scale} hidden>
+              {labels.map((label) => (
+                <label class="weight-chip">
+                  <input type="radio" name="weight" value={label} disabled />
+                  <span>{label}</span>
+                </label>
+              ))}
+              {scale === 'baby' && (
+                <button type="button" class="weight-chip weight-chip-more" data-weight-more aria-expanded="false" aria-label="Cân nặng khác">
+                  <span aria-hidden="true">+</span>
+                </button>
+              )}
+            </div>
+          ))
+        }
+        <div class="weight-extra mt-2" data-weight-extra hidden>
+          <select class="field" data-weight-extra-select aria-label="Chọn cân nặng lớn hơn">
+            <option value="">Chọn cân nặng (16kg – 70kg)</option>
+            {babyExtras.map((weight) => (
+              <option value={weight} data-weight-value={weight}>{weight}</option>
+            ))}
+          </select>
+        </div>
+        <p class="weight-surcharge-note" data-weight-note hidden></p>
+      </fieldset>
+      <QtyStepper id="od-quantity" max={ORDER_MAX_QUANTITY} />
+      <label class="mt-3 block text-sm font-semibold" for="od-tag" data-od-tag-wrap hidden>
+        Tên cần in lên thẻ
+        <input id="od-tag" class="field mt-1" name="tagName" maxlength={TAG_NAME_MAX} autocomplete="off" placeholder="Ví dụ: Minh An" data-od-tag disabled />
+      </label>
+      <PaymentField small />
+      <label class="mt-3 block text-sm font-semibold" for="od-name">
+        Họ tên
+        <input id="od-name" class="field mt-1" name="customerName" required maxlength="80" autocomplete="name" />
+      </label>
+      <label class="mt-3 block text-sm font-semibold" for="od-phone">
+        Số điện thoại
+        <input id="od-phone" class="field mt-1" name="phone" type="tel" required maxlength="20" autocomplete="tel" />
+      </label>
+      <AddressField idPrefix="od" compact />
+      <label class="mt-3 block text-sm font-semibold" for="od-note">
+        Ghi chú
+        <textarea id="od-note" class="field mt-1 min-h-16" name="note" maxlength="500"></textarea>
+      </label>
+      {
+        showAddons && (
+          <div class="order-dialog-addons" data-od-addons hidden>
+            <AddonPicker addons={addons} hint={addonHint} idPrefix="od-addon" class="mt-3" />
+          </div>
+        )
+      }
+      <DiscountCodeField id="od-discount" />
+    </div>
+    <div class="order-dialog-foot">
+      <button class="btn btn-primary order-dialog-submit" type="submit">
+        <span class="order-dialog-submit-label">
+          <span class="order-dialog-submit-row">
+            <span class="order-dialog-submit-title">Gửi đơn</span>
+            <strong class="order-dialog-submit-price" data-od-total data-payable-amount="0">(—)</strong>
+          </span>
+          <span class="order-dialog-submit-note">(Nhận hàng được kiểm tra hàng)</span>
+        </span>
+      </button>
+    </div>
   </form>
 </dialog>
 <script>
@@ -172,7 +183,7 @@ const addonHint = addonShipHint(0);
       const valid = Number.isInteger(count) && count >= 1;
       const braceletGoods = valid ? unit * count : 0;
       const goods = braceletGoods + selectedAddonGoods();
-      total.textContent = valid ? money.format(goods) : '—';
+      total.textContent = valid ? `(${money.format(goods)})` : '(—)';
       total.dataset.payableAmount = valid ? String(goods) : '0';
       if (priceText instanceof HTMLElement && unit > 0) priceText.textContent = money.format(unit);
       const surcharge = weightSurchargeLabel(weight, price);
@@ -301,17 +312,23 @@ const addonHint = addonShipHint(0);
     dialog.addEventListener('click', (event) => {
       if (event.target === dialog || (event.target instanceof Element && event.target.closest('[data-order-close]'))) dialog.close();
     });
+    const paintSubmitLabel = (label: string) => {
+      if (!(submit instanceof HTMLButtonElement)) return;
+      const title = submit.querySelector('.order-dialog-submit-title');
+      if (title) title.textContent = label;
+      else submit.textContent = label;
+    };
     form.addEventListener('submit', (event) => {
       const button = event instanceof SubmitEvent ? event.submitter : submit;
       if (!(button instanceof HTMLButtonElement) || button.value === 'apply') return;
       button.disabled = true;
-      button.textContent = 'Đang gửi...';
+      paintSubmitLabel('Đang gửi...');
     });
     // Quay lại bằng nút Back (bfcache) thì mở lại nút gửi.
     window.addEventListener('pageshow', () => {
       if (submit instanceof HTMLButtonElement) {
         submit.disabled = false;
-        submit.textContent = 'Gửi đơn';
+        paintSubmitLabel('Gửi đơn');
       }
     });
   }
