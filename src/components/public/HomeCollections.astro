@@ -39,7 +39,7 @@ function pairBuyQty(collection: HomeCollectionPublic): number {
             ? collection.braceletGroups
             : [];
         return (
-          <section class="home-collection" aria-labelledby={`home-col-${collection.id}`}>
+          <section class="home-collection home-defer" aria-labelledby={`home-col-${collection.id}`}>
             <div class="home-section-intro home-collection-intro">
               <h2 id={`home-col-${collection.id}`} class="home-section-title">
                 {collection.title}

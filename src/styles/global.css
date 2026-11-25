@@ -16338,6 +16338,10 @@ body.site-nav-lock {
 .home-collection {
   min-width: 0;
 }
+/* Mỗi khối hot / combo / bán kèm skip paint đến khi gần viewport (cuộn dần). */
+.home-collection.home-defer {
+  contain-intrinsic-size: 1px 42rem;
+}
 .home-collection-intro {
   margin-bottom: 0.85rem;
 }
