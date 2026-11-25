@@ -399,7 +399,29 @@ function money(amount) {
 }
 
 function dayLabel(timestamp) {
-  return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' }).format(new Date(timestamp));
+  return new Intl.DateTimeFormat('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    day: '2-digit',
+    month: '2-digit',
+  }).format(new Date(timestamp));
+}
+
+function isShippedRecent(recent) {
+  if (!recent) return false;
+  if (recent.fulfillStatus === 'shipped') return true;
+  return String(recent.fulfillLabel || '')
+    .trim()
+    .toLowerCase()
+    .startsWith('đã gửi hàng');
+}
+
+/** Cache cũ thiếu ngày gửi — bỏ qua để gọi lại lookup. */
+function lookupCacheMissingShipDate(customer) {
+  const recent = customer?.recent;
+  if (!isShippedRecent(recent)) return false;
+  if (Number(recent.shippedAt) > 0) return false;
+  if (/·/.test(String(recent.fulfillLabel || ''))) return false;
+  return true;
 }
 
 function pageHost() {
@@ -2446,11 +2468,15 @@ function renderCustomer(root, customer) {
     return;
   }
   activeCustomer = customer;
-  const status = recent.fulfillLabel || recent.statusLabel || '';
+  const baseStatus = recent.fulfillLabel || recent.statusLabel || '';
   const place = shortProvince(customer.provinceLabel);
-  const shipped =
-    recent.fulfillStatus === 'shipped' ||
-    String(recent.fulfillLabel || '').trim().toLowerCase() === 'đã gửi hàng';
+  const shipped = isShippedRecent(recent);
+  const shippedAt = Number(recent.shippedAt);
+  // API mới đã gắn ngày vào fulfillLabel; fallback khi chỉ có shippedAt.
+  const status =
+    shipped && Number.isFinite(shippedAt) && shippedAt > 0 && !/·/.test(baseStatus)
+      ? `${baseStatus} · ${dayLabel(shippedAt)}`
+      : baseStatus;
   // Đã gửi hàng: chỉ nhân bản + xóa — ẩn ưu tiên và sửa.
   const canMutate = Boolean(recent.editable) && !shipped;
   const priorityOn = Boolean(recent.priority);
@@ -2548,8 +2574,7 @@ function commitCustomerProductName(lineIndex, raw) {
 function customerCanMutate() {
   const recent = activeCustomer?.recent;
   if (!recent?.editable) return false;
-  if (recent.fulfillStatus === 'shipped') return false;
-  if (String(recent.fulfillLabel || '').trim().toLowerCase() === 'đã gửi hàng') return false;
+  if (isShippedRecent(recent)) return false;
   return true;
 }
 
@@ -2925,7 +2950,7 @@ function requestLookup(phone, convId, name) {
   const root = ensureRoot();
   const channel = chatChannel();
   const cached = lookupCache.get(phone);
-  if (cached) {
+  if (cached && !lookupCacheMissingShipDate(cached)) {
     customerEditUi = null;
     customerSaving = false;
     customerDeleteConfirm = false;
@@ -2936,6 +2961,7 @@ function requestLookup(phone, convId, name) {
     postCustomerFill({ phone, name: name || '', channel, chatId: convId });
     return;
   }
+  if (cached && lookupCacheMissingShipDate(cached)) lookupCache.delete(phone);
   customerEditUi = null;
   customerSaving = false;
   customerDeleteConfirm = false;

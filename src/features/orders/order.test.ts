@@ -6,6 +6,7 @@ import {
   isOrderStatus,
   orderCounts,
   orderShippedAgoLabel,
+  orderShippedBadgeLabel,
   ORDER_STATUSES,
 } from './status';
 import {
@@ -25,6 +26,7 @@ import {
   formatOrderCode,
   isRecentDuplicate,
   isUniqueViolation,
+  lineUnitPrice,
   normalizePhone,
   orderCreatedRange,
   orderDayKey,
@@ -70,6 +72,13 @@ describe('đơn hàng', () => {
     expect(orderShippedAgoLabel(now - 30_000, now)).toBe('Vừa xong');
     expect(orderShippedAgoLabel(now - 23 * 60_000, now)).toBe('23 phút trước');
     expect(orderShippedAgoLabel(now - 3 * 60 * 60_000, now)).toBe('3 giờ trước');
+  });
+
+  it('badge tra SĐT gắn ngày gửi theo lịch VN', () => {
+    expect(orderShippedBadgeLabel(null)).toBe('Đã gửi hàng');
+    const label = orderShippedBadgeLabel(Date.parse('2026-11-21T14:30:00+07:00'));
+    expect(label.startsWith('Đã gửi hàng · ')).toBe(true);
+    expect(label).toMatch(/21[/.-]11/);
   });
 
   it('bộ lọc list chỉ nhận trạng thái giao hàng', () => {
@@ -205,6 +214,65 @@ describe('đơn hàng', () => {
     const parsed = parseOrderSubmission(valid, catalog);
     expect(parsed.ok && parsed.draft.totalPrice).toBe(300000);
     expect(parsed.ok && parsed.draft.phone).toBe('0901000099');
+  });
+
+  it('áp giảm combo khi đủ số lượng (server tính lại, không tin client)', () => {
+    const offers = new Map([
+      [1, [{ buyQty: 2, discountType: 'percent' as const, discountValue: 10 }]],
+    ]);
+    expect(lineUnitPrice(catalog[0]!, 1, '', offers)).toBe(150000);
+    expect(lineUnitPrice(catalog[0]!, 2, '', offers)).toBe(135000);
+    const one = parseOrderSubmission({ ...valid, quantity: '1' }, catalog, offers);
+    expect(one.ok && one.draft.unitPrice).toBe(150000);
+    const two = parseOrderSubmission({ ...valid, quantity: '2' }, catalog, offers);
+    expect(two.ok && two.draft.unitPrice).toBe(135000);
+    expect(two.ok && two.draft.totalPrice).toBe(270000);
+    const cart = parseCartOrder(
+      {
+        ...valid,
+        company: '',
+        lines: [{ slug: 'vong-to-tam-tron', quantity: 2, weight: '', note: '' }],
+      },
+      catalog,
+      offers,
+    );
+    expect(cart.ok && cart.single?.unitPrice).toBe(135000);
+  });
+
+  it('áp giảm bán kèm khi giỏ có vòng chính + addon khớp', () => {
+    const bundles = [
+      {
+        primaryId: 1,
+        addonIds: [4],
+        discountType: 'amount' as const,
+        discountValue: 20000,
+      },
+    ];
+    const withAddon = parseCartOrder(
+      {
+        ...valid,
+        company: '',
+        lines: [
+          { slug: 'vong-to-tam-tron', quantity: 1, weight: '', note: '' },
+          { slug: 'khong-co-size', quantity: 1, weight: '', note: '' },
+        ],
+      },
+      catalog,
+      undefined,
+      bundles,
+    );
+    expect(withAddon.ok && withAddon.cart?.totalPrice).toBe(150000 + 80000);
+    const addonOnly = parseCartOrder(
+      {
+        ...valid,
+        company: '',
+        lines: [{ slug: 'khong-co-size', quantity: 1, weight: '', note: '' }],
+      },
+      catalog,
+      undefined,
+      bundles,
+    );
+    expect(addonOnly.ok && addonOnly.single?.totalPrice).toBe(100000);
   });
 
   it('đặt trực tiếp: bắt buộc cân nặng hợp lệ theo thang và lưu vào đơn', () => {

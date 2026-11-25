@@ -98,6 +98,18 @@ export function orderShippedAgoLabel(shippedAt: number | null | undefined, now =
   return `${years} năm trước`;
 }
 
+/** Badge tra SĐT (extension): «Đã gửi hàng · 21/11»; thiếu mốc thì chỉ nhãn trạng thái. */
+export function orderShippedBadgeLabel(shippedAt: number | null | undefined): string {
+  const base = FULFILL_STATUS_LABELS.shipped;
+  if (shippedAt == null || !Number.isFinite(shippedAt) || shippedAt <= 0) return base;
+  const day = new Intl.DateTimeFormat('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    day: '2-digit',
+    month: '2-digit',
+  }).format(new Date(shippedAt));
+  return `${base} · ${day}`;
+}
+
 export function orderCounts(rows: { status: string; value: number }[]) {
   let all = 0;
   let incoming = 0;

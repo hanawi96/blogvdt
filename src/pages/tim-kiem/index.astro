@@ -6,6 +6,7 @@ import Pagination from '../../components/public/Pagination.astro';
 import PostCard from '../../components/public/PostCard.astro';
 import { listPublicAddons, type PublicAddon } from '../../features/products/addons';
 import { listOrderCosts } from '../../features/costs/order-costs';
+import { listPublicComboPricing, type PublicComboPricing } from '../../features/home-collections/collections';
 import { applyCoverMeasure } from '../../features/media/media';
 import {
   normalizeSearchQuery,
@@ -76,6 +77,7 @@ async function loadSearch() {
     posts: [] as Awaited<ReturnType<typeof searchOverview>>['posts'],
     products: [] as Awaited<ReturnType<typeof searchOverview>>['products'],
     addons: [] as PublicAddon[],
+    comboPricing: { comboBySlug: {}, addonBundles: [] } as PublicComboPricing,
     shipBaseFee: 0,
     postTotal: 0,
     productTotal: 0,
@@ -90,7 +92,12 @@ async function loadSearch() {
     const bucket = optionalMediaBucket();
     const shipFee = () => listOrderCosts(db).then((costs) => baseCustomerShippingFee(costs));
     if (kind) {
-      const [found, addons, shipBaseFee] = await Promise.all([searchByKind(db, q, kind, page), listPublicAddons(db), shipFee()]);
+      const [found, addons, comboPricing, shipBaseFee] = await Promise.all([
+        searchByKind(db, q, kind, page),
+        listPublicAddons(db),
+        listPublicComboPricing(db),
+        shipFee(),
+      ]);
       const [posts, products] = await Promise.all([
         applyCoverMeasure(bucket, found.posts),
         applyCoverMeasure(bucket, found.products),
@@ -101,6 +108,7 @@ async function loadSearch() {
         posts,
         products,
         addons,
+        comboPricing,
         shipBaseFee,
         postTotal: kind === 'bai-viet' ? found.total : 0,
         productTotal: kind === 'san-pham' ? found.total : 0,
@@ -108,7 +116,12 @@ async function loadSearch() {
         pageCount: found.pageCount,
       };
     }
-    const [found, addons, shipBaseFee] = await Promise.all([searchOverview(db, q), listPublicAddons(db), shipFee()]);
+    const [found, addons, comboPricing, shipBaseFee] = await Promise.all([
+      searchOverview(db, q),
+      listPublicAddons(db),
+      listPublicComboPricing(db),
+      shipFee(),
+    ]);
     const [posts, products] = await Promise.all([
       applyCoverMeasure(bucket, found.posts),
       applyCoverMeasure(bucket, found.products),
@@ -119,6 +132,7 @@ async function loadSearch() {
       posts,
       products,
       addons,
+      comboPricing,
       shipBaseFee,
       postTotal: found.postTotal,
       productTotal: found.productTotal,
@@ -276,7 +290,13 @@ function countLabel(total: number, one: string, many: string): string {
             </div>
           )
         }
-        {showProducts && <OrderDialog addons={loaded.addons} shipBaseFee={loaded.shipBaseFee} />}
+        {showProducts && (
+          <OrderDialog
+            addons={loaded.addons}
+            shipBaseFee={loaded.shipBaseFee}
+            comboPricing={loaded.comboPricing}
+          />
+        )}
       </main>
     )
   }

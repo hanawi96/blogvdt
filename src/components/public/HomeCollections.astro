@@ -1,0 +1,499 @@
+---
+import {
+  comboSaveTotal,
+  comboUnitPrice,
+  hasComboDiscount,
+  hasRuleDiscount,
+  type HomeCollectionPublic,
+} from '../../features/home-collections/collections';
+import { audienceCardLabel } from '../../features/products/audience';
+import { discountPercent } from '../../features/products/catalog';
+import { cordCardLabel } from '../../features/products/cord';
+import { CART_MAX_QUANTITY } from '../../features/cart/cart';
+import { productRequiresTagName, TAG_NAME_MAX } from '../../features/products/tag-name';
+import { requiresWeight, weightChips, weightExtras, weightOptionLabel } from '../../features/products/weight';
+import { formatVnd } from '../../lib/money';
+import { routes } from '../../lib/routes';
+import FreeShipBadge from './FreeShipBadge.astro';
+import HomeProductCard from './HomeProductCard.astro';
+import QtyStepper from './QtyStepper.astro';
+
+interface Props {
+  collections: HomeCollectionPublic[];
+}
+
+const { collections } = Astro.props;
+
+function pairBuyQty(collection: HomeCollectionPublic): number {
+  const qty = collection.rule.buyQty ?? 2;
+  return Number.isInteger(qty) && qty >= 2 ? Math.min(qty, 10) : 2;
+}
+---
+
+{
+  collections.length > 0 && (
+    <div class="home-collections" aria-label="Gợi ý trên trang chủ">
+      {collections.map((collection) => {
+        const groups =
+          collection.kind === 'bracelet_addon' && collection.braceletGroups?.length
+            ? collection.braceletGroups
+            : [];
+        return (
+          <section class="home-collection" aria-labelledby={`home-col-${collection.id}`}>
+            <div class="home-section-intro home-collection-intro">
+              <h2 id={`home-col-${collection.id}`} class="home-section-title">
+                {collection.title}
+              </h2>
+              {collection.subtitle && <p class="home-section-lead">{collection.subtitle}</p>}
+            </div>
+
+            {groups.length > 0 ? (
+              <div class="home-combo-list">
+                {groups.map(({ primary, addons }, groupIndex) => {
+                  const defaultAddon = addons[0]!;
+                  const orderHref = `${routes.checkout}?san-pham=${encodeURIComponent(primary.slug)}&ban-kem=${encodeURIComponent(defaultAddon.slug)}`;
+                  const radioName = `home-combo-addon-${collection.id}-${groupIndex}`;
+                  const bundleOffer = hasRuleDiscount(collection.rule) ? collection.rule : null;
+                  const primaryOff = discountPercent(primary.price, primary.comparePrice);
+                  const primaryWas = primary.comparePrice;
+                  const defaultAddonSale = bundleOffer
+                    ? comboUnitPrice(defaultAddon.price, bundleOffer)
+                    : defaultAddon.price;
+                  const defaultAddonWas =
+                    defaultAddonSale < defaultAddon.price
+                      ? defaultAddon.price
+                      : defaultAddon.comparePrice;
+                  const comboNow = primary.price + defaultAddonSale;
+                  const comboWas =
+                    (primaryWas != null ? primaryWas : primary.price) +
+                    (defaultAddonWas != null ? defaultAddonWas : defaultAddon.price);
+                  const ruleSave = bundleOffer
+                    ? Math.max(0, defaultAddon.price - defaultAddonSale)
+                    : 0;
+                  const compareSave = comboWas > comboNow ? comboWas - comboNow : 0;
+                  const comboSave = Math.max(ruleSave, compareSave);
+                  return (
+                    <article
+                      class="home-combo-card"
+                      data-home-combo
+                      data-primary-price={String(primary.price)}
+                      data-primary-compare={primaryWas != null ? String(primaryWas) : ''}
+                      data-primary-slug={primary.slug}
+                      data-bundle-discount-type={bundleOffer?.discountType ?? ''}
+                      data-bundle-discount-value={bundleOffer ? String(bundleOffer.discountValue) : ''}
+                    >
+                      <a class="home-combo-primary" href={routes.product(primary.slug)}>
+                        <span class="home-combo-primary-media">
+                          {primary.coverUrl ? (
+                            <img
+                              src={primary.coverUrl}
+                              alt=""
+                              width={primary.coverWidth ?? 480}
+                              height={primary.coverHeight ?? 480}
+                              loading="lazy"
+                              decoding="async"
+                            />
+                          ) : (
+                            <span class="home-combo-item-empty" aria-hidden="true" />
+                          )}
+                          {primaryOff != null && <span class="home-shop-badge">-{primaryOff}%</span>}
+                        </span>
+                        <span class="home-combo-primary-text">
+                          <span class="home-combo-item-name">{primary.name}</span>
+                          <span class="home-combo-item-pricing">
+                            <span class="home-combo-item-price">{formatVnd(primary.price)}</span>
+                            {primaryWas != null && <s class="home-combo-item-was">{formatVnd(primaryWas)}</s>}
+                          </span>
+                        </span>
+                      </a>
+
+                      <fieldset class="home-combo-addons">
+                        <legend class="home-combo-addons-label">Chọn bán kèm</legend>
+                        <div class="home-combo-addon-list" role="radiogroup" aria-label="Chọn bán kèm">
+                          {addons.map((addon, addonIndex) => {
+                            const addonSale = bundleOffer ? comboUnitPrice(addon.price, bundleOffer) : addon.price;
+                            const addonWas =
+                              addonSale < addon.price
+                                ? addon.price
+                                : addon.comparePrice != null && addon.comparePrice > addonSale
+                                  ? addon.comparePrice
+                                  : null;
+                            return (
+                            <label class="home-combo-addon-option">
+                              <input
+                                type="radio"
+                                name={radioName}
+                                value={addon.slug}
+                                data-addon-price={String(addonSale)}
+                                data-addon-catalog={String(addon.price)}
+                                data-addon-compare={addonWas != null ? String(addonWas) : ''}
+                                data-addon-slug={addon.slug}
+                                checked={addonIndex === 0}
+                              />
+                              <span class="home-combo-addon-card">
+                                {addon.coverUrl ? (
+                                  <img
+                                    src={addon.coverUrl}
+                                    alt=""
+                                    width={addon.coverWidth ?? 96}
+                                    height={addon.coverHeight ?? 96}
+                                    loading="lazy"
+                                    decoding="async"
+                                  />
+                                ) : (
+                                  <span class="home-combo-addon-empty" aria-hidden="true" />
+                                )}
+                                <span class="home-combo-addon-text">
+                                  <span class="home-combo-addon-name">{addon.name}</span>
+                                  <span class="home-combo-addon-pricing">
+                                    <span class="home-combo-addon-price">{formatVnd(addonSale)}</span>
+                                    {addonWas != null && (
+                                      <s class="home-combo-addon-was">{formatVnd(addonWas)}</s>
+                                    )}
+                                  </span>
+                                </span>
+                                <span class="home-combo-addon-check" aria-hidden="true">
+                                  <svg viewBox="0 0 20 20" width="20" height="20" fill="none" focusable="false">
+                                    <path
+                                      d="M4.5 10.5 8.2 14.2 15.5 5.8"
+                                      stroke="currentColor"
+                                      stroke-width="2.2"
+                                      stroke-linecap="round"
+                                      stroke-linejoin="round"
+                                    />
+                                  </svg>
+                                </span>
+                              </span>
+                            </label>
+                            );
+                          })}
+                        </div>
+                      </fieldset>
+
+                      <div class="home-combo-foot">
+                        <p class="home-combo-total">
+                          <span>Tạm tính</span>
+                          <span class="home-combo-total-prices">
+                            <strong data-combo-total>{formatVnd(comboNow)}</strong>
+                            <s data-combo-was hidden={comboSave <= 0}>
+                              {comboSave > 0
+                                ? formatVnd(
+                                    ruleSave > 0
+                                      ? primary.price + defaultAddon.price
+                                      : comboWas,
+                                  )
+                                : ''}
+                            </s>
+                          </span>
+                        </p>
+                        <p class="home-combo-save" data-combo-save hidden={comboSave <= 0}>
+                          {comboSave > 0
+                            ? ruleSave > 0
+                              ? `Tiết kiệm ${formatVnd(comboSave)} khi mua kèm`
+                              : `Tiết kiệm ${formatVnd(comboSave)} so với giá gốc`
+                            : ''}
+                        </p>
+                        <FreeShipBadge variant="free" />
+                        <a
+                          class="btn btn-primary"
+                          href={orderHref}
+                          data-order-open
+                          data-combo-buy
+                          data-slug={primary.slug}
+                          data-name={primary.name}
+                          data-price={String(primary.price)}
+                          data-scale={primary.weightScale}
+                          data-cover={primary.coverUrl ?? ''}
+                          data-ship-badge={primary.shipBadge ?? 'none'}
+                          data-addon-slug={defaultAddon.slug}
+                        >
+                          Mua ngay
+                        </a>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : collection.kind === 'pair_discount' ? (
+              <ul class="home-pair-list">
+                {collection.products.map((product) => {
+                  const qty = pairBuyQty(collection);
+                  const href = routes.product(product.slug);
+                  const orderHref = `${routes.checkout}?san-pham=${encodeURIComponent(product.slug)}&so-luong=${qty}`;
+                  const cordLabel = cordCardLabel(product.cordType);
+                  const audienceLabel = audienceCardLabel(product.audience);
+                  const offer = hasComboDiscount(collection.rule) ? collection.rule : null;
+                  const unitCombo = offer ? comboUnitPrice(product.price, offer) : product.price;
+                  const comboNow = unitCombo * qty;
+                  const catalogTotal = product.price * qty;
+                  const unitWas = product.comparePrice;
+                  const compareTotal = unitWas != null ? unitWas * qty : null;
+                  const ruleSave = offer ? comboSaveTotal(product.price, qty, offer) : 0;
+                  const compareSave =
+                    compareTotal != null && compareTotal > comboNow ? compareTotal - comboNow : 0;
+                  const save = Math.max(ruleSave, compareSave);
+                  const dealWas =
+                    ruleSave > 0 ? catalogTotal : compareTotal != null && compareTotal > comboNow ? compareTotal : null;
+                  const off =
+                    ruleSave > 0 && product.price > 0
+                      ? Math.max(1, Math.round((1 - unitCombo / product.price) * 100))
+                      : discountPercent(product.price, product.comparePrice);
+                  const badge = collection.rule.badge?.trim() || `Combo mua ${qty}`;
+                  const needsWeight = requiresWeight(product.weightScale);
+                  const needsTag = productRequiresTagName(product.name);
+                  const needsDialog = needsWeight || needsTag;
+                  const chips = needsWeight ? weightChips(product.weightScale) : [];
+                  const extras = needsWeight ? weightExtras(product.weightScale) : [];
+                  const addId = `home-pair-add-${collection.id}-${product.id}`;
+                  const addTitleId = `home-pair-add-title-${collection.id}-${product.id}`;
+                  return (
+                    <li>
+                      <article class="home-pair-card">
+                        <div class="home-pair-media">
+                          <a class="home-pair-cover" href={href} tabindex="-1" aria-hidden="true">
+                            {product.coverUrl ? (
+                              <img
+                                class="home-pair-cover-img"
+                                src={product.coverUrl}
+                                alt=""
+                                width={product.coverWidth ?? 320}
+                                height={product.coverHeight ?? 320}
+                                loading="lazy"
+                                decoding="async"
+                              />
+                            ) : (
+                              <span class="home-pair-cover-empty" aria-hidden="true" />
+                            )}
+                            <span class="home-pair-combo-seal" aria-hidden="true">
+                              <span class="home-pair-combo-seal-qty">×{qty}</span>
+                              <span class="home-pair-combo-seal-text">Combo {qty} chiếc</span>
+                            </span>
+                          </a>
+                          {off != null && <span class="home-shop-badge">-{off}%</span>}
+                        </div>
+                        <div class="home-pair-body">
+                          <p class="home-pair-label">{badge}</p>
+                          <h3 class="home-pair-name">
+                            <a href={href}>
+                              {cordLabel && <span class="home-shop-cord">{cordLabel}</span>}
+                              <span class="home-shop-name-text">{product.name}</span>
+                            </a>
+                          </h3>
+                          {audienceLabel && <p class="home-shop-audience">{audienceLabel}</p>}
+                          <div class="home-pair-pricing">
+                            <p class="home-pair-unit">
+                              <span>1 chiếc</span>
+                              <span class="home-pair-unit-prices">
+                                <strong>{formatVnd(product.price)}</strong>
+                                {unitWas != null && <s>{formatVnd(unitWas)}</s>}
+                              </span>
+                            </p>
+                            <p class="home-pair-deal">
+                              <span>Mua {qty} chiếc</span>
+                              <span class="home-pair-deal-prices">
+                                <strong>{formatVnd(comboNow)}</strong>
+                                {dealWas != null && <s>{formatVnd(dealWas)}</s>}
+                              </span>
+                            </p>
+                            {save > 0 && (
+                              <p class="home-pair-save">
+                                {ruleSave > 0
+                                  ? `Tiết kiệm ${formatVnd(save)} khi mua combo`
+                                  : `Tiết kiệm ${formatVnd(save)} so với giá gốc`}
+                              </p>
+                            )}
+                          </div>
+                          <FreeShipBadge variant="free" />
+                          <div class="home-pair-actions">
+                            <a
+                              class="btn btn-primary"
+                              href={orderHref}
+                              data-order-open
+                              data-slug={product.slug}
+                              data-name={product.name}
+                              data-price={String(product.price)}
+                              data-scale={product.weightScale}
+                              data-cover={product.coverUrl ?? ''}
+                              data-ship-badge={product.shipBadge ?? 'none'}
+                              data-quantity={String(qty)}
+                            >
+                              Mua combo {qty} chiếc
+                            </a>
+                            {needsDialog ? (
+                              <button class="btn" type="button" data-add-open aria-haspopup="dialog" aria-controls={addId}>
+                                Thêm combo vào giỏ
+                              </button>
+                            ) : (
+                              <form method="post" action={routes.cart} data-cart-form>
+                                <input type="hidden" name="intent" value="add" />
+                                <input type="hidden" name="slug" value={product.slug} />
+                                <input type="hidden" name="product_name" value={product.name} />
+                                <input type="hidden" name="weight" value="" />
+                                <input type="hidden" name="quantity" value={String(qty)} />
+                                <input type="hidden" name="price" value={product.price} />
+                                <button class="btn" type="submit">Thêm combo vào giỏ</button>
+                              </form>
+                            )}
+                          </div>
+                        </div>
+                        {needsDialog && (
+                          <dialog id={addId} class="add-dialog" aria-labelledby={addTitleId}>
+                            <form
+                              class="add-form"
+                              method="post"
+                              action={routes.cart}
+                              data-cart-form
+                              data-requires-weight={needsWeight ? 'true' : undefined}
+                              data-requires-tag={needsTag ? 'true' : undefined}
+                            >
+                              <div class="add-head">
+                                <p id={addTitleId} class="font-semibold">{product.name}</p>
+                                <button class="add-close" type="button" data-add-close aria-label="Đóng">×</button>
+                              </div>
+                              <p class="font-semibold text-primary-strong">
+                                {formatVnd(unitCombo)} / chiếc · Combo ×{qty} = {formatVnd(comboNow)}
+                              </p>
+                              <input type="hidden" name="intent" value="add" />
+                              <input type="hidden" name="slug" value={product.slug} />
+                              <input type="hidden" name="product_name" value={product.name} />
+                              <input type="hidden" name="price" value={product.price} />
+                              {needsWeight && (
+                                <fieldset class="mt-3" data-weight-field data-base-price={product.price}>
+                                  <legend class="text-sm font-semibold">Cân nặng của bé</legend>
+                                  <div class="weight-grid mt-2" role="radiogroup">
+                                    {chips.map((weight, index) => (
+                                      <label class="weight-chip">
+                                        <input type="radio" name="weight" value={weight} required={index === 0} />
+                                        <span>{weight}</span>
+                                      </label>
+                                    ))}
+                                    <button type="button" class="weight-chip weight-chip-more" data-weight-more aria-expanded="false" aria-label="Cân nặng khác">
+                                      <span aria-hidden="true">+</span>
+                                    </button>
+                                  </div>
+                                  <div class="weight-extra mt-2" data-weight-extra hidden>
+                                    <select class="field" data-weight-extra-select aria-label="Chọn cân nặng lớn hơn">
+                                      <option value="">Chọn cân nặng (16kg – 70kg)</option>
+                                      {extras.map((weight) => (
+                                        <option value={weight}>{weightOptionLabel(weight, product.price)}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <p class="weight-surcharge-note" data-weight-note hidden></p>
+                                </fieldset>
+                              )}
+                              {!needsWeight && <input type="hidden" name="weight" value="" />}
+                              {needsTag && (
+                                <label class="mt-3 block text-sm font-semibold" for={`home-pair-tag-${collection.id}-${product.id}`}>
+                                  Tên cần in lên thẻ
+                                  <input
+                                    id={`home-pair-tag-${collection.id}-${product.id}`}
+                                    class="field mt-1"
+                                    name="tagName"
+                                    required
+                                    maxlength={TAG_NAME_MAX}
+                                    autocomplete="off"
+                                    placeholder="Ví dụ: Minh An"
+                                  />
+                                </label>
+                              )}
+                              <QtyStepper id={`home-pair-qty-${collection.id}-${product.id}`} max={CART_MAX_QUANTITY} value={qty} />
+                              <p class="add-error error-text mt-2" role="alert" hidden></p>
+                              <button class="btn btn-primary mt-4 w-full" type="submit">Thêm giỏ</button>
+                            </form>
+                          </dialog>
+                        )}
+                      </article>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <ul class="home-collection-rail">
+                {collection.products.map((product) => (
+                  <li>
+                    <HomeProductCard product={product} eager={false} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  )
+}
+
+<script>
+  const formatVnd = (amount: number) =>
+    new Intl.NumberFormat('vi-VN', {
+      style: 'currency',
+      currency: 'VND',
+      maximumFractionDigits: 0,
+    }).format(amount);
+
+  const syncCombo = (card: Element) => {
+    if (!(card instanceof HTMLElement)) return;
+    const primaryPrice = Number(card.dataset.primaryPrice);
+    const primaryCompareRaw = Number(card.dataset.primaryCompare);
+    const primarySlug = card.dataset.primarySlug ?? '';
+    const checked = card.querySelector('input[type="radio"]:checked');
+    if (!(checked instanceof HTMLInputElement)) return;
+    const addonPrice = Number(checked.dataset.addonPrice);
+    const addonCatalog = Number(checked.dataset.addonCatalog);
+    const addonCompareRaw = Number(checked.dataset.addonCompare);
+    const addonSlug = (checked.dataset.addonSlug ?? checked.value).trim();
+    const primaryNow = Number.isFinite(primaryPrice) ? primaryPrice : 0;
+    const addonNow = Number.isFinite(addonPrice) ? addonPrice : 0;
+    const addonList = Number.isFinite(addonCatalog) && addonCatalog > 0 ? addonCatalog : addonNow;
+    const primaryWas =
+      Number.isFinite(primaryCompareRaw) && primaryCompareRaw > primaryNow ? primaryCompareRaw : primaryNow;
+    const addonWas =
+      Number.isFinite(addonCompareRaw) && addonCompareRaw > addonNow
+        ? addonCompareRaw
+        : addonList > addonNow
+          ? addonList
+          : addonNow;
+    const total = primaryNow + addonNow;
+    const catalogTotal = primaryNow + addonList;
+    const compareTotal = primaryWas + addonWas;
+    const ruleSave = catalogTotal > total ? catalogTotal - total : 0;
+    const compareSave = compareTotal > total ? compareTotal - total : 0;
+    const save = Math.max(ruleSave, compareSave);
+    const wasTotal = ruleSave > 0 ? catalogTotal : compareTotal;
+    const totalEl = card.querySelector('[data-combo-total]');
+    if (totalEl) totalEl.textContent = formatVnd(total);
+    const wasEl = card.querySelector('[data-combo-was]');
+    if (wasEl instanceof HTMLElement) {
+      wasEl.hidden = save <= 0;
+      wasEl.textContent = save > 0 ? formatVnd(wasTotal) : '';
+    }
+    const saveEl = card.querySelector('[data-combo-save]');
+    if (saveEl instanceof HTMLElement) {
+      saveEl.hidden = save <= 0;
+      saveEl.textContent =
+        save > 0
+          ? ruleSave > 0
+            ? `Tiết kiệm ${formatVnd(save)} khi mua kèm`
+            : `Tiết kiệm ${formatVnd(save)} so với giá gốc`
+          : '';
+    }
+    const buy = card.querySelector('[data-combo-buy]');
+    if (!(buy instanceof HTMLAnchorElement)) return;
+    buy.dataset.addonSlug = addonSlug;
+    if (primarySlug && addonSlug) {
+      const url = new URL(buy.href, window.location.origin);
+      url.searchParams.set('san-pham', primarySlug);
+      url.searchParams.set('ban-kem', addonSlug);
+      buy.href = `${url.pathname}${url.search}`;
+    }
+  };
+
+  document.querySelectorAll('[data-home-combo]').forEach((card) => syncCombo(card));
+  document.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== 'radio') return;
+    const card = target.closest('[data-home-combo]');
+    if (card) syncCombo(card);
+  });
+</script>

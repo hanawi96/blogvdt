@@ -8,7 +8,13 @@ import { addCartLine, CART_COOKIE, CART_MAX_NOTE, CART_MAX_QUANTITY, cartCookieO
 import { applyDiscount, type DiscountQuote } from '../features/discounts/quote';
 import { priceDiscount } from '../features/discounts/discounts';
 import { listOrderCosts } from '../features/costs/order-costs';
-import { parseCartOrder, type CatalogProduct } from '../features/orders/order';
+import {
+  addonUnitWithBundleOffers,
+  listActiveAddonBundleOffers,
+  listActiveComboOffersByProductId,
+  type AddonBundleOffer,
+} from '../features/home-collections/collections';
+import { lineUnitPrice, parseCartOrder, type CatalogProduct, type ComboOffersByProduct } from '../features/orders/order';
 import { placeCartOrder, placeOrder } from '../features/orders/orders';
 import {
   addonShipHint,
@@ -34,6 +40,8 @@ import type { FieldErrors } from '../lib/validation/errors';
 const secure = Astro.url.protocol === 'https:';
 const loaded = await loadCart();
 let lines = parseCart(Astro.cookies.get(CART_COOKIE)?.value);
+const comboOffers = loaded.comboOffers;
+const addonOffers = loaded.addonOffers;
 let formError = '';
 let errors: FieldErrors = {};
 const values = { customerName: '', phone: '', address: '', provinceCode: '', wardCode: '', addressLine: '', note: '', paymentMethod: '', discountCode: '' };
@@ -170,7 +178,12 @@ if (Astro.request.method === 'POST') {
       formError = posted.error;
     } else {
       lines = posted.lines;
-      const parsed = parseCartOrder({ ...values, company: read('company'), lines }, loaded.catalog);
+      const parsed = parseCartOrder(
+        { ...values, company: read('company'), lines },
+        loaded.catalog,
+        comboOffers,
+        addonOffers,
+      );
       if (!parsed.ok) {
         Astro.response.status = parsed.blocked ? 403 : 422;
         formError = parsed.blocked ? 'Không gửi được đơn.' : '';
@@ -215,33 +228,60 @@ if (Astro.request.method === 'POST') {
   }
 }
 
+const cartProductIds = new Set(
+  lines.flatMap((line) => {
+    const product = loaded.catalog.find((item) => item.slug === line.slug);
+    return product ? [product.id] : [];
+  }),
+);
 const resolved = lines.flatMap((line) => {
   const product = loaded.catalog.find((item) => item.slug === line.slug);
   if (!product) return [];
-  // Đơn giá đã gồm phụ thu cân nặng (vòng to hơn cần thêm nguyên liệu).
-  const unitPrice = applyWeightPrice(product.price, line.weight);
+  // Đơn giá: giảm combo / bán kèm (nếu đủ điều kiện) rồi phụ thu cân nặng.
+  const unitPrice = lineUnitPrice(
+    product,
+    line.quantity,
+    line.weight,
+    comboOffers,
+    addonOffers,
+    cartProductIds,
+  );
+  const catalogUnit = applyWeightPrice(product.price, line.weight);
   const compareUnit =
     product.comparePrice != null ? applyWeightPrice(product.comparePrice, line.weight) : null;
+  const wasUnit =
+    catalogUnit > unitPrice
+      ? catalogUnit
+      : compareUnit != null && compareUnit > unitPrice
+        ? compareUnit
+        : null;
+  const lineTotal = unitPrice * line.quantity;
+  const catalogLineTotal = catalogUnit * line.quantity;
   return [
     {
       ...line,
       name: product.name,
       needsTag: productRequiresTagName(product.name),
       price: unitPrice,
-      comparePrice: compareUnit != null && compareUnit > unitPrice ? compareUnit : null,
+      catalogUnit,
+      comparePrice: wasUnit,
       basePrice: product.price,
       surcharge: weightSurchargeLabel(line.weight, product.price),
       coverUrl: product.coverUrl,
       coverAlt: product.coverAlt,
       categorySlug: product.categorySlug ?? '',
       shipGroup: shipGroupOf(product.categorySlug),
-      lineTotal: unitPrice * line.quantity,
+      lineTotal,
+      catalogLineTotal,
+      comboSave: Math.max(0, catalogLineTotal - lineTotal),
     },
   ];
 });
 const dropped = resolved.length !== lines.length;
 if (dropped && Astro.request.method === 'GET') remember(resolved.map(({ slug, quantity, weight, note }) => ({ slug, quantity, weight, note })));
 const total = resolved.reduce((sum, line) => sum + line.lineTotal, 0);
+const catalogTotal = resolved.reduce((sum, line) => sum + line.catalogLineTotal, 0);
+const comboSaveTotal = resolved.reduce((sum, line) => sum + line.comboSave, 0);
 const pieces = resolved.reduce((sum, line) => sum + line.quantity, 0);
 const goodsPayable = quote?.totalPrice ?? total;
 const shipping = resolveCustomerShippingFee({
@@ -250,6 +290,12 @@ const shipping = resolveCustomerShippingFee({
 });
 const payable = goodsPayable + shipping.fee;
 const showAddonUpsell = cartShowsAddonUpsell(resolved) && loaded.addons.length > 0;
+const cartUpsellAddons = showAddonUpsell
+  ? loaded.addons.map((addon) => {
+      const sale = addonUnitWithBundleOffers(addon.price, addon.id, cartProductIds, addonOffers);
+      return sale < addon.price ? { ...addon, price: sale } : addon;
+    })
+  : loaded.addons;
 const addedAddonSlugs = resolved.filter((line) => line.shipGroup === 'addon').map((line) => line.slug);
 const braceletGoods = resolved
   .filter((line) => line.shipGroup === 'bracelet')
@@ -285,13 +331,23 @@ function remember(next: CartLine[]) {
   Astro.cookies.set(CART_COOKIE, next.length ? serializeCart(next) : '', cartCookieOptions(secure, next.length ? undefined : 0));
 }
 
-function merchandiseTotal(cartLines: CartLine[], catalog: CatalogProduct[]): number | null {
+function merchandiseTotal(
+  cartLines: CartLine[],
+  catalog: CatalogProduct[],
+  offers: ComboOffersByProduct = comboOffers,
+  bundles: readonly AddonBundleOffer[] = addonOffers,
+): number | null {
   if (cartLines.length === 0) return null;
+  const ids = new Set<number>();
+  for (const line of cartLines) {
+    const product = catalog.find((item) => item.slug === line.slug);
+    if (product) ids.add(product.id);
+  }
   let total = 0;
   for (const line of cartLines) {
     const product = catalog.find((item) => item.slug === line.slug);
     if (!product || !Number.isInteger(line.quantity) || line.quantity < 1) return null;
-    total += applyWeightPrice(product.price, line.weight) * line.quantity;
+    total += lineUnitPrice(product, line.quantity, line.weight, offers, bundles, ids) * line.quantity;
   }
   return total;
 }
@@ -311,17 +367,26 @@ async function loadCart(): Promise<{
   failed: boolean;
   catalog: Awaited<ReturnType<typeof listOrderCatalog>>;
   addons: PublicAddon[];
+  comboOffers: ComboOffersByProduct;
+  addonOffers: AddonBundleOffer[];
   db: ReturnType<typeof createDb> | null;
 }> {
   try {
     const db = createDb(getDbBinding());
     const site = await getPublicSite(db);
-    if (!site) return { site: null, failed: false, catalog: [], addons: [], db: null };
-    const [catalog, addons] = await Promise.all([listOrderCatalog(db), listPublicAddons(db)]);
-    return { site, failed: false, catalog, addons, db };
+    if (!site) {
+      return { site: null, failed: false, catalog: [], addons: [], comboOffers: new Map(), addonOffers: [], db: null };
+    }
+    const [catalog, addons, offers, bundles] = await Promise.all([
+      listOrderCatalog(db),
+      listPublicAddons(db),
+      listActiveComboOffersByProductId(db),
+      listActiveAddonBundleOffers(db),
+    ]);
+    return { site, failed: false, catalog, addons, comboOffers: offers, addonOffers: bundles, db };
   } catch (error) {
     console.error(JSON.stringify({ event: 'cart_load_failed', name: error instanceof Error ? error.name : 'unknown' }));
-    return { site: null, failed: true, catalog: [], addons: [], db: null };
+    return { site: null, failed: true, catalog: [], addons: [], comboOffers: new Map(), addonOffers: [], db: null };
   }
 }
 ---
@@ -396,7 +461,13 @@ async function loadCart(): Promise<{
                 {resolved.map((line, index) => {
                   const noteOpen = line.needsTag || Boolean(line.note) || Boolean(errors[`note${index}`]);
                   return (
-                  <li class="cart-item" data-cart-item data-price={line.price} data-ship-group={line.shipGroup}>
+                  <li
+                    class="cart-item"
+                    data-cart-item
+                    data-price={line.price}
+                    data-catalog-price={line.catalogUnit}
+                    data-ship-group={line.shipGroup}
+                  >
                     <div class="cart-item-main">
                       {line.coverUrl ? (
                         <img class="cart-thumb" src={line.coverUrl} alt={line.coverAlt || line.name} width="88" height="88" loading="lazy" />
@@ -501,7 +572,7 @@ async function loadCart(): Promise<{
               {
                 showAddonUpsell && (
                   <AddonPicker
-                    addons={loaded.addons}
+                    addons={cartUpsellAddons}
                     hint={cartAddonHint}
                     addedSlugs={addedAddonSlugs}
                     upsell
@@ -546,9 +617,25 @@ async function loadCart(): Promise<{
             <PaymentField value={values.paymentMethod} error={errors.paymentMethod} />
             <DiscountCodeField id="cart-discount" value={values.discountCode} error={errors.discountCode} quote={quote} />
             <div class="cart-sum-stack" data-cart-ship data-ship-base={shipBaseFee} data-ship-goods={goodsPayable}>
+              <ul class="cart-sum-lines" data-cart-order-lines aria-label="Sản phẩm trong đơn">
+                {resolved.map((line) => (
+                  <li class:list={['cart-sum-line', line.shipGroup === 'addon' && 'is-addon']}>
+                    <span class="cart-sum-line-text">
+                      <span class="cart-sum-line-name">{line.name}</span>
+                      {line.quantity > 1 && <span class="cart-sum-line-qty">×{line.quantity}</span>}
+                      {line.weight && <span class="cart-sum-line-meta">{line.weight}</span>}
+                    </span>
+                    <span class="cart-sum-line-price">{formatVnd(line.lineTotal)}</span>
+                  </li>
+                ))}
+              </ul>
               <div class="cart-sum">
                 <span>Tạm tính</span>
-                <strong data-cart-goods>{formatVnd(total)}</strong>
+                <strong data-cart-goods>{formatVnd(comboSaveTotal > 0 ? catalogTotal : total)}</strong>
+              </div>
+              <div class="cart-sum cart-sum-muted cart-sum-combo" data-cart-combo-save hidden={comboSaveTotal <= 0}>
+                <span>Giảm combo</span>
+                <strong data-cart-combo-save-amount>−{formatVnd(comboSaveTotal)}</strong>
               </div>
               {quote && quote.discountAmount > 0 && (
                 <div class="cart-sum cart-sum-muted">
@@ -610,27 +697,66 @@ async function loadCart(): Promise<{
     // Tính lại tiền từng dòng, phí ship và tổng ngay khi đổi số lượng (server vẫn tính lại khi gửi).
     const recalc = (goodsPayable?: number) => {
       let total = 0;
+      let catalogTotal = 0;
       let pieces = 0;
       const shipLines: { group: ShipGroup; lineTotal: number }[] = [];
+      const summaryRows: HTMLLIElement[] = [];
       form.querySelectorAll<HTMLElement>('[data-cart-item]').forEach((item) => {
         const input = item.querySelector('input[name="quantity"]');
         if (!(input instanceof HTMLInputElement)) return;
         const price = Number(item.dataset.price);
+        const catalogPrice = Number(item.dataset.catalogPrice);
         const quantity = Number(input.value);
         if (!Number.isInteger(quantity) || quantity < 1 || quantity > (Number(input.max) || 20)) return;
         const lineTotal = price * quantity;
+        const catalogLine =
+          Number.isFinite(catalogPrice) && catalogPrice > 0 ? catalogPrice * quantity : lineTotal;
         total += lineTotal;
+        catalogTotal += catalogLine;
         pieces += quantity;
         const group = (item.dataset.shipGroup || 'other') as ShipGroup;
         shipLines.push({ group, lineTotal });
         const out = item.querySelector('[data-line-total]');
         if (out) out.textContent = money.format(lineTotal);
+
+        const name = item.querySelector('.cart-name')?.textContent?.trim() || 'Sản phẩm';
+        const weight = (item.querySelector('input[name="weight"]') as HTMLInputElement | null)?.value.trim() || '';
+        const li = document.createElement('li');
+        li.className = group === 'addon' ? 'cart-sum-line is-addon' : 'cart-sum-line';
+        const text = document.createElement('span');
+        text.className = 'cart-sum-line-text';
+        const nameEl = document.createElement('span');
+        nameEl.className = 'cart-sum-line-name';
+        nameEl.textContent = name;
+        text.append(nameEl);
+        if (quantity > 1) {
+          const qtyEl = document.createElement('span');
+          qtyEl.className = 'cart-sum-line-qty';
+          qtyEl.textContent = `×${quantity}`;
+          text.append(qtyEl);
+        }
+        if (weight) {
+          const metaEl = document.createElement('span');
+          metaEl.className = 'cart-sum-line-meta';
+          metaEl.textContent = weight;
+          text.append(metaEl);
+        }
+        const priceEl = document.createElement('span');
+        priceEl.className = 'cart-sum-line-price';
+        priceEl.textContent = money.format(lineTotal);
+        li.append(text, priceEl);
+        summaryRows.push(li);
       });
+      const comboSave = Math.max(0, catalogTotal - total);
       const shipping = resolveCustomerShippingFee({ lines: shipLines, baseFee: shipBase });
       const payableGoods = typeof goodsPayable === 'number' && Number.isFinite(goodsPayable) ? goodsPayable : total;
       if (shipRoot instanceof HTMLElement) shipRoot.dataset.shipGoods = String(payableGoods);
       const goodsOut = form.querySelector('[data-cart-goods]');
-      if (goodsOut) goodsOut.textContent = money.format(total);
+      if (goodsOut) goodsOut.textContent = money.format(comboSave > 0 ? catalogTotal : total);
+      const comboRow = form.querySelector('[data-cart-combo-save]');
+      const comboAmount = form.querySelector('[data-cart-combo-save-amount]');
+      if (comboRow instanceof HTMLElement) comboRow.hidden = comboSave <= 0;
+      if (comboAmount) comboAmount.textContent = `−${money.format(comboSave)}`;
       const shipFeeOut = form.querySelector('[data-cart-ship-fee]');
       if (shipFeeOut) shipFeeOut.textContent = shipping.free ? 'Miễn phí' : money.format(shipping.fee);
       const totalOut = form.querySelector('[data-cart-total]');
@@ -643,6 +769,8 @@ async function loadCart(): Promise<{
       const linesOut = document.querySelector('[data-cart-sum-lines]');
       const remaining = form.querySelectorAll('[data-cart-item]').length;
       if (linesOut) linesOut.textContent = `${remaining} mẫu`;
+      const orderLines = form.querySelector('[data-cart-order-lines]');
+      if (orderLines instanceof HTMLElement) orderLines.replaceChildren(...summaryRows);
     };
 
     const bindQtyButton = (button: HTMLButtonElement) => {

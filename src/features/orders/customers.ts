@@ -7,7 +7,7 @@ import { activityWrite, commitWrites, type ActivityActor } from '../activity/log
 import { readWeightScale, weightChips, weightExtras, type WeightScale } from '../products/weight';
 import { isUniqueViolation, normalizePhone, orderSearchTerm, readCustomer } from './order';
 import { canEditOrderProducts } from './staff';
-import { FULFILL_STATUS_LABELS, fulfillStatusOf, orderStatusLabel } from './status';
+import { FULFILL_STATUS_LABELS, fulfillStatusOf, orderShippedBadgeLabel, orderStatusLabel } from './status';
 
 const PAGE_SIZE = 20;
 export const CUSTOMER_SORTS = [
@@ -327,6 +327,8 @@ export type CustomerPhoneLookup = {
     productName: string;
     optionLabel: string | null;
     createdAt: number;
+    /** Mốc gửi hàng (ms); null nếu chưa gửi. */
+    shippedAt: number | null;
     editable: boolean;
     /** unshipped | shipped | reship — dùng ẩn sửa/ưu tiên khi đã gửi hàng. */
     fulfillStatus: string | null;
@@ -444,6 +446,7 @@ export async function lookupCustomerByPhone(db: AppDb, rawPhone: string): Promis
       shippingFee: orders.shippingFee,
       priority: orders.priority,
       createdAt: orders.createdAt,
+      shippedAt: orders.shippedAt,
     })
     .from(orders)
     .where(profile ? eq(orders.customerId, profile.id) : eq(orders.phone, phone))
@@ -460,9 +463,11 @@ export async function lookupCustomerByPhone(db: AppDb, rawPhone: string): Promis
   const displayPhone = profile?.phone ?? recent?.phone ?? phone;
   const fulfill = recent ? fulfillStatusOf(recent) : null;
   const fulfillLabel = recent
-    ? fulfill
-      ? FULFILL_STATUS_LABELS[fulfill]
-      : orderStatusLabel(recent.status)
+    ? fulfill === 'shipped'
+      ? orderShippedBadgeLabel(recent.shippedAt)
+      : fulfill
+        ? FULFILL_STATUS_LABELS[fulfill]
+        : orderStatusLabel(recent.status)
     : '';
   const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
   const provinceLabel = parts.length > 0 ? parts[parts.length - 1]! : '';
@@ -486,6 +491,7 @@ export async function lookupCustomerByPhone(db: AppDb, rawPhone: string): Promis
           productName: first?.productName || recent.productName,
           optionLabel: first?.weight || recent.optionLabel,
           createdAt: recent.createdAt,
+          shippedAt: recent.shippedAt ?? null,
           editable: canEditOrderProducts(recent.status),
           fulfillStatus: fulfill,
           priority: Number(recent.priority) === 1,

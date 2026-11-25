@@ -854,3 +854,26 @@ export const backupSettings = sqliteTable('backup_settings', {
   value: text('value').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+/** Khối merchandising trang chủ (hot / combo). Tối đa vài khối, ghim SP thủ công. */
+export const homeCollections = sqliteTable(
+  'home_collections',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    slug: text('slug').notNull().unique(),
+    title: text('title').notNull(),
+    subtitle: text('subtitle'),
+    kind: text('kind').notNull(),
+    productIdsJson: text('product_ids_json').notNull().default('[]'),
+    ruleJson: text('rule_json'),
+    active: integer('active').notNull().default(1),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    index('home_collections_active_sort_idx').on(table.active, table.sortOrder, table.id),
+    check('home_collections_kind_check', sql`${table.kind} in ('products', 'pair_discount', 'bracelet_addon')`),
+    check('home_collections_active_check', sql`${table.active} in (0, 1)`),
+  ],
+);

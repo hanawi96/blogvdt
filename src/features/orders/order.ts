@@ -1,4 +1,10 @@
 import { cartSummary, type CartLine } from '../cart/cart';
+import {
+  addonUnitWithBundleOffers,
+  catalogUnitWithComboOffers,
+  type AddonBundleOffer,
+  type ComboOffer,
+} from '../home-collections/collections';
 import { SLUG_PATTERN } from '../posts/slug';
 import { productRequiresTagName, readTagName, tagNameToLineNote } from '../products/tag-name';
 import {
@@ -26,6 +32,25 @@ export type CatalogProduct = {
   weightScale: WeightScale;
   categorySlug?: string;
 };
+
+export type ComboOffersByProduct = ReadonlyMap<number, readonly ComboOffer[]>;
+
+/** Đơn giá đã áp giảm combo (nếu đủ SL) rồi phụ thu cân nặng. */
+export function lineUnitPrice(
+  product: Pick<CatalogProduct, 'id' | 'price'>,
+  quantity: number,
+  weight: string,
+  comboOffers?: ComboOffersByProduct,
+  addonOffers?: readonly AddonBundleOffer[],
+  orderProductIds?: ReadonlySet<number>,
+): number {
+  const comboBase = catalogUnitWithComboOffers(product.price, product.id, quantity, comboOffers);
+  const withAddon =
+    orderProductIds && addonOffers?.length
+      ? addonUnitWithBundleOffers(comboBase, product.id, orderProductIds, addonOffers)
+      : comboBase;
+  return applyWeightPrice(withAddon, weight);
+}
 
 export function orderCreatedRange(from: string, to: string): { start: number | null; end: number | null; invalid: boolean } {
   return calendarRange(from, to);
@@ -242,6 +267,7 @@ export function parseOrderSubmission(
     landing?: string;
   },
   catalog: CatalogProduct[],
+  comboOffers?: ComboOffersByProduct,
 ): { ok: true; draft: OrderDraft } | { ok: false; blocked: boolean; errors: FieldErrors } {
   if (input.company.trim()) return { ok: false, blocked: true, errors: {} };
   const customer = readCustomer(input);
@@ -269,6 +295,7 @@ export function parseOrderSubmission(
   if (Object.keys(errors).length > 0 || !product || !customer.phone || !Number.isInteger(quantity)) {
     return { ok: false, blocked: false, errors };
   }
+  const unitPrice = lineUnitPrice(product, quantity, weight, comboOffers);
   return {
     ok: true,
     draft: {
@@ -279,13 +306,13 @@ export function parseOrderSubmission(
       lineNote,
       productId: product.id,
       productName: product.name,
-      unitPrice: applyWeightPrice(product.price, weight),
+      unitPrice,
       quantity,
       optionLabel: orderOptionLabel(weight),
-      subtotal: applyWeightPrice(product.price, weight) * quantity,
+      subtotal: unitPrice * quantity,
       discountCode: null,
       discountAmount: 0,
-      totalPrice: applyWeightPrice(product.price, weight) * quantity,
+      totalPrice: unitPrice * quantity,
       paymentMethod,
       landingSlug: readLandingSlug(input.landing ?? ''),
     },
@@ -303,6 +330,8 @@ export function parseCartOrder(
     lines: CartLine[];
   },
   catalog: CatalogProduct[],
+  comboOffers?: ComboOffersByProduct,
+  addonOffers?: readonly AddonBundleOffer[],
 ): { ok: true; single: OrderDraft | null; cart: CartOrderDraft | null } | { ok: false; blocked: boolean; errors: FieldErrors } {
   if (input.company.trim()) return { ok: false, blocked: true, errors: {} };
   const customer = readCustomer(input);
@@ -311,6 +340,11 @@ export function parseCartOrder(
   if (paymentRaw && !isPaymentMethod(paymentRaw)) errors.paymentMethod = 'Chọn hình thức thanh toán.';
   const paymentMethod = isPaymentMethod(paymentRaw) ? paymentRaw : DEFAULT_PAYMENT_METHOD;
   if (input.lines.length < 1) errors.cart = 'Giỏ đang trống.';
+  const orderProductIds = new Set<number>();
+  for (const line of input.lines) {
+    const product = catalog.find((item) => item.slug === line.slug);
+    if (product) orderProductIds.add(product.id);
+  }
   const built: CartLineDraft[] = [];
   for (const [index, line] of input.lines.entries()) {
     const product = catalog.find((item) => item.slug === line.slug);
@@ -335,7 +369,14 @@ export function parseCartOrder(
       else if (note) lineNote = note;
     }
     if (errors[`quantity${index}`] || errors[`weight${index}`] || errors[`note${index}`]) continue;
-    const unitPrice = applyWeightPrice(product.price, line.weight);
+    const unitPrice = lineUnitPrice(
+      product,
+      line.quantity,
+      line.weight,
+      comboOffers,
+      addonOffers,
+      orderProductIds,
+    );
     built.push({
       productId: product.id,
       productName: product.name,

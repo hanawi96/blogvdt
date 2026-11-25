@@ -9981,11 +9981,11 @@
   },
   "7703": {
     "name": "Long Thành",
-    "type": "phuong",
+    "type": "xa",
     "slug": "long-thanh",
-    "name_with_type": "Phường Long Thành",
+    "name_with_type": "Xã Long Thành",
     "path": "Long Thành, Đồng Nai",
-    "path_with_type": "Phường Long Thành, Tỉnh Đồng Nai",
+    "path_with_type": "Xã Long Thành, Tỉnh Đồng Nai",
     "code": "7703",
     "parent_code": "23"
   },

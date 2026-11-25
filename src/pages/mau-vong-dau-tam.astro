@@ -16,6 +16,7 @@ import { getPublicSite } from '../features/settings/settings';
 import OrderDialog from '../components/public/OrderDialog.astro';
 import { listPublicAddons, type PublicAddon } from '../features/products/addons';
 import { listOrderCosts } from '../features/costs/order-costs';
+import { listPublicComboPricing, type PublicComboPricing } from '../features/home-collections/collections';
 import { baseCustomerShippingFee } from '../features/shipping/customer-fee';
 import PublicLayout from '../layouts/PublicLayout.astro';
 import { createDb } from '../lib/db/client';
@@ -53,17 +54,50 @@ async function loadCatalog() {
   try {
     const db = createDb(getDbBinding());
     const site = await getPublicSite(db);
-    if (!site) return { site: null, failed: false, products: [], categories: [], addons: [] as PublicAddon[], shipBaseFee: 0, total: 0, pageCount: 1 };
-    const [list, categories, addons, shipBaseFee] = await Promise.all([
+    if (!site) {
+      return {
+        site: null,
+        failed: false,
+        products: [],
+        categories: [],
+        addons: [] as PublicAddon[],
+        comboPricing: { comboBySlug: {}, addonBundles: [] } as PublicComboPricing,
+        shipBaseFee: 0,
+        total: 0,
+        pageCount: 1,
+      };
+    }
+    const [list, categories, addons, comboPricing, shipBaseFee] = await Promise.all([
       listCatalogProducts(db, query),
       listSellableProductCategories(db),
       listPublicAddons(db),
+      listPublicComboPricing(db),
       listOrderCosts(db).then((costs) => baseCustomerShippingFee(costs)),
     ]);
-    return { site, failed: false, products: list.products, categories, addons, shipBaseFee, total: list.total, pageCount: list.pageCount };
+    return {
+      site,
+      failed: false,
+      products: list.products,
+      categories,
+      addons,
+      comboPricing,
+      shipBaseFee,
+      total: list.total,
+      pageCount: list.pageCount,
+    };
   } catch (error) {
     console.error(JSON.stringify({ event: 'catalog_public_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
-    return { site: null, failed: true, products: [], categories: [], addons: [] as PublicAddon[], shipBaseFee: 0, total: 0, pageCount: 1 };
+    return {
+      site: null,
+      failed: true,
+      products: [],
+      categories: [],
+      addons: [] as PublicAddon[],
+      comboPricing: { comboBySlug: {}, addonBundles: [] } as PublicComboPricing,
+      shipBaseFee: 0,
+      total: 0,
+      pageCount: 1,
+    };
   }
 }
 ---
@@ -158,7 +192,13 @@ async function loadCatalog() {
         <div class="catalog-story">
           <ProductStory />
         </div>
-        {loaded.products.length > 0 && <OrderDialog addons={loaded.addons} shipBaseFee={loaded.shipBaseFee} />}
+        {loaded.products.length > 0 && (
+          <OrderDialog
+            addons={loaded.addons}
+            shipBaseFee={loaded.shipBaseFee}
+            comboPricing={loaded.comboPricing}
+          />
+        )}
       </main>
     )
   }

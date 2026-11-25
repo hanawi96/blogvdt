@@ -66,6 +66,11 @@ export const ACTIVITY_ACTIONS = [
   'backup.settings',
   'backup.restore',
   'backup.delete',
+  'home_collection.create',
+  'home_collection.update',
+  'home_collection.delete',
+  'home_collection.enable',
+  'home_collection.disable',
 ] as const;
 
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];
@@ -128,6 +133,11 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'backup.settings': 'Cài đặt backup',
   'backup.restore': 'Khôi phục backup',
   'backup.delete': 'Xóa backup',
+  'home_collection.create': 'Tạo khối trang chủ',
+  'home_collection.update': 'Sửa khối trang chủ',
+  'home_collection.delete': 'Xóa khối trang chủ',
+  'home_collection.enable': 'Bật khối trang chủ',
+  'home_collection.disable': 'Tắt khối trang chủ',
 };
 
 export type ActivityObject =
@@ -147,7 +157,8 @@ export type ActivityObject =
   | 'product'
   | 'discount'
   | 'customer'
-  | 'backup';
+  | 'backup'
+  | 'home_collection';
 
 export type ActivityActor = { id: number; name: string };
 

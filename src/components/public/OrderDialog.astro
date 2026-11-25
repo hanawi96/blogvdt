@@ -1,4 +1,5 @@
 ---
+import type { PublicComboPricing } from '../../features/home-collections/combo-price';
 import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
 import { addonShipHint, type PublicAddon } from '../../features/products/addons';
 import { TAG_NAME_MAX } from '../../features/products/tag-name';
@@ -17,14 +18,18 @@ interface Props {
   addons?: PublicAddon[];
   /** Phí ship khách trả mặc định (từ chi phí đơn đang bật). */
   shipBaseFee?: number;
+  /** Offer combo / bán kèm đang bật — client tính tạm; server vẫn tính lại khi gửi. */
+  comboPricing?: PublicComboPricing;
 }
 
-const { addons = [], shipBaseFee = 0 } = Astro.props;
+const emptyPricing: PublicComboPricing = { comboBySlug: {}, addonBundles: [] };
+const { addons = [], shipBaseFee = 0, comboPricing = emptyPricing } = Astro.props;
 const shipFeeSafe = Number.isSafeInteger(shipBaseFee) && shipBaseFee > 0 ? shipBaseFee : 0;
 const scaleGroups = Object.entries(WEIGHT_SCALES).filter(([, labels]) => labels.length > 0);
 const babyExtras = weightExtras('baby');
 const showAddons = addons.length > 0;
 const addonHint = addonShipHint(0);
+const pricingJson = JSON.stringify(comboPricing);
 ---
 
 <dialog id="order-dialog" class="order-dialog" aria-labelledby="order-dialog-title">
@@ -102,10 +107,16 @@ const addonHint = addonShipHint(0);
         )
       }
       <DiscountCodeField id="od-discount" />
+      <script type="application/json" data-od-combo-pricing set:html={pricingJson} />
       <div class="cart-sum-stack" data-od-ship data-ship-base={shipFeeSafe} hidden>
+        <ul class="cart-sum-lines" data-od-lines aria-label="Sản phẩm trong đơn"></ul>
         <div class="cart-sum">
           <span>Tạm tính</span>
           <strong data-od-goods>{formatVnd(0)}</strong>
+        </div>
+        <div class="cart-sum cart-sum-muted cart-sum-combo" data-od-combo-save hidden>
+          <span>Giảm combo</span>
+          <strong data-od-combo-save-amount>−{formatVnd(0)}</strong>
         </div>
         <div class="cart-sum cart-sum-muted">
           <span>Phí vận chuyển</span>
@@ -133,6 +144,11 @@ const addonHint = addonShipHint(0);
 </dialog>
 <script>
   // Chỉ import module thuần — không kéo addons.ts (DB/Drizzle) vào bundle client.
+  import {
+    addonUnitWithSlugBundles,
+    catalogUnitWithOfferList,
+    type PublicComboPricing,
+  } from '../../features/home-collections/combo-price';
   import { addonShipHint, addonShipHintText } from '../../features/products/addon-hint';
   import { productRequiresTagName } from '../../features/products/tag-name';
   import { applyWeightPrice, weightOptionLabel, weightSurchargeLabel } from '../../features/products/weight';
@@ -160,7 +176,16 @@ const addonHint = addonShipHint(0);
     const shipRoot = form.querySelector('[data-od-ship]');
     const shipNote = form.querySelector('[data-od-ship-note]');
     const submit = form.querySelector('button[type="submit"]:not([value="apply"])');
+    const pricingNode = form.querySelector('[data-od-combo-pricing]');
+    let comboPricing: PublicComboPricing = { comboBySlug: {}, addonBundles: [] };
+    try {
+      const raw = pricingNode?.textContent?.trim();
+      if (raw) comboPricing = JSON.parse(raw) as PublicComboPricing;
+    } catch {
+      comboPricing = { comboBySlug: {}, addonBundles: [] };
+    }
     let price = 0;
+    let productSlug = '';
     let shipGroup: ShipGroup = 'bracelet';
     const shipBase = shipRoot instanceof HTMLElement ? Number(shipRoot.dataset.shipBase || '0') : 0;
 
@@ -171,49 +196,130 @@ const addonHint = addonShipHint(0);
       return '';
     };
 
-    const selectedAddons = (): { price: number }[] => {
-      const rows: { price: number }[] = [];
+    const selectedAddons = (): { name: string; slug: string; catalogPrice: number; price: number }[] => {
+      const rows: { name: string; slug: string; catalogPrice: number; price: number }[] = [];
       form.querySelectorAll('input[name="addonSlug"][data-addon-toggle]:checked').forEach((node) => {
         if (!(node instanceof HTMLInputElement)) return;
-        const addonPrice = Number(node.dataset.addonPrice || '0');
-        if (!Number.isSafeInteger(addonPrice) || addonPrice < 0) return;
-        rows.push({ price: addonPrice });
+        const catalogPrice = Number(node.dataset.addonPrice || '0');
+        if (!Number.isSafeInteger(catalogPrice) || catalogPrice < 0) return;
+        const slug = node.value.trim();
+        const sale = addonUnitWithSlugBundles(
+          catalogPrice,
+          slug,
+          productSlug,
+          comboPricing.addonBundles,
+        );
+        const card = node.closest('[data-addon-card]');
+        const name = card instanceof HTMLElement ? card.dataset.addonName || 'Bán kèm' : 'Bán kèm';
+        rows.push({ name, slug, catalogPrice, price: sale });
       });
       return rows;
+    };
+
+    const paintOrderLines = (mainName: string, qty: number, unit: number, addons: { name: string; price: number }[]) => {
+      if (!(shipRoot instanceof HTMLElement)) return;
+      const list = shipRoot.querySelector('[data-od-lines]');
+      if (!(list instanceof HTMLElement)) return;
+      const rows: HTMLLIElement[] = [];
+      if (mainName && unit > 0 && qty >= 1) {
+        const li = document.createElement('li');
+        li.className = 'cart-sum-line';
+        const text = document.createElement('span');
+        text.className = 'cart-sum-line-text';
+        const nameEl = document.createElement('span');
+        nameEl.className = 'cart-sum-line-name';
+        nameEl.textContent = mainName;
+        text.append(nameEl);
+        if (qty > 1) {
+          const qtyEl = document.createElement('span');
+          qtyEl.className = 'cart-sum-line-qty';
+          qtyEl.textContent = `×${qty}`;
+          text.append(qtyEl);
+        }
+        const priceEl = document.createElement('span');
+        priceEl.className = 'cart-sum-line-price';
+        priceEl.textContent = money.format(unit * qty);
+        li.append(text, priceEl);
+        rows.push(li);
+      }
+      for (const addon of addons) {
+        const li = document.createElement('li');
+        li.className = 'cart-sum-line is-addon';
+        const text = document.createElement('span');
+        text.className = 'cart-sum-line-text';
+        const nameEl = document.createElement('span');
+        nameEl.className = 'cart-sum-line-name';
+        nameEl.textContent = addon.name;
+        text.append(nameEl);
+        const priceEl = document.createElement('span');
+        priceEl.className = 'cart-sum-line-price';
+        priceEl.textContent = money.format(addon.price);
+        li.append(text, priceEl);
+        rows.push(li);
+      }
+      list.replaceChildren(...rows);
     };
 
     /** Badge free / with-addon = vòng; còn lại (bạc / bán kèm / khác) không miễn theo rule vòng. */
     const shipGroupFromBadge = (badge: string): ShipGroup =>
       badge === 'free' || badge === 'with-addon' ? 'bracelet' : 'other';
 
+    const paintAddonToggle = (input: HTMLInputElement) => {
+      const card = input.closest('[data-addon-card]');
+      const button = card?.querySelector('[data-addon-confirm-open]');
+      const mark = button?.querySelector('span[aria-hidden="true"]');
+      if (mark) mark.textContent = input.checked ? '✓' : '+';
+      button?.classList.toggle('is-added', input.checked);
+      if (button instanceof HTMLButtonElement) {
+        button.setAttribute('aria-pressed', input.checked ? 'true' : 'false');
+        const name = card instanceof HTMLElement ? card.dataset.addonName || 'Bó dâu' : 'Bó dâu';
+        button.setAttribute(
+          'aria-label',
+          input.checked ? `${name} đã chọn — bấm để bỏ` : `Thêm ${name}`,
+        );
+        button.title = input.checked ? 'Đã chọn — bấm để bỏ' : 'Thêm bán kèm';
+      }
+      card?.classList.toggle('is-selected', input.checked);
+    };
+
     const resetAddons = () => {
       form.querySelectorAll<HTMLInputElement>('input[name="addonSlug"][data-addon-toggle]').forEach((input) => {
         input.checked = false;
-        const card = input.closest('[data-addon-card]');
-        const button = card?.querySelector('[data-addon-confirm-open]');
-        const mark = button?.querySelector('span[aria-hidden="true"]');
-        if (mark) mark.textContent = '+';
-        button?.classList.remove('is-added');
-        if (button instanceof HTMLButtonElement) {
-          button.setAttribute('aria-pressed', 'false');
-          const name = card instanceof HTMLElement ? card.dataset.addonName || 'Bó dâu' : 'Bó dâu';
-          button.setAttribute('aria-label', `Thêm ${name}`);
-          button.title = 'Thêm bán kèm';
-        }
-        card?.classList.remove('is-selected');
+        paintAddonToggle(input);
       });
+    };
+
+    const selectAddonBySlug = (slug: string) => {
+      const value = slug.trim();
+      if (!value) return false;
+      const input = form.querySelector(
+        `input[name="addonSlug"][value="${CSS.escape(value)}"][data-addon-toggle]`,
+      );
+      if (!(input instanceof HTMLInputElement)) return false;
+      input.checked = true;
+      paintAddonToggle(input);
+      return true;
     };
 
     const paintTotal = () => {
       if (!(total instanceof HTMLElement) || !(quantity instanceof HTMLInputElement)) return;
       const weight = selectedWeight();
-      const unit = price > 0 ? applyWeightPrice(price, weight) : 0;
       const count = Number(quantity.value);
       const valid = Number.isInteger(count) && count >= 1;
+      const qty = valid ? count : 1;
+      const comboOffers = productSlug ? comboPricing.comboBySlug[productSlug] : undefined;
+      const saleBase =
+        price > 0 ? catalogUnitWithOfferList(price, valid ? count : 1, comboOffers) : 0;
+      const unit = saleBase > 0 ? applyWeightPrice(saleBase, weight) : 0;
+      const catalogUnit = price > 0 ? applyWeightPrice(price, weight) : 0;
       const mainGoods = valid ? unit * count : 0;
+      const catalogMain = valid ? catalogUnit * count : 0;
       const addonsPicked = selectedAddons();
       const addonGoods = addonsPicked.reduce((sum, item) => sum + item.price, 0);
+      const addonCatalog = addonsPicked.reduce((sum, item) => sum + item.catalogPrice, 0);
       const goods = mainGoods + addonGoods;
+      const catalogGoods = catalogMain + addonCatalog;
+      const comboSave = Math.max(0, catalogGoods - goods);
       const shipping = resolveCustomerShippingFee({
         lines: [
           { group: shipGroup, lineTotal: mainGoods },
@@ -224,8 +330,13 @@ const addonHint = addonShipHint(0);
       const payable = goods + shipping.fee;
       total.textContent = valid ? `(${money.format(payable)})` : '(—)';
       total.dataset.payableAmount = valid ? String(payable) : '0';
-      if (priceText instanceof HTMLElement && unit > 0) priceText.textContent = money.format(unit);
-      const surcharge = weightSurchargeLabel(weight, price);
+      if (priceText instanceof HTMLElement && unit > 0) {
+        priceText.textContent =
+          saleBase < price && valid
+            ? `${money.format(unit)}/chiếc · Combo ×${qty}`
+            : money.format(unit);
+      }
+      const surcharge = weightSurchargeLabel(weight, saleBase > 0 ? saleBase : price);
       if (weightNote instanceof HTMLElement) {
         weightNote.hidden = !(surcharge && unit > 0);
         weightNote.textContent = surcharge && unit > 0 ? `Vòng lớn hơn, cộng ${surcharge} nguyên liệu → ${money.format(unit)}/chiếc` : '';
@@ -237,11 +348,17 @@ const addonHint = addonShipHint(0);
         shipRoot.hidden = !valid;
         if (shipNote instanceof HTMLElement) shipNote.hidden = !valid;
         const goodsOut = shipRoot.querySelector('[data-od-goods]');
-        if (goodsOut) goodsOut.textContent = money.format(goods);
+        if (goodsOut) goodsOut.textContent = money.format(comboSave > 0 ? catalogGoods : goods);
+        const comboRow = shipRoot.querySelector('[data-od-combo-save]');
+        const comboAmount = shipRoot.querySelector('[data-od-combo-save-amount]');
+        if (comboRow instanceof HTMLElement) comboRow.hidden = !(valid && comboSave > 0);
+        if (comboAmount) comboAmount.textContent = `−${money.format(comboSave)}`;
         const shipFeeOut = shipRoot.querySelector('[data-od-ship-fee]');
         if (shipFeeOut) shipFeeOut.textContent = shipping.free ? 'Miễn phí' : money.format(shipping.fee);
         const payableOut = shipRoot.querySelector('[data-od-payable]');
         if (payableOut) payableOut.textContent = money.format(payable);
+        const mainName = title instanceof HTMLElement ? title.textContent?.trim() || '' : '';
+        paintOrderLines(mainName, valid ? count : 0, unit, addonsPicked);
       }
     };
 
@@ -280,16 +397,23 @@ const addonHint = addonShipHint(0);
 
     const fill = (trigger: HTMLElement) => {
       price = Number(trigger.dataset.price) || 0;
+      productSlug = (trigger.dataset.slug ?? '').trim();
       if (title) title.textContent = trigger.dataset.name ?? '';
       if (priceText) priceText.textContent = money.format(price);
-      if (slugField instanceof HTMLInputElement) slugField.value = trigger.dataset.slug ?? '';
+      if (slugField instanceof HTMLInputElement) slugField.value = productSlug;
       if (thumb instanceof HTMLImageElement) {
         const cover = trigger.dataset.cover ?? '';
         thumb.hidden = !cover;
         thumb.src = cover;
         thumb.alt = trigger.dataset.name ?? '';
       }
-      if (quantity instanceof HTMLInputElement) quantity.value = '1';
+      if (quantity instanceof HTMLInputElement) {
+        const max = Number(quantity.max) || 20;
+        const wanted = Number(trigger.dataset.quantity);
+        quantity.value = String(
+          Number.isInteger(wanted) && wanted >= 1 ? Math.min(max, wanted) : 1,
+        );
+      }
       // Nhãn "(giá tăng X%)" phụ thuộc giá sản phẩm hiện tại nên cập nhật khi mở modal.
       if (extraSelect instanceof HTMLSelectElement) {
         extraSelect.querySelectorAll('option[data-weight-value]').forEach((opt) => {
@@ -305,12 +429,15 @@ const addonHint = addonShipHint(0);
         tagField.value = '';
       }
       // Badge free / with-addon chỉ gắn vòng → hiện bán kèm; bạc/bó riêng thì ẩn.
+      // Combo trang chủ có thể truyền data-addon-slug để gắn sẵn sản phẩm phụ.
       const shipBadge = trigger.dataset.shipBadge ?? 'none';
+      const preselectAddon = (trigger.dataset.addonSlug ?? '').trim();
       shipGroup = shipGroupFromBadge(shipBadge);
-      const allowAddons = shipBadge === 'free' || shipBadge === 'with-addon';
+      const allowAddons = shipBadge === 'free' || shipBadge === 'with-addon' || Boolean(preselectAddon);
       if (addonsWrap instanceof HTMLElement) {
         addonsWrap.hidden = !allowAddons;
         resetAddons();
+        if (allowAddons && preselectAddon) selectAddonBySlug(preselectAddon);
         if (addonHintEl) addonHintEl.textContent = addonShipHintText(addonShipHint(price));
       }
       paintTotal();

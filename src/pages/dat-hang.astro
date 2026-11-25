@@ -4,17 +4,25 @@ import OrderForm from '../components/public/OrderForm.astro';
 import { listOrderCosts } from '../features/costs/order-costs';
 import { applyDiscount } from '../features/discounts/quote';
 import { priceDiscount } from '../features/discounts/discounts';
-import { ORDER_MAX_QUANTITY, parseCartOrder, parseOrderSubmission } from '../features/orders/order';
+import {
+  addonUnitWithBundleOffers,
+  catalogUnitWithComboOffers,
+  listActiveAddonBundleOffers,
+  listActiveComboOffersByProductId,
+} from '../features/home-collections/collections';
+import { toPublicComboPricing } from '../features/home-collections/combo-price';
+import { lineUnitPrice, ORDER_MAX_QUANTITY, parseCartOrder, parseOrderSubmission } from '../features/orders/order';
+import { applyWeightPrice } from '../features/products/weight';
 import { placeCartOrder, placeOrder } from '../features/orders/orders';
 import {
   addonShipHint,
   findAddonsInCatalog,
   listPublicAddons,
   readAddonSlugFields,
+  resolveAddonSlug,
   type PublicAddon,
 } from '../features/products/addons';
 import { listOrderCatalog } from '../features/products/public';
-import { applyWeightPrice } from '../features/products/weight';
 import { getPublicSite } from '../features/settings/settings';
 import { baseCustomerShippingFee, resolveCustomerShippingFee, shipGroupOf } from '../features/shipping/customer-fee';
 import PublicLayout from '../layouts/PublicLayout.astro';
@@ -30,6 +38,8 @@ import type { DiscountQuote } from '../features/discounts/quote';
 let site: Awaited<ReturnType<typeof getPublicSite>> = null;
 let catalog: Awaited<ReturnType<typeof listOrderCatalog>> = [];
 let addons: PublicAddon[] = [];
+let comboOffers: Awaited<ReturnType<typeof listActiveComboOffersByProductId>> = new Map();
+let addonOffers: Awaited<ReturnType<typeof listActiveAddonBundleOffers>> = [];
 let shipBaseFee = 0;
 let failed = false;
 let db: ReturnType<typeof createDb> | null = null;
@@ -37,13 +47,17 @@ try {
   db = createDb(getDbBinding());
   site = await getPublicSite(db);
   if (site) {
-    const [orderCatalog, publicAddons, costs] = await Promise.all([
+    const [orderCatalog, publicAddons, costs, offers, bundles] = await Promise.all([
       listOrderCatalog(db),
       listPublicAddons(db),
       listOrderCosts(db),
+      listActiveComboOffersByProductId(db),
+      listActiveAddonBundleOffers(db),
     ]);
     catalog = orderCatalog;
     addons = publicAddons;
+    comboOffers = offers;
+    addonOffers = bundles;
     shipBaseFee = baseCustomerShippingFee(costs);
   }
 } catch (error) {
@@ -60,7 +74,14 @@ const read = (name: string) => {
 const selectedSlug = posted ? read('productSlug') : (Astro.url.searchParams.get('san-pham') ?? '');
 const selected = catalog.find((product) => product.slug === selectedSlug) ?? null;
 const postedAddonSlugs = form ? readAddonSlugFields(form) : [];
-const pickedAddons = findAddonsInCatalog(postedAddonSlugs, catalog);
+const queryAddonSlug = !posted
+  ? resolveAddonSlug(Astro.url.searchParams.get('ban-kem'), addons)
+  : null;
+const activeAddonSlugs = posted ? postedAddonSlugs : queryAddonSlug ? [queryAddonSlug] : [];
+const pickedAddons = findAddonsInCatalog(activeAddonSlugs, catalog);
+const queryQty = !posted ? Number(Astro.url.searchParams.get('so-luong') ?? '') : NaN;
+const defaultQty =
+  Number.isInteger(queryQty) && queryQty >= 1 && queryQty <= ORDER_MAX_QUANTITY ? String(queryQty) : '1';
 const values = {
   customerName: read('customerName'),
   phone: read('phone'),
@@ -70,12 +91,12 @@ const values = {
   addressLine: read('addressLine'),
   note: read('note'),
   tagName: read('tagName'),
-  quantity: read('quantity') || '1',
+  quantity: read('quantity') || defaultQty,
   weight: read('weight'),
   paymentMethod: read('paymentMethod'),
   discountCode: read('discountCode'),
-  addonSlug: postedAddonSlugs[0] ?? '',
-  addonSlugs: postedAddonSlugs,
+  addonSlug: activeAddonSlugs[0] ?? '',
+  addonSlugs: activeAddonSlugs,
 };
 const landing = read('landing');
 let errors: FieldErrors = {};
@@ -92,8 +113,12 @@ function merchandiseWithAddon(): { ok: true; subtotal: number } | { ok: false; e
   if (uniquePosted.length > 0 && pickedAddons.length !== uniquePosted.length) {
     return { ok: false, error: 'Bó dâu bán kèm không còn bán.' };
   }
-  const main = applyWeightPrice(selected.price, values.weight) * quantity;
-  const addonTotal = pickedAddons.reduce((sum, item) => sum + item.price, 0);
+  const orderIds = new Set([selected.id, ...pickedAddons.map((item) => item.id)]);
+  const main = lineUnitPrice(selected, quantity, values.weight, comboOffers, addonOffers, orderIds) * quantity;
+  const addonTotal = pickedAddons.reduce(
+    (sum, item) => sum + addonUnitWithBundleOffers(item.price, item.id, orderIds, addonOffers),
+    0,
+  );
   return { ok: true, subtotal: main + addonTotal };
 }
 
@@ -153,6 +178,8 @@ if (posted) {
           ],
         },
         catalog,
+        comboOffers,
+        addonOffers,
       );
       if (!parsed.ok) {
         Astro.response.status = parsed.blocked ? 403 : 422;
@@ -196,6 +223,7 @@ if (posted) {
       const parsed = parseOrderSubmission(
         { ...values, productSlug: selectedSlug, company: read('company'), landing },
         catalog,
+        comboOffers,
       );
       if (!parsed.ok) {
         Astro.response.status = parsed.blocked ? 403 : 422;
@@ -257,19 +285,30 @@ const meta = buildMeta(getSiteOrigin(Astro.url.origin), {
 const selectedQty = Number(values.quantity);
 const selectedGroup = selected ? shipGroupOf(selected.categorySlug) : 'other';
 const formAddons = selectedGroup === 'bracelet' ? addons : [];
-const mainGoodsTotal =
+const comboBase =
   selected && Number.isInteger(selectedQty) && selectedQty > 0
-    ? applyWeightPrice(selected.price, values.weight) * selectedQty
-    : selected
-      ? selected.price
-      : 0;
-const addonGoodsTotal = pickedAddons.reduce((sum, item) => sum + item.price, 0);
+    ? catalogUnitWithComboOffers(selected.price, selected.id, selectedQty, comboOffers)
+    : selected?.price ?? 0;
+const mainUnit =
+  selected && Number.isInteger(selectedQty) && selectedQty > 0
+    ? lineUnitPrice(selected, selectedQty, values.weight, comboOffers)
+    : comboBase;
+const mainGoodsTotal =
+  selected && Number.isInteger(selectedQty) && selectedQty > 0 ? mainUnit * selectedQty : mainUnit;
+const checkoutOrderIds = selected
+  ? new Set([selected.id, ...pickedAddons.map((item) => item.id)])
+  : new Set<number>();
+const pricedAddons = pickedAddons.map((item) => ({
+  ...item,
+  salePrice: addonUnitWithBundleOffers(item.price, item.id, checkoutOrderIds, addonOffers),
+}));
+const addonGoodsTotal = pricedAddons.reduce((sum, item) => sum + item.salePrice, 0);
 const goodsTotal = mainGoodsTotal + addonGoodsTotal;
 const shipping = selected
   ? resolveCustomerShippingFee({
       lines: [
         { group: selectedGroup, lineTotal: mainGoodsTotal },
-        ...pickedAddons.map((item) => ({ group: 'addon' as const, lineTotal: item.price })),
+        ...pricedAddons.map((item) => ({ group: 'addon' as const, lineTotal: item.salePrice })),
       ],
       baseFee: shipBaseFee,
     })
@@ -313,7 +352,15 @@ const checkoutAddonHint = addonShipHint(mainGoodsTotal);
         {selected && (
           <section class="mt-8" aria-labelledby="selected-product">
             <h2 id="selected-product" class="text-xl font-semibold">{selected.name}</h2>
-            <p class="mt-1 text-primary-strong">{formatVnd(selected.price)}</p>
+            <p class="mt-1 text-primary-strong">
+              {formatVnd(comboBase)}
+              {comboBase < selected.price && (
+                <s class="ml-2 font-normal text-muted">{formatVnd(selected.price)}</s>
+              )}
+              {Number.isInteger(selectedQty) && selectedQty > 1 && (
+                <span class="ml-2 text-sm font-normal text-muted">×{selectedQty}</span>
+              )}
+            </p>
             <OrderForm
               product={selected}
               values={values}
@@ -322,10 +369,16 @@ const checkoutAddonHint = addonShipHint(mainGoodsTotal);
               landing={landing}
               shipping={shipping}
               goodsTotal={goodsTotal}
+              catalogGoodsTotal={
+                (Number.isInteger(selectedQty) && selectedQty > 0
+                  ? applyWeightPrice(selected.price, values.weight) * selectedQty
+                  : selected.price) + pickedAddons.reduce((sum, item) => sum + item.price, 0)
+              }
               shipBaseFee={shipBaseFee}
               shipGroup={selectedGroup}
               addons={formAddons}
               addonHint={checkoutAddonHint}
+              comboPricing={toPublicComboPricing(comboOffers, addonOffers, catalog)}
             />
           </section>
         )}

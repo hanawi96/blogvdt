@@ -12,6 +12,7 @@ import QtyStepper from '../../components/public/QtyStepper.astro';
 import { CART_MAX_QUANTITY } from '../../features/cart/cart';
 import { listOrderCosts } from '../../features/costs/order-costs';
 import { listPublicCommentThreads } from '../../features/product-comments/comments';
+import { listPublicComboPricing, type PublicComboPricing } from '../../features/home-collections/collections';
 import { addonShipHint, listPublicAddons, type PublicAddon } from '../../features/products/addons';
 import { getPublicProduct } from '../../features/products/public';
 import { isPubliclySellable } from '../../features/products/status';
@@ -114,17 +115,29 @@ async function loadProduct(): Promise<{
   shipBaseFee: number;
   comments: Awaited<ReturnType<typeof listPublicCommentThreads>>;
   addons: PublicAddon[];
+  comboPricing: PublicComboPricing;
 }> {
+  const emptyPricing: PublicComboPricing = { comboBySlug: {}, addonBundles: [] };
   try {
     const db = createDb(getDbBinding());
     const site = await getPublicSite(db);
     if (!site) {
-      return { site: null, failed: false, product: null, http: null, shipBaseFee: 0, comments: [], addons: [] };
+      return {
+        site: null,
+        failed: false,
+        product: null,
+        http: null,
+        shipBaseFee: 0,
+        comments: [],
+        addons: [],
+        comboPricing: emptyPricing,
+      };
     }
-    const [product, shipBaseFee, addons] = await Promise.all([
+    const [product, shipBaseFee, addons, comboPricing] = await Promise.all([
       getPublicProduct(db, slug),
       listOrderCosts(db).then((costs) => baseCustomerShippingFee(costs)),
       listPublicAddons(db),
+      listPublicComboPricing(db),
     ]);
     if (product && !isPubliclySellable(product)) {
       const outcome = await resolvePublicRedirect(db, routes.product(slug));
@@ -137,15 +150,25 @@ async function loadProduct(): Promise<{
           shipBaseFee,
           comments: [],
           addons: [],
+          comboPricing,
         };
       }
     }
     const comments =
       product && isPubliclySellable(product) ? await listPublicCommentThreads(db, product.id) : [];
-    return { site, failed: false, product, http: null, shipBaseFee, comments, addons };
+    return { site, failed: false, product, http: null, shipBaseFee, comments, addons, comboPricing };
   } catch (error) {
     console.error(JSON.stringify({ event: 'product_public_failed', name: error instanceof Error ? error.name : 'unknown' }));
-    return { site: null, failed: true, product: null, http: null, shipBaseFee: 0, comments: [], addons: [] };
+    return {
+      site: null,
+      failed: true,
+      product: null,
+      http: null,
+      shipBaseFee: 0,
+      comments: [],
+      addons: [],
+      comboPricing: emptyPricing,
+    };
   }
 }
 ---
@@ -335,6 +358,7 @@ async function loadProduct(): Promise<{
             addons={addons}
             addonHint={addonHint}
             addonConfirmDialog={false}
+            comboPricing={loaded.comboPricing}
           />
         </section>
         </div>

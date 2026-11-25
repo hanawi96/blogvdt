@@ -31,6 +31,8 @@ export const routes = {
   adminMaterials: '/admin/materials',
   adminCosts: '/admin/costs',
   adminDiscounts: '/admin/discounts',
+  adminHomeCollections: '/admin/home-collections',
+  adminHomeCollectionPicks: '/admin/home-collections/picks',
   adminMedia: '/admin/media',
   adminSettings: '/admin/settings',
   adminBackups: '/admin/backups',

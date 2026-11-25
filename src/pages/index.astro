@@ -2,11 +2,18 @@
 import DataError from '../components/public/DataError.astro';
 import FaqSection from '../components/public/FaqSection.astro';
 import HomeProductCard from '../components/public/HomeProductCard.astro';
+import HomeCollections from '../components/public/HomeCollections.astro';
 import OrderDialog from '../components/public/OrderDialog.astro';
 import { listPublicAddons, type PublicAddon } from '../features/products/addons';
 import { BRACELET_PROCESS_STEPS, BRACELET_PROCESS_VIDEO_ID } from '../features/content/bracelet-process';
 import { FAQ_ITEMS } from '../features/content/faq';
 import { listOrderCosts } from '../features/costs/order-costs';
+import {
+  listPublicComboPricing,
+  listPublicHomeCollections,
+  type HomeCollectionPublic,
+  type PublicComboPricing,
+} from '../features/home-collections/collections';
 import { listHomeCatalogCategories } from '../features/products/categories';
 import {
   catalogApiPath,
@@ -181,6 +188,8 @@ async function loadHome(query: CatalogQuery) {
     feedback: [] as Awaited<ReturnType<typeof listHomeFeedback>>,
     categories: [] as Awaited<ReturnType<typeof listHomeCatalogCategories>>,
     addons: [] as PublicAddon[],
+    collections: [] as HomeCollectionPublic[],
+    comboPricing: { comboBySlug: {}, addonBundles: [] } as PublicComboPricing,
     shipBaseFee: 0,
     total: 0,
     page: 1,
@@ -191,12 +200,14 @@ async function loadHome(query: CatalogQuery) {
     const siteRow = await getPublicSite(db);
     if (!siteRow) return empty;
     // Query hẹp song song: cover hero, danh mục, SP trang 1, feedback rail.
-    const [photos, categories, shop, feedback, addons, shipBaseFee] = await Promise.all([
+    const [photos, categories, shop, feedback, addons, collections, comboPricing, shipBaseFee] = await Promise.all([
       listFeaturedProducts(db, HOME_PHOTO_LIMIT),
       listHomeCatalogCategories(db),
       listCatalogProducts(db, query),
       listHomeFeedback(db),
       listPublicAddons(db),
+      listPublicHomeCollections(db),
+      listPublicComboPricing(db),
       listOrderCosts(db).then((costs) => baseCustomerShippingFee(costs)),
     ]);
     return {
@@ -207,6 +218,8 @@ async function loadHome(query: CatalogQuery) {
       categories,
       products: shop.products,
       addons,
+      collections,
+      comboPricing,
       shipBaseFee,
       total: shop.total,
       page: shop.page,
@@ -452,6 +465,14 @@ async function loadHome(query: CatalogQuery) {
           </div>
         </section>
 
+        {
+          loaded.collections.length > 0 && (
+            <section class="home-wrap home-section" aria-label="Gợi ý mẫu và combo">
+              <HomeCollections collections={loaded.collections} />
+            </section>
+          )
+        }
+
         <section id="danh-muc-me" class="home-wrap home-section home-defer" aria-labelledby="danh-muc-me-title">
           <div class="home-section-intro">
             <h2 id="danh-muc-me-title">
@@ -572,7 +593,11 @@ async function loadHome(query: CatalogQuery) {
               Xem tiếp {CATALOG_PAGE_SIZE} mẫu
             </a>
           </div>
-          <OrderDialog addons={loaded.addons} shipBaseFee={loaded.shipBaseFee} />
+          <OrderDialog
+            addons={loaded.addons}
+            shipBaseFee={loaded.shipBaseFee}
+            comboPricing={loaded.comboPricing}
+          />
         </section>
         <script>
           import '../scripts/home-shop';

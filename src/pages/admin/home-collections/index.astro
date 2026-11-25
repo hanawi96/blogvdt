@@ -1,0 +1,2467 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import AdminPlusIcon from '../../../components/admin/AdminPlusIcon.astro';
+import { activityActor } from '../../../features/activity/log';
+import { mutationError } from '../../../features/auth/session';
+import {
+  COMBO_DISCOUNT_AMOUNT_MAX,
+  COMBO_DISCOUNT_PERCENT_MAX,
+  HOME_COLLECTION_BRACELET_ADDON_MAX,
+  HOME_COLLECTION_KINDS,
+  HOME_COLLECTION_MAX,
+  HOME_COLLECTION_PAIR_MAX,
+  HOME_COLLECTION_PRODUCT_MAX,
+  collectionFormValue,
+  deleteHomeCollection,
+  getHomeCollection,
+  listHomeCollectionPicksByIds,
+  listHomeCollections,
+  parseBraceletGroups,
+  saveHomeCollection,
+  setHomeCollectionActive,
+  type BraceletAddonGroup,
+  type HomeCollection,
+  type HomeCollectionInput,
+  type HomeCollectionPick,
+} from '../../../features/home-collections/collections';
+import { listProductCategories } from '../../../features/products/categories';
+import { createDb } from '../../../lib/db/client';
+import { getDbBinding } from '../../../lib/cloudflare/env';
+import { routes } from '../../../lib/routes';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+if (session.role !== 'admin') {
+  return new Response('Bạn không có quyền vào trang này.', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+}
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+
+const db = createDb(getDbBinding());
+const listHref = routes.adminHomeCollections;
+let formError = '';
+const values: HomeCollectionInput = {
+  title: '',
+  slug: '',
+  subtitle: '',
+  kind: 'products',
+  productIds: [],
+  braceletGroups: [],
+  badge: '',
+  buyQty: '2',
+  discountType: '',
+  discountValue: '',
+  active: false,
+  sortOrder: '0',
+};
+
+function readProductIds(form: FormData): number[] {
+  const ordered = form.get('productIds');
+  const source =
+    typeof ordered === 'string' && ordered.trim()
+      ? ordered.split(',')
+      : form.getAll('productId').map((item) => (typeof item === 'string' ? item : ''));
+  const ids: number[] = [];
+  for (const item of source) {
+    const id = Number(item.trim());
+    if (!Number.isInteger(id) || id < 1 || ids.includes(id)) continue;
+    ids.push(id);
+    if (ids.length >= HOME_COLLECTION_PRODUCT_MAX) break;
+  }
+  return ids;
+}
+
+function readBraceletGroups(form: FormData): BraceletAddonGroup[] {
+  const raw = form.get('braceletGroups');
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  return parseBraceletGroups(raw);
+}
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const read = (name: string) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value : '';
+  };
+  const blocked = mutationError(Astro.request, session, form);
+  const idValue = Number(read('id'));
+  const id = Number.isSafeInteger(idValue) && idValue > 0 ? idValue : undefined;
+  const intent = read('intent');
+  if (blocked) {
+    Astro.response.status = 403;
+    formError = blocked;
+  } else if (intent === 'delete' && id) {
+    const removed = await deleteHomeCollection(db, id, await activityActor(db, session.userId));
+    const key = removed.ok ? 'notice=deleted' : `error=${encodeURIComponent(removed.error)}`;
+    return Astro.redirect(`${listHref}?${key}`, 303);
+  } else if (intent === 'toggle' && id) {
+    const turnedOn = read('active') === '1';
+    const toggled = await setHomeCollectionActive(db, id, turnedOn, Date.now(), await activityActor(db, session.userId));
+    const key = toggled.ok ? 'notice=saved' : `error=${encodeURIComponent(toggled.error)}`;
+    return Astro.redirect(`${listHref}?${key}`, 303);
+  } else if (intent === 'save') {
+    values.id = id;
+    values.title = read('title');
+    values.slug = '';
+    values.subtitle = read('subtitle');
+    values.kind = HOME_COLLECTION_KINDS.includes(read('kind') as (typeof HOME_COLLECTION_KINDS)[number])
+      ? read('kind')
+      : 'products';
+    values.productIds = readProductIds(form);
+    values.braceletGroups = [];
+    // Badge / buyQty: tên field riêng theo loại — tránh 2 input cùng name="badge" ghi đè nhau.
+    if (values.kind === 'pair_discount') {
+      values.badge = read('pairBadge');
+    values.buyQty = read('buyQty') || '2';
+      values.discountType = read('discountType');
+      values.discountValue = read('discountValue');
+    } else if (values.kind === 'bracelet_addon') {
+      values.badge = read('braceletBadge');
+      values.buyQty = '2';
+      values.discountType = read('discountType');
+      values.discountValue = read('discountValue');
+      values.braceletGroups = readBraceletGroups(form);
+      values.productIds = [];
+    } else {
+      values.badge = '';
+      values.buyQty = '2';
+      values.discountType = '';
+      values.discountValue = '';
+    }
+    values.active = read('active') === '1';
+    values.sortOrder = read('sortOrder') || '0';
+    const saved = await saveHomeCollection(db, values, Date.now(), await activityActor(db, session.userId));
+    if (saved.ok) return Astro.redirect(`${listHref}?notice=saved`, 303);
+    Astro.response.status = 422;
+    formError = saved.error;
+  } else {
+    Astro.response.status = 422;
+    formError = 'Thao tác không hợp lệ.';
+  }
+}
+
+const editId = Number(Astro.url.searchParams.get('edit') ?? '');
+const wantNew = Astro.url.searchParams.get('new') === '1';
+if (Astro.request.method === 'GET' && Number.isInteger(editId) && editId > 0) {
+  const row = await getHomeCollection(db, editId);
+  if (row) Object.assign(values, collectionFormValue(row));
+}
+
+let rows: HomeCollection[] = [];
+let selectedOrdered: HomeCollectionPick[] = [];
+let categoryOptions: { id: number; name: string }[] = [];
+let loadError = '';
+
+const notice = Astro.url.searchParams.get('notice') ?? '';
+const errorText = Astro.url.searchParams.get('error') ?? '';
+const noticeText = notice === 'saved' ? 'Đã lưu khối trang chủ.' : notice === 'deleted' ? 'Đã xóa khối.' : '';
+
+try {
+  rows = await listHomeCollections(db);
+} catch (error) {
+  console.error(JSON.stringify({ event: 'home_collection_list_failed', name: error instanceof Error ? error.name : 'unknown' }));
+  loadError = 'Không tải được khối trang chủ.';
+}
+
+const canCreate = rows.length < HOME_COLLECTION_MAX;
+const editing = Boolean(values.id);
+const creating = !editing && (wantNew || Boolean(formError && !values.id));
+const focusForm = editing || creating || Boolean(formError);
+if (focusForm && creating && !canCreate && !formError) {
+  return Astro.redirect(listHref, 303);
+}
+
+if (focusForm && !loadError) {
+  try {
+    const pickIds =
+      values.kind === 'bracelet_addon'
+        ? (values.braceletGroups ?? []).flatMap((group) => [group.primary, ...group.addons])
+        : values.productIds;
+    const [selectedPicks, categories] = await Promise.all([
+      listHomeCollectionPicksByIds(db, pickIds),
+      listProductCategories(db),
+    ]);
+    selectedOrdered = selectedPicks;
+    categoryOptions = categories
+      .filter((row) => row.status === 'active')
+      .map((row) => ({ id: row.id, name: row.name }));
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'home_collection_picks_failed', name: error instanceof Error ? error.name : 'unknown' }));
+    loadError = 'Không tải được sản phẩm đã chọn.';
+  }
+}
+
+function kindLabel(kind: string): string {
+  if (kind === 'pair_discount') return 'Combo mua 2';
+  if (kind === 'bracelet_addon') return 'Vòng + bán kèm';
+  return 'Danh sách SP';
+}
+
+function countMeta(row: HomeCollection): { label: string; value: string } {
+  if (row.kind === 'bracelet_addon') {
+    return {
+      label: 'Combo',
+      value: `${row.braceletGroups.length}/${HOME_COLLECTION_PAIR_MAX}`,
+    };
+  }
+  return {
+    label: 'Sản phẩm',
+    value: `${row.productIds.length}/${HOME_COLLECTION_PRODUCT_MAX}`,
+  };
+}
+---
+
+<AdminLayout title="Trang chủ SP">
+  {
+    !focusForm && (
+      <p slot="lead" class="text-sm text-muted">
+        Tối đa {HOME_COLLECTION_MAX} khối · mỗi khối ≤ {HOME_COLLECTION_PRODUCT_MAX} SP. Chỉ hiện ngoài trang chủ khi bật và còn SP đang bán.
+      </p>
+    )
+  }
+
+  {noticeText && !formError && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>{noticeText}</p>}
+  {errorText && !formError && <p class="error-text mb-4" role="alert" data-admin-flash>{errorText}</p>}
+  {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
+  {loadError && <p class="error-text mb-4" role="alert">{loadError}</p>}
+
+  {
+    focusForm ? (
+      <section class="home-collection-editor">
+        <form class="home-collection-form" method="post" data-busy>
+          <input type="hidden" name="csrf" value={session.csrfToken} />
+          <input type="hidden" name="intent" value="save" />
+          {values.id && <input type="hidden" name="id" value={values.id} />}
+          <input type="hidden" name="productIds" value={values.productIds.join(',')} data-product-ids />
+          {/* textarea tránh cắt JSON vì dấu " trong attribute value của input hidden */}
+          <textarea name="braceletGroups" data-bracelet-groups hidden>{JSON.stringify(values.braceletGroups ?? [])}</textarea>
+
+          <header class="home-collection-editor-bar">
+            <div class="home-collection-editor-bar-text">
+              <a class="home-collection-back" href={listHref}>← Các khối</a>
+              <h2 class="home-collection-editor-title">{editing ? 'Sửa khối' : 'Thêm khối'}</h2>
+            </div>
+            <div class="home-collection-editor-bar-actions">
+              <a class="btn" href={listHref}>Hủy</a>
+              <button class="btn btn-primary" type="submit">
+                {!editing && <AdminPlusIcon />}
+                {editing ? 'Cập nhật' : 'Thêm khối'}
+              </button>
+            </div>
+          </header>
+
+          <div class="home-collection-settings">
+            <label class="home-collection-field home-collection-field-title">
+              <span>Tiêu đề</span>
+              <input class="field" name="title" required maxlength="80" value={values.title} placeholder="Mẫu hot 2026" />
+            </label>
+            <label class="home-collection-field home-collection-field-narrow">
+              <span>Thứ tự</span>
+              <input class="field" name="sortOrder" inputmode="numeric" maxlength="2" value={values.sortOrder} />
+            </label>
+            <fieldset class="home-collection-field home-collection-field-kind-picker">
+              <legend>Loại khối</legend>
+              <div class="home-collection-kind-options" data-kind-options>
+                <label class:list={['home-collection-kind-option', values.kind === 'products' && 'is-on']}>
+                  <input type="radio" name="kind" value="products" data-collection-kind checked={values.kind === 'products'} />
+                  <span class="home-collection-kind-option-title">Danh sách SP</span>
+                  <span class="home-collection-kind-option-desc">Hiển thị mẫu như lưới sản phẩm thường (vd. Mẫu hot).</span>
+            </label>
+                <label class:list={['home-collection-kind-option', values.kind === 'pair_discount' && 'is-on']}>
+                  <input type="radio" name="kind" value="pair_discount" data-collection-kind checked={values.kind === 'pair_discount'} />
+                  <span class="home-collection-kind-option-title">Combo mua 2</span>
+                  <span class="home-collection-kind-option-desc">Gợi ý mua nhiều chiếc cùng mẫu — có số lượng combo & badge.</span>
+                </label>
+                <label class:list={['home-collection-kind-option', values.kind === 'bracelet_addon' && 'is-on']}>
+                  <input type="radio" name="kind" value="bracelet_addon" data-collection-kind checked={values.kind === 'bracelet_addon'} />
+                  <span class="home-collection-kind-option-title">Vòng + bán kèm</span>
+                  <span class="home-collection-kind-option-desc">Từng cặp chính + phụ; mua ngay gắn sẵn sản phẩm kèm.</span>
+                </label>
+            </div>
+            </fieldset>
+            <label class="home-collection-field home-collection-field-subtitle" data-subtitle-field>
+              <span>Mô tả ngắn</span>
+              <input class="field" name="subtitle" maxlength="160" value={values.subtitle} placeholder="Những mẫu mẹ đang chọn nhiều." />
+            </label>
+            <label class="home-collection-field home-collection-field-qty" data-pair-fields hidden={values.kind !== 'pair_discount'}>
+                <span>Số lượng combo</span>
+              <input
+                class="field"
+                name="buyQty"
+                inputmode="numeric"
+                maxlength="2"
+                value={values.kind === 'pair_discount' ? values.buyQty : '2'}
+                disabled={values.kind !== 'pair_discount'}
+                data-pair-buy-qty
+              />
+              </label>
+            <label class="home-collection-field home-collection-field-badge" data-pair-badge-wrap hidden={values.kind !== 'pair_discount'}>
+              <span>Badge combo</span>
+              <input
+                class="field"
+                name="pairBadge"
+                maxlength="40"
+                value={values.kind === 'pair_discount' ? values.badge : ''}
+                placeholder="Mua 2 giảm"
+                disabled={values.kind !== 'pair_discount'}
+                data-pair-badge
+              />
+              </label>
+            <div
+              class="home-collection-field home-collection-field-discount"
+              data-pair-discount-wrap
+              hidden={values.kind !== 'pair_discount' && values.kind !== 'bracelet_addon'}
+            >
+              <span>Giảm giá</span>
+              <div class="home-collection-discount-row">
+                <select
+                  class="field"
+                  name="discountType"
+                  disabled={values.kind !== 'pair_discount' && values.kind !== 'bracelet_addon'}
+                  data-pair-discount-type
+                >
+                  <option value="" selected={values.discountType !== 'percent' && values.discountType !== 'amount'}>
+                    Không giảm thêm
+                  </option>
+                  <option value="percent" selected={values.discountType === 'percent'}>Giảm theo %</option>
+                  <option value="amount" selected={values.discountType === 'amount'}>Giảm số tiền cố định</option>
+                </select>
+                <input
+                  class="field"
+                  name="discountValue"
+                  inputmode="numeric"
+                  maxlength="8"
+                  value={
+                    values.kind === 'pair_discount' || values.kind === 'bracelet_addon' ? values.discountValue : ''
+                  }
+                  placeholder={values.discountType === 'amount' ? 'Vd. 20000' : 'Vd. 10'}
+                  disabled={
+                    (values.kind !== 'pair_discount' && values.kind !== 'bracelet_addon') || !values.discountType
+                  }
+                  data-pair-discount-value
+                />
+            </div>
+            </div>
+            <label
+              class="home-collection-field home-collection-field-badge-wide"
+              data-bracelet-fields
+              hidden={values.kind !== 'bracelet_addon'}
+            >
+              <span>Badge (tuỳ chọn)</span>
+              <input
+                class="field"
+                name="braceletBadge"
+                maxlength="40"
+                value={values.kind === 'bracelet_addon' ? values.badge : ''}
+                placeholder="Thường miễn ship khi mua kèm"
+                disabled={values.kind !== 'bracelet_addon'}
+                data-bracelet-badge
+              />
+            </label>
+            <div class="home-collection-field home-collection-field-active">
+              <span>Hiển thị</span>
+              <label class="admin-check home-collection-active-control">
+                <input type="checkbox" name="active" value="1" checked={values.active} />
+                <span>Hiện trên trang chủ</span>
+              </label>
+            </div>
+            <p
+              class="home-collection-discount-hint seo-hint"
+              data-pair-discount-hint
+              hidden={values.kind !== 'pair_discount' && values.kind !== 'bracelet_addon'}
+            >
+              {values.kind === 'bracelet_addon'
+                ? values.discountType === 'amount'
+                  ? `Số tiền trừ trên giá bán kèm khi mua cùng vòng chính (tối đa ${COMBO_DISCOUNT_AMOUNT_MAX.toLocaleString('vi-VN')}đ).`
+                  : values.discountType === 'percent'
+                    ? `Phần trăm giảm trên giá bán kèm (1–${COMBO_DISCOUNT_PERCENT_MAX}%).`
+                    : 'Tuỳ chọn. Giảm thật trên bán kèm khi khách mua cùng vòng chính.'
+                : values.discountType === 'amount'
+                  ? `Số tiền trừ trên mỗi chiếc khi mua đủ số lượng combo (tối đa ${COMBO_DISCOUNT_AMOUNT_MAX.toLocaleString('vi-VN')}đ).`
+                  : values.discountType === 'percent'
+                    ? `Phần trăm giảm trên giá bán mỗi chiếc (1–${COMBO_DISCOUNT_PERCENT_MAX}%).`
+                    : 'Tuỳ chọn. Để trống nếu chỉ dùng giá so sánh trên sản phẩm.'}
+            </p>
+            <p class="home-collection-kind-hint" data-kind-hint>
+              {values.kind === 'bracelet_addon'
+                ? `Mỗi combo: 1 vòng chính + tối đa ${HOME_COLLECTION_BRACELET_ADDON_MAX} bán kèm; có thể giảm % hoặc số tiền trên bán kèm.`
+                : values.kind === 'pair_discount'
+                  ? 'Khối combo: số lượng 2–10; có thể giảm % hoặc số tiền / chiếc khi mua đủ số lượng (áp giá thật khi đặt hàng).'
+                  : 'Dùng cho khối danh sách thường (Mẫu hot…). Không có số lượng combo.'}
+            </p>
+          </div>
+
+          <section
+            class="home-collection-selected"
+            aria-label="Đã chọn"
+            data-selected-panel
+            data-selected-kind={values.kind}
+            data-pair-max={String(HOME_COLLECTION_PAIR_MAX)}
+            data-addon-max={String(HOME_COLLECTION_BRACELET_ADDON_MAX)}
+            data-discount-percent-max={String(COMBO_DISCOUNT_PERCENT_MAX)}
+            data-discount-amount-max={String(COMBO_DISCOUNT_AMOUNT_MAX)}
+          >
+            <div class="home-collection-selected-head" data-multi-selected-head hidden={values.kind === 'bracelet_addon'}>
+              <h3>
+                Đã chọn <span>(<span data-pick-count>{values.productIds.length}</span>/{HOME_COLLECTION_PRODUCT_MAX})</span>
+              </h3>
+              <p class="seo-hint" data-selected-empty hidden={values.productIds.length > 0}>Bấm ô trống để thêm sản phẩm.</p>
+            </div>
+            <div class="home-collection-selected-head" data-pair-selected-head hidden={values.kind !== 'bracelet_addon'}>
+              <h3>
+                Combo vòng + bán kèm
+                <span>(<span data-pair-count>{(values.braceletGroups ?? []).length}</span>/{HOME_COLLECTION_PAIR_MAX})</span>
+              </h3>
+              <p class="seo-hint">
+                Mỗi hàng = 1 combo (điền Combo 2, Combo 3 phía dưới). Bán kèm như 7/9 cành dùng chung được nhiều combo.
+              </p>
+            </div>
+
+            <ol class="home-collection-selected-slots" data-selected-list hidden={values.kind === 'bracelet_addon'}>
+              {Array.from({ length: HOME_COLLECTION_PRODUCT_MAX }, (_, index) => {
+                const product = selectedOrdered[index];
+                return (
+                  <li class:list={['home-collection-slot', product ? 'is-filled' : 'is-empty']}>
+                    <button
+                      class="home-collection-slot-btn"
+                      type="button"
+                      data-open-picker="multi"
+                      data-slot-index={String(index)}
+                      data-selected-id={product ? String(product.id) : undefined}
+                      aria-label={product ? `Đổi sản phẩm ô ${index + 1}` : `Chọn sản phẩm ô ${index + 1}`}
+                    >
+                    <span class="home-collection-slot-order">{index + 1}</span>
+                      {product ? (
+                        <>
+                    {product.coverUrl ? (
+                      <img src={product.coverUrl} alt="" width="72" height="72" loading="lazy" decoding="async" />
+                    ) : (
+                      <span class="home-collection-pick-empty" aria-hidden="true" />
+                    )}
+                    <span class="home-collection-slot-name">{product.name}</span>
+                        </>
+                      ) : (
+                        <span class="home-collection-slot-placeholder">
+                          <span class="home-collection-slot-plus" aria-hidden="true">+</span>
+                          Thêm
+                        </span>
+                      )}
+                    </button>
+                    {product && (
+                      <button class="home-collection-slot-clear" type="button" data-multi-clear={String(index)} aria-label={`Xóa ô ${index + 1}`}>
+                        ×
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+
+            <div class="home-collection-pair-slots" data-pair-slots hidden={values.kind !== 'bracelet_addon'}>
+              {
+                Array.from({ length: HOME_COLLECTION_PAIR_MAX }, (_, pairIndex) => {
+                  const group = (values.braceletGroups ?? [])[pairIndex];
+                  const primary = group ? selectedOrdered.find((item) => item.id === group.primary) : undefined;
+                  const addonIds = group?.addons?.length ? group.addons : [0];
+                  const hasAny = Boolean(primary) || addonIds.some((id) => id > 0);
+                return (
+                    <div class="home-collection-pair-row" data-pair-row={String(pairIndex)}>
+                      <div class="home-collection-pair-row-head">
+                        <p class="home-collection-pair-row-title">Combo {pairIndex + 1}</p>
+                        <div class="home-collection-pair-row-actions">
+                          <button
+                            class="home-collection-pair-clear"
+                            type="button"
+                            data-pair-clear-row={String(pairIndex)}
+                            hidden={!hasAny}
+                          >
+                            Xóa combo
+                          </button>
+                        </div>
+                      </div>
+                      <div
+                        class:list={['home-collection-pair-slot', primary && 'is-filled']}
+                        data-pair-slot="primary"
+                        data-pair-index={String(pairIndex)}
+                        data-selected-id={primary ? String(primary.id) : undefined}
+                      >
+                        <div class="home-collection-pair-slot-top">
+                          <p class="home-collection-pair-slot-label">Sản phẩm chính</p>
+                          <button
+                            class="home-collection-pair-clear"
+                            type="button"
+                            data-pair-clear="primary"
+                            data-pair-index={String(pairIndex)}
+                            hidden={!primary}
+                          >
+                            Xóa
+                          </button>
+                        </div>
+                        <button
+                          class="home-collection-pair-pick"
+                          type="button"
+                          data-open-picker="pair"
+                          data-pair-role="primary"
+                          data-pair-index={String(pairIndex)}
+                        >
+                          {primary ? (
+                            <>
+                              {primary.coverUrl ? (
+                                <img src={primary.coverUrl} alt="" width="96" height="96" loading="lazy" decoding="async" />
+                      ) : (
+                        <span class="home-collection-pick-empty" aria-hidden="true" />
+                      )}
+                              <span class="home-collection-pair-pick-name">{primary.name}</span>
+                              <span class="text-muted">#{primary.id}</span>
+                            </>
+                          ) : (
+                            <span class="home-collection-pair-pick-empty">Bấm để chọn vòng chính</span>
+                          )}
+                        </button>
+                      </div>
+                      <div class="home-collection-addon-block" data-addon-block={String(pairIndex)}>
+                        <div class="home-collection-addon-block-head">
+                          <p class="home-collection-pair-slot-label">Bán kèm — khách chọn 1</p>
+                          <button
+                            class="btn"
+                            type="button"
+                            data-addon-add={String(pairIndex)}
+                            hidden={addonIds.filter((id) => id > 0).length >= HOME_COLLECTION_BRACELET_ADDON_MAX}
+                          >
+                            + Thêm lựa chọn
+                          </button>
+                        </div>
+                        <div class="home-collection-addon-list" data-addon-list={String(pairIndex)}>
+                          {addonIds.map((addonId, addonIndex) => {
+                            const addon = addonId > 0 ? selectedOrdered.find((item) => item.id === addonId) : undefined;
+                            return (
+                              <div
+                                class:list={['home-collection-pair-slot', 'is-addon', addon && 'is-filled']}
+                                data-pair-slot="addon"
+                                data-pair-index={String(pairIndex)}
+                                data-addon-index={String(addonIndex)}
+                                data-selected-id={addon ? String(addon.id) : undefined}
+                              >
+                                <div class="home-collection-pair-slot-top">
+                                  <p class="home-collection-pair-slot-label">Lựa chọn {addonIndex + 1}</p>
+                                  <button
+                                    class="home-collection-pair-clear"
+                                    type="button"
+                                    data-pair-clear="addon"
+                                    data-pair-index={String(pairIndex)}
+                                    data-addon-index={String(addonIndex)}
+                                    hidden={!addon && addonIds.length <= 1}
+                                  >
+                                    Xóa
+                                  </button>
+                                </div>
+                                <button
+                                  class="home-collection-pair-pick"
+                                  type="button"
+                                  data-open-picker="pair"
+                                  data-pair-role="addon"
+                                  data-pair-index={String(pairIndex)}
+                                  data-addon-index={String(addonIndex)}
+                                >
+                                  {addon ? (
+                                    <>
+                                      {addon.coverUrl ? (
+                                        <img src={addon.coverUrl} alt="" width="96" height="96" loading="lazy" decoding="async" />
+                                      ) : (
+                                        <span class="home-collection-pick-empty" aria-hidden="true" />
+                                      )}
+                                      <span class="home-collection-pair-pick-name">{addon.name}</span>
+                                      <span class="text-muted">#{addon.id}</span>
+                                    </>
+                                  ) : (
+                                    <span class="home-collection-pair-pick-empty">Bấm để chọn bán kèm</span>
+                                  )}
+                                </button>
+                              </div>
+                );
+              })}
+            </div>
+                      </div>
+                    </div>
+                  );
+                })
+              }
+            </div>
+          </section>
+        </form>
+
+        <dialog
+          class="home-collection-pick-dialog"
+          data-pick-dialog
+          data-picks-url={routes.adminHomeCollectionPicks}
+          aria-labelledby="home-collection-pick-title"
+        >
+          <div class="home-collection-pick-dialog-card">
+            <header class="home-collection-pick-dialog-head">
+              <h3 id="home-collection-pick-title" data-pick-title>Chọn sản phẩm</h3>
+              <button class="btn" type="button" data-pick-close>Đóng</button>
+            </header>
+            <div class="home-collection-pick-toolbar">
+              <label class="home-collection-pick-filter">
+                <span>Danh mục</span>
+                <select class="field" data-pick-category>
+                  <option value="">Tất cả</option>
+                  {categoryOptions.map((category) => (
+                    <option value={String(category.id)}>{category.name}</option>
+                  ))}
+                </select>
+              </label>
+              <p class="seo-hint home-collection-pick-hint">Sold cao → thấp · bấm ảnh để chọn</p>
+            </div>
+            <div class="home-collection-picks" data-pick-grid></div>
+            <p class="cms-empty-text" data-pick-empty hidden>Chưa có sản phẩm đang bán.</p>
+            <nav class="home-collection-pick-pager" data-pick-pager hidden aria-label="Phân trang sản phẩm">
+              <button class="btn" type="button" data-pick-prev>Trước</button>
+              <span class="home-collection-pick-pager-status" data-pick-status>Trang 1/1</span>
+              <button class="btn" type="button" data-pick-next>Sau</button>
+            </nav>
+          </div>
+        </dialog>
+      </section>
+    ) : (
+      <section class="category-panel home-collection-list-panel">
+        <div class="home-collection-list-head">
+          <div class="home-collection-list-head-text">
+            <h2 class="category-panel-title">Các khối</h2>
+            <p class="home-collection-list-count">
+              <span>{rows.length}</span>/{HOME_COLLECTION_MAX} khối
+            </p>
+          </div>
+          {canCreate && (
+            <a class="btn btn-primary" href={`${listHref}?new=1`}>
+              <AdminPlusIcon />
+              Thêm khối
+            </a>
+          )}
+        </div>
+
+        {
+          rows.length === 0 ? (
+            <div class="home-collection-empty">
+              <p class="home-collection-empty-title">Chưa có khối trang chủ</p>
+              <p class="text-muted">Thêm khối đầu tiên (ví dụ “Mẫu hot 2026”) để hiện trên trang chủ.</p>
+              {canCreate && (
+                <a class="btn btn-primary" href={`${listHref}?new=1`}>
+                  <AdminPlusIcon />
+                  Thêm khối
+                </a>
+              )}
+            </div>
+          ) : (
+            <ul class="home-collection-list">
+              {rows.map((row) => {
+                const count = countMeta(row);
+                return (
+                  <li class:list={['home-collection-item', !row.active && 'is-off']} data-kind={row.kind}>
+                    <div class="home-collection-item-body">
+                  <div class="home-collection-item-main">
+                    <div class="home-collection-item-top">
+                          <div class="home-collection-item-heading">
+                            <div class="home-collection-item-tags">
+                              <span class="home-collection-kind-chip" data-kind={row.kind}>{kindLabel(row.kind)}</span>
+                              <span class="home-collection-status" data-status={row.active ? 'active' : 'inactive'}>
+                        {row.active ? 'Đang hiện' : 'Đang tắt'}
+                      </span>
+                            </div>
+                            <a class="home-collection-item-title" href={`${listHref}?edit=${row.id}`}>{row.title}</a>
+                          </div>
+                    </div>
+                    {row.subtitle && <p class="home-collection-item-sub">{row.subtitle}</p>}
+                    <dl class="home-collection-item-meta">
+                      <div>
+                            <dt>{count.label}</dt>
+                            <dd>{count.value}</dd>
+                      </div>
+                      <div>
+                        <dt>Thứ tự</dt>
+                        <dd>{row.sortOrder}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                      <div class="home-collection-item-ops">
+                        <a class="home-collection-op home-collection-op-edit" href={`${listHref}?edit=${row.id}`}>Sửa</a>
+                    <form method="post" data-busy>
+                      <input type="hidden" name="csrf" value={session.csrfToken} />
+                      <input type="hidden" name="intent" value="toggle" />
+                      <input type="hidden" name="id" value={row.id} />
+                      <input type="hidden" name="active" value={row.active ? '0' : '1'} />
+                          <button class="home-collection-op home-collection-op-toggle" type="submit">
+                            {row.active ? 'Tắt' : 'Bật'}
+                          </button>
+                    </form>
+                    <form
+                      method="post"
+                      data-busy
+                      data-confirm-title={`Xóa khối “${row.title}”?`}
+                      data-confirm="Khối sẽ biến mất khỏi trang chủ."
+                      data-confirm-ok="Xóa"
+                      data-confirm-tone="danger"
+                    >
+                      <input type="hidden" name="csrf" value={session.csrfToken} />
+                      <input type="hidden" name="intent" value="delete" />
+                      <input type="hidden" name="id" value={row.id} />
+                          <button class="home-collection-op home-collection-op-delete" type="submit" data-keep-label="true">
+                            Xóa
+                          </button>
+                    </form>
+                      </div>
+                  </div>
+                </li>
+                );
+              })}
+            </ul>
+          )
+        }
+      </section>
+    )
+  }
+</AdminLayout>
+
+<style is:global>
+  .home-collection-editor {
+    width: 100%;
+    max-width: none;
+  }
+  .home-collection-list-panel {
+    width: 100%;
+    max-width: none;
+  }
+  .home-collection-form {
+    display: grid;
+    gap: 1rem;
+  }
+  .home-collection-editor-bar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+    margin: -0.25rem -0.25rem 0;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: color-mix(in oklab, var(--color-surface) 92%, transparent);
+    backdrop-filter: blur(8px);
+  }
+  .home-collection-editor-bar-text {
+    min-width: 0;
+  }
+  .home-collection-back {
+    display: inline-block;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .home-collection-back:hover {
+    color: var(--color-primary-strong);
+  }
+  .home-collection-editor-title {
+    margin: 0.1rem 0 0;
+    font-size: 1.125rem;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+  .home-collection-editor-bar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .home-collection-settings {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 0.75rem 0.85rem;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+  .home-collection-field {
+    display: grid;
+    gap: 0.3rem;
+    min-width: 0;
+  }
+  .home-collection-field > span {
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 650;
+  }
+  .home-collection-field-title {
+    grid-column: span 10;
+  }
+  .home-collection-field-narrow {
+    grid-column: span 2;
+  }
+  .home-collection-field-kind-picker {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+  .home-collection-field-kind-picker > legend {
+    margin: 0 0 0.4rem;
+    padding: 0;
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 650;
+  }
+  .home-collection-kind-options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.55rem;
+  }
+  @media (max-width: 52rem) {
+    .home-collection-kind-options {
+      grid-template-columns: 1fr;
+    }
+  }
+  .home-collection-kind-option {
+    display: grid;
+    gap: 0.25rem;
+    min-width: 0;
+    padding: 0.7rem 0.75rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    cursor: pointer;
+  }
+  .home-collection-kind-option:hover {
+    border-color: color-mix(in oklab, var(--color-primary) 40%, var(--color-line));
+  }
+  .home-collection-kind-option.is-on {
+    border-color: color-mix(in oklab, var(--color-primary) 55%, var(--color-line));
+    background: color-mix(in oklab, var(--color-primary) 8%, var(--color-surface));
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-primary) 25%, transparent);
+  }
+  .home-collection-kind-option input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .home-collection-kind-option-title {
+    color: var(--color-heading);
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+  .home-collection-kind-option-desc {
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+  .home-collection-field-subtitle {
+    grid-column: span 8;
+  }
+  .home-collection-settings:has([data-pair-fields]:not([hidden])) .home-collection-field-subtitle {
+    grid-column: span 5;
+  }
+  .home-collection-settings:has([data-bracelet-fields]:not([hidden])) .home-collection-field-subtitle {
+    grid-column: span 6;
+  }
+  .home-collection-field-qty {
+    grid-column: span 2;
+  }
+  .home-collection-field-badge {
+    grid-column: span 5;
+  }
+  .home-collection-field-discount {
+    grid-column: span 8;
+  }
+  .home-collection-discount-row {
+    display: grid;
+    grid-template-columns: minmax(9rem, 1.35fr) minmax(5rem, 0.65fr);
+    gap: 0.5rem;
+    align-items: stretch;
+  }
+  .home-collection-field-badge-wide {
+    grid-column: span 8;
+  }
+  .home-collection-field-active {
+    grid-column: span 4;
+  }
+  .home-collection-active-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0 0.85rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: color-mix(in oklab, var(--color-sand) 22%, var(--color-surface));
+    box-sizing: border-box;
+  }
+  .home-collection-field-qty[hidden],
+  .home-collection-field-badge[hidden],
+  .home-collection-field-discount[hidden],
+  .home-collection-field-badge-wide[hidden],
+  .home-collection-discount-hint[hidden] {
+    display: none;
+  }
+  .home-collection-discount-hint,
+  .home-collection-kind-hint {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+  .home-collection-discount-hint {
+    margin-top: -0.15rem;
+  }
+  /* pair: giảm giá + hiện trang chủ; bracelet: badge + hiện trang chủ */
+  .home-collection-settings:has([data-pair-fields]:not([hidden])) .home-collection-field-discount {
+    grid-column: span 8;
+  }
+  .home-collection-settings:has([data-bracelet-fields]:not([hidden])) .home-collection-field-discount {
+    grid-column: span 6;
+  }
+  .home-collection-settings:has([data-bracelet-fields]:not([hidden])) .home-collection-field-active {
+    grid-column: span 4;
+  }
+  /* bracelet: badge cùng hàng với hiện trang chủ — discount đã chiếm hàng trên với mô tả */
+  .home-collection-settings:has([data-bracelet-fields]:not([hidden])) .home-collection-field-badge-wide {
+    grid-column: span 8;
+  }
+  @media (max-width: 52rem) {
+    .home-collection-field-title,
+    .home-collection-field-narrow,
+    .home-collection-field-kind-picker,
+    .home-collection-field-subtitle,
+    .home-collection-settings:has([data-pair-fields]:not([hidden])) .home-collection-field-subtitle,
+    .home-collection-settings:has([data-bracelet-fields]:not([hidden])) .home-collection-field-subtitle,
+    .home-collection-field-active,
+    .home-collection-field-qty,
+    .home-collection-field-badge,
+    .home-collection-field-discount,
+    .home-collection-settings:has([data-pair-fields]:not([hidden])) .home-collection-field-discount,
+    .home-collection-settings:has([data-bracelet-fields]:not([hidden])) .home-collection-field-discount,
+    .home-collection-field-badge-wide,
+    .home-collection-settings:has([data-bracelet-fields]:not([hidden])) .home-collection-field-badge-wide {
+      grid-column: span 12;
+    }
+  }
+  @media (min-width: 52.01rem) and (max-width: 72rem) {
+    .home-collection-field-title {
+      grid-column: span 8;
+    }
+    .home-collection-field-narrow {
+      grid-column: span 4;
+    }
+    .home-collection-settings:has([data-pair-fields]:not([hidden])) .home-collection-field-subtitle {
+      grid-column: span 5;
+    }
+    .home-collection-field-qty {
+      grid-column: span 2;
+    }
+    .home-collection-field-badge {
+      grid-column: span 5;
+    }
+    .home-collection-field-discount,
+    .home-collection-settings:has([data-pair-fields]:not([hidden])) .home-collection-field-discount,
+    .home-collection-field-badge-wide,
+    .home-collection-settings:has([data-bracelet-fields]:not([hidden])) .home-collection-field-badge-wide {
+      grid-column: span 8;
+    }
+    .home-collection-settings:has([data-bracelet-fields]:not([hidden])) .home-collection-field-subtitle,
+    .home-collection-settings:has([data-bracelet-fields]:not([hidden])) .home-collection-field-discount {
+      grid-column: span 6;
+    }
+    .home-collection-field-active,
+    .home-collection-settings:has([data-bracelet-fields]:not([hidden])) .home-collection-field-active {
+      grid-column: span 4;
+    }
+  }
+  .home-collection-selected {
+    padding: 0.9rem 1rem 1rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: color-mix(in oklab, var(--color-sand) 28%, var(--color-surface));
+  }
+  .home-collection-selected-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.35rem 0.75rem;
+    margin-bottom: 0.7rem;
+  }
+  .home-collection-selected-head h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+  }
+  .home-collection-selected-head h3 span {
+    color: var(--color-muted);
+    font-weight: 650;
+  }
+  .home-collection-selected-slots {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.55rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  @media (max-width: 56rem) {
+    .home-collection-selected-slots {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 30rem) {
+    .home-collection-selected-slots {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  .home-collection-slot {
+    position: relative;
+    min-width: 0;
+  }
+  .home-collection-slot-btn {
+    position: relative;
+    display: grid;
+    gap: 0.35rem;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 0.45rem;
+    border: 1px dashed color-mix(in oklab, var(--color-line) 85%, var(--color-muted));
+    border-radius: 0.75rem;
+    background: var(--color-surface);
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+  .home-collection-slot.is-filled .home-collection-slot-btn {
+    border-style: solid;
+    border-color: color-mix(in oklab, var(--color-primary-strong) 28%, var(--color-line));
+  }
+  .home-collection-slot-btn:hover {
+    border-color: color-mix(in oklab, var(--color-primary-strong) 45%, var(--color-line));
+  }
+  .home-collection-slot-order {
+    position: absolute;
+    top: 0.55rem;
+    left: 0.55rem;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--color-heading) 88%, transparent);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    pointer-events: none;
+  }
+  .home-collection-slot.is-empty .home-collection-slot-order {
+    background: color-mix(in oklab, var(--color-muted) 55%, var(--color-surface));
+  }
+  .home-collection-slot-btn img,
+  .home-collection-slot-btn .home-collection-pick-empty {
+    aspect-ratio: 1;
+    width: 100%;
+    border-radius: 0.5rem;
+    object-fit: cover;
+    background: color-mix(in oklab, var(--color-sand) 55%, var(--color-surface));
+  }
+  .home-collection-slot-name {
+    overflow: hidden;
+    font-size: 0.75rem;
+    font-weight: 650;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .home-collection-slot-placeholder {
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 0.2rem;
+    aspect-ratio: 1;
+    border-radius: 0.5rem;
+    background: color-mix(in oklab, var(--color-sand) 40%, var(--color-surface));
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 650;
+  }
+  .home-collection-slot-plus {
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .home-collection-slot-clear {
+    position: absolute;
+    top: 0.35rem;
+    right: 0.35rem;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--color-surface) 88%, transparent);
+    color: var(--color-muted);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+  }
+  .home-collection-slot-clear:hover {
+    color: var(--color-primary-strong);
+  }
+  .home-collection-pair-slots {
+    display: grid;
+    gap: 0.85rem;
+  }
+  .home-collection-pair-row {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+  .home-collection-addon-block {
+    display: grid;
+    gap: 0.55rem;
+    padding: 0.7rem 0.75rem;
+    border-radius: 0.75rem;
+    background: color-mix(in oklab, var(--color-canvas) 72%, var(--color-surface));
+  }
+  .home-collection-addon-block-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.45rem 0.75rem;
+  }
+  .home-collection-addon-list {
+    display: grid;
+    gap: 0.55rem;
+  }
+  @media (min-width: 40rem) {
+    .home-collection-addon-list {
+      grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr));
+    }
+  }
+  .home-collection-pair-slot.is-addon {
+    background: var(--color-surface);
+  }
+  .home-collection-pair-row-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 0.75rem;
+  }
+  .home-collection-pair-row-title {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 700;
+  }
+  .home-collection-pair-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem 0.65rem;
+  }
+  .home-collection-pair-slot {
+    display: grid;
+    gap: 0.45rem;
+    min-width: 0;
+    padding: 0.55rem;
+    border: 1px dashed color-mix(in oklab, var(--color-line) 85%, var(--color-muted));
+    border-radius: 0.85rem;
+    background: color-mix(in oklab, var(--color-sand) 22%, var(--color-surface));
+  }
+  .home-collection-pair-slot.is-filled {
+    border-style: solid;
+    border-color: color-mix(in oklab, var(--color-primary-strong) 28%, var(--color-line));
+  }
+  .home-collection-pair-slot-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .home-collection-pair-slot-label {
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 700;
+  }
+  .home-collection-pair-clear {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-muted);
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 650;
+  }
+  .home-collection-pair-clear:hover {
+    color: var(--color-primary-strong);
+  }
+  .home-collection-pair-pick {
+    display: grid;
+    justify-items: start;
+    gap: 0.35rem;
+    width: 100%;
+    min-height: 7.5rem;
+    margin: 0;
+    padding: 0.45rem;
+    border: 0;
+    border-radius: 0.65rem;
+    background: color-mix(in oklab, var(--color-sand) 28%, var(--color-surface));
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+  .home-collection-pair-pick img,
+  .home-collection-pair-pick .home-collection-pick-empty {
+    width: 4.5rem;
+    height: 4.5rem;
+    border-radius: 0.55rem;
+    object-fit: cover;
+    background: color-mix(in oklab, var(--color-sand) 55%, var(--color-surface));
+  }
+  .home-collection-pair-pick-name {
+    font-size: 0.875rem;
+    font-weight: 650;
+    line-height: 1.3;
+  }
+  .home-collection-pair-pick-empty {
+    align-self: center;
+    justify-self: center;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.4;
+    text-align: center;
+  }
+  .home-collection-pick-dialog {
+    width: min(72rem, calc(100% - 1rem));
+    max-height: min(92vh, calc(100vh - 1rem));
+    max-height: min(92dvh, calc(100dvh - 1rem));
+    margin: auto;
+    padding: 0;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-ink);
+  }
+  .home-collection-pick-dialog::backdrop {
+    background: color-mix(in oklab, #000 35%, transparent);
+  }
+  .home-collection-pick-dialog-card {
+    display: grid;
+    gap: 0.7rem;
+    max-height: inherit;
+    padding: 0.85rem 1rem 1rem;
+    overflow: auto;
+  }
+  .home-collection-pick-dialog-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.65rem 1rem;
+  }
+  .home-collection-pick-dialog-head h3 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+  .home-collection-pick-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: 0.65rem 1rem;
+    margin-bottom: 0.75rem;
+  }
+  .home-collection-pick-filter {
+    display: grid;
+    gap: 0.3rem;
+    min-width: min(100%, 16rem);
+  }
+  .home-collection-pick-filter > span {
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 650;
+  }
+  .home-collection-pick-hint {
+    margin: 0;
+    flex: 1 1 12rem;
+  }
+  .home-collection-pick-pager {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem 0.75rem;
+    margin-top: 0.85rem;
+  }
+  .home-collection-pick-pager-status {
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+    font-weight: 650;
+  }
+  .home-collection-picks {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.5rem;
+    max-height: min(34rem, calc(100vh - 12rem));
+    max-height: min(34rem, calc(100dvh - 12rem));
+    overflow: auto;
+    padding: 0.45rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: color-mix(in oklab, var(--color-sand) 18%, var(--color-surface));
+  }
+  @media (max-width: 56rem) {
+    .home-collection-picks {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 40rem) {
+    .home-collection-picks {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 28rem) {
+    .home-collection-picks {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  .home-collection-pick {
+    position: relative;
+    display: grid;
+    gap: 0.3rem;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 0.35rem;
+    border: 1px solid transparent;
+    border-radius: 0.65rem;
+    background: var(--color-surface);
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  }
+  .home-collection-pick:hover {
+    border-color: color-mix(in oklab, var(--color-line) 70%, var(--color-primary));
+    transform: translateY(-1px);
+  }
+  .home-collection-pick.is-on,
+  .home-collection-pick:has(input:checked) {
+    border-color: color-mix(in oklab, var(--color-primary-strong) 45%, var(--color-line));
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-primary-strong) 18%, transparent);
+  }
+  .home-collection-pick input {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .home-collection-pick-media {
+    position: relative;
+    display: block;
+  }
+  .home-collection-pick-badge {
+    position: absolute;
+    top: 0.35rem;
+    left: 0.35rem;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    max-width: calc(100% - 0.7rem);
+    height: 1.35rem;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    background: var(--color-primary-strong);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+    box-shadow: 0 1px 3px color-mix(in oklab, #000 18%, transparent);
+  }
+  .home-collection-pick img,
+  .home-collection-pick-empty {
+    aspect-ratio: 1;
+    width: 100%;
+    max-height: 7.5rem;
+    border-radius: 0.45rem;
+    object-fit: cover;
+    background: color-mix(in oklab, var(--color-sand) 55%, var(--color-surface));
+  }
+  .home-collection-pick-text {
+    display: grid;
+    gap: 0.05rem;
+    min-width: 0;
+  }
+  .home-collection-pick-text strong {
+    overflow: hidden;
+    font-size: 0.72rem;
+    font-weight: 650;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .home-collection-pick-text .text-muted {
+    font-size: 0.65rem;
+  }
+  .home-collection-list-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+    margin-bottom: 1.1rem;
+  }
+  .home-collection-list-head-text {
+    display: grid;
+    gap: 0.2rem;
+  }
+  .home-collection-list-head .category-panel-title {
+    margin: 0;
+    font-size: 1.05rem;
+  }
+  .home-collection-list-count {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+  }
+  .home-collection-list-count span {
+    color: var(--color-heading);
+    font-weight: 700;
+  }
+  .home-collection-empty {
+    display: grid;
+    justify-items: start;
+    gap: 0.55rem;
+    padding: 1.35rem 1.1rem;
+    border: 1px dashed color-mix(in oklab, var(--color-line) 80%, var(--color-primary));
+    border-radius: var(--radius-md);
+    background:
+      linear-gradient(
+        160deg,
+        color-mix(in oklab, var(--color-sand) 55%, var(--color-surface)),
+        var(--color-surface)
+      );
+  }
+  .home-collection-empty-title {
+    margin: 0;
+    color: var(--color-heading);
+    font-size: 1rem;
+    font-weight: 700;
+  }
+  .home-collection-empty .text-muted {
+    margin: 0;
+    max-width: 28rem;
+    line-height: 1.45;
+  }
+  .home-collection-empty .btn {
+    margin-top: 0.35rem;
+  }
+  .home-collection-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .home-collection-item {
+    position: relative;
+    display: grid;
+    gap: 0;
+    min-width: 0;
+    overflow: hidden;
+    border: 0;
+    border-radius: calc(var(--radius-md) + 0.15rem);
+    background: var(--color-surface);
+    box-shadow: 0 10px 28px -22px color-mix(in srgb, var(--color-ink) 55%, transparent);
+    transition: box-shadow 0.15s ease;
+  }
+  .home-collection-item:hover {
+    box-shadow: 0 16px 34px -24px color-mix(in srgb, var(--color-ink) 60%, transparent);
+  }
+  .home-collection-item.is-off {
+    opacity: 0.78;
+  }
+  .home-collection-item-body {
+    display: grid;
+    gap: 0.85rem;
+    min-width: 0;
+    padding: 0.95rem 1rem;
+  }
+  @media (min-width: 48rem) {
+    .home-collection-item-body {
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 1rem 1.25rem;
+      padding: 1rem 1.15rem;
+    }
+  }
+  .home-collection-item-main {
+    display: grid;
+    gap: 0.55rem;
+    min-width: 0;
+  }
+  .home-collection-item-top {
+    min-width: 0;
+  }
+  .home-collection-item-heading {
+    display: grid;
+    gap: 0.35rem;
+    min-width: 0;
+  }
+  .home-collection-item-tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.5rem;
+  }
+  .home-collection-kind-chip {
+    display: inline-flex;
+    width: fit-content;
+    max-width: 100%;
+    padding: 0.18rem 0.5rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--color-primary) 14%, var(--color-surface));
+    color: var(--color-primary-strong);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1.3;
+  }
+  .home-collection-kind-chip[data-kind='pair_discount'] {
+    background: color-mix(in oklab, var(--color-accent) 14%, var(--color-surface));
+    color: color-mix(in oklab, var(--color-accent-strong) 85%, var(--color-ink));
+  }
+  .home-collection-kind-chip[data-kind='bracelet_addon'] {
+    background: color-mix(in oklab, var(--color-heading) 10%, var(--color-surface));
+    color: var(--color-heading);
+  }
+  .home-collection-item-title {
+    color: var(--color-heading);
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1.3;
+    text-decoration: none;
+  }
+  .home-collection-item-title:hover {
+    color: var(--color-primary-strong);
+  }
+  .home-collection-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex: none;
+    padding: 0.18rem 0.5rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--color-sand) 55%, var(--color-surface));
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 650;
+    line-height: 1.2;
+  }
+  .home-collection-status::before {
+    content: '';
+    width: 0.42rem;
+    height: 0.42rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--color-muted) 70%, var(--color-line));
+  }
+  .home-collection-status[data-status='active'] {
+    background: color-mix(in oklab, var(--color-primary) 14%, var(--color-surface));
+    color: var(--color-primary-strong);
+  }
+  .home-collection-status[data-status='active']::before {
+    background: var(--color-primary);
+  }
+  .home-collection-item-sub {
+    margin: 0;
+    max-width: 48rem;
+    color: var(--color-muted);
+    font-size: 0.875rem;
+    line-height: 1.45;
+  }
+  .home-collection-item-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(7rem, 10rem));
+    gap: 0.45rem;
+    margin: 0;
+    width: fit-content;
+    max-width: 100%;
+  }
+  .home-collection-item-meta div {
+    min-width: 0;
+    padding: 0.45rem 0.65rem;
+    border: 1px solid color-mix(in oklab, var(--color-line) 80%, transparent);
+    border-radius: 0.65rem;
+    background: color-mix(in oklab, var(--color-canvas) 70%, var(--color-surface));
+  }
+  .home-collection-item-meta dt {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.65rem;
+    font-weight: 650;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+  .home-collection-item-meta dd {
+    margin: 0.15rem 0 0;
+    color: var(--color-ink);
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+  .home-collection-item-ops {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.45rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  @media (min-width: 48rem) {
+    .home-collection-item-ops {
+      grid-template-columns: repeat(3, auto);
+      justify-content: end;
+      min-width: 16.5rem;
+    }
+  }
+  .home-collection-item-ops form {
+    display: grid;
+    margin: 0;
+  }
+  .home-collection-op {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.35rem;
+    min-width: 4.75rem;
+    width: 100%;
+    padding: 0.35rem 0.75rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-ink);
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 650;
+    text-decoration: none;
+    cursor: pointer;
+    transition:
+      border-color 0.12s ease,
+      background 0.12s ease,
+      color 0.12s ease;
+  }
+  @media (min-width: 48rem) {
+    .home-collection-op {
+      width: auto;
+    }
+  }
+  .home-collection-op:hover {
+    border-color: color-mix(in oklab, var(--color-primary) 45%, var(--color-line));
+    background: color-mix(in oklab, var(--color-primary) 8%, var(--color-surface));
+  }
+  .home-collection-op:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+  }
+  .home-collection-op-delete {
+    color: var(--color-accent-strong);
+  }
+  .home-collection-op-delete:hover {
+    border-color: color-mix(in oklab, var(--color-accent) 50%, var(--color-line));
+    background: color-mix(in oklab, var(--color-accent) 10%, var(--color-surface));
+    color: var(--color-danger);
+  }
+</style>
+<script>
+  type ProductMeta = { id: number; name: string; cover: string };
+  type BraceletGroupState = { primary: number; addons: number[] };
+  type PickerTarget =
+    | { mode: 'multi'; index: number }
+    | { mode: 'pair'; pairIndex: number; role: 'primary' | 'addon'; addonIndex?: number };
+  type PickItem = { id: number; name: string; coverUrl?: string | null };
+
+  const kindInputs = document.querySelectorAll('[data-collection-kind]');
+  const kindOptions = document.querySelector('[data-kind-options]');
+  const pairFields = document.querySelector('[data-pair-fields]');
+  const pairBadgeWrap = document.querySelector('[data-pair-badge-wrap]');
+  const pairDiscountWrap = document.querySelector('[data-pair-discount-wrap]');
+  const pairDiscountType = document.querySelector('[data-pair-discount-type]');
+  const pairDiscountValue = document.querySelector('[data-pair-discount-value]');
+  const pairDiscountHint = document.querySelector('[data-pair-discount-hint]');
+  const braceletFields = document.querySelector('[data-bracelet-fields]');
+  const pairBuyQty = document.querySelector('[data-pair-buy-qty]');
+  const pairBadge = document.querySelector('[data-pair-badge]');
+  const braceletBadge = document.querySelector('[data-bracelet-badge]');
+  const hint = document.querySelector('[data-kind-hint]');
+  const idsField = document.querySelector('[data-product-ids]');
+  const countEl = document.querySelector('[data-pick-count]');
+  const selectedPanel = document.querySelector('[data-selected-panel]');
+  const selectedList = document.querySelector('[data-selected-list]');
+  const selectedEmpty = document.querySelector('[data-selected-empty]');
+  const multiHead = document.querySelector('[data-multi-selected-head]');
+  const pairHead = document.querySelector('[data-pair-selected-head]');
+  const pairSlots = document.querySelector('[data-pair-slots]');
+  const pairCountEl = document.querySelector('[data-pair-count]');
+  const dialog = document.querySelector('[data-pick-dialog]');
+  const pickTitle = document.querySelector('[data-pick-title]');
+  const grid = document.querySelector('[data-pick-grid]');
+  const emptyEl = document.querySelector('[data-pick-empty]');
+  const pager = document.querySelector('[data-pick-pager]');
+  const statusEl = document.querySelector('[data-pick-status]');
+  const prevBtn = document.querySelector('[data-pick-prev]');
+  const nextBtn = document.querySelector('[data-pick-next]');
+  const closeBtn = document.querySelector('[data-pick-close]');
+  const categorySelect = document.querySelector('[data-pick-category]');
+  const MULTI_MAX = 6;
+  const PAIR_MAX = Number(selectedPanel instanceof HTMLElement ? selectedPanel.dataset.pairMax : 3) || 3;
+  const ADDON_MAX = Number(selectedPanel instanceof HTMLElement ? selectedPanel.dataset.addonMax : 3) || 3;
+  const DISCOUNT_PERCENT_MAX =
+    Number(selectedPanel instanceof HTMLElement ? selectedPanel.dataset.discountPercentMax : 70) || 70;
+  const DISCOUNT_AMOUNT_MAX =
+    Number(selectedPanel instanceof HTMLElement ? selectedPanel.dataset.discountAmountMax : 5_000_000) || 5_000_000;
+  const groupsField = document.querySelector('[data-bracelet-groups]');
+  const editorForm = document.querySelector('.home-collection-form');
+  const metaById = new Map<number, ProductMeta>();
+  const initialIds =
+    idsField instanceof HTMLInputElement
+      ? idsField.value
+          .split(',')
+          .map((part) => Number(part.trim()))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      : [];
+  let initialGroups: BraceletGroupState[] = [];
+  try {
+    const raw =
+      groupsField instanceof HTMLTextAreaElement || groupsField instanceof HTMLInputElement
+        ? groupsField.value
+        : '[]';
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      initialGroups = parsed.flatMap((item) => {
+        if (!item || typeof item !== 'object') return [];
+        const row = item as { primary?: unknown; addons?: unknown };
+        const primary = Number(row.primary);
+        const addons = Array.isArray(row.addons)
+          ? row.addons.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)
+          : [];
+        if (!Number.isInteger(primary) || primary < 1 || addons.length === 0) return [];
+        return [{ primary, addons }];
+      });
+    }
+  } catch {
+    initialGroups = [];
+  }
+  let multiSlots = Array.from({ length: MULTI_MAX }, (_, i) => initialIds[i] ?? 0);
+  let groups: BraceletGroupState[] = Array.from({ length: PAIR_MAX }, (_, i) => {
+    const group = initialGroups[i];
+    return {
+      primary: group?.primary ?? 0,
+      addons: group?.addons?.length ? [...group.addons] : [0],
+    };
+  });
+  let pickerTarget: PickerTarget | null = null;
+  let page = 1;
+  let pageCount = 1;
+  let total = 0;
+  let loading = false;
+
+  const kindValue = () => {
+    for (const input of kindInputs) {
+      if (input instanceof HTMLInputElement && input.checked) return input.value;
+    }
+    return 'products';
+  };
+  const isPairKind = () => kindValue() === 'bracelet_addon';
+
+  const rememberMeta = (id: number, name: string, cover: string) => {
+    if (!Number.isInteger(id) || id < 1) return;
+    metaById.set(id, { id, name: name || `#${id}`, cover: cover || '' });
+  };
+
+  document.querySelectorAll('[data-selected-id]').forEach((node) => {
+    if (!(node instanceof HTMLElement)) return;
+    const id = Number(node.dataset.selectedId);
+    const name =
+      node.querySelector('.home-collection-slot-name, .home-collection-pair-pick-name')?.textContent?.trim() || '';
+    const cover = node.querySelector('img')?.getAttribute('src') || '';
+    rememberMeta(id, name, cover);
+  });
+
+  const pickMeta = (id: number): ProductMeta | null => metaById.get(id) ?? null;
+
+  const completeGroups = () =>
+    groups
+      .filter((group) => group.primary > 0 && group.addons.some((id) => id > 0))
+      .map((group) => ({
+        primary: group.primary,
+        addons: group.addons.filter((id) => id > 0),
+      }));
+
+  const denseIds = () => {
+    if (!isPairKind()) return multiSlots.filter((id) => id > 0);
+    return completeGroups().flatMap((group) => [group.primary, ...group.addons]);
+  };
+
+  const completePairCount = () => completeGroups().length;
+
+  /** SP đã gắn trong ngữ cảnh picker hiện tại (multi: cả khối; bracelet: chỉ combo đang chọn). */
+  const pickerHighlightIds = (): Set<number> => {
+    if (!isPairKind()) return new Set(denseIds());
+    if (pickerTarget?.mode !== 'pair') return new Set();
+    const group = groups[pickerTarget.pairIndex];
+    const ids = new Set<number>();
+    if (!group) return ids;
+    if (group.primary) ids.add(group.primary);
+    for (const addon of group.addons) {
+      if (addon) ids.add(addon);
+    }
+    return ids;
+  };
+
+  const makeMultiSlot = (index: number, meta: ProductMeta | null) => {
+    const li = document.createElement('li');
+    li.className = meta ? 'home-collection-slot is-filled' : 'home-collection-slot is-empty';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'home-collection-slot-btn';
+    btn.dataset.openPicker = 'multi';
+    btn.dataset.slotIndex = String(index);
+    btn.setAttribute('aria-label', meta ? `Đổi sản phẩm ô ${index + 1}` : `Chọn sản phẩm ô ${index + 1}`);
+    if (meta) btn.dataset.selectedId = String(meta.id);
+    const orderEl = document.createElement('span');
+    orderEl.className = 'home-collection-slot-order';
+    orderEl.textContent = String(index + 1);
+    btn.append(orderEl);
+    if (meta) {
+      if (meta.cover) {
+        const img = document.createElement('img');
+        img.src = meta.cover;
+        img.alt = '';
+        img.width = 72;
+        img.height = 72;
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        btn.append(img);
+      } else {
+        const empty = document.createElement('span');
+        empty.className = 'home-collection-pick-empty';
+        empty.setAttribute('aria-hidden', 'true');
+        btn.append(empty);
+      }
+      const name = document.createElement('span');
+      name.className = 'home-collection-slot-name';
+      name.textContent = meta.name;
+      btn.append(name);
+    } else {
+      const placeholder = document.createElement('span');
+      placeholder.className = 'home-collection-slot-placeholder';
+      const plus = document.createElement('span');
+      plus.className = 'home-collection-slot-plus';
+      plus.setAttribute('aria-hidden', 'true');
+      plus.textContent = '+';
+      placeholder.append(plus, document.createTextNode('Thêm'));
+      btn.append(placeholder);
+    }
+    li.append(btn);
+    if (meta) {
+      const clear = document.createElement('button');
+      clear.type = 'button';
+      clear.className = 'home-collection-slot-clear';
+      clear.dataset.multiClear = String(index);
+      clear.setAttribute('aria-label', `Xóa ô ${index + 1}`);
+      clear.textContent = '×';
+      li.append(clear);
+    }
+    return li;
+  };
+
+  const fillPairButton = (button: HTMLElement, meta: ProductMeta | null) => {
+    button.replaceChildren();
+    if (!meta) {
+      const empty = document.createElement('span');
+      empty.className = 'home-collection-pair-pick-empty';
+      empty.textContent = 'Bấm để chọn sản phẩm';
+      button.append(empty);
+      return;
+    }
+    if (meta.cover) {
+      const img = document.createElement('img');
+      img.src = meta.cover;
+      img.alt = '';
+      img.width = 96;
+      img.height = 96;
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      button.append(img);
+    } else {
+      const empty = document.createElement('span');
+      empty.className = 'home-collection-pick-empty';
+      empty.setAttribute('aria-hidden', 'true');
+      button.append(empty);
+    }
+    const name = document.createElement('span');
+    name.className = 'home-collection-pair-pick-name';
+    name.textContent = meta.name;
+    const muted = document.createElement('span');
+    muted.className = 'text-muted';
+    muted.textContent = `#${meta.id}`;
+    button.append(name, muted);
+  };
+
+  const renderMultiSelected = () => {
+    if (!(selectedList instanceof HTMLOListElement)) return;
+    selectedList.replaceChildren();
+    for (let index = 0; index < MULTI_MAX; index += 1) {
+      const id = multiSlots[index] ?? 0;
+      selectedList.append(makeMultiSlot(index, id ? pickMeta(id) : null));
+    }
+    const filled = multiSlots.filter((id) => id > 0).length;
+    if (selectedEmpty instanceof HTMLElement) selectedEmpty.hidden = filled > 0;
+  };
+
+  const makeAddonSlot = (
+    pairIndex: number,
+    addonIndex: number,
+    meta: ProductMeta | null,
+    canRemove: boolean,
+  ) => {
+    const slot = document.createElement('div');
+    slot.className = meta
+      ? 'home-collection-pair-slot is-addon is-filled'
+      : 'home-collection-pair-slot is-addon';
+    slot.dataset.pairSlot = 'addon';
+    slot.dataset.pairIndex = String(pairIndex);
+    slot.dataset.addonIndex = String(addonIndex);
+    if (meta) slot.dataset.selectedId = String(meta.id);
+    const top = document.createElement('div');
+    top.className = 'home-collection-pair-slot-top';
+    const label = document.createElement('p');
+    label.className = 'home-collection-pair-slot-label';
+    label.textContent = `Lựa chọn ${addonIndex + 1}`;
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'home-collection-pair-clear';
+    clear.dataset.pairClear = 'addon';
+    clear.dataset.pairIndex = String(pairIndex);
+    clear.dataset.addonIndex = String(addonIndex);
+    clear.hidden = !canRemove && !meta;
+    clear.textContent = 'Xóa';
+    top.append(label, clear);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'home-collection-pair-pick';
+    button.dataset.openPicker = 'pair';
+    button.dataset.pairRole = 'addon';
+    button.dataset.pairIndex = String(pairIndex);
+    button.dataset.addonIndex = String(addonIndex);
+    fillPairButton(button, meta);
+    slot.append(top, button);
+    return slot;
+  };
+
+  const renderPairSelected = () => {
+    for (let pairIndex = 0; pairIndex < PAIR_MAX; pairIndex += 1) {
+      const row = pairSlots?.querySelector(`[data-pair-row="${pairIndex}"]`);
+      if (!(row instanceof HTMLElement)) continue;
+      const group = groups[pairIndex] ?? { primary: 0, addons: [0] };
+      const clearRow = row.querySelector(`[data-pair-clear-row="${pairIndex}"]`);
+      if (clearRow instanceof HTMLElement) {
+        clearRow.hidden = !(group.primary || group.addons.some((id) => id > 0));
+      }
+      const primarySlot = row.querySelector('[data-pair-slot="primary"]');
+      if (primarySlot instanceof HTMLElement) {
+        const meta = group.primary ? pickMeta(group.primary) : null;
+        primarySlot.classList.toggle('is-filled', Boolean(meta));
+        if (meta) primarySlot.dataset.selectedId = String(meta.id);
+        else delete primarySlot.dataset.selectedId;
+        const clear = primarySlot.querySelector('[data-pair-clear="primary"]');
+        if (clear instanceof HTMLElement) clear.hidden = !meta;
+        const button = primarySlot.querySelector('[data-open-picker="pair"]');
+        if (button instanceof HTMLElement) fillPairButton(button, meta);
+      }
+      const list = row.querySelector(`[data-addon-list="${pairIndex}"]`);
+      if (list instanceof HTMLElement) {
+        const addonIds = group.addons.length ? group.addons : [0];
+        list.replaceChildren(
+          ...addonIds.map((addonId, addonIndex) =>
+            makeAddonSlot(
+              pairIndex,
+              addonIndex,
+              addonId ? pickMeta(addonId) : null,
+              addonIds.length > 1,
+            ),
+          ),
+        );
+      }
+      const addBtn = row.querySelector(`[data-addon-add="${pairIndex}"]`);
+      if (addBtn instanceof HTMLElement) {
+        const filled = group.addons.filter((id) => id > 0).length;
+        addBtn.hidden = filled >= ADDON_MAX;
+      }
+    }
+    if (pairCountEl) pairCountEl.textContent = String(completePairCount());
+  };
+
+  const writeGroupsField = (complete: BraceletGroupState[]) => {
+    if (groupsField instanceof HTMLTextAreaElement || groupsField instanceof HTMLInputElement) {
+      groupsField.value = JSON.stringify(complete);
+    }
+  };
+
+  const writeSelection = () => {
+    const ids = denseIds();
+    if (idsField instanceof HTMLInputElement) idsField.value = ids.join(',');
+    if (countEl) countEl.textContent = String(ids.length);
+    if (isPairKind()) {
+      const complete = completeGroups();
+      writeGroupsField(complete);
+      renderPairSelected();
+    } else {
+      writeGroupsField([]);
+      renderMultiSelected();
+    }
+  };
+
+  /**
+   * Primary: duy nhất giữa các combo (và không nằm ở ô bán kèm).
+   * Addon: được dùng chung nhiều combo (vd. 7/9 cành); chỉ tránh trùng trong cùng combo.
+   */
+  const clearIdAcrossGroups = (id: number, exceptIndex: number, role: 'primary' | 'addon') => {
+    groups = groups.map((group, index) => {
+      if (index === exceptIndex) {
+        if (role === 'primary') {
+          return {
+            primary: group.primary,
+            addons: group.addons.map((addon) => (addon === id ? 0 : addon)),
+          };
+        }
+        return {
+          primary: group.primary === id ? 0 : group.primary,
+          addons: group.addons.map((addon) => (addon === id ? 0 : addon)),
+        };
+      }
+      if (role === 'primary') {
+        return {
+          primary: group.primary === id ? 0 : group.primary,
+          addons: group.addons.map((addon) => (addon === id ? 0 : addon)),
+        };
+      }
+      // Addon mới: giữ bán kèm ở combo khác; chỉ gỡ nếu đang là vòng chính combo khác.
+      return {
+        primary: group.primary === id ? 0 : group.primary,
+        addons: group.addons,
+      };
+    });
+  };
+
+  const setPairRole = (
+    pairIndex: number,
+    role: 'primary' | 'addon',
+    id: number,
+    addonIndex = 0,
+  ) => {
+    if (pairIndex < 0 || pairIndex >= PAIR_MAX) return;
+    clearIdAcrossGroups(id, pairIndex, role);
+    const group = groups[pairIndex] ?? { primary: 0, addons: [0] };
+    if (role === 'primary') {
+      group.addons = group.addons.map((addon) => (addon === id ? 0 : addon));
+      group.primary = id;
+    } else {
+      if (group.primary === id) group.primary = 0;
+      const next = group.addons.length ? [...group.addons] : [0];
+      while (next.length <= addonIndex) next.push(0);
+      next[addonIndex] = id;
+      group.addons = next;
+    }
+    groups[pairIndex] = group;
+  };
+
+  const clearPairRole = (
+    pairIndex: number,
+    role: 'primary' | 'addon',
+    addonIndex = 0,
+  ) => {
+    if (pairIndex < 0 || pairIndex >= PAIR_MAX) return;
+    const group = groups[pairIndex] ?? { primary: 0, addons: [0] };
+    if (role === 'primary') group.primary = 0;
+    else if (group.addons.length <= 1) group.addons = [0];
+    else group.addons = group.addons.filter((_, index) => index !== addonIndex);
+    if (group.addons.length === 0) group.addons = [0];
+    groups[pairIndex] = group;
+  };
+
+  const clearPairRow = (pairIndex: number) => {
+    if (pairIndex < 0 || pairIndex >= PAIR_MAX) return;
+    groups[pairIndex] = { primary: 0, addons: [0] };
+  };
+
+  const addAddonSlot = (pairIndex: number) => {
+    if (pairIndex < 0 || pairIndex >= PAIR_MAX) return;
+    const group = groups[pairIndex] ?? { primary: 0, addons: [0] };
+    if (group.addons.filter((id) => id > 0).length >= ADDON_MAX) return;
+    if (group.addons.length >= ADDON_MAX) return;
+    group.addons = [...group.addons, 0];
+    groups[pairIndex] = group;
+  };
+
+  const assignMultiSlot = (index: number, id: number) => {
+    multiSlots = multiSlots.map((item) => (item === id ? 0 : item));
+    multiSlots[index] = id;
+  };
+
+  const clearMultiSlot = (index: number) => {
+    multiSlots[index] = 0;
+  };
+
+  let kindReady = false;
+  const syncKind = () => {
+    const value = kindValue();
+    const pairMode = value === 'bracelet_addon';
+    const comboMode = value === 'pair_discount';
+    const discountMode = comboMode || pairMode;
+    if (pairFields instanceof HTMLElement) pairFields.hidden = !comboMode;
+    if (pairBadgeWrap instanceof HTMLElement) pairBadgeWrap.hidden = !comboMode;
+    if (pairDiscountWrap instanceof HTMLElement) pairDiscountWrap.hidden = !discountMode;
+    if (pairDiscountHint instanceof HTMLElement) pairDiscountHint.hidden = !discountMode;
+    if (braceletFields instanceof HTMLElement) braceletFields.hidden = !pairMode;
+    if (pairBuyQty instanceof HTMLInputElement) pairBuyQty.disabled = !comboMode;
+    if (pairBadge instanceof HTMLInputElement) pairBadge.disabled = !comboMode;
+    if (pairDiscountType instanceof HTMLSelectElement) pairDiscountType.disabled = !discountMode;
+    if (braceletBadge instanceof HTMLInputElement) braceletBadge.disabled = !pairMode;
+    const discountOn =
+      discountMode && pairDiscountType instanceof HTMLSelectElement && Boolean(pairDiscountType.value);
+    if (pairDiscountValue instanceof HTMLInputElement) {
+      pairDiscountValue.disabled = !discountOn;
+      pairDiscountValue.placeholder =
+        pairDiscountType instanceof HTMLSelectElement && pairDiscountType.value === 'amount'
+          ? 'Vd. 20000'
+          : 'Vd. 10';
+    }
+    if (pairDiscountHint) {
+      if (pairMode) {
+        pairDiscountHint.textContent =
+          pairDiscountType instanceof HTMLSelectElement && pairDiscountType.value === 'amount'
+            ? `Số tiền trừ trên giá bán kèm khi mua cùng vòng chính (tối đa ${DISCOUNT_AMOUNT_MAX.toLocaleString('vi-VN')}đ).`
+            : pairDiscountType instanceof HTMLSelectElement && pairDiscountType.value === 'percent'
+              ? `Phần trăm giảm trên giá bán kèm (1–${DISCOUNT_PERCENT_MAX}%).`
+              : 'Tuỳ chọn. Giảm thật trên bán kèm khi khách mua cùng vòng chính.';
+      } else {
+        pairDiscountHint.textContent =
+          pairDiscountType instanceof HTMLSelectElement && pairDiscountType.value === 'amount'
+            ? `Số tiền trừ trên mỗi chiếc khi mua đủ số lượng combo (tối đa ${DISCOUNT_AMOUNT_MAX.toLocaleString('vi-VN')}đ).`
+            : pairDiscountType instanceof HTMLSelectElement && pairDiscountType.value === 'percent'
+              ? `Phần trăm giảm trên giá bán mỗi chiếc (1–${DISCOUNT_PERCENT_MAX}%).`
+              : 'Tuỳ chọn. Để trống nếu chỉ dùng giá so sánh trên sản phẩm.';
+      }
+    }
+    if (kindOptions instanceof HTMLElement) {
+      kindOptions.querySelectorAll('.home-collection-kind-option').forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        const input = node.querySelector('input[data-collection-kind]');
+        node.classList.toggle('is-on', input instanceof HTMLInputElement && input.checked);
+      });
+    }
+    if (hint) {
+      hint.textContent = pairMode
+        ? `Mỗi combo: 1 vòng chính + tối đa ${ADDON_MAX} bán kèm; có thể giảm % hoặc số tiền trên bán kèm.`
+        : comboMode
+          ? 'Khối combo: số lượng 2–10; có thể giảm % hoặc số tiền / chiếc khi mua đủ số lượng (áp giá thật khi đặt hàng).'
+          : 'Dùng cho khối danh sách thường (Mẫu hot…). Không có số lượng combo.';
+    }
+    if (selectedPanel instanceof HTMLElement) selectedPanel.dataset.selectedKind = value;
+    if (multiHead instanceof HTMLElement) multiHead.hidden = pairMode;
+    if (pairHead instanceof HTMLElement) pairHead.hidden = !pairMode;
+    if (selectedList instanceof HTMLElement) selectedList.hidden = pairMode;
+    if (pairSlots instanceof HTMLElement) pairSlots.hidden = !pairMode;
+    if (pairMode) {
+      const filled = multiSlots.filter((id) => id > 0);
+      if (!groups.some((group) => group.primary || group.addons.some((addon) => addon > 0)) && filled.length) {
+        groups = Array.from({ length: PAIR_MAX }, (_, i) => {
+          const addonId = filled[i * 2 + 1] ?? 0;
+          return {
+            primary: filled[i * 2] ?? 0,
+            addons: addonId > 0 ? [addonId] : [0],
+          };
+        });
+      }
+    } else {
+      const fromGroups = completeGroups().flatMap((group) => [group.primary, ...group.addons]);
+      if (fromGroups.length && !multiSlots.some((id) => id > 0)) {
+        multiSlots = Array.from({ length: MULTI_MAX }, (_, i) => fromGroups[i] ?? 0);
+      }
+    }
+    // Lần đầu giữ HTML SSR — tránh nháy do replaceChildren + CSS scope.
+    if (!kindReady) {
+      kindReady = true;
+      const ids = denseIds();
+      if (countEl) countEl.textContent = String(ids.length);
+      if (pairCountEl) pairCountEl.textContent = String(completePairCount());
+      if (selectedEmpty instanceof HTMLElement) selectedEmpty.hidden = ids.length > 0;
+      return;
+    }
+    writeSelection();
+  };
+
+  const syncPager = () => {
+    if (pager instanceof HTMLElement) pager.hidden = pageCount <= 1;
+    if (statusEl) statusEl.textContent = `Trang ${page}/${pageCount} · ${total} SP`;
+    if (prevBtn instanceof HTMLButtonElement) prevBtn.disabled = loading || page <= 1;
+    if (nextBtn instanceof HTMLButtonElement) nextBtn.disabled = loading || page >= pageCount;
+    if (categorySelect instanceof HTMLSelectElement) categorySelect.disabled = loading;
+  };
+
+  const makeCard = (item: PickItem) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'home-collection-pick';
+    button.dataset.pickId = String(item.id);
+    button.dataset.pickName = item.name;
+    button.dataset.pickCover = item.coverUrl || '';
+    const alreadyInScope = pickerHighlightIds().has(item.id);
+    if (alreadyInScope) button.classList.add('is-on');
+    const media = document.createElement('span');
+    media.className = 'home-collection-pick-media';
+    if (item.coverUrl) {
+      const img = document.createElement('img');
+      img.src = item.coverUrl;
+      img.alt = '';
+      img.width = 96;
+      img.height = 96;
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      media.append(img);
+    } else {
+      const empty = document.createElement('span');
+      empty.className = 'home-collection-pick-empty';
+      empty.setAttribute('aria-hidden', 'true');
+      media.append(empty);
+    }
+    if (alreadyInScope) {
+      const badge = document.createElement('span');
+      badge.className = 'home-collection-pick-badge';
+      badge.textContent = 'đã thêm';
+      media.append(badge);
+    }
+    const text = document.createElement('span');
+    text.className = 'home-collection-pick-text';
+    const strong = document.createElement('strong');
+    strong.textContent = item.name;
+    const muted = document.createElement('span');
+    muted.className = 'text-muted';
+    muted.textContent = `#${item.id}`;
+    text.append(strong, muted);
+    button.append(media, text);
+    return button;
+  };
+
+  const loadPage = async (nextPage: number) => {
+    if (!(dialog instanceof HTMLElement) || !(grid instanceof HTMLElement) || loading) return;
+    const url = dialog.dataset.picksUrl;
+    if (!url) return;
+    loading = true;
+    syncPager();
+    const params = new URLSearchParams();
+    params.set('page', String(nextPage));
+    if (categorySelect instanceof HTMLSelectElement && categorySelect.value) params.set('category', categorySelect.value);
+    try {
+      const response = await fetch(`${url}?${params}`, { headers: { accept: 'application/json' } });
+      const data = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        items?: PickItem[];
+        page?: number;
+        pageCount?: number;
+        total?: number;
+      };
+      if (!response.ok || !data.ok || !Array.isArray(data.items)) throw new Error(data.error || 'load failed');
+      page = Number(data.page) || 1;
+      pageCount = Number(data.pageCount) || 1;
+      total = Number(data.total) || 0;
+      grid.replaceChildren(...data.items.map((item) => makeCard(item)));
+      if (emptyEl instanceof HTMLElement) emptyEl.hidden = data.items.length > 0;
+    } catch (error) {
+      console.error(
+        JSON.stringify({ event: 'home_collection_picks_ui_failed', name: error instanceof Error ? error.name : 'unknown' }),
+      );
+    } finally {
+      loading = false;
+      syncPager();
+    }
+  };
+
+  const openPicker = (target: PickerTarget) => {
+    pickerTarget = target;
+    if (pickTitle) {
+      if (target.mode === 'pair') {
+        pickTitle.textContent =
+          target.role === 'primary'
+            ? `Chọn vòng chính · combo ${target.pairIndex + 1}`
+            : `Chọn bán kèm · combo ${target.pairIndex + 1} · lựa chọn ${(target.addonIndex ?? 0) + 1}`;
+      } else {
+        pickTitle.textContent = `Chọn sản phẩm #${target.index + 1}`;
+      }
+    }
+    if (categorySelect instanceof HTMLSelectElement) categorySelect.value = '';
+    if (dialog instanceof HTMLDialogElement) {
+      if (!dialog.open) dialog.showModal();
+      void loadPage(1);
+    }
+  };
+
+  const closePicker = () => {
+    pickerTarget = null;
+    if (dialog instanceof HTMLDialogElement && dialog.open) dialog.close();
+  };
+
+  const applyPick = (id: number, name: string, cover: string) => {
+    if (!pickerTarget) return;
+    rememberMeta(id, name, cover);
+    if (pickerTarget.mode === 'pair') {
+      setPairRole(pickerTarget.pairIndex, pickerTarget.role, id, pickerTarget.addonIndex ?? 0);
+    } else assignMultiSlot(pickerTarget.index, id);
+    writeSelection();
+    closePicker();
+  };
+
+  selectedList?.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const clear = target.closest('[data-multi-clear]');
+    if (clear instanceof HTMLElement) {
+      event.preventDefault();
+      const index = Number(clear.dataset.multiClear);
+      if (Number.isInteger(index) && index >= 0 && index < MULTI_MAX) {
+        clearMultiSlot(index);
+        writeSelection();
+      }
+      return;
+    }
+    const open = target.closest('[data-open-picker="multi"]');
+    if (!(open instanceof HTMLElement)) return;
+    const index = Number(open.dataset.slotIndex);
+    if (!Number.isInteger(index) || index < 0 || index >= MULTI_MAX) return;
+    openPicker({ mode: 'multi', index });
+  });
+
+  pairSlots?.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const rowOf = (node: Element) => {
+      const row = node.closest('[data-pair-row]');
+      if (!(row instanceof HTMLElement)) return NaN;
+      return Number(row.dataset.pairRow);
+    };
+    const addAddon = target.closest('[data-addon-add]');
+    if (addAddon instanceof HTMLElement) {
+      event.preventDefault();
+      const pairIndex = Number(addAddon.dataset.addonAdd);
+      if (Number.isInteger(pairIndex)) {
+        addAddonSlot(pairIndex);
+        writeSelection();
+      }
+      return;
+    }
+    const clearRow = target.closest('[data-pair-clear-row]');
+    if (clearRow instanceof HTMLElement) {
+      event.preventDefault();
+      clearPairRow(Number(clearRow.dataset.pairClearRow));
+      writeSelection();
+      return;
+    }
+    const clear = target.closest('[data-pair-clear]');
+    if (clear instanceof HTMLElement) {
+      event.preventDefault();
+      const pairIndex = Number.isInteger(Number(clear.dataset.pairIndex))
+        ? Number(clear.dataset.pairIndex)
+        : rowOf(clear);
+      const role = clear.dataset.pairClear === 'addon' ? 'addon' : 'primary';
+      const addonIndex = Number(clear.dataset.addonIndex);
+      if (Number.isInteger(pairIndex) && pairIndex >= 0 && pairIndex < PAIR_MAX) {
+        clearPairRole(pairIndex, role, Number.isInteger(addonIndex) ? addonIndex : 0);
+        writeSelection();
+      }
+      return;
+    }
+    const open = target.closest('[data-open-picker="pair"]');
+    if (!(open instanceof HTMLElement)) return;
+    const pairIndex = Number.isInteger(Number(open.dataset.pairIndex))
+      ? Number(open.dataset.pairIndex)
+      : rowOf(open);
+    if (!Number.isInteger(pairIndex) || pairIndex < 0 || pairIndex >= PAIR_MAX) return;
+    const addonIndex = Number(open.dataset.addonIndex);
+    openPicker({
+      mode: 'pair',
+      pairIndex,
+      role: open.dataset.pairRole === 'addon' ? 'addon' : 'primary',
+      addonIndex: Number.isInteger(addonIndex) ? addonIndex : 0,
+    });
+  });
+
+  grid?.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const card = target.closest('[data-pick-id]');
+    if (!(card instanceof HTMLElement)) return;
+    const id = Number(card.dataset.pickId);
+      if (!Number.isInteger(id) || id < 1) return;
+    applyPick(id, card.dataset.pickName || '', card.dataset.pickCover || '');
+  });
+
+  closeBtn?.addEventListener('click', () => closePicker());
+  dialog?.addEventListener('click', (event) => {
+    if (event.target === dialog) closePicker();
+  });
+  categorySelect?.addEventListener('change', () => {
+    void loadPage(1);
+  });
+  prevBtn?.addEventListener('click', () => {
+    if (page > 1) void loadPage(page - 1);
+  });
+  nextBtn?.addEventListener('click', () => {
+    if (page < pageCount) void loadPage(page + 1);
+  });
+
+  kindInputs.forEach((input) => {
+    input.addEventListener('change', syncKind);
+  });
+  if (pairDiscountType instanceof HTMLSelectElement) {
+    pairDiscountType.addEventListener('change', syncKind);
+  }
+  // Đồng bộ JSON combo ngay trước khi FormData dựng — tránh mất combo 2+ khi submit.
+  if (editorForm instanceof HTMLFormElement) {
+    editorForm.addEventListener('submit', () => {
+      if (isPairKind()) writeGroupsField(completeGroups());
+    });
+    editorForm.addEventListener('formdata', (event) => {
+      if (!isPairKind()) return;
+      event.formData.set('braceletGroups', JSON.stringify(completeGroups()));
+    });
+  }
+  syncKind();
+</script>

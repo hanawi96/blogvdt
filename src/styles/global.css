@@ -4165,6 +4165,8 @@
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
+    width: fit-content;
+    max-width: 100%;
     margin: 0.4rem 0 0;
     padding: 0.28rem 0.75rem;
     border: 0;
@@ -4178,6 +4180,8 @@
     font-size: 0.78rem;
     font-weight: 650;
     line-height: 1.25;
+    justify-self: start;
+    align-self: start;
   }
   .free-ship-heart {
     color: var(--color-primary);
@@ -4188,6 +4192,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    width: fit-content;
     max-width: 100%;
     margin: 0.4rem 0 0;
     padding: 0.35rem 0.85rem;
@@ -4204,6 +4209,8 @@
     line-height: 1.3;
     text-align: center;
     text-wrap: balance;
+    justify-self: start;
+    align-self: start;
   }
 
   /* − / số / + trong dialog thêm giỏ & mua ngay; nút chỉ icon, không nền/viền */
@@ -5217,6 +5224,63 @@
     border-radius: var(--radius-md);
     background: linear-gradient(180deg, color-mix(in oklab, var(--color-sand) 45%, var(--color-surface)), var(--color-surface));
   }
+  .cart-sum-lines {
+    display: grid;
+    gap: 0.3rem;
+    margin: 0;
+    padding: 0 0 0.55rem;
+    border-bottom: 1px dashed var(--color-line);
+    list-style: none;
+  }
+  .cart-sum-lines:empty {
+    display: none;
+  }
+  .cart-sum-line {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.55rem;
+    min-width: 0;
+    color: var(--color-ink);
+    font-size: 0.8125rem;
+    font-weight: 550;
+    line-height: 1.35;
+  }
+  .cart-sum-line-text {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.15rem 0.35rem;
+    min-width: 0;
+  }
+  .cart-sum-line-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: min(100%, 15rem);
+    font-weight: 650;
+  }
+  .cart-sum-line-qty,
+  .cart-sum-line-meta {
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .cart-sum-line-price {
+    flex: none;
+    color: var(--color-ink);
+    font-weight: 650;
+    white-space: nowrap;
+  }
+  .cart-sum-line.is-addon .cart-sum-line-name {
+    font-weight: 600;
+  }
+  .cart-sum-line.is-addon .cart-sum-line-name::before {
+    content: '+ ';
+    color: var(--color-muted);
+    font-weight: 500;
+  }
   .cart-sum {
     display: flex;
     align-items: baseline;
@@ -5249,6 +5313,12 @@
   .cart-sum-muted strong {
     color: var(--color-ink);
     font-size: 1rem;
+  }
+  .cart-sum-combo strong {
+    color: var(--color-primary-strong);
+  }
+  .cart-sum-combo[hidden] {
+    display: none;
   }
   .cart-sum-note {
     margin-top: 0.35rem;
@@ -16260,6 +16330,473 @@ body.site-nav-lock {
   margin: 0;
   color: var(--color-muted);
   font-size: 0.875rem;
+}
+.home-collections {
+  display: grid;
+  gap: 1.75rem;
+}
+.home-collection {
+  min-width: 0;
+}
+.home-collection-intro {
+  margin-bottom: 0.85rem;
+}
+/* Cùng nhịp lưới #san-pham: không rail ngang (overflow-x cắt nút), không height:100%. */
+.home-collection-rail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.15rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: visible;
+}
+.home-collection-rail > li {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.home-collection-rail .home-shop-card {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.home-pair-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+@media (min-width: 40rem) {
+  .home-pair-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem 0.85rem;
+  }
+}
+@media (min-width: 64rem) {
+  .home-pair-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.15rem 1rem;
+  }
+}
+.home-pair-card {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+  height: 100%;
+  padding: 0.85rem;
+  border: 0;
+  border-radius: calc(var(--radius-md) + 0.1rem);
+  background: linear-gradient(
+    165deg,
+    color-mix(in oklab, var(--color-accent) 8%, var(--color-surface)),
+    var(--color-surface) 42%
+  );
+}
+.home-pair-media {
+  position: relative;
+}
+/* Ảnh 1 khung giữa + dải Combo — rõ là mua nhiều, không lệch ảnh. */
+.home-pair-cover {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 0.9rem;
+  background: var(--home-soft, var(--color-canvas));
+}
+.home-pair-cover-img,
+.home-pair-cover-empty {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+.home-pair-cover-empty {
+  background: color-mix(in oklab, var(--color-sand) 70%, var(--color-line));
+}
+.home-pair-combo-seal {
+  position: absolute;
+  z-index: 2;
+  left: 0.55rem;
+  right: 0.55rem;
+  bottom: 0.55rem;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.15rem;
+  padding: 0.3rem 0.45rem 0.3rem 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-heading) 78%, transparent);
+  color: var(--color-surface);
+  box-shadow: 0 10px 22px -14px color-mix(in srgb, var(--color-ink) 55%, transparent);
+  backdrop-filter: blur(6px);
+}
+.home-pair-combo-seal-qty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.85rem;
+  height: 1.85rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-accent) 88%, var(--color-surface));
+  color: var(--color-surface);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+.home-pair-combo-seal-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+.home-pair-media .home-shop-badge {
+  z-index: 3;
+}
+.home-pair-body {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.home-pair-label {
+  margin: 0;
+  width: fit-content;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-accent) 16%, var(--color-surface));
+  color: color-mix(in oklab, var(--color-accent-strong) 90%, var(--color-ink));
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.home-pair-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.home-pair-name a {
+  /* Cùng layout badge dây + tên như .home-shop-name a — tránh sát/lệch hàng. */
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.45rem;
+  min-height: 24px;
+  color: var(--color-heading);
+  text-decoration: none;
+}
+.home-pair-name a:hover {
+  color: var(--color-primary-strong);
+}
+.home-pair-pricing {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.home-pair-unit,
+.home-pair-deal {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+.home-pair-unit {
+  color: var(--color-muted);
+  font-weight: 550;
+}
+.home-pair-unit-prices,
+.home-pair-deal-prices {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+.home-pair-unit-prices strong {
+  color: var(--color-ink);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+.home-pair-unit-prices s,
+.home-pair-deal-prices s {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.home-pair-deal {
+  color: var(--color-heading);
+  font-weight: 700;
+}
+.home-pair-deal-prices strong {
+  color: var(--color-accent-strong);
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.home-pair-save {
+  margin: 0.05rem 0 0;
+  color: var(--color-primary-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.home-pair-note {
+  margin: 0.1rem 0 0;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+.home-pair-actions {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.25rem;
+}
+.home-pair-actions .btn,
+.home-pair-actions form {
+  width: 100%;
+  margin: 0;
+}
+.home-pair-actions form .btn {
+  width: 100%;
+}
+.home-combo-list {
+  display: grid;
+  gap: 0.85rem;
+}
+@media (min-width: 48rem) {
+  .home-combo-list {
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  }
+}
+.home-combo-card {
+  display: grid;
+  gap: 0.9rem;
+  padding: 0.9rem;
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--color-sand) 45%, var(--color-surface)), var(--color-surface));
+}
+.home-combo-primary {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+.home-combo-primary-media {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.home-combo-primary-media img,
+.home-combo-item-empty {
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: 0.85rem;
+  object-fit: cover;
+  background: var(--home-soft);
+}
+.home-combo-primary-media .home-shop-badge {
+  top: 0.65rem;
+  left: 0.65rem;
+  font-size: 0.8rem;
+}
+.home-combo-primary-text {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.home-combo-item-name {
+  font-size: 0.95rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.home-combo-item-pricing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+}
+.home-combo-item-price {
+  color: var(--color-accent-strong);
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+.home-combo-item-was {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: line-through;
+}
+.home-combo-addons {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.home-combo-addons-label {
+  margin: 0 0 0.45rem;
+  padding: 0;
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+  font-weight: 650;
+}
+.home-combo-addon-list {
+  display: grid;
+  gap: 0.5rem;
+}
+.home-combo-addon-option {
+  display: block;
+  margin: 0;
+  cursor: pointer;
+}
+.home-combo-addon-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.home-combo-addon-card {
+  display: grid;
+  grid-template-columns: 3.25rem minmax(0, 1fr) 1.35rem;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.45rem 0.55rem;
+  border: 1.5px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+  border-radius: 0.85rem;
+  background: var(--color-surface);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.home-combo-addon-option input:checked + .home-combo-addon-card {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-primary) 35%, transparent);
+}
+.home-combo-addon-option input:focus-visible + .home-combo-addon-card {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.home-combo-addon-card img,
+.home-combo-addon-empty {
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: 0.65rem;
+  object-fit: cover;
+  background: var(--home-soft);
+}
+.home-combo-addon-text {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.home-combo-addon-name {
+  font-size: 0.875rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.home-combo-addon-pricing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.4rem;
+}
+.home-combo-addon-price {
+  color: var(--color-primary-strong);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+.home-combo-addon-was {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-decoration: line-through;
+}
+.home-combo-addon-check {
+  display: grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #16a34a;
+  opacity: 0;
+  pointer-events: none;
+}
+.home-combo-addon-check svg {
+  display: block;
+}
+.home-combo-addon-option input:checked + .home-combo-addon-card .home-combo-addon-check {
+  opacity: 1;
+}
+.home-combo-foot {
+  display: grid;
+  gap: 0.45rem;
+}
+.home-combo-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+.home-combo-total-prices {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0.3rem 0.5rem;
+}
+.home-combo-total strong {
+  color: var(--color-accent-strong);
+  font-size: 1.125rem;
+}
+.home-combo-total s {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.home-combo-save {
+  margin: 0;
+  color: color-mix(in oklab, #c44 88%, #000);
+  font-size: 0.8125rem;
+  font-weight: 650;
+}
+.home-combo-badge {
+  margin: 0;
+  color: var(--color-accent-strong);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+.home-combo-foot .btn {
+  width: 100%;
+}
+.home-combo-foot .btn-primary,
+.home-pair-actions > .btn-primary {
+  border: 0;
+}
+@media (min-width: 40rem) {
+  .home-collection-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem 0.85rem;
+  }
+}
+@media (min-width: 48rem) {
+  .home-collection-rail {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.15rem 1rem;
+  }
 }
 .home-shop-grid {
   display: grid;
