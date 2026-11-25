@@ -100,7 +100,7 @@ describe('addonShipHint', () => {
     expect(addonShipHint(69_000)).toBe('free-ship');
     expect(addonShipHint(100_000)).toBe('together');
     expect(addonShipHintText('free-ship')).toMatch(/miễn phí vận chuyển/i);
-    expect(addonShipHintText('together')).toMatch(/giường/i);
+    expect(addonShipHintText('together')).toMatch(/chọn\/bỏ chọn/i);
   });
 });
 

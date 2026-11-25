@@ -331,7 +331,7 @@ const canToggleSort = status !== 'shipped';
                     <span class="order-priority-dot" data-on={order.priority === 1 ? 'true' : 'false'} aria-hidden="true"></span>
                     <a class="order-customer-name" href={routes.adminOrder(order.id)}>{order.customerName}</a>
                     {source && (
-                      <span class="order-chip" data-tone="source">
+                      <span class="order-chip" data-tone="source" data-source={order.source}>
                         {order.source === 'facebook' ? 'Fb' : source}
                       </span>
                     )}
@@ -344,7 +344,7 @@ const canToggleSort = status !== 'shipped';
                 </div>
                 <div class="order-customer-head order-customer-head-desktop">
                   <span class="order-customer-name">{order.customerName}</span>
-                  {source && <span class="order-chip" data-tone="source">{source}</span>}
+                  {source && <span class="order-chip" data-tone="source" data-source={order.source}>{source}</span>}
                   <span class="order-chip" data-tone={tier}>{CUSTOMER_TIER_LABELS[tier]}</span>
                 </div>
                 <div class="order-customer-line">

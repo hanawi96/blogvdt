@@ -1,0 +1,15 @@
+---
+import { INSPECT_GOODS_LABEL } from '../../features/products/inspect-goods';
+
+/** Cam kết kiểm hàng — badge tĩnh toàn shop. */
+interface Props {
+  class?: string;
+}
+
+const { class: className } = Astro.props;
+---
+
+<p class:list={['inspect-goods-badge', className]}>
+  <span class="inspect-goods-mark" aria-hidden="true">✓</span>
+  {INSPECT_GOODS_LABEL}
+</p>

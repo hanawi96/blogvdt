@@ -140,10 +140,11 @@ const showConfirmDialog = Boolean(confirmDialog) && !upsell && addons.length > 0
                           <button
                             class:list={['addon-add-icon', isChosen && 'is-added']}
                             type="button"
+                            data-addon-toggle-btn
                             data-addon-confirm-open={addon.slug}
                             aria-pressed={isChosen ? 'true' : 'false'}
-                            aria-label={isChosen ? `${addon.name} đã chọn — bấm để bỏ` : `Thêm ${addon.name}`}
-                            title={isChosen ? 'Đã chọn — bấm để bỏ' : 'Thêm bán kèm'}
+                            aria-label={isChosen ? `${addon.name} đã chọn — bấm thẻ để bỏ` : `Thêm ${addon.name}`}
+                            title={isChosen ? 'Đã chọn — bấm thẻ để bỏ' : 'Thêm bán kèm'}
                           >
                             <span aria-hidden="true">{isChosen ? '✓' : '+'}</span>
                           </button>
@@ -194,7 +195,7 @@ const showConfirmDialog = Boolean(confirmDialog) && !upsell && addons.length > 0
 
       const paintToggle = (input: HTMLInputElement) => {
         const card = input.closest('[data-addon-card]');
-        const button = card?.querySelector('[data-addon-confirm-open]');
+        const button = card?.querySelector('[data-addon-toggle-btn]');
         const mark = button?.querySelector('span[aria-hidden="true"]');
         if (mark) mark.textContent = input.checked ? '✓' : '+';
         button?.classList.toggle('is-added', input.checked);
@@ -203,9 +204,9 @@ const showConfirmDialog = Boolean(confirmDialog) && !upsell && addons.length > 0
           const name = card instanceof HTMLElement ? card.dataset.addonName || 'Bó dâu' : 'Bó dâu';
           button.setAttribute(
             'aria-label',
-            input.checked ? `${name} đã chọn — bấm để bỏ` : `Thêm ${name}`,
+            input.checked ? `${name} đã chọn — bấm thẻ để bỏ` : `Thêm ${name}`,
           );
-          button.title = input.checked ? 'Đã chọn — bấm để bỏ' : 'Thêm bán kèm';
+          button.title = input.checked ? 'Đã chọn — bấm thẻ để bỏ' : 'Thêm bán kèm';
         }
         card?.classList.toggle('is-selected', input.checked);
       };
@@ -287,27 +288,28 @@ const showConfirmDialog = Boolean(confirmDialog) && !upsell && addons.length > 0
       if (!(window as unknown as { __addonConfirmBound?: boolean }).__addonConfirmBound) {
         (window as unknown as { __addonConfirmBound?: boolean }).__addonConfirmBound = true;
 
-        document.addEventListener('click', (event) => {
-          const target = event.target instanceof Element ? event.target : null;
-          if (!target) return;
-
-          const openBtn = target.closest('[data-addon-confirm-open]');
-          if (openBtn instanceof HTMLButtonElement) {
-            event.preventDefault();
-            const slug = openBtn.getAttribute('data-addon-confirm-open')?.trim() || '';
-            const card = openBtn.closest('[data-addon-card]');
-            if (!slug || !(card instanceof HTMLElement)) return;
-            const checkbox = card.querySelector('input[data-addon-toggle]');
-            // Đã chọn → bỏ chọn ngay, không cần modal.
-            if (checkbox instanceof HTMLInputElement && checkbox.checked) {
-              setAddonChecked(slug, false);
-              return;
-            }
+        const openAddonToggle = (card: HTMLElement) => {
+          const slug = card.getAttribute('data-addon-card')?.trim() || '';
+          const checkbox = card.querySelector('input[data-addon-toggle]');
+          if (!slug || !(checkbox instanceof HTMLInputElement)) return;
+          // Đã chọn → bỏ chọn ngay, không cần modal.
+          if (checkbox.checked) {
+            setAddonChecked(slug, false);
+            return;
+          }
+          const picker = card.closest('[data-addon-picker]');
+          if (picker?.hasAttribute('data-addon-need-confirm')) {
             pendingSlug = slug;
             fillDialog(card);
             if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
             return;
           }
+          setAddonChecked(slug, true);
+        };
+
+        document.addEventListener('click', (event) => {
+          const target = event.target instanceof Element ? event.target : null;
+          if (!target) return;
 
           if (target.closest('[data-addon-confirm-close]')) {
             event.preventDefault();
@@ -324,6 +326,19 @@ const showConfirmDialog = Boolean(confirmDialog) && !upsell && addons.length > 0
 
           if (target === dialog) {
             closeDialog();
+            return;
+          }
+
+          // Cả thẻ bán kèm (không phải upsell giỏ) đều toggle chọn / bỏ chọn.
+          const card = target.closest('[data-addon-card]');
+          if (
+            card instanceof HTMLElement &&
+            card.querySelector('input[data-addon-toggle]') &&
+            !card.closest('[data-addon-upsell]') &&
+            !target.closest('#addon-confirm-dialog')
+          ) {
+            event.preventDefault();
+            openAddonToggle(card);
           }
         });
 

@@ -4,6 +4,7 @@ import { audienceCardLabel } from '../features/products/audience';
 import { cordCardLabel } from '../features/products/cord';
 import { productRequiresTagName, TAG_NAME_MAX } from '../features/products/tag-name';
 import { WEIGHT_SCALES, type WeightScale } from '../features/products/weight';
+import { INSPECT_GOODS_LABEL } from '../features/products/inspect-goods';
 import { FREE_SHIP_WITH_ADDON_LABEL, type ProductShipBadge } from '../features/shipping/customer-fee';
 
 const PAGE_SIZE = 12;
@@ -125,6 +126,7 @@ function boot() {
       product.comparePrice != null
         ? `<span class="home-shop-price-was">${formatVnd(product.comparePrice)}</span>`
         : '';
+    const inspectBadge = `<p class="inspect-goods-badge"><span class="inspect-goods-mark" aria-hidden="true">✓</span> ${INSPECT_GOODS_LABEL}</p>`;
     const shipBadge =
       product.shipBadge === 'free'
         ? '<p class="free-ship-badge"><span class="free-ship-heart" aria-hidden="true">♥</span> Miễn phí vận chuyển</p>'
@@ -203,6 +205,7 @@ function boot() {
         }<span class="home-shop-name-text">${name}</span></a></h3>
         ${audienceLabel ? `<p class="home-shop-audience">${escapeHtml(audienceLabel)}</p>` : ''}
         <p class="home-shop-price"><span class="home-shop-price-now">${formatVnd(product.price)}</span>${compare}</p>
+        ${inspectBadge}
         ${shipBadge}
         <div class="home-shop-actions">
           <a class="btn btn-primary home-shop-buy" href="${orderHref}" data-order-open data-slug="${escapeHtml(product.slug)}" data-name="${name}" data-price="${product.price}" data-scale="${escapeHtml(product.weightScale)}" data-cover="${escapeHtml(product.coverUrl ?? '')}" data-ship-badge="${escapeHtml(product.shipBadge ?? 'none')}">${buyIcon} Mua ngay</a>

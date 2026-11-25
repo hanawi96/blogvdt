@@ -142,6 +142,60 @@ const pricingJson = JSON.stringify(comboPricing);
     </div>
   </form>
 </dialog>
+<dialog id="order-confirm-dialog" class="order-dialog order-confirm-dialog" aria-labelledby="order-confirm-title">
+  <div class="order-confirm-panel">
+    <div class="add-head order-confirm-head">
+      <p id="order-confirm-title" class="font-semibold">Xác nhận đơn hàng</p>
+      <button class="add-close" type="button" data-oc-close aria-label="Đóng">×</button>
+    </div>
+    <dl class="order-confirm-list">
+      <div class="order-confirm-row">
+        <dt>Sản phẩm</dt>
+        <dd data-oc-product>—</dd>
+      </div>
+      <div class="order-confirm-row" data-oc-weight-row hidden>
+        <dt>Cân nặng</dt>
+        <dd data-oc-weight>—</dd>
+      </div>
+      <div class="order-confirm-row" data-oc-tag-row hidden>
+        <dt>Tên in thẻ</dt>
+        <dd data-oc-tag>—</dd>
+      </div>
+      <div class="order-confirm-row" data-oc-addons-row hidden>
+        <dt>Bán kèm</dt>
+        <dd data-oc-addons>—</dd>
+      </div>
+      <div class="order-confirm-row">
+        <dt>Họ tên</dt>
+        <dd data-oc-name>—</dd>
+      </div>
+      <div class="order-confirm-row">
+        <dt>Số điện thoại</dt>
+        <dd data-oc-phone>—</dd>
+      </div>
+      <div class="order-confirm-row">
+        <dt>Địa chỉ</dt>
+        <dd data-oc-address>—</dd>
+      </div>
+      <div class="order-confirm-row">
+        <dt>Thanh toán</dt>
+        <dd data-oc-pay>—</dd>
+      </div>
+      <div class="order-confirm-row" data-oc-note-row hidden>
+        <dt>Ghi chú</dt>
+        <dd data-oc-note>—</dd>
+      </div>
+      <div class="order-confirm-row order-confirm-total">
+        <dt>Phải trả</dt>
+        <dd data-oc-payable>—</dd>
+      </div>
+    </dl>
+    <div class="order-confirm-actions">
+      <button class="btn" type="button" data-oc-close>Quay lại</button>
+      <button class="btn btn-primary" type="button" data-oc-confirm>Xác nhận</button>
+    </div>
+  </div>
+</dialog>
 <script>
   // Chỉ import module thuần — không kéo addons.ts (DB/Drizzle) vào bundle client.
   import {
@@ -495,14 +549,115 @@ const pricingJson = JSON.stringify(comboPricing);
       if (title) title.textContent = label;
       else submit.textContent = label;
     };
+
+    const confirmDialog = document.getElementById('order-confirm-dialog');
+    let confirmedSubmit = false;
+
+    const readText = (selector: string) => {
+      const node = form.querySelector(selector);
+      if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) return node.value.trim();
+      return '';
+    };
+
+    const setConfirmText = (selector: string, value: string, rowSelector?: string) => {
+      if (!(confirmDialog instanceof HTMLElement)) return;
+      const node = confirmDialog.querySelector(selector);
+      if (node) node.textContent = value || '—';
+      if (rowSelector) {
+        const row = confirmDialog.querySelector(rowSelector);
+        if (row instanceof HTMLElement) row.hidden = !value;
+      }
+    };
+
+    const fillConfirm = () => {
+      if (!(confirmDialog instanceof HTMLDialogElement)) return;
+      const productName = title?.textContent?.trim() || 'Sản phẩm';
+      const qtyRaw = quantity instanceof HTMLInputElement ? Number(quantity.value || '1') : 1;
+      const qty = Number.isFinite(qtyRaw) && qtyRaw >= 1 ? Math.floor(qtyRaw) : 1;
+      const weight = selectedWeight();
+      const tag = tagField instanceof HTMLInputElement && !tagField.disabled ? tagField.value.trim() : '';
+      const addons = selectedAddons();
+      const pay = form.querySelector('input[name="paymentMethod"]:checked');
+      const payLabel =
+        pay instanceof HTMLInputElement
+          ? pay.closest('label')?.querySelector('.pay-label')?.textContent?.trim() || pay.value
+          : '—';
+      const province =
+        form.querySelector('[data-combo="province"] [data-combo-value]')?.textContent?.trim() || '';
+      const ward = form.querySelector('[data-combo="ward"] [data-combo-value]')?.textContent?.trim() || '';
+      const line = readText('[data-line]');
+      const addressParts = [line, ward, province].filter((part) => part && !part.startsWith('Chọn'));
+      const payableEl = form.querySelector('[data-od-payable]');
+      const payable = payableEl?.textContent?.trim() || total?.textContent?.trim() || '—';
+
+      setConfirmText(
+        '[data-oc-product]',
+        qty > 1 ? `${productName} × ${qty}` : productName,
+      );
+      setConfirmText('[data-oc-weight]', weight, '[data-oc-weight-row]');
+      setConfirmText('[data-oc-tag]', tag, '[data-oc-tag-row]');
+      setConfirmText(
+        '[data-oc-addons]',
+        addons.map((item) => item.name).join(', '),
+        '[data-oc-addons-row]',
+      );
+      setConfirmText('[data-oc-name]', readText('#od-name'));
+      setConfirmText('[data-oc-phone]', readText('#od-phone'));
+      setConfirmText('[data-oc-address]', addressParts.join(', ') || '—');
+      setConfirmText('[data-oc-pay]', payLabel || '—');
+      setConfirmText('[data-oc-note]', readText('#od-note'), '[data-oc-note-row]');
+      setConfirmText('[data-oc-payable]', payable);
+    };
+
+    const setOrderDimmed = (on: boolean) => {
+      dialog.classList.toggle('is-confirming', on);
+    };
+
+    const closeConfirm = () => {
+      setOrderDimmed(false);
+      if (confirmDialog instanceof HTMLDialogElement && confirmDialog.open) confirmDialog.close();
+    };
+
+    if (confirmDialog instanceof HTMLDialogElement) {
+      confirmDialog.addEventListener('click', (event) => {
+        if (event.target === confirmDialog || (event.target instanceof Element && event.target.closest('[data-oc-close]'))) {
+          closeConfirm();
+        }
+      });
+      confirmDialog.addEventListener('close', () => {
+        setOrderDimmed(false);
+      });
+      confirmDialog.querySelector('[data-oc-confirm]')?.addEventListener('click', () => {
+        confirmedSubmit = true;
+        closeConfirm();
+        if (submit instanceof HTMLButtonElement) {
+          submit.disabled = true;
+          paintSubmitLabel('Đang gửi...');
+        }
+        form.requestSubmit(submit instanceof HTMLButtonElement ? submit : undefined);
+      });
+    }
+
     form.addEventListener('submit', (event) => {
       const button = event instanceof SubmitEvent ? event.submitter : submit;
       if (!(button instanceof HTMLButtonElement) || button.value === 'apply') return;
+      if (!confirmedSubmit) {
+        event.preventDefault();
+        if (!form.reportValidity()) return;
+        fillConfirm();
+        if (confirmDialog instanceof HTMLDialogElement) {
+          setOrderDimmed(true);
+          confirmDialog.showModal();
+        }
+        return;
+      }
+      confirmedSubmit = false;
       button.disabled = true;
       paintSubmitLabel('Đang gửi...');
     });
     // Quay lại bằng nút Back (bfcache) thì mở lại nút gửi.
     window.addEventListener('pageshow', () => {
+      confirmedSubmit = false;
       if (submit instanceof HTMLButtonElement) {
         submit.disabled = false;
         paintSubmitLabel('Gửi đơn');

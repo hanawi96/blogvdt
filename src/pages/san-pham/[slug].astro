@@ -3,6 +3,7 @@ import AddonPicker from '../../components/public/AddonPicker.astro';
 import DataError from '../../components/public/DataError.astro';
 import FaqSection from '../../components/public/FaqSection.astro';
 import FreeShipBadge from '../../components/public/FreeShipBadge.astro';
+import InspectGoodsBadge from '../../components/public/InspectGoodsBadge.astro';
 import NotFound from '../../components/public/NotFound.astro';
 import OrderForm from '../../components/public/OrderForm.astro';
 import ProductComments from '../../components/public/ProductComments.svelte';
@@ -208,6 +209,7 @@ async function loadProduct(): Promise<{
         </nav>
         <h1 class="product-title mt-4 font-semibold tracking-tight text-balance">{visible.name}</h1>
         <p class="mt-3 text-xl font-semibold text-primary-strong">{formatVnd(visible.price)}</p>
+        <InspectGoodsBadge class="mt-2" />
         {shipBadge !== 'none' && <FreeShipBadge variant={shipBadge} class="mt-2" />}
         {visible.images.length > 0 && (
           <ul class="mt-6 grid gap-3">

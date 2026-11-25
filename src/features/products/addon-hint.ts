@@ -13,5 +13,5 @@ export function addonShipHint(braceletGoods: number): AddonShipHint {
 export function addonShipHintText(hint: AddonShipHint): string {
   return hint === 'free-ship'
     ? 'Thêm bó để được miễn phí vận chuyển.'
-    : 'Thường mua cùng vòng, để giường hoặc nôi theo phong tục.';
+    : 'Bấm để chọn/bỏ chọn sản phẩm mua kèm';
 }
