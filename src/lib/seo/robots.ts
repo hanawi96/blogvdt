@@ -5,7 +5,7 @@ const PRIVATE_ENVIRONMENTS = new Set(['development', 'staging', 'preview']);
 export function robotsTxt(origin: string): string {
   const base = siteOrigin(origin);
   const sitemap = base ? `\nSitemap: ${base}/sitemap.xml\n` : '\n';
-  return `User-agent: *\nAllow: /${sitemap}`;
+  return `User-agent: *\nAllow: /\nDisallow: /admin${sitemap}`;
 }
 
 export function indexingAllowed(input: { requestOrigin: string; siteUrl?: string | null; environment?: string | null }): boolean {

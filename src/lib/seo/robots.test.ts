@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { indexingAllowed, robotsTxt } from './robots';
 
 describe('robots.txt', () => {
-  it('cho phép toàn site và khai báo sitemap, không chặn URL noindex', () => {
+  it('cho phép site công khai, chặn crawl /admin, khai báo sitemap', () => {
     const body = robotsTxt('https://vongdautam.vn/');
     expect(body).toContain('Allow: /');
+    expect(body).toContain('Disallow: /admin');
     expect(body).toContain('Sitemap: https://vongdautam.vn/sitemap.xml');
-    expect(body).not.toContain('Disallow:');
   });
 });
 
