@@ -117,9 +117,14 @@ const showConfirmDialog = Boolean(confirmDialog) && !upsell && addons.length > 0
                           name="intent"
                           value={`add-addon:${addon.slug}`}
                           formnovalidate
-                          disabled={isAdded}
-                          aria-label={isAdded ? `${addon.name} đã có trong giỏ` : `Thêm ${addon.name} vào giỏ`}
-                          title={isAdded ? 'Đã thêm' : 'Thêm vào giỏ'}
+                          data-addon-upsell-toggle
+                          aria-pressed={isAdded ? 'true' : 'false'}
+                          aria-label={
+                            isAdded
+                              ? `${addon.name} đã chọn — bấm thẻ để bỏ`
+                              : `Thêm ${addon.name} vào giỏ`
+                          }
+                          title={isAdded ? 'Đã chọn — bấm thẻ để bỏ' : 'Thêm vào giỏ'}
                         >
                           <span aria-hidden="true">{isAdded ? '✓' : '+'}</span>
                         </button>

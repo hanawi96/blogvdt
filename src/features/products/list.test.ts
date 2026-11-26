@@ -113,13 +113,25 @@ describe('danh sách sản phẩm', () => {
     form.set('sortOrder', '0');
     form.set('seoTitle', 'Tiêu đề SEO');
     form.set('metaDescription', 'Mô tả SEO');
+    form.set('robots', 'index');
     const parsed = parseProductForm(form);
     expect(parsed.ok && parsed.input.status).toBe('inactive');
     expect(parsed.ok && parsed.input.seoTitle).toBe('Tiêu đề SEO');
+    expect(parsed.ok && parsed.input.robots).toBe('index');
     expect(parsed.ok && parsed.input.comparePrice).toBe(null);
     expect(parsed.ok && parsed.input.categoryIds).toEqual([]);
     expect(parsed.ok && parsed.input.cordType).toBe('');
     expect(parsed.ok && parsed.input.audience).toBe('none');
+  });
+
+  it('robots mặc định noindex và từ chối giá trị lạ', () => {
+    const defaults = parseProductForm(productForm());
+    expect(defaults.ok && defaults.input.robots).toBe('noindex');
+    const bad = productForm();
+    bad.set('robots', 'nofollow');
+    const rejected = parseProductForm(bad);
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) expect(rejected.errors.robots).toBe('Trạng thái SEO không hợp lệ.');
   });
 
   it('nhận đối tượng đeo và từ chối giá trị lạ', () => {
@@ -236,5 +248,6 @@ function productForm(): FormData {
   form.set('rating', '');
   form.set('seoTitle', '');
   form.set('metaDescription', '');
+  form.set('robots', 'noindex');
   return form;
 }

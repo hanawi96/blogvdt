@@ -34,6 +34,7 @@ const empty = {
   rating: '5',
   seoTitle: '',
   metaDescription: '',
+  robots: 'noindex',
 };
 let values = empty;
 let errors: FieldErrors = {};
@@ -100,6 +101,7 @@ function valuesFrom(form: FormData) {
     rating: read('rating'),
     seoTitle: read('seoTitle'),
     metaDescription: read('metaDescription'),
+    robots: read('robots') || 'noindex',
   };
 }
 ---

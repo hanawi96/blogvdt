@@ -6,6 +6,7 @@ import type { ProductPhoto } from '../../features/products/products';
 import type { CostedLine, MaterialOption } from '../../features/materials/costing';
 import { AUDIENCES, AUDIENCE_LABELS, readAudience } from '../../features/products/audience';
 import { CORD_TYPES, CORD_TYPE_LABELS, normalizeCordType } from '../../features/products/cord';
+import { PRODUCT_ROBOTS, readProductRobots } from '../../features/products/robots';
 import { PRODUCT_STATUSES, PRODUCT_STATUS_LABELS } from '../../features/products/status';
 import type { FieldErrors } from '../../lib/validation/errors';
 import { routes } from '../../lib/routes';
@@ -27,6 +28,7 @@ interface Values {
   rating: string;
   seoTitle: string;
   metaDescription: string;
+  robots: string;
 }
 
 interface Props {
@@ -140,6 +142,19 @@ const selectedCategoryIds = new Set(values.categoryIds);
     <textarea class="field min-h-24" name="metaDescription" maxlength="300">{values.metaDescription}</textarea>
     {errors.metaDescription && <span class="error-text">{errors.metaDescription}</span>}
   </label>
+  <fieldset class="mt-4">
+    <legend class="mb-1 block font-semibold">Trạng thái SEO (Google)</legend>
+    <div class="category-presets" role="radiogroup" aria-label="Trạng thái SEO">
+      {PRODUCT_ROBOTS.map((value) => (
+        <label class="category-preset">
+          <input type="radio" name="robots" value={value} checked={readProductRobots(values.robots) === value} />
+          <span>{value === 'index' ? 'Index, follow' : 'Noindex, follow'}</span>
+        </label>
+      ))}
+    </div>
+    <p class="seo-hint">Mặc định noindex vì nhiều mẫu nội dung giống nhau. Chỉ bật index khi trang SP có nội dung riêng hữu ích.</p>
+    {errors.robots && <span class="error-text">{errors.robots}</span>}
+  </fieldset>
   <div class="mt-4">
     <span class="mb-1 block font-semibold" id="product-status-label">Trạng thái</span>
     <div class="category-presets" role="radiogroup" aria-labelledby="product-status-label">

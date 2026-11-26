@@ -134,6 +134,7 @@ export type ProductInput = {
   rating: number;
   seoTitle: string | null;
   metaDescription: string | null;
+  robots: 'index' | 'noindex';
 };
 
 // Giá vốn công thức — cùng nguồn với loadProductCosts.
@@ -501,6 +502,7 @@ function productValues(input: ProductInput, now: number) {
     rating: input.rating,
     seoTitle: input.seoTitle,
     metaDescription: input.metaDescription,
+    robots: input.robots,
     updatedAt: now,
   };
 }

@@ -33,6 +33,7 @@ import { resolvePublicRedirect } from '../../features/redirects/lookup';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding, getSiteOrigin } from '../../lib/cloudflare/env';
 import { formatVnd } from '../../lib/money';
+import { readProductRobots } from '../../features/products/robots';
 import { breadcrumbSchema, buildMeta, jsonLd, productSchema } from '../../lib/seo/meta';
 import { routes } from '../../lib/routes';
 
@@ -52,12 +53,14 @@ const shipping = visible
     })
   : null;
 const addonHint = addonShipHint(goodsTotal);
+const allowIndex = Boolean(visible && readProductRobots(visible.robots) === 'index');
 if (!visible) {
   Astro.response.status = loaded.site ? 404 : 503;
   Astro.response.headers.set('Cache-Control', 'no-store');
   Astro.response.headers.set('X-Robots-Tag', 'noindex');
 } else {
   Astro.response.headers.set('Cache-Control', 'public, max-age=60');
+  if (!allowIndex) Astro.response.headers.set('X-Robots-Tag', 'noindex, follow');
 }
 
 const origin = getSiteOrigin(Astro.url.origin);
@@ -67,7 +70,7 @@ const meta = buildMeta(origin, {
   path: routes.product(slug),
   image: visible?.images[0]?.url,
   siteName: loaded.site?.siteName,
-  robots: visible ? 'index,follow' : 'noindex,nofollow',
+  robots: !visible ? 'noindex,nofollow' : allowIndex ? 'index,follow' : 'noindex,follow',
 });
 const crumbs = visible && loaded.site
   ? [
@@ -80,19 +83,22 @@ const trail = visible && loaded.site ? breadcrumbSchema(origin, crumbs) : null;
 const shipBadge = visible ? productShipBadge(visible.price, visible.categorySlug) : 'none';
 /** Chỉ vòng: cam kết / quy trình / FAQ. Bạc và bán kèm (bó dâu) không hiện. */
 const showBraceletStory = productShipGroup === 'bracelet';
-const jsonLdBlocks = visible && loaded.site
-  ? [
-      ...(trail ? [jsonLd(trail)] : []),
-      jsonLd(productSchema({
-        name: visible.name,
-        description: visible.description,
-        canonical: meta.canonical,
-        image: meta.image,
-        price: visible.price,
-        siteName: loaded.site.siteName,
-      })),
-    ]
-  : [];
+const jsonLdBlocks =
+  visible && loaded.site && allowIndex
+    ? [
+        ...(trail ? [jsonLd(trail)] : []),
+        jsonLd(
+          productSchema({
+            name: visible.name,
+            description: visible.description,
+            canonical: meta.canonical,
+            image: meta.image,
+            price: visible.price,
+            siteName: loaded.site.siteName,
+          }),
+        ),
+      ]
+    : [];
 
 const commitments = [
   'Làm từ cây dâu tằm ta Việt Nam',

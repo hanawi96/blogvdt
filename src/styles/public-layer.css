@@ -2195,11 +2195,8 @@
     min-width: 0;
     cursor: pointer;
   }
-  /* Upsell trong giỏ: chỉ nút + nhận click; thẻ không toggle. */
+  /* Upsell giỏ: cả thẻ bấm để chọn / bỏ chọn. */
   [data-addon-upsell] .addon-option {
-    cursor: default;
-  }
-  [data-addon-upsell] .addon-add-icon {
     cursor: pointer;
   }
   .addon-option input {

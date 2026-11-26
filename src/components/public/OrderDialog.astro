@@ -483,15 +483,21 @@ const pricingJson = JSON.stringify(comboPricing);
         tagField.value = '';
       }
       // Badge free / with-addon chỉ gắn vòng → hiện bán kèm; bạc/bó riêng thì ẩn.
-      // Combo trang chủ có thể truyền data-addon-slug để gắn sẵn sản phẩm phụ.
+      // Combo trang chủ: data-addon-slug có thể nhiều slug (phân tách bằng dấu phẩy).
       const shipBadge = trigger.dataset.shipBadge ?? 'none';
-      const preselectAddon = (trigger.dataset.addonSlug ?? '').trim();
+      const preselectAddons = (trigger.dataset.addonSlug ?? '')
+        .split(',')
+        .map((slug) => slug.trim())
+        .filter(Boolean);
       shipGroup = shipGroupFromBadge(shipBadge);
-      const allowAddons = shipBadge === 'free' || shipBadge === 'with-addon' || Boolean(preselectAddon);
+      const allowAddons =
+        shipBadge === 'free' || shipBadge === 'with-addon' || preselectAddons.length > 0;
       if (addonsWrap instanceof HTMLElement) {
         addonsWrap.hidden = !allowAddons;
         resetAddons();
-        if (allowAddons && preselectAddon) selectAddonBySlug(preselectAddon);
+        if (allowAddons) {
+          for (const slug of preselectAddons) selectAddonBySlug(slug);
+        }
         if (addonHintEl) addonHintEl.textContent = addonShipHintText(addonShipHint(price));
       }
       paintTotal();

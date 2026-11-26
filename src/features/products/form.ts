@@ -5,6 +5,7 @@ import { isAudience, readAudience } from './audience';
 import { isCordType } from './cord';
 import { parseCategoryIds } from './product-category-links';
 import type { ProductInput } from './products';
+import { isProductRobots, readProductRobots } from './robots';
 import { isProductStatus } from './status';
 
 export { AUDIENCES, AUDIENCE_LABELS, audienceCardLabel, readAudience } from './audience';
@@ -32,6 +33,7 @@ const productFields = z.object({
   rating: z.string().trim(),
   seoTitle: z.string().trim().max(180, 'SEO title quá dài.'),
   metaDescription: z.string().trim().max(300, 'Mô tả SEO quá dài.'),
+  robots: z.string().trim(),
 });
 
 export function parseProductForm(form: FormData): { ok: true; input: ProductInput } | { ok: false; errors: FieldErrors } {
@@ -50,11 +52,13 @@ export function parseProductForm(form: FormData): { ok: true; input: ProductInpu
     rating: formValue(form, 'rating'),
     seoTitle: formValue(form, 'seoTitle'),
     metaDescription: formValue(form, 'metaDescription'),
+    robots: formValue(form, 'robots') || 'noindex',
   });
   if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
   if (!isProductStatus(parsed.data.status)) return { ok: false, errors: { status: 'Trạng thái không hợp lệ.' } };
   if (parsed.data.cordType && !isCordType(parsed.data.cordType)) return { ok: false, errors: { cordType: 'Kiểu dây không hợp lệ.' } };
   if (!isAudience(parsed.data.audience)) return { ok: false, errors: { audience: 'Đối tượng đeo không hợp lệ.' } };
+  if (!isProductRobots(parsed.data.robots)) return { ok: false, errors: { robots: 'Trạng thái SEO không hợp lệ.' } };
   const comparePrice = readComparePrice(parsed.data.comparePrice, Number(parsed.data.price));
   if (!comparePrice.ok) return { ok: false, errors: { comparePrice: comparePrice.error } };
   const stockQty = readStockQty(parsed.data.stockQty);
@@ -89,6 +93,7 @@ export function parseProductForm(form: FormData): { ok: true; input: ProductInpu
       rating: rating.value,
       seoTitle: parsed.data.seoTitle || null,
       metaDescription: parsed.data.metaDescription || null,
+      robots: readProductRobots(parsed.data.robots),
     },
   };
 }

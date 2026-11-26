@@ -10,8 +10,7 @@ export function addonShipHint(braceletGoods: number): AddonShipHint {
   return 'together';
 }
 
-export function addonShipHintText(hint: AddonShipHint): string {
-  return hint === 'free-ship'
-    ? 'Thêm bó để được miễn phí vận chuyển.'
-    : 'Bấm để chọn/bỏ chọn sản phẩm mua kèm';
+/** Hint tương tác chọn bán kèm — cùng một câu ở giỏ / modal mua ngay / PDP. */
+export function addonShipHintText(_hint: AddonShipHint): string {
+  return 'Bấm để chọn/bỏ chọn sản phẩm mua kèm';
 }

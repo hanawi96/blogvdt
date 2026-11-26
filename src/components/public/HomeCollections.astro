@@ -53,7 +53,7 @@ function pairBuyQty(collection: HomeCollectionPublic): number {
                 {groups.map(({ primary, addons }, groupIndex) => {
                   const defaultAddon = addons[0]!;
                   const orderHref = `${routes.checkout}?san-pham=${encodeURIComponent(primary.slug)}&ban-kem=${encodeURIComponent(defaultAddon.slug)}`;
-                  const radioName = `home-combo-addon-${collection.id}-${groupIndex}`;
+                  const checkboxName = `home-combo-addon-${collection.id}-${groupIndex}`;
                   const bundleOffer = hasRuleDiscount(collection.rule) ? collection.rule : null;
                   const primaryOff = discountPercent(primary.price, primary.comparePrice);
                   const primaryWas = primary.comparePrice;
@@ -109,8 +109,8 @@ function pairBuyQty(collection: HomeCollectionPublic): number {
                       </a>
 
                       <fieldset class="home-combo-addons">
-                        <legend class="home-combo-addons-label">Chọn bán kèm</legend>
-                        <div class="home-combo-addon-list" role="radiogroup" aria-label="Chọn bán kèm">
+                        <legend class="home-combo-addons-label">Chọn bán kèm (có thể chọn nhiều)</legend>
+                        <div class="home-combo-addon-list" role="group" aria-label="Chọn bán kèm, có thể chọn nhiều">
                           {addons.map((addon, addonIndex) => {
                             const addonSale = bundleOffer ? comboUnitPrice(addon.price, bundleOffer) : addon.price;
                             const addonWas =
@@ -122,8 +122,8 @@ function pairBuyQty(collection: HomeCollectionPublic): number {
                             return (
                             <label class="home-combo-addon-option">
                               <input
-                                type="radio"
-                                name={radioName}
+                                type="checkbox"
+                                name={checkboxName}
                                 value={addon.slug}
                                 data-addon-price={String(addonSale)}
                                 data-addon-catalog={String(addon.price)}
@@ -440,23 +440,36 @@ function pairBuyQty(collection: HomeCollectionPublic): number {
     const primaryPrice = Number(card.dataset.primaryPrice);
     const primaryCompareRaw = Number(card.dataset.primaryCompare);
     const primarySlug = card.dataset.primarySlug ?? '';
-    const checked = card.querySelector('input[type="radio"]:checked');
-    if (!(checked instanceof HTMLInputElement)) return;
-    const addonPrice = Number(checked.dataset.addonPrice);
-    const addonCatalog = Number(checked.dataset.addonCatalog);
-    const addonCompareRaw = Number(checked.dataset.addonCompare);
-    const addonSlug = (checked.dataset.addonSlug ?? checked.value).trim();
+    const checked = [
+      ...card.querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-addon-slug]:checked'),
+    ];
     const primaryNow = Number.isFinite(primaryPrice) ? primaryPrice : 0;
-    const addonNow = Number.isFinite(addonPrice) ? addonPrice : 0;
-    const addonList = Number.isFinite(addonCatalog) && addonCatalog > 0 ? addonCatalog : addonNow;
     const primaryWas =
       Number.isFinite(primaryCompareRaw) && primaryCompareRaw > primaryNow ? primaryCompareRaw : primaryNow;
-    const addonWas =
-      Number.isFinite(addonCompareRaw) && addonCompareRaw > addonNow
-        ? addonCompareRaw
-        : addonList > addonNow
-          ? addonList
-          : addonNow;
+
+    let addonNow = 0;
+    let addonList = 0;
+    let addonWas = 0;
+    const addonSlugs: string[] = [];
+    for (const input of checked) {
+      const sale = Number(input.dataset.addonPrice);
+      const catalog = Number(input.dataset.addonCatalog);
+      const compareRaw = Number(input.dataset.addonCompare);
+      const slug = (input.dataset.addonSlug ?? input.value).trim();
+      const now = Number.isFinite(sale) ? sale : 0;
+      const list = Number.isFinite(catalog) && catalog > 0 ? catalog : now;
+      const was =
+        Number.isFinite(compareRaw) && compareRaw > now
+          ? compareRaw
+          : list > now
+            ? list
+            : now;
+      addonNow += now;
+      addonList += list;
+      addonWas += was;
+      if (slug) addonSlugs.push(slug);
+    }
+
     const total = primaryNow + addonNow;
     const catalogTotal = primaryNow + addonList;
     const compareTotal = primaryWas + addonWas;
@@ -482,20 +495,19 @@ function pairBuyQty(collection: HomeCollectionPublic): number {
           : '';
     }
     const buy = card.querySelector('[data-combo-buy]');
-    if (!(buy instanceof HTMLAnchorElement)) return;
-    buy.dataset.addonSlug = addonSlug;
-    if (primarySlug && addonSlug) {
-      const url = new URL(buy.href, window.location.origin);
-      url.searchParams.set('san-pham', primarySlug);
-      url.searchParams.set('ban-kem', addonSlug);
-      buy.href = `${url.pathname}${url.search}`;
-    }
+    if (!(buy instanceof HTMLAnchorElement) || !primarySlug) return;
+    buy.dataset.addonSlug = addonSlugs.join(',');
+    const url = new URL(buy.href, window.location.origin);
+    url.searchParams.set('san-pham', primarySlug);
+    url.searchParams.delete('ban-kem');
+    for (const slug of addonSlugs) url.searchParams.append('ban-kem', slug);
+    buy.href = `${url.pathname}${url.search}`;
   };
 
   document.querySelectorAll('[data-home-combo]').forEach((card) => syncCombo(card));
   document.addEventListener('change', (event) => {
     const target = event.target;
-    if (!(target instanceof HTMLInputElement) || target.type !== 'radio') return;
+    if (!(target instanceof HTMLInputElement) || target.type !== 'checkbox') return;
     const card = target.closest('[data-home-combo]');
     if (card) syncCombo(card);
   });

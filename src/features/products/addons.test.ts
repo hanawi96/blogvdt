@@ -99,8 +99,8 @@ describe('addonShipHint', () => {
   it('vòng dưới 100k gợi ý miễn ship', () => {
     expect(addonShipHint(69_000)).toBe('free-ship');
     expect(addonShipHint(100_000)).toBe('together');
-    expect(addonShipHintText('free-ship')).toMatch(/miễn phí vận chuyển/i);
-    expect(addonShipHintText('together')).toMatch(/chọn\/bỏ chọn/i);
+    expect(addonShipHintText('free-ship')).toBe('Bấm để chọn/bỏ chọn sản phẩm mua kèm');
+    expect(addonShipHintText('together')).toBe('Bấm để chọn/bỏ chọn sản phẩm mua kèm');
   });
 });
 

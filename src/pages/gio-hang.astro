@@ -820,11 +820,16 @@ async function loadCart(): Promise<{
       if (!(button instanceof HTMLButtonElement)) return;
       const name = card instanceof HTMLElement ? card.dataset.addonName || 'Bó dâu' : 'Bó dâu';
       button.classList.toggle('is-added', added);
-      button.disabled = added;
-      button.title = added ? 'Đã thêm' : 'Thêm vào giỏ';
-      button.setAttribute('aria-label', added ? `${name} đã có trong giỏ` : `Thêm ${name} vào giỏ`);
+      button.disabled = false;
+      button.setAttribute('aria-pressed', added ? 'true' : 'false');
+      button.title = added ? 'Đã chọn — bấm thẻ để bỏ' : 'Thêm vào giỏ';
+      button.setAttribute(
+        'aria-label',
+        added ? `${name} đã chọn — bấm thẻ để bỏ` : `Thêm ${name} vào giỏ`,
+      );
       const mark = button.querySelector('span');
       if (mark) mark.textContent = added ? '✓' : '+';
+      card?.classList.toggle('is-selected', added);
     };
 
     const syncAddonButtons = () => {
@@ -1066,6 +1071,42 @@ async function loadCart(): Promise<{
       }
     });
 
+    const addonSlugInCart = (slug: string) =>
+      [...form.querySelectorAll<HTMLInputElement>('[data-cart-item] input[name="slug"]')].some(
+        (input) => input.value === slug,
+      );
+
+    const removeAddonFromCart = (slug: string) => {
+      form.querySelectorAll<HTMLElement>('[data-cart-item]').forEach((row) => {
+        const input = row.querySelector('input[name="slug"]');
+        if (input instanceof HTMLInputElement && input.value === slug) row.remove();
+      });
+      setAddonButtonState(slug, false);
+      recalc();
+      markQuoteStale();
+      persist();
+      if (form.querySelectorAll('[data-cart-item]').length === 0) location.reload();
+    };
+
+    const addAddonToCart = (card: HTMLElement, slug: string) => {
+      persist();
+      const added = addCartLine(readCookie(), {
+        slug,
+        quantity: 1,
+        weight: '',
+        note: '',
+      });
+      if (!added.ok) {
+        window.alert(added.error);
+        return;
+      }
+      store(added.lines);
+      if (!addonSlugInCart(slug)) appendAddonLine(card);
+      setAddonButtonState(slug, true);
+      recalc();
+      markQuoteStale();
+    };
+
     // Xử lý theo click thay vì submit: click luôn bắn, không phụ thuộc validation hay hành vi submit.
     form.addEventListener('click', (event) => {
       const target = event.target instanceof Element ? event.target : null;
@@ -1082,6 +1123,21 @@ async function loadCart(): Promise<{
         }
         return;
       }
+
+      // Cả thẻ bán kèm (upsell): bấm để chọn / bỏ chọn.
+      const upsellCard = target?.closest('[data-addon-upsell] [data-addon-card]');
+      if (upsellCard instanceof HTMLElement) {
+        event.preventDefault();
+        const slug = (upsellCard.dataset.addonCard ?? '').trim();
+        if (!slug) {
+          window.alert('Chọn bó dâu để thêm vào giỏ.');
+          return;
+        }
+        if (addonSlugInCart(slug)) removeAddonFromCart(slug);
+        else addAddonToCart(upsellCard, slug);
+        return;
+      }
+
       const button = target?.closest('button[name="intent"]');
       if (!(button instanceof HTMLButtonElement)) return;
       if (button.value.startsWith('remove:')) {
@@ -1099,37 +1155,6 @@ async function loadCart(): Promise<{
       if (button.value === 'apply') {
         event.preventDefault();
         void previewDiscount(button);
-      }
-      // Icon +: thêm bó vào giỏ, đánh dấu ✓, không reload — vẫn thêm được bó còn lại.
-      if (button.value === 'add-addon' || button.value.startsWith('add-addon:')) {
-        event.preventDefault();
-        if (button.disabled || button.classList.contains('is-added')) return;
-        const slug =
-          button.value.startsWith('add-addon:') ? button.value.slice('add-addon:'.length).trim() : '';
-        const card = button.closest('[data-addon-card]');
-        if (!slug || !(card instanceof HTMLElement)) {
-          window.alert('Chọn bó dâu để thêm vào giỏ.');
-          return;
-        }
-        persist();
-        const added = addCartLine(readCookie(), {
-          slug,
-          quantity: 1,
-          weight: '',
-          note: '',
-        });
-        if (!added.ok) {
-          window.alert(added.error);
-          return;
-        }
-        store(added.lines);
-        const alreadyInDom = [...form.querySelectorAll<HTMLInputElement>('[data-cart-item] input[name="slug"]')].some(
-          (input) => input.value === slug,
-        );
-        if (!alreadyInDom) appendAddonLine(card);
-        setAddonButtonState(slug, true);
-        recalc();
-        markQuoteStale();
       }
     });
 

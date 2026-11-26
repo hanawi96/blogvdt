@@ -19,7 +19,7 @@ import {
   findAddonsInCatalog,
   listPublicAddons,
   readAddonSlugFields,
-  resolveAddonSlug,
+  resolveAddonSlugs,
   type PublicAddon,
 } from '../features/products/addons';
 import { listOrderCatalog } from '../features/products/public';
@@ -74,10 +74,10 @@ const read = (name: string) => {
 const selectedSlug = posted ? read('productSlug') : (Astro.url.searchParams.get('san-pham') ?? '');
 const selected = catalog.find((product) => product.slug === selectedSlug) ?? null;
 const postedAddonSlugs = form ? readAddonSlugFields(form) : [];
-const queryAddonSlug = !posted
-  ? resolveAddonSlug(Astro.url.searchParams.get('ban-kem'), addons)
-  : null;
-const activeAddonSlugs = posted ? postedAddonSlugs : queryAddonSlug ? [queryAddonSlug] : [];
+const queryAddonSlugs = !posted
+  ? resolveAddonSlugs(Astro.url.searchParams.getAll('ban-kem'), addons)
+  : [];
+const activeAddonSlugs = posted ? postedAddonSlugs : queryAddonSlugs;
 const pickedAddons = findAddonsInCatalog(activeAddonSlugs, catalog);
 const queryQty = !posted ? Number(Astro.url.searchParams.get('so-luong') ?? '') : NaN;
 const defaultQty =

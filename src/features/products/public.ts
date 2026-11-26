@@ -20,6 +20,7 @@ export async function getPublicProduct(db: AppDb, slug: string) {
       status: products.status,
       seoTitle: products.seoTitle,
       metaDescription: products.metaDescription,
+      robots: products.robots,
       updatedAt: products.updatedAt,
       categorySlug: productCategories.slug,
       categoryStatus: productCategories.status,
@@ -283,11 +284,12 @@ export async function listStaffPickerProducts(
   return { products: listed, categories };
 }
 
+/** Chỉ SP bán được và robots=index — khớp PDP cho Google index. */
 export async function listSitemapProducts(db: AppDb) {
   return db
     .select({ slug: products.slug, updatedAt: products.updatedAt })
     .from(products)
     .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
-    .where(sellableProductWhere())
+    .where(and(sellableProductWhere(), eq(products.robots, 'index')))
     .orderBy(asc(products.sortOrder), asc(products.id));
 }

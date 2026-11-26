@@ -224,6 +224,8 @@ export const products = sqliteTable(
     soldBase: integer('sold_base').notNull().default(0),
     seoTitle: text('seo_title'),
     metaDescription: text('meta_description'),
+    /** SEO trang SP: index | noindex (mặc định noindex — tránh trùng nội dung). */
+    robots: text('robots').notNull().default('noindex'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
   },
@@ -233,6 +235,7 @@ export const products = sqliteTable(
     index('products_category_idx').on(table.categoryId),
     check('products_status_check', sql`${table.status} in ('active', 'inactive')`),
     check('products_audience_check', sql`${table.audience} in ('none', 'both', 'boy', 'girl')`),
+    check('products_robots_check', sql`${table.robots} in ('index', 'noindex')`),
     check('products_price_check', sql`${table.price} >= 0`),
     check('products_compare_price_check', sql`${table.comparePrice} is null or ${table.comparePrice} >= 0`),
     check('products_stock_qty_check', sql`${table.stockQty} >= 0`),

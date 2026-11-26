@@ -22,11 +22,15 @@ export const FAQ_ITEMS = [
   },
   {
     q: 'Vòng không sử dụng lâu ngày có mốc không?',
-    a: 'Dạ, có thể ạ. Vì vòng em làm không dùng hóa chất chống mốc để an toàn cho bé. Nên nếu không sử dụng để ngoài không khí nồm ẩm có thể bị mốc. Còn nếu đeo trên bé hằng ngày, có hơi người thì vòng không bao giờ mốc được ạ.',
+    a: 'Dạ, có thể ạ. Vì vòng em làm không dùng hóa chất chống mốc để an toàn cho bé. Nên nếu không sử dụng để ngoài không khí nồm ẩm có thể bị mốc (nhưng rất hiếm khi bị). Còn nếu đeo trên bé hằng ngày, có hơi người thì vòng không bao giờ mốc được ạ.',
   },
   {
     q: 'Bạc này đeo có bị đen hay không?',
     a: 'Tùy cơ địa mỗi người đeo, không khí và nguồn nước, có người sẽ bị đen, có bé bị ngả vàng có người không bị gì cả ạ. Nhưng phần lớn em thấy những người đeo vòng dâu tằm mix bạc bên em đều không bị ngả màu, chỉ có một số rất ít bé đeo là bị thôi ạ. Chỉ cần tẩy lại bằng nước tẩy bạc họ ra tiệm nhờ họ làm sáng lại là được ạ.',
+  },
+  {
+    q: 'Vòng dây co giãn xỏ bằng dây gì? Có dễ bị đứt không?',
+    a: 'Vòng dâu tằm tằm dây co giãn em xỏ bằng loại dây cước co giãn loại tốt nhất, rất là bền, không bị bài nhão khi co kéo, nên các mẹ yên tâm nha. Ngoài ra em cũng có gửi thêm dây phòng hờ để nếu các mẹ có thể xỏ lại nếu cần ạ',
   },
 ] as const;
 
