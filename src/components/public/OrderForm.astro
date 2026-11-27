@@ -13,7 +13,7 @@ import {
   type PublicAddon,
 } from '../../features/products/addons';
 import { productRequiresTagName, TAG_NAME_MAX } from '../../features/products/tag-name';
-import { applyWeightPrice, requiresWeight, weightChips, weightExtras, weightOptionLabel, type WeightScale } from '../../features/products/weight';
+import { applyWeightPrice, requiresWeight, weightChips, weightExtras, weightFieldLabel, weightOptionLabel, type WeightScale } from '../../features/products/weight';
 import DiscountCodeField from './DiscountCodeField.astro';
 import PaymentField from './PaymentField.astro';
 import WeightFitHint from './WeightFitHint.astro';
@@ -152,29 +152,33 @@ const pricingJson = JSON.stringify(comboPricing);
   {
     hasWeight && (
       <fieldset class="mt-4" data-weight-field>
-        <legend class="mb-1 font-semibold">Cân nặng của bé</legend>
-        <div class="weight-grid mt-2" role="radiogroup">
+        <legend class="mb-1 font-semibold">{weightFieldLabel(product.weightScale)}</legend>
+        <div class="weight-grid mt-2" role="radiogroup" data-scale-group={product.weightScale}>
           {chips.map((weight, index) => (
             <label class="weight-chip">
               <input type="radio" name="weight" value={weight} required={index === 0} checked={values.weight === weight} />
               <span>{weight}</span>
             </label>
           ))}
-          <button type="button" class="weight-chip weight-chip-more" data-weight-more aria-expanded={extraSelected ? 'true' : 'false'} aria-label="Cân nặng khác">
-            <span aria-hidden="true">+</span>
-          </button>
+          {extras.length > 0 && (
+            <button type="button" class="weight-chip weight-chip-more" data-weight-more aria-expanded={extraSelected ? 'true' : 'false'} aria-label="Cân nặng khác">
+              <span aria-hidden="true">+</span>
+            </button>
+          )}
         </div>
-        <div class="weight-extra mt-2" data-weight-extra hidden={!extraSelected}>
-          <label class="sr-only" for="weight-extra-select">Chọn cân nặng lớn hơn</label>
-          <select id="weight-extra-select" class="field" data-weight-extra-select>
-            <option value="">Chọn cân nặng (16kg – 70kg)</option>
-            {extras.map((weight) => (
-              <option value={weight} selected={values.weight === weight}>{weightOptionLabel(weight, product.price ?? 0)}</option>
-            ))}
-          </select>
-        </div>
+        {extras.length > 0 && (
+          <div class="weight-extra mt-2" data-weight-extra hidden={!extraSelected}>
+            <label class="sr-only" for="weight-extra-select">Chọn cân nặng lớn hơn</label>
+            <select id="weight-extra-select" class="field" data-weight-extra-select>
+              <option value="">Chọn cân nặng (16kg – 70kg)</option>
+              {extras.map((weight) => (
+                <option value={weight} selected={values.weight === weight}>{weightOptionLabel(weight, product.price ?? 0)}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <p class="weight-surcharge-note" data-weight-note hidden></p>
-        <WeightFitHint />
+        <WeightFitHint scale={product.weightScale} />
         {errors.weight && <span class="error-text">{errors.weight}</span>}
       </fieldset>
     )

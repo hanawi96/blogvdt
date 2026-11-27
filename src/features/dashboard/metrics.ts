@@ -100,6 +100,10 @@ export type ChartSeries = {
   labels: string[];
   orders: { current: number[]; previous: number[] };
   revenue: { current: number[]; previous: number[] };
+  /** Lãi ròng theo kỳ — chỉ đơn đã có đủ chi phí (cùng công thức KPI). */
+  profit: { current: number[]; previous: number[] };
+  /** Số sản phẩm đã bán (order_items + đơn legacy), cùng phạm vi KPI sold. */
+  sold: { current: number[]; previous: number[] };
   legend: { current: string; previous: string };
   grain: 'hour' | 'day';
 };
@@ -123,6 +127,8 @@ export type DashboardBreakdown = {
   provinces: DashboardRankItem[];
   sources: DashboardRankItem[];
   topProducts: DashboardTopProduct[];
+  /** Top SP bán ít nhất trong kỳ (sold > 0), cùng công thức với topProducts. */
+  leastProducts: DashboardTopProduct[];
 };
 
 export function chartEmptyHint(range: ChartRange): string {
@@ -189,9 +195,8 @@ export function describeDelta(change: number | null, invert = false): { text: st
   return { text, tone: up !== invert ? 'good' : 'bad' };
 }
 
-export function mergeTopProducts(
+function aggregateSoldProducts(
   parts: ReadonlyArray<ReadonlyArray<{ productId: number | null; sold: number }>>,
-  limit: number,
 ): { productId: number; sold: number }[] {
   const totals = new Map<number, number>();
   for (const part of parts) {
@@ -200,8 +205,24 @@ export function mergeTopProducts(
       totals.set(row.productId, (totals.get(row.productId) ?? 0) + row.sold);
     }
   }
-  return [...totals.entries()]
-    .map(([productId, sold]) => ({ productId, sold }))
+  return [...totals.entries()].map(([productId, sold]) => ({ productId, sold }));
+}
+
+export function mergeTopProducts(
+  parts: ReadonlyArray<ReadonlyArray<{ productId: number | null; sold: number }>>,
+  limit: number,
+): { productId: number; sold: number }[] {
+  return aggregateSoldProducts(parts)
     .sort((a, b) => b.sold - a.sold || a.productId - b.productId)
+    .slice(0, limit);
+}
+
+/** Top SP bán ít nhất (sold > 0), hòa thì id nhỏ trước. */
+export function mergeLeastProducts(
+  parts: ReadonlyArray<ReadonlyArray<{ productId: number | null; sold: number }>>,
+  limit: number,
+): { productId: number; sold: number }[] {
+  return aggregateSoldProducts(parts)
+    .sort((a, b) => a.sold - b.sold || a.productId - b.productId)
     .slice(0, limit);
 }

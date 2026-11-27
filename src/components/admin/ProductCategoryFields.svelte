@@ -50,7 +50,6 @@
 {#if shownErrors.form}<p class="error-text mt-2" role="alert">{shownErrors.form}</p>{/if}
 {#key version}
   {#if current.id}<input type="hidden" name="id" value={current.id} />{/if}
-  <input type="hidden" name="weightScale" value={current.weightScale} />
   <div class="mt-4">
     <SlugField
       label="Tên"
@@ -69,6 +68,23 @@
     <textarea class="field min-h-24" name="description" maxlength="300" value={current.description}></textarea>
     {#if shownErrors.description}<span class="error-text">{shownErrors.description}</span>{/if}
   </label>
+  <fieldset class="mt-4">
+    <legend class="mb-1 font-semibold">Thang cân nặng khi đặt hàng</legend>
+    <div class="mt-2 flex flex-col gap-2 text-sm">
+      <label class="inline-flex items-center gap-2">
+        <input type="radio" name="weightScale" value="baby" checked={current.weightScale === 'baby'} />
+        Vòng bé (3–15kg + cân nặng khác)
+      </label>
+      <label class="inline-flex items-center gap-2">
+        <input type="radio" name="weightScale" value="adult" checked={current.weightScale === 'adult'} />
+        Vòng người lớn (40–80kg, mỗi mốc 5kg)
+      </label>
+      <label class="inline-flex items-center gap-2">
+        <input type="radio" name="weightScale" value="none" checked={current.weightScale === 'none'} />
+        Không cần chọn cân nặng
+      </label>
+    </div>
+  </fieldset>
   <fieldset class="mt-4">
     <legend class="mb-1 font-semibold">Ảnh danh mục</legend>
     <MediaPicker {csrf} items={library} name="coverMediaId" selected={current.coverMediaId ? [current.coverMediaId] : []} />

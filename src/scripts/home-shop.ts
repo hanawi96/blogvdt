@@ -3,7 +3,7 @@ import { CART_MAX_QUANTITY } from '../features/cart/cart';
 import { audienceCardLabel } from '../features/products/audience';
 import { cordCardLabel } from '../features/products/cord';
 import { productRequiresTagName, TAG_NAME_MAX } from '../features/products/tag-name';
-import { WEIGHT_SCALES, type WeightScale } from '../features/products/weight';
+import { WEIGHT_SCALES, weightFieldLabel, type WeightScale } from '../features/products/weight';
 import { INSPECT_GOODS_LABEL } from '../features/products/inspect-goods';
 import { FREE_SHIP_WITH_ADDON_LABEL, type ProductShipBadge } from '../features/shipping/customer-fee';
 
@@ -151,10 +151,11 @@ function boot() {
           <input type="hidden" name="price" value="${product.price}" />
           <button class="btn home-shop-cart" type="submit">${plusIcon} Thêm giỏ</button>
         </form>`;
+    const scale = product.weightScale in WEIGHT_SCALES ? (product.weightScale as WeightScale) : 'baby';
     const weightField = needsWeight
       ? `<fieldset class="mt-3" data-weight-field data-base-price="${product.price}">
-            <legend class="text-sm font-semibold">Cân nặng của bé</legend>
-            <div class="weight-grid mt-2" role="radiogroup">
+            <legend class="text-sm font-semibold">${escapeHtml(weightFieldLabel(scale))}</legend>
+            <div class="weight-grid mt-2" role="radiogroup" data-scale-group="${escapeHtml(scale)}">
               ${weights
                 .map(
                   (weight, index) =>

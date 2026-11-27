@@ -23,6 +23,8 @@ describe('danh mục sản phẩm', () => {
     const badScale = readProductCategory({ name: 'Vòng charm', slug: 'vong-charm', description: '', coverMediaId: '', weightScale: 'teen' });
     expect(badScale.ok).toBe(false);
     if (!badScale.ok) expect(badScale.error).toBe('Thang cân nặng không hợp lệ.');
+    const adult = readProductCategory({ name: 'Vòng người lớn', slug: 'vong-nguoi-lon', description: '', coverMediaId: '', weightScale: 'adult' });
+    expect(adult.ok && adult.value.weightScale).toBe('adult');
   });
 
   it('chỉ xóa danh mục không còn sản phẩm', () => {

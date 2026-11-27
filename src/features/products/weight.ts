@@ -7,10 +7,23 @@ export const WEIGHT_UNBORN_LABEL = 'Chưa sinh';
 /** Cân nặng thực lưu khi chọn «Chưa sinh» (bé mới sinh ~3kg). */
 export const WEIGHT_UNBORN_STORED = '3kg';
 
-// Mốc chip bấm nhanh (tới 15kg). WEIGHT_SCALES giữ nguyên các nơi render chip sẵn có.
+// Khoảng cân người lớn: mỗi mốc 5kg, từ 40–45 đến 75–80. Không phụ thu (nhãn khoảng ≠ "Nkg").
+const ADULT_WEIGHT_CHIPS = [
+  '40kg - 45kg',
+  '45kg - 50kg',
+  '50kg - 55kg',
+  '55kg - 60kg',
+  '60kg - 65kg',
+  '65kg - 70kg',
+  '70kg - 75kg',
+  '75kg - 80kg',
+] as const;
+
+// Mốc chip bấm nhanh. Thêm thang mới chỉ cần bổ sung vào đây; UI/giỏ/đơn tự dùng.
 export const WEIGHT_SCALES = {
   none: [],
   baby: [WEIGHT_UNBORN_LABEL, '3kg', '4kg', '5kg', '6kg', '7kg', '8kg', '9kg', '10kg', '11kg', '12kg', '13kg', '14kg', '15kg'],
+  adult: ADULT_WEIGHT_CHIPS,
 } as const;
 
 // Mốc cân nặng lớn nằm trong dropdown "Cân nặng khác" (16kg…70kg). Vòng to hơn nên cộng phụ thu nguyên liệu.
@@ -52,9 +65,26 @@ export function weightChips(scale: WeightScale): readonly string[] {
   return WEIGHT_SCALES[scale];
 }
 
-/** Mốc cân nặng lớn cho dropdown "Cân nặng khác" (16kg…70kg). */
+/** Mốc cân nặng lớn cho dropdown "Cân nặng khác" (16kg…70kg). Chỉ thang baby. */
 export function weightExtras(scale: WeightScale): readonly string[] {
   return scale === 'baby' ? BABY_EXTRAS : [];
+}
+
+/** Nhãn fieldset chọn cân nặng theo thang danh mục. */
+export function weightFieldLabel(scale: WeightScale): string {
+  return scale === 'adult' ? 'Cân nặng của bạn' : 'Cân nặng của bé';
+}
+
+/** Thông báo khi thiếu cân nặng (validate server/client). */
+export function weightRequiredMessage(scale: WeightScale): string {
+  return scale === 'adult' ? 'Chọn cân nặng.' : 'Chọn cân nặng cho bé.';
+}
+
+/** Gợi ý dưới lưới chip — khác nhau cho bé và người lớn. */
+export function weightFitHintText(scale: WeightScale): string {
+  return scale === 'adult'
+    ? 'Chọn đúng khoảng cân nặng nha, vòng đã được làm trừ hao để đeo rộng rãi, lâu dài'
+    : 'Các mẹ chọn đúng cân nặng bé nha, vòng đã được làm trừ hao để bé đeo rộng rãi, lâu dài';
 }
 
 /**

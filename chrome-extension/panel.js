@@ -2519,7 +2519,7 @@
     const note = els.note instanceof HTMLInputElement ? els.note.value.trim().slice(0, 160) : '';
     const weight = String(customDraft.weight || '').trim();
     if (needsWeight(customDraft.product) && !weight) {
-      setCustomError('Chọn cân nặng cho bé.');
+      setCustomError('Chọn cân nặng.');
       return false;
     }
     addCustomToCart(

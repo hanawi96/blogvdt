@@ -35,14 +35,17 @@
   const innerW = $derived(width - pad.left - pad.right);
   const innerH = height - pad.top - pad.bottom;
 
-  const maxY = $derived(Math.max(1, ...current, ...previous));
+  // Trục Y gồm 0 và biên âm/dương — lợi nhuận có thể âm.
+  const yMax = $derived(Math.max(0, ...current, ...previous, 1));
+  const yMin = $derived(Math.min(0, ...current, ...previous));
+  const ySpan = $derived(Math.max(1, yMax - yMin));
   const points = $derived.by(() => {
     const n = Math.max(labels.length, 1);
     const step = n <= 1 ? 0 : innerW / (n - 1);
     const map = (values: number[]) =>
       values.map((value, index) => {
         const x = pad.left + index * step;
-        const y = pad.top + innerH - (value / maxY) * innerH;
+        const y = pad.top + innerH - ((value - yMin) / ySpan) * innerH;
         return { x, y, value };
       });
     return { current: map(current), previous: map(previous), step };
@@ -69,11 +72,13 @@
 
   function axisLabel(value: number): string {
     if (unit === 'count') return String(Math.round(value));
-    if (value >= 1_000_000) {
-      const tr = value / 1_000_000;
-      return `${Number.isInteger(tr) ? tr : tr.toFixed(1)}tr`;
+    const sign = value < 0 ? '−' : '';
+    const abs = Math.abs(value);
+    if (abs >= 1_000_000) {
+      const tr = abs / 1_000_000;
+      return `${sign}${Number.isInteger(tr) ? tr : tr.toFixed(1)}tr`;
     }
-    if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
+    if (abs >= 1_000) return `${sign}${Math.round(abs / 1_000)}k`;
     return String(Math.round(value));
   }
 
@@ -82,10 +87,13 @@
   }
 
   const grid = $derived(
-    [0, 0.5, 1].map((t) => ({
-      y: pad.top + innerH * (1 - t),
-      label: axisLabel(maxY * t),
-    })),
+    [0, 0.5, 1].map((t) => {
+      const value = yMin + ySpan * t;
+      return {
+        y: pad.top + innerH - ((value - yMin) / ySpan) * innerH,
+        label: axisLabel(value),
+      };
+    }),
   );
 
   const tipW = $derived(unit === 'money' ? 148 : 118);

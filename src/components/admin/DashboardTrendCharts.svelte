@@ -22,16 +22,36 @@
   let { kpis, charts, breakdowns }: Props = $props();
 
   let range = $state<ChartRange>(DEFAULT_CHART_RANGE);
+  let volumeTab = $state<'orders' | 'sold'>('orders');
+  let moneyTab = $state<'revenue' | 'profit'>('revenue');
 
   const kpi = $derived(kpis[range]);
   const active = $derived(charts[range]);
   const breakdown = $derived(breakdowns[range]);
   const emptyHint = $derived(chartEmptyHint(range));
   const title = $derived(kpiTitle(range));
-  const ordersTitle = $derived(active.grain === 'hour' ? 'Đơn hàng theo giờ' : 'Đơn hàng theo ngày');
-  const revenueTitle = $derived(active.grain === 'hour' ? 'Doanh thu theo giờ' : 'Doanh thu theo ngày');
-  const ordersLabel = $derived(`${ordersTitle}: ${active.legend.current} so với ${active.legend.previous}`);
-  const revenueLabel = $derived(`${revenueTitle}: ${active.legend.current} so với ${active.legend.previous}`);
+  const volumeTitle = $derived(
+    volumeTab === 'orders'
+      ? active.grain === 'hour'
+        ? 'Đơn hàng theo giờ'
+        : 'Đơn hàng theo ngày'
+      : active.grain === 'hour'
+        ? 'Sản phẩm đã bán theo giờ'
+        : 'Sản phẩm đã bán theo ngày',
+  );
+  const volumeSeries = $derived(volumeTab === 'orders' ? active.orders : active.sold);
+  const moneyTitle = $derived(
+    moneyTab === 'revenue'
+      ? active.grain === 'hour'
+        ? 'Doanh thu theo giờ'
+        : 'Doanh thu theo ngày'
+      : active.grain === 'hour'
+        ? 'Lợi nhuận theo giờ'
+        : 'Lợi nhuận theo ngày',
+  );
+  const moneySeries = $derived(moneyTab === 'revenue' ? active.revenue : active.profit);
+  const volumeLabel = $derived(`${volumeTitle}: ${active.legend.current} so với ${active.legend.previous}`);
+  const moneyLabel = $derived(`${moneyTitle}: ${active.legend.current} so với ${active.legend.previous}`);
   const profitDelta = $derived(
     kpi.costedOrders < kpi.orders
       ? `Trên ${kpi.costedOrders}/${kpi.orders} đơn có chi phí`
@@ -41,6 +61,7 @@
   const provinceMax = $derived(Math.max(1, ...breakdown.provinces.map((item) => item.orders)));
   const sourceMax = $derived(Math.max(1, ...breakdown.sources.map((item) => item.orders)));
   const topMax = $derived(Math.max(1, ...breakdown.topProducts.map((item) => item.sold)));
+  const leastMax = $derived(Math.max(1, ...breakdown.leastProducts.map((item) => item.sold)));
 
   function barWidth(value: number, max: number): string {
     return `${Math.max(4, Math.round((value / max) * 100))}%`;
@@ -90,33 +111,89 @@
   </section>
 
   <div class="dash-split">
-    <section class="dash-card" aria-labelledby="dash-chart-orders">
+    <section class="dash-card" aria-labelledby="dash-chart-volume">
       <div class="dash-card-head">
-        <h2 id="dash-chart-orders">{ordersTitle}</h2>
+        <h2 id="dash-chart-volume" class="sr-only">{volumeTitle}</h2>
+        <div class="dash-periods" role="tablist" aria-label="Đơn hàng hoặc sản phẩm đã bán">
+          <button
+            type="button"
+            class="chip"
+            role="tab"
+            aria-selected={volumeTab === 'orders'}
+            aria-current={volumeTab === 'orders' ? 'true' : undefined}
+            aria-controls="dash-volume-panel"
+            id="dash-tab-orders"
+            onclick={() => (volumeTab = 'orders')}
+          >
+            Đơn hàng
+          </button>
+          <button
+            type="button"
+            class="chip"
+            role="tab"
+            aria-selected={volumeTab === 'sold'}
+            aria-current={volumeTab === 'sold' ? 'true' : undefined}
+            aria-controls="dash-volume-panel"
+            id="dash-tab-sold"
+            onclick={() => (volumeTab = 'sold')}
+          >
+            Sản phẩm đã bán
+          </button>
+        </div>
       </div>
-      <OrdersTrendChart
-        labels={active.labels}
-        current={active.orders.current}
-        previous={active.orders.previous}
-        unit="count"
-        label={ordersLabel}
-        legendCurrent={active.legend.current}
-        legendPrevious={active.legend.previous}
-      />
+      <div id="dash-volume-panel" role="tabpanel" aria-labelledby={volumeTab === 'orders' ? 'dash-tab-orders' : 'dash-tab-sold'}>
+        <OrdersTrendChart
+          labels={active.labels}
+          current={volumeSeries.current}
+          previous={volumeSeries.previous}
+          unit="count"
+          label={volumeLabel}
+          legendCurrent={active.legend.current}
+          legendPrevious={active.legend.previous}
+        />
+      </div>
     </section>
-    <section class="dash-card" aria-labelledby="dash-chart-revenue">
+    <section class="dash-card" aria-labelledby="dash-chart-money">
       <div class="dash-card-head">
-        <h2 id="dash-chart-revenue">{revenueTitle}</h2>
+        <h2 id="dash-chart-money" class="sr-only">{moneyTitle}</h2>
+        <div class="dash-periods" role="tablist" aria-label="Doanh thu hoặc lợi nhuận">
+          <button
+            type="button"
+            class="chip"
+            role="tab"
+            aria-selected={moneyTab === 'revenue'}
+            aria-current={moneyTab === 'revenue' ? 'true' : undefined}
+            aria-controls="dash-money-panel"
+            id="dash-tab-revenue"
+            onclick={() => (moneyTab = 'revenue')}
+          >
+            Doanh thu
+          </button>
+          <button
+            type="button"
+            class="chip"
+            role="tab"
+            aria-selected={moneyTab === 'profit'}
+            aria-current={moneyTab === 'profit' ? 'true' : undefined}
+            aria-controls="dash-money-panel"
+            id="dash-tab-profit"
+            onclick={() => (moneyTab = 'profit')}
+          >
+            Lợi nhuận
+          </button>
+        </div>
       </div>
-      <OrdersTrendChart
-        labels={active.labels}
-        current={active.revenue.current}
-        previous={active.revenue.previous}
-        unit="money"
-        label={revenueLabel}
-        legendCurrent={active.legend.current}
-        legendPrevious={active.legend.previous}
-      />
+      <div id="dash-money-panel" role="tabpanel" aria-labelledby={moneyTab === 'revenue' ? 'dash-tab-revenue' : 'dash-tab-profit'}>
+        <OrdersTrendChart
+          labels={active.labels}
+          current={moneySeries.current}
+          previous={moneySeries.previous}
+          unit="money"
+          label={moneyLabel}
+          legendCurrent={active.legend.current}
+          legendPrevious={active.legend.previous}
+        />
+      </div>
     </section>
   </div>
 
@@ -164,42 +241,92 @@
     </section>
   </div>
 
-  <section class="dash-card" aria-labelledby="dash-top-title">
+  <section class="dash-card" aria-labelledby="dash-products-title">
     <div class="dash-card-head">
-      <h2 id="dash-top-title">Top 10 sản phẩm bán chạy</h2>
+      <h2 id="dash-products-title">Sản phẩm theo số lượng bán</h2>
       <a href={routes.adminProducts}>Sản phẩm</a>
     </div>
-    {#if breakdown.topProducts.length === 0}
+    {#if breakdown.topProducts.length === 0 && breakdown.leastProducts.length === 0}
       <p class="text-muted">{emptyHint}</p>
     {:else}
-      <ol class="dash-rank dash-top-products">
-        {#each breakdown.topProducts as item}
-          <li>
-            <div class="dash-rank-row dash-top-row">
-              <a class="dash-top-product" href={routes.adminProduct(item.productId)}>
-                {#if item.imageUrl}
-                  <img
-                    class="product-thumb"
-                    src={item.imageUrl}
-                    alt={item.imageAlt}
-                    width="44"
-                    height="44"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                {:else}
-                  <span class="product-thumb is-empty" aria-hidden="true"></span>
-                {/if}
-                <span class="dash-rank-name">{item.name}</span>
-              </a>
-              <strong class="dash-rank-meta">{item.sold} chiếc</strong>
-            </div>
-            <div class="dash-bar" aria-hidden="true">
-              <span style={`width: ${barWidth(item.sold, topMax)}`}></span>
-            </div>
-          </li>
-        {/each}
-      </ol>
+      <div class="dash-products-split">
+        <div class="dash-products-col" aria-labelledby="dash-top-title">
+          <div class="dash-products-col-head">
+            <h3 id="dash-top-title">Top 10 bán chạy</h3>
+            <span class="dash-products-col-hint">Nhiều → ít</span>
+          </div>
+          {#if breakdown.topProducts.length === 0}
+            <p class="text-muted">{emptyHint}</p>
+          {:else}
+            <ol class="dash-rank dash-top-products">
+              {#each breakdown.topProducts as item}
+                <li>
+                  <div class="dash-rank-row dash-top-row">
+                    <a class="dash-top-product" href={routes.adminProduct(item.productId)}>
+                      {#if item.imageUrl}
+                        <img
+                          class="product-thumb"
+                          src={item.imageUrl}
+                          alt={item.imageAlt}
+                          width="44"
+                          height="44"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      {:else}
+                        <span class="product-thumb is-empty" aria-hidden="true"></span>
+                      {/if}
+                      <span class="dash-rank-name">{item.name}</span>
+                    </a>
+                    <strong class="dash-rank-meta">{item.sold} chiếc</strong>
+                  </div>
+                  <div class="dash-bar" aria-hidden="true">
+                    <span style={`width: ${barWidth(item.sold, topMax)}`}></span>
+                  </div>
+                </li>
+              {/each}
+            </ol>
+          {/if}
+        </div>
+        <div class="dash-products-col" aria-labelledby="dash-least-title">
+          <div class="dash-products-col-head">
+            <h3 id="dash-least-title">Top 10 bán ít nhất</h3>
+            <span class="dash-products-col-hint">Ít → nhiều</span>
+          </div>
+          {#if breakdown.leastProducts.length === 0}
+            <p class="text-muted">{emptyHint}</p>
+          {:else}
+            <ol class="dash-rank dash-top-products">
+              {#each breakdown.leastProducts as item}
+                <li>
+                  <div class="dash-rank-row dash-top-row">
+                    <a class="dash-top-product" href={routes.adminProduct(item.productId)}>
+                      {#if item.imageUrl}
+                        <img
+                          class="product-thumb"
+                          src={item.imageUrl}
+                          alt={item.imageAlt}
+                          width="44"
+                          height="44"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      {:else}
+                        <span class="product-thumb is-empty" aria-hidden="true"></span>
+                      {/if}
+                      <span class="dash-rank-name">{item.name}</span>
+                    </a>
+                    <strong class="dash-rank-meta">{item.sold} chiếc</strong>
+                  </div>
+                  <div class="dash-bar" aria-hidden="true">
+                    <span class="is-least" style={`width: ${barWidth(item.sold, leastMax)}`}></span>
+                  </div>
+                </li>
+              {/each}
+            </ol>
+          {/if}
+        </div>
+      </div>
     {/if}
   </section>
 </div>

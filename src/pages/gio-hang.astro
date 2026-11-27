@@ -26,7 +26,7 @@ import {
 } from '../features/products/addons';
 import { listOrderCatalog } from '../features/products/public';
 import { productRequiresTagName, TAG_NAME_MAX } from '../features/products/tag-name';
-import { applyWeightPrice, isValidWeight, requiresWeight, weightSurchargeLabel } from '../features/products/weight';
+import { applyWeightPrice, isValidWeight, requiresWeight, weightRequiredMessage, weightSurchargeLabel } from '../features/products/weight';
 import { getPublicSite } from '../features/settings/settings';
 import { baseCustomerShippingFee, resolveCustomerShippingFee, shipGroupOf } from '../features/shipping/customer-fee';
 import PublicLayout from '../layouts/PublicLayout.astro';
@@ -89,7 +89,7 @@ if (Astro.request.method === 'POST') {
     const pickedAddons = findAddonsInCatalog(addonRaws, loaded.catalog);
     if (!added.ok) formError = added.error;
     else if (!product) formError = 'Sản phẩm không còn bán.';
-    else if (requiresWeight(product.weightScale) && !read('weight').trim()) formError = 'Chọn cân nặng cho bé.';
+    else if (requiresWeight(product.weightScale) && !read('weight').trim()) formError = weightRequiredMessage(product.weightScale);
     else if (!isValidWeight(product.weightScale, read('weight'))) formError = 'Cân nặng không hợp lệ.';
     else if (productRequiresTagName(product.name) && !tagName) formError = 'Nhập tên cần in lên thẻ.';
     else if (productRequiresTagName(product.name) && tagName.length > TAG_NAME_MAX) formError = `Tên in thẻ tối đa ${TAG_NAME_MAX} ký tự.`;

@@ -1,13 +1,24 @@
 import { plainMetaText, type MetaCorpus } from '../../lib/seo/meta';
-import { headingStructureIssues, type HeadingIssueCode } from './heading-audit';
+import {
+  lengthNote,
+  metaDuplicateNote,
+  MIN_CONTENT_WORDS,
+  SEO_DESC_RANGE,
+  SEO_TITLE_RANGE,
+} from '../seo/meta-rules';
+import { HEADING_ISSUE_DETAIL, HEALTH_ISSUE } from '../seo/messages';
+import { headingStructureIssues } from './heading-audit';
 import { isInternalHref, type PostLinkIssue } from './links';
 import { countWords } from './reading-stats';
 import { SLUG_PATTERN } from './slug';
 
-export const SEO_TITLE_RANGE = { min: 30, max: 60 };
-export const SEO_DESC_RANGE = { min: 70, max: 160 };
-/** Dưới mức này coi là bài mỏng, gợi ý viết thêm (không chặn). */
-export const MIN_CONTENT_WORDS = 150;
+export {
+  lengthNote,
+  metaDuplicateNote,
+  MIN_CONTENT_WORDS,
+  SEO_DESC_RANGE,
+  SEO_TITLE_RANGE,
+} from '../seo/meta-rules';
 
 export type SeoCheckState = 'pass' | 'improve' | 'error' | 'na';
 export type SlugCheck = 'empty' | 'invalid' | 'checking' | 'taken' | 'free';
@@ -48,13 +59,6 @@ type JsonNode = {
   content?: JsonNode[];
   marks?: { type?: string; attrs?: { href?: unknown } }[];
 };
-
-export function lengthNote(length: number, min: number, max: number): string {
-  if (length === 0) return '';
-  if (length < min) return `Hơi ngắn. Mức tham khảo khoảng ${min}–${max} ký tự.`;
-  if (length > max) return `Hơi dài. Mức tham khảo khoảng ${min}–${max} ký tự.`;
-  return '';
-}
 
 export type SeoCheckSummary = { error: number; improve: number; pass: number; na: number };
 
@@ -128,21 +132,6 @@ function seoTitleItem(title: string, seoTitle: string, headline: string): SeoChe
   return item('seo-title', 'SEO title', 'Độ dài nằm trong mức tham khảo.', 'pass', '');
 }
 
-export function metaDuplicateNote(headline: string, description: string, corpus?: MetaCorpus): string {
-  const title = plainMetaText(headline);
-  const desc = plainMetaText(description);
-  if (title && desc && title.toLocaleLowerCase('vi') === desc.toLocaleLowerCase('vi')) return 'Tiêu đề và mô tả đang giống nhau.';
-  const titleKey = title.toLocaleLowerCase('vi');
-  const descKey = desc.toLocaleLowerCase('vi');
-  if (titleKey && (corpus?.titles ?? []).some((item) => plainMetaText(item).toLocaleLowerCase('vi') === titleKey)) {
-    return 'Tiêu đề này đã được dùng ở một trang khác.';
-  }
-  if (descKey && (corpus?.descriptions ?? []).some((item) => plainMetaText(item).toLocaleLowerCase('vi') === descKey)) {
-    return 'Mô tả này đã được dùng ở một trang khác.';
-  }
-  return '';
-}
-
 function duplicateItem(headline: string, description: string, corpus?: MetaCorpus): SeoCheck {
   if (!plainMetaText(headline) && !plainMetaText(description)) {
     return item('duplicate', 'Trùng lặp', 'Chưa có tiêu đề hoặc mô tả để so sánh.', 'na', '');
@@ -163,7 +152,7 @@ function descriptionItem(description: string): SeoCheck {
 }
 
 function coverItem(hasCover: boolean): SeoCheck {
-  if (!hasCover) return item('cover', 'Ảnh đại diện', 'Nên thêm ảnh đại diện.', 'improve', '.cover-drop');
+  if (!hasCover) return item('cover', 'Ảnh đại diện', HEALTH_ISSUE.coverMissing, 'improve', '.cover-drop');
   return item('cover', 'Ảnh đại diện', 'Đã có ảnh đại diện.', 'pass', '');
 }
 
@@ -179,18 +168,12 @@ function imageItem(content: ContentFacts | null, hasCover: boolean, coverAlt: st
   return item('alt', 'Mô tả ảnh', 'Ảnh đã có mô tả.', 'pass', '');
 }
 
-const HEADING_CHECK_MESSAGES: Record<HeadingIssueCode, string> = {
-  'empty-heading': 'Có tiêu đề trống.',
-  'jump-before-h2': 'Tiêu đề 3 nên đứng sau một tiêu đề 2.',
-  'long-without-h2': 'Bài dài nên chia bằng tiêu đề 2.',
-};
-
 function headingItem(content: ContentFacts | null): SeoCheck {
   if (!content || content.text.trim().length === 0) {
     return item('headings', 'Tiêu đề trong bài', 'Chưa có nội dung để kiểm tra.', 'na', '');
   }
   const issues = headingStructureIssues(content.headings, countWords(content.text));
-  if (issues.length > 0) return item('headings', 'Tiêu đề trong bài', HEADING_CHECK_MESSAGES[issues[0]!], 'improve', '.ProseMirror');
+  if (issues.length > 0) return item('headings', 'Tiêu đề trong bài', HEADING_ISSUE_DETAIL[issues[0]!], 'improve', '.ProseMirror');
   return item('headings', 'Tiêu đề trong bài', 'Cấu trúc tiêu đề ổn.', 'pass', '');
 }
 

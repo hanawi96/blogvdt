@@ -1,6 +1,6 @@
 import { CART_MAX_LINES, cartSummary } from '../cart/cart';
 import { vnTodayStartMs } from '../../lib/datetime';
-import { requiresWeight, type WeightScale } from '../products/weight';
+import { requiresWeight, weightRequiredMessage, type WeightScale } from '../products/weight';
 import type { FieldErrors } from '../../lib/validation/errors';
 import { DEFAULT_PAYMENT_METHOD, isPaymentMethod, paymentLabel, type PaymentMethod } from './payment';
 import { ORDER_MAX_QUANTITY, orderOptionLabel, readCustomer } from './order';
@@ -206,7 +206,7 @@ export function priceStaffLines(
     const product = catalog.find((item) => item.id === productId);
     if (!product) return lineError(index, 'Chọn sản phẩm đang bán.');
     // Đơn nội bộ cho phép cân tùy chỉnh qua "Thêm cân"; thang none thì không nhận cân.
-    if (requiresWeight(product.weightScale) && !weight) return lineError(index, 'Chọn cân nặng cho bé.');
+    if (requiresWeight(product.weightScale) && !weight) return lineError(index, weightRequiredMessage(product.weightScale));
     if (!requiresWeight(product.weightScale) && weight) return lineError(index, 'Cân nặng không hợp lệ.');
     const named = readLineName(input.name, product.name);
     if (!named.ok) return lineError(index, named.error);

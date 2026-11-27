@@ -1,27 +1,57 @@
-import { canonicalUrl, plainMetaText, type MetaCorpus } from '../../lib/seo/meta';
-import { routes } from '../../lib/routes';
+import { canonicalUrl, type MetaCorpus } from '../../lib/seo/meta';
 import { isMediaSrc } from '../posts/content';
+import { headingStructureIssues, type HeadingInfo } from '../posts/heading-audit';
 import type { PostLinkIssue } from '../posts/links';
-import { metaDuplicateNote } from '../posts/seo-check';
-import { SLUG_PATTERN } from '../posts/slug';
+import { countWords } from '../posts/reading-stats';
+import {
+  HEALTH_CODE_LABELS,
+  HEALTH_CODES,
+  isHealthCode,
+  type HealthCode,
+  type HealthPhase,
+  type HealthSeverity,
+} from './codes';
+import {
+  isKnowledgePathBlocked,
+  knowledgePathIfValid,
+  lengthNote,
+  metaDuplicateNote,
+  MIN_CONTENT_WORDS,
+  resolvePostMeta,
+  SEO_DESC_RANGE,
+  SEO_TITLE_RANGE,
+} from './meta-rules';
 
-export const HEALTH_CODES = ['title', 'description', 'duplicate', 'slug', 'canonical', 'image', 'alt', 'link', 'inbound', 'sitemap'] as const;
-export type HealthCode = (typeof HEALTH_CODES)[number];
-export type HealthSeverity = 'error' | 'warning';
-export type HealthPhase = 'posts' | 'links' | 'inbound' | 'done';
+export {
+  HEALTH_CODE_LABELS,
+  HEALTH_CODES,
+  isHealthCode,
+  isHealthPhase,
+  type HealthCode,
+  type HealthPhase,
+  type HealthSeverity,
+} from './codes';
 
-export const HEALTH_CODE_LABELS: Record<HealthCode, string> = {
-  title: 'SEO title',
-  description: 'Mô tả',
-  duplicate: 'Trùng lặp',
-  slug: 'Slug',
-  canonical: 'Canonical',
-  image: 'Ảnh',
-  alt: 'ALT',
-  link: 'Liên kết nội bộ',
-  inbound: 'Bài trỏ tới',
-  sitemap: 'Sitemap',
-};
+export { HEALTH_LOAD_ERROR, HEALTH_RUN_ERROR } from './messages';
+import {
+  HEADING_ISSUE_DETAIL,
+  HEALTH_CONTENT_IMAGE_FALLBACK,
+  HEALTH_COVER_LABEL,
+  HEALTH_ISSUE,
+  HEALTH_LOAD_ERROR,
+  HEALTH_SITE_TITLE,
+  healthBrokenImagesDetail,
+  healthEmptyAltDetail,
+  healthInboundDetail,
+  healthLinkMissingDetail,
+  healthLinkRedirectDetail,
+  healthLinkUnpublishedDetail,
+  healthNoteDone,
+  healthNoteDoneEmpty,
+  healthNoteInProgress,
+  healthNoteNever,
+  healthThinContentDetail,
+} from './messages';
 
 export const HEALTH_BATCH = 12;
 export const INBOUND_BATCH = 40;
@@ -29,9 +59,6 @@ export const HEALTH_PAGE_SIZE = 20;
 export const HEALTH_BUDGET_MS = 1200;
 export const HEALTH_MAX_STEPS = 6;
 const IMAGE_CAP = 30;
-
-export const HEALTH_LOAD_ERROR = 'Không tải được kết quả kiểm tra.';
-export const HEALTH_RUN_ERROR = 'Mất kết nối khi kiểm tra. Kết quả đã lưu vẫn giữ nguyên.';
 
 export type HealthDraft = {
   postId: number | null;
@@ -65,6 +92,8 @@ export type HealthPost = {
   images: HealthImage[];
   imagesTruncated: boolean;
   readable: boolean;
+  wordCount: number;
+  headings: HeadingInfo[];
   filesReady: boolean;
   linkIssues: PostLinkIssue[];
   linkTruncated: boolean;
@@ -79,14 +108,6 @@ export type HealthFilters = {
   postId: number | null;
   page: number;
 };
-
-export function isHealthCode(value: string | null): value is HealthCode {
-  return HEALTH_CODES.some((code) => code === value);
-}
-
-export function isHealthPhase(value: string): value is HealthPhase {
-  return value === 'posts' || value === 'links' || value === 'inbound' || value === 'done';
-}
 
 export function readHealthFilters(params: URLSearchParams): HealthFilters {
   const severity = params.get('severity');
@@ -113,110 +134,156 @@ export function shouldContinue(startedAt: number, now: number, steps: number): b
   return steps < HEALTH_MAX_STEPS && now - startedAt < HEALTH_BUDGET_MS;
 }
 
-export function collectContentImages(raw: string): { images: { src: string; alt: string }[]; truncated: boolean; readable: boolean } {
+export function collectContentImages(raw: string): {
+  images: { src: string; alt: string }[];
+  truncated: boolean;
+  readable: boolean;
+  wordCount: number;
+  headings: HeadingInfo[];
+} {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { images: [], truncated: false, readable: false };
+    return { images: [], truncated: false, readable: false, wordCount: 0, headings: [] };
   }
-  if (!parsed || typeof parsed !== 'object') return { images: [], truncated: false, readable: false };
+  if (!parsed || typeof parsed !== 'object') {
+    return { images: [], truncated: false, readable: false, wordCount: 0, headings: [] };
+  }
   const images: { src: string; alt: string }[] = [];
+  const headings: HeadingInfo[] = [];
+  let text = '';
   let truncated = false;
   walk(parsed);
-  return { images, truncated, readable: true };
+  return { images, truncated, readable: true, wordCount: countWords(text), headings };
 
   function walk(node: unknown): void {
-    if (truncated || !node || typeof node !== 'object') return;
-    const current = node as { type?: unknown; attrs?: { src?: unknown; alt?: unknown }; content?: unknown[] };
+    if (!node || typeof node !== 'object') return;
+    const current = node as {
+      type?: unknown;
+      text?: unknown;
+      attrs?: { src?: unknown; alt?: unknown; level?: unknown };
+      content?: unknown[];
+    };
+    if (current.type === 'heading') {
+      headings.push({ level: current.attrs?.level === 3 ? 3 : 2, text: headingText(current) });
+    }
+    if (current.type === 'text' && typeof current.text === 'string') text += current.text;
     if (current.type === 'image' && typeof current.attrs?.src === 'string') {
-      if (images.length >= IMAGE_CAP) {
-        truncated = true;
-        return;
-      }
-      images.push({ src: current.attrs.src, alt: typeof current.attrs.alt === 'string' ? current.attrs.alt : '' });
+      if (images.length >= IMAGE_CAP) truncated = true;
+      else images.push({ src: current.attrs.src, alt: typeof current.attrs.alt === 'string' ? current.attrs.alt : '' });
     }
     for (const child of current.content ?? []) walk(child);
   }
 }
 
+function headingText(node: { text?: unknown; content?: unknown[] }): string {
+  const own = typeof node.text === 'string' ? node.text : '';
+  const children = (node.content ?? []).map((child) => (child && typeof child === 'object' ? headingText(child as { text?: unknown; content?: unknown[] }) : '')).join('');
+  return `${own}${children}`.replace(/\s+/g, ' ').trim();
+}
+
 export function sitemapDecision(input: { status: string; slug: string; origin: string; blocked: ReadonlySet<string> }): { included: boolean } {
-  if (input.status !== 'published' || !SLUG_PATTERN.test(input.slug)) return { included: false };
-  const path = routes.knowledge(input.slug);
-  if (input.blocked.has(path)) return { included: false };
+  if (input.status !== 'published') return { included: false };
+  const path = knowledgePathIfValid(input.slug);
+  if (!path || isKnowledgePathBlocked(path, input.blocked)) return { included: false };
   return { included: canonicalUrl(input.origin, path).length > 0 };
 }
 
 export function siteHealthIssues(input: { origin: string; filesReady: boolean }): HealthDraft[] {
   const issues: HealthDraft[] = [];
   if (!input.origin) {
-    issues.push(site('error', 'canonical', 'Chưa có địa chỉ website hợp lệ nên canonical và sitemap không tạo được.'));
+    issues.push(site('error', 'canonical', HEALTH_ISSUE.siteOriginMissing));
   }
   if (!input.filesReady) {
-    issues.push(site('warning', 'image', 'Chưa kết nối được kho ảnh. File trên kho chưa được xác minh.'));
+    issues.push(site('warning', 'image', HEALTH_ISSUE.siteFilesOffline));
   }
   return issues;
 }
 
 export function assessPost(input: HealthPost): HealthDraft[] {
   const issues: HealthDraft[] = [];
-  const headline = plainMetaText(input.seoTitle) || plainMetaText(input.title);
-  const description = plainMetaText(input.metaDescription) || plainMetaText(input.excerpt);
-  if (!headline) issues.push(row(input, 'error', 'title', 'SEO title và tiêu đề bài đều trống.'));
-  if (!description) issues.push(row(input, 'warning', 'description', 'Mô tả SEO và tóm tắt đều trống. Trang đang dùng câu dự phòng.'));
+  const { headline, description } = resolvePostMeta(input);
+  if (!headline) issues.push(row(input, 'error', 'title', HEALTH_ISSUE.titleEmpty));
+  else {
+    const titleLength = lengthNote(headline.length, SEO_TITLE_RANGE.min, SEO_TITLE_RANGE.max);
+    if (titleLength) issues.push(row(input, 'warning', 'title', titleLength));
+  }
+  if (!description) issues.push(row(input, 'warning', 'description', HEALTH_ISSUE.descriptionEmpty));
+  else {
+    const descriptionLength = lengthNote(description.length, SEO_DESC_RANGE.min, SEO_DESC_RANGE.max);
+    if (descriptionLength) issues.push(row(input, 'warning', 'description', descriptionLength));
+  }
   const duplicate = metaDuplicateNote(headline, description, input.corpus);
   if (duplicate) issues.push(row(input, 'warning', 'duplicate', duplicate));
 
-  const path = SLUG_PATTERN.test(input.slug) ? routes.knowledge(input.slug) : '';
-  if (!path) issues.push(row(input, 'error', 'slug', 'Slug không đúng định dạng nên không có URL công khai.'));
-  else if (input.blocked.has(path)) issues.push(row(input, 'error', 'slug', 'Slug đang trùng một redirect đã lưu.'));
+  const path = knowledgePathIfValid(input.slug);
+  if (!path) issues.push(row(input, 'error', 'slug', HEALTH_ISSUE.slugInvalid));
+  else if (isKnowledgePathBlocked(path, input.blocked)) issues.push(row(input, 'error', 'slug', HEALTH_ISSUE.slugBlocked));
   const listed = sitemapDecision({ status: 'published', slug: input.slug, origin: input.origin, blocked: input.blocked });
-  if (input.origin && !listed.included) issues.push(row(input, 'error', 'sitemap', 'Bài đã xuất bản nhưng sitemap không có URL này.'));
-  if (input.origin && path && !input.blocked.has(path) && !canonicalUrl(input.origin, path)) {
-    issues.push(row(input, 'error', 'canonical', 'Canonical không tạo được từ URL công khai.'));
+  if (input.origin && !listed.included) issues.push(row(input, 'error', 'sitemap', HEALTH_ISSUE.sitemapMissing));
+  if (input.origin && path && !isKnowledgePathBlocked(path, input.blocked) && !canonicalUrl(input.origin, path)) {
+    issues.push(row(input, 'error', 'canonical', HEALTH_ISSUE.canonicalMissing));
   }
 
   if (!input.readable) {
-    issues.push(row(input, 'error', 'image', 'Nội dung bài không đọc được nên ảnh và liên kết trong bài chưa được kiểm tra.'));
+    issues.push(row(input, 'error', 'image', HEALTH_ISSUE.contentUnreadable));
     return issues;
+  }
+
+  if (input.wordCount === 0) issues.push(row(input, 'error', 'content', HEALTH_ISSUE.contentEmpty));
+  else if (input.wordCount < MIN_CONTENT_WORDS) {
+    issues.push(row(input, 'warning', 'content', healthThinContentDetail(input.wordCount)));
+  }
+
+  if (input.wordCount > 0) {
+    for (const code of headingStructureIssues(input.headings, input.wordCount)) {
+      issues.push(row(input, 'warning', 'heading', HEADING_ISSUE_DETAIL[code]));
+    }
+  }
+
+  if (input.cover.kind === 'none') {
+    issues.push(row(input, 'warning', 'cover', HEALTH_ISSUE.coverMissing));
   }
 
   const broken: string[] = [];
   const emptyAlt: string[] = [];
   let unchecked = false;
   let failed = false;
-  if (input.cover.kind === 'missing') broken.push('ảnh đại diện');
+  if (input.cover.kind === 'missing') broken.push(HEALTH_COVER_LABEL);
   if (input.cover.kind === 'file') {
-    noteFile(input.cover.state, input.cover.failed, input.cover.alt, 'ảnh đại diện');
+    noteFile(input.cover.state, input.cover.failed, input.cover.alt, HEALTH_COVER_LABEL);
   }
   for (const image of input.images) {
     if (!isMediaSrc(image.src) || !image.known) {
-      broken.push(image.src || 'ảnh trong bài');
+      broken.push(image.src || HEALTH_CONTENT_IMAGE_FALLBACK);
       continue;
     }
     noteFile(image.state, image.failed, image.alt, image.src);
   }
-  if (broken.length > 0) issues.push(row(input, 'error', 'image', `Ảnh không còn dùng được: ${broken.slice(0, 3).join(', ')}.`));
-  if (input.filesReady && failed) issues.push(row(input, 'warning', 'image', 'Không kết nối được kho ảnh để xác minh file.'));
-  else if (input.filesReady && unchecked) issues.push(row(input, 'warning', 'image', 'Còn file ảnh chưa xác minh trong lượt này.'));
+  if (broken.length > 0) issues.push(row(input, 'error', 'image', healthBrokenImagesDetail(broken)));
+  if (input.filesReady && failed) issues.push(row(input, 'warning', 'image', HEALTH_ISSUE.imageHeadFailed));
+  else if (input.filesReady && unchecked) issues.push(row(input, 'warning', 'image', HEALTH_ISSUE.imageUnchecked));
   if (emptyAlt.length > 0) {
-    issues.push(row(input, 'warning', 'alt', `${emptyAlt.slice(0, 3).join(', ')} đang trống ALT. Ảnh trang trí được phép; ảnh chứa thông tin cần mô tả đúng nội dung.`));
+    issues.push(row(input, 'warning', 'alt', healthEmptyAltDetail(emptyAlt)));
   }
-  if (input.imagesTruncated) issues.push(row(input, 'warning', 'image', 'Chỉ kiểm tra 30 ảnh đầu trong bài.'));
+  if (input.imagesTruncated) issues.push(row(input, 'warning', 'image', HEALTH_ISSUE.imageTruncated));
 
   const groups: Record<PostLinkIssue['kind'], PostLinkIssue[]> = { missing: [], unpublished: [], redirect: [], self: [] };
   for (const issue of input.linkIssues) groups[issue.kind].push(issue);
-  if (groups.missing.length > 0) issues.push(row(input, 'error', 'link', `Liên kết không có bài: ${paths(groups.missing)}.`));
-  if (groups.unpublished.length > 0) issues.push(row(input, 'error', 'link', `Liên kết trỏ tới bài chưa xuất bản: ${paths(groups.unpublished)}.`));
+  if (groups.missing.length > 0) issues.push(row(input, 'error', 'link', healthLinkMissingDetail(paths(groups.missing))));
+  if (groups.unpublished.length > 0) {
+    issues.push(row(input, 'error', 'link', healthLinkUnpublishedDetail(paths(groups.unpublished))));
+  }
   if (groups.redirect.length > 0) {
     const text = groups.redirect
       .slice(0, 3)
       .map((issue) => (issue.official ? `${issue.path} → ${issue.official}` : issue.path))
       .join(', ');
-    issues.push(row(input, 'warning', 'link', `Liên kết đang đi qua đường dẫn cũ: ${text}.`));
+    issues.push(row(input, 'warning', 'link', healthLinkRedirectDetail(text)));
   }
-  if (groups.self.length > 0) issues.push(row(input, 'warning', 'link', 'Liên kết trỏ về chính bài này.'));
-  if (input.linkTruncated) issues.push(row(input, 'warning', 'link', 'Chỉ kiểm tra 20 liên kết đầu.'));
+  if (groups.self.length > 0) issues.push(row(input, 'warning', 'link', HEALTH_ISSUE.linkSelf));
+  if (input.linkTruncated) issues.push(row(input, 'warning', 'link', HEALTH_ISSUE.linkTruncated));
   return issues;
 
   function noteFile(state: 'present' | 'missing' | 'unchecked', fileFailed: boolean, alt: string, label: string): void {
@@ -230,16 +297,15 @@ export function assessPost(input: HealthPost): HealthDraft[] {
 }
 
 export function inboundDetail(truncated: boolean): string {
-  const base = 'Chưa thấy bài viết đã xuất bản nào trỏ tới. Không cần thêm liên kết nếu chưa có bài phù hợp.';
-  return truncated ? `${base} Một số bài có hơn 20 liên kết nên kết quả có thể thiếu.` : base;
+  return healthInboundDetail(truncated);
 }
 
 export function inboundIssues(posts: { id: number; title: string; slug: string }[], linked: ReadonlySet<string>, truncated: boolean): HealthDraft[] {
   const detail = inboundDetail(truncated);
   const issues: HealthDraft[] = [];
   for (const post of posts) {
-    if (!SLUG_PATTERN.test(post.slug)) continue;
-    if (linked.has(routes.knowledge(post.slug))) continue;
+    const path = knowledgePathIfValid(post.slug);
+    if (!path || linked.has(path)) continue;
     issues.push({ postId: post.id, postTitle: post.title, severity: 'warning', code: 'inbound', detail });
   }
   return issues;
@@ -304,20 +370,21 @@ export function healthNote(input: {
   stale: number;
 }): string {
   if (input.failed) return HEALTH_LOAD_ERROR;
-  if (!input.phase) return 'Chưa kiểm tra lần nào. Các bài xuất bản đang chưa được xác minh.';
+  if (!input.phase) return healthNoteNever();
   if (input.phase !== 'done') {
-    return `Đang kiểm tra từ ${input.whenLabel}. Đã xác minh ${input.verified} bài. Còn ${input.unchecked} bài chưa kiểm tra. Số liệu bên dưới là phần đã xác minh.`;
+    return healthNoteInProgress(input.whenLabel, input.verified, input.unchecked);
   }
-  if (input.published === 0) return `Kiểm tra xong lúc ${input.whenLabel}. Không có bài xuất bản để kiểm tra.`;
-  const parts = [`Kiểm tra xong lúc ${input.whenLabel}. Đã xác minh ${input.verified} bài.`];
-  if (input.unchecked > 0) parts.push(`Còn ${input.unchecked} bài chưa nằm trong lần này.`);
-  if (input.stale > 0) parts.push(`${input.stale} bài đã sửa sau thời điểm kiểm tra nên cần xác minh lại.`);
-  if (input.unchecked === 0 && input.stale === 0) parts.push('Toàn bộ bài xuất bản tại thời điểm đó đã được xác minh.');
-  return parts.join(' ');
+  if (input.published === 0) return healthNoteDoneEmpty(input.whenLabel);
+  return healthNoteDone({
+    whenLabel: input.whenLabel,
+    verified: input.verified,
+    unchecked: input.unchecked,
+    stale: input.stale,
+  });
 }
 
 function site(severity: HealthSeverity, code: HealthCode, detail: string): HealthDraft {
-  return { postId: null, postTitle: 'Toàn site', severity, code, detail };
+  return { postId: null, postTitle: HEALTH_SITE_TITLE, severity, code, detail };
 }
 
 function row(input: HealthPost, severity: HealthSeverity, code: HealthCode, detail: string): HealthDraft {

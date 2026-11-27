@@ -353,6 +353,8 @@ async function scanPosts(db: AppDb, run: HealthRun, input: StepInput): Promise<H
         images,
         imagesTruncated: item.content.truncated,
         readable: item.content.readable,
+        wordCount: item.content.wordCount,
+        headings: item.content.headings,
         filesReady: Boolean(input.bucket),
         linkIssues,
         linkTruncated: collected.truncated,

@@ -3,7 +3,7 @@ import type { PublicComboPricing } from '../../features/home-collections/combo-p
 import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
 import { addonShipHint, type PublicAddon } from '../../features/products/addons';
 import { TAG_NAME_MAX } from '../../features/products/tag-name';
-import { WEIGHT_SCALES, weightExtras } from '../../features/products/weight';
+import { WEIGHT_SCALES, weightExtras, weightFieldLabel } from '../../features/products/weight';
 import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
 import AddonPicker from './AddonPicker.astro';
@@ -53,7 +53,7 @@ const pricingJson = JSON.stringify(comboPricing);
       </div>
       <input type="hidden" name="productSlug" data-od-slug />
       <fieldset class="mt-3" data-od-weight hidden>
-        <legend class="text-sm font-semibold">Cân nặng của bé</legend>
+        <legend class="text-sm font-semibold" data-od-weight-legend>{weightFieldLabel('baby')}</legend>
         {
           scaleGroups.map(([scale, labels]) => (
             <div class="weight-grid mt-2" role="radiogroup" data-scale-group={scale} hidden>
@@ -80,7 +80,7 @@ const pricingJson = JSON.stringify(comboPricing);
           </select>
         </div>
         <p class="weight-surcharge-note" data-weight-note hidden></p>
-        <WeightFitHint />
+        <WeightFitHint scale="baby" />
       </fieldset>
       <QtyStepper id="od-quantity" max={ORDER_MAX_QUANTITY} />
       <label class="mt-3 block text-sm font-semibold" for="od-tag" data-od-tag-wrap hidden>
@@ -207,7 +207,7 @@ const pricingJson = JSON.stringify(comboPricing);
   } from '../../features/home-collections/combo-price';
   import { addonShipHint, addonShipHintText } from '../../features/products/addon-hint';
   import { productRequiresTagName } from '../../features/products/tag-name';
-  import { applyWeightPrice, weightOptionLabel, weightSurchargeLabel } from '../../features/products/weight';
+  import { applyWeightPrice, weightFieldLabel, weightFitHintText, weightOptionLabel, weightSurchargeLabel } from '../../features/products/weight';
   import { resolveCustomerShippingFee, type ShipGroup } from '../../features/shipping/customer-fee';
 
   const dialog = document.getElementById('order-dialog');
@@ -448,6 +448,11 @@ const pricingJson = JSON.stringify(comboPricing);
         weightNote.hidden = true;
         weightNote.textContent = '';
       }
+      const labelScale = scale === 'adult' ? 'adult' : 'baby';
+      const legend = form.querySelector('[data-od-weight-legend]');
+      if (legend) legend.textContent = weightFieldLabel(labelScale);
+      const hintText = form.querySelector('[data-weight-fit-text]');
+      if (hintText) hintText.textContent = ` ${weightFitHintText(labelScale)}`;
       if (weightWrap instanceof HTMLElement) weightWrap.hidden = !found;
     };
 

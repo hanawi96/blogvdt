@@ -12,6 +12,7 @@ import {
   isHealthCode,
   readHealthFilters,
 } from '../../features/seo/health';
+import { HEALTH_PRIORITY_LIMIT, HEALTH_UI } from '../../features/seo/messages';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding, getSiteOrigin, optionalMediaBucket } from '../../lib/cloudflare/env';
 import { formatDateTime } from '../../lib/datetime';
@@ -75,7 +76,10 @@ const filtered = Boolean(filters.severity || filters.code || filters.postId);
 const hasRun = Boolean(snapshot?.run);
 const score = snapshot?.score ?? null;
 const breakdown = snapshot?.breakdown ?? [];
+const priority = breakdown.slice(0, HEALTH_PRIORITY_LIMIT);
+const priorityExtra = Math.max(0, breakdown.length - priority.length);
 const scoreTone = score ? (score.score >= 90 ? 'good' : score.score >= 70 ? 'warn' : 'bad') : 'warn';
+const scoreProvisional = Boolean(hasRun && score && !score.ready);
 
 function pageHref(page: number): string {
   const params = new URLSearchParams();
@@ -122,40 +126,42 @@ function codeLabel(code: string): string {
       <section class="health-overview" aria-label="Tổng quan sức khỏe">
         <div class="health-score" data-tone={scoreTone}>
           <p class="health-score-value">{hasRun && score ? `${score.score}%` : '—'}</p>
-          <p class="health-score-label">Điểm sức khỏe</p>
+          <p class="health-score-label">{HEALTH_UI.scoreLabel}</p>
           {hasRun && score && (
             <div class="health-meter" role="img" aria-label={`Đạt ${score.score} phần trăm`}>
               <span style={`width:${score.score}%`}></span>
             </div>
           )}
+          {scoreProvisional && <p class="health-score-note">{HEALTH_UI.scoreProvisional}</p>}
         </div>
         <ul class="health-stats">
           <li>
             <span class="health-stat-value">{hasRun && score ? `${score.cleanPosts}/${score.denominator}` : '—'}</span>
-            <span class="health-stat-label">Bài sạch lỗi</span>
+            <span class="health-stat-label">{HEALTH_UI.cleanLabel}</span>
           </li>
           <li data-kind="error">
             <span class="health-stat-value">{figures.errors}</span>
-            <span class="health-stat-label">Lỗi nghiêm trọng</span>
+            <span class="health-stat-label">{HEALTH_UI.errorsLabel}</span>
           </li>
           <li data-kind="warning">
             <span class="health-stat-value">{figures.warnings}</span>
-            <span class="health-stat-label">Cảnh báo</span>
+            <span class="health-stat-label">{HEALTH_UI.warningsLabel}</span>
           </li>
           <li>
             <span class="health-stat-value">{figures.pending}</span>
-            <span class="health-stat-label">Chưa xác minh</span>
+            <span class="health-stat-label">{HEALTH_UI.pendingLabel}</span>
           </li>
         </ul>
       </section>
     )
   }
   {
-    hasRun && breakdown.length > 0 && (
-      <section class="health-codes" aria-label="Lỗi theo loại">
-        <h2 class="text-lg font-semibold">Theo loại lỗi</h2>
+    hasRun && priority.length > 0 && (
+      <section class="health-codes" aria-label={HEALTH_UI.priorityHeading}>
+        <h2 class="health-section-title">{HEALTH_UI.priorityHeading}</h2>
+        <p class="health-priority-hint">{HEALTH_UI.priorityHint}</p>
         <ul class="health-code-grid">
-          {breakdown.map((stat) => (
+          {priority.map((stat) => (
             <li>
               <a
                 class="health-code"
@@ -172,72 +178,14 @@ function codeLabel(code: string): string {
             </li>
           ))}
         </ul>
-        {filters.code && <a class="health-code-clear" href={filters.postId ? `${routes.adminSeo}?post=${filters.postId}` : routes.adminSeo}>Bỏ lọc loại lỗi</a>}
-      </section>
-    )
-  }
-  {
-    snapshot?.run && (
-      <form class="post-toolbar seo-filter-toolbar mt-6" method="get">
-        <label class="sr-only" for="seo-severity">Mức độ</label>
-        <select id="seo-severity" class="field" name="severity">
-          <option value="" selected={filters.severity === ''}>Mọi mức</option>
-          <option value="error" selected={filters.severity === 'error'}>Lỗi nghiêm trọng</option>
-          <option value="warning" selected={filters.severity === 'warning'}>Cảnh báo</option>
-        </select>
-        <label class="sr-only" for="seo-code">Loại lỗi</label>
-        <select id="seo-code" class="field" name="code">
-          <option value="" selected={filters.code === ''}>Mọi loại</option>
-          {HEALTH_CODES.map((code) => (
-            <option value={code} selected={filters.code === code}>{HEALTH_CODE_LABELS[code]}</option>
-          ))}
-        </select>
-        <label class="sr-only" for="seo-post">Bài viết</label>
-        <select id="seo-post" class="field" name="post">
-          <option value="" selected={filters.postId === null}>Mọi bài</option>
-          {snapshot.postOptions.map((option) => (
-            <option value={option.id} selected={filters.postId === option.id}>{option.title}</option>
-          ))}
-          {filters.postId && !snapshot.postOptions.some((option) => option.id === filters.postId) && (
-            <option value={filters.postId} selected>Bài {filters.postId}</option>
-          )}
-        </select>
-        <div class="seo-filter-actions">
-          <button class="btn" type="submit">Lọc</button>
-          {filtered && <a class="btn" href={routes.adminSeo}>Bỏ lọc</a>}
-        </div>
-      </form>
-    )
-  }
-  {
-    snapshot?.run && snapshot.uncheckedPosts.length ? (
-      <section class="mt-6">
-        <h2 class="text-lg font-semibold">Chưa kiểm tra</h2>
-        <ul class="mt-2 flex flex-col gap-1">
-          {snapshot.uncheckedPosts.map((post) => (
-            <li><a class="underline" href={routes.adminPost(post.id)}>{post.title}</a></li>
-          ))}
-        </ul>
-        {snapshot.unchecked > snapshot.uncheckedPosts.length && (
-          <p class="mt-2 text-sm text-muted">Còn {snapshot.unchecked - snapshot.uncheckedPosts.length} bài khác.</p>
+        {priorityExtra > 0 && <p class="health-priority-more">{HEALTH_UI.priorityMore(priorityExtra)}</p>}
+        {filters.code && (
+          <a class="health-code-clear" href={filters.postId ? `${routes.adminSeo}?post=${filters.postId}` : routes.adminSeo}>
+            {HEALTH_UI.priorityClear}
+          </a>
         )}
       </section>
-    ) : null
-  }
-  {
-    snapshot?.stalePosts.length ? (
-      <section class="mt-6">
-        <h2 class="text-lg font-semibold">Đã sửa sau lần kiểm tra</h2>
-        <ul class="mt-2 flex flex-col gap-1">
-          {snapshot.stalePosts.map((post) => (
-            <li><a class="underline" href={routes.adminPost(post.id)}>{post.title}</a></li>
-          ))}
-        </ul>
-        {snapshot.stale > snapshot.stalePosts.length && (
-          <p class="mt-2 text-sm text-muted">Còn {snapshot.stale - snapshot.stalePosts.length} bài khác.</p>
-        )}
-      </section>
-    ) : null
+    )
   }
   {
     snapshot && !snapshot.run && !loadError && (
@@ -249,68 +197,158 @@ function codeLabel(code: string): string {
             <path d="M8 10.5h5M10.5 8v5" />
           </svg>
         </span>
-        <h2 class="cms-empty-title">Chưa kiểm tra SEO lần nào</h2>
+        <h2 class="cms-empty-title">{HEALTH_UI.emptyTitle}</h2>
         <p class="cms-empty-text">
-          {snapshot.published > 0
-            ? `Có ${snapshot.published} bài đã xuất bản đang chờ được xác minh. Chạy kiểm tra để rà toàn bộ và chấm điểm sức khỏe SEO.`
-            : 'Chạy kiểm tra để rà SEO toàn site. Khi có bài xuất bản, công cụ sẽ chấm điểm sức khỏe và chỉ ra chỗ cần sửa.'}
+          {snapshot.published > 0 ? HEALTH_UI.emptyBodyPublished(snapshot.published) : HEALTH_UI.emptyBodyNone}
         </p>
         <ul class="cms-empty-points">
-          <li>Rà tiêu đề, mô tả, slug, canonical, sitemap của từng bài.</li>
-          <li>Kiểm tra ảnh còn tồn tại, ALT và liên kết nội bộ gãy.</li>
-          <li>Chấm điểm sức khỏe và gom lỗi theo loại để sửa nhanh.</li>
+          {HEALTH_UI.emptyPoints.map((point) => <li>{point}</li>)}
         </ul>
         <form method="post">
           <input type="hidden" name="csrf" value={session.csrfToken} />
-          <button class="btn btn-primary" type="submit" name="mode" value="start">Chạy kiểm tra ngay</button>
+          <button class="btn btn-primary" type="submit" name="mode" value="start">{HEALTH_UI.emptyStart}</button>
         </form>
       </section>
     )
   }
   {
-    snapshot?.run && snapshot.issues.length === 0 && (
-      <p class="post-empty mt-6">
-        {filtered ? 'Không có lỗi khớp bộ lọc.' : snapshot.run.phase === 'done' ? 'Không có lỗi trên các bài đã xác minh.' : 'Chưa thấy lỗi trên phần đã kiểm tra.'}
-      </p>
+    snapshot?.run && (
+      <section class="health-results" aria-label={HEALTH_UI.issuesHeading}>
+        <div class="health-results-head">
+          <h2 class="health-section-title">{HEALTH_UI.issuesHeading}</h2>
+        </div>
+        <form class="seo-filter-toolbar" method="get">
+          <div class="seo-filter-field">
+            <label class="seo-filter-label" for="seo-severity">{HEALTH_UI.filterSeverity}</label>
+            <select id="seo-severity" class="field" name="severity">
+              <option value="" selected={filters.severity === ''}>{HEALTH_UI.filterAllSeverity}</option>
+              <option value="error" selected={filters.severity === 'error'}>{HEALTH_UI.errorsLabel}</option>
+              <option value="warning" selected={filters.severity === 'warning'}>{HEALTH_UI.warningsLabel}</option>
+            </select>
+          </div>
+          <div class="seo-filter-field">
+            <label class="seo-filter-label" for="seo-code">{HEALTH_UI.filterCode}</label>
+            <select id="seo-code" class="field" name="code">
+              <option value="" selected={filters.code === ''}>{HEALTH_UI.filterAllCode}</option>
+              {HEALTH_CODES.map((code) => (
+                <option value={code} selected={filters.code === code}>{HEALTH_CODE_LABELS[code]}</option>
+              ))}
+            </select>
+          </div>
+          <div class="seo-filter-field seo-filter-field-post">
+            <label class="seo-filter-label" for="seo-post">{HEALTH_UI.filterPost}</label>
+            <select id="seo-post" class="field" name="post">
+              <option value="" selected={filters.postId === null}>{HEALTH_UI.filterAllPost}</option>
+              {snapshot.postOptions.map((option) => (
+                <option value={option.id} selected={filters.postId === option.id}>{option.title}</option>
+              ))}
+              {filters.postId && !snapshot.postOptions.some((option) => option.id === filters.postId) && (
+                <option value={filters.postId} selected>Bài {filters.postId}</option>
+              )}
+            </select>
+          </div>
+          <div class="seo-filter-actions">
+            <button class="btn" type="submit">{HEALTH_UI.filterSubmit}</button>
+            {filtered && <a class="btn" href={routes.adminSeo}>{HEALTH_UI.filterReset}</a>}
+          </div>
+        </form>
+        {
+          snapshot.issues.length === 0 ? (
+            <div class="health-empty" data-state={filtered ? 'filtered' : snapshot.run.phase === 'done' ? 'done' : 'progress'}>
+              <p>
+                {filtered
+                  ? HEALTH_UI.issuesEmptyFiltered
+                  : snapshot.run.phase === 'done'
+                    ? HEALTH_UI.issuesEmptyDone
+                    : HEALTH_UI.issuesEmptyProgress}
+              </p>
+              {filtered && <a class="btn" href={routes.adminSeo}>{HEALTH_UI.filterReset}</a>}
+            </div>
+          ) : (
+            <table class="post-table health-table">
+              <thead>
+                <tr>
+                  <th>{HEALTH_UI.colPost}</th>
+                  <th>{HEALTH_UI.colLevel}</th>
+                  <th>{HEALTH_UI.colCode}</th>
+                  <th>{HEALTH_UI.colDetail}</th>
+                  <th>{HEALTH_UI.colFix}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {snapshot.issues.map((issue) => (
+                  <tr>
+                    <td class="health-list-post" data-label={HEALTH_UI.colPost}>
+                      {issue.postId ? (
+                        <a class="font-semibold underline" href={routes.adminPost(issue.postId)}>{issue.postTitle}</a>
+                      ) : (
+                        issue.postTitle
+                      )}
+                    </td>
+                    <td class="health-list-level" data-label={HEALTH_UI.colLevel} data-kind={issue.severity}>
+                      {issue.severity === 'error' ? HEALTH_UI.levelError : HEALTH_UI.levelWarning}
+                    </td>
+                    <td class="health-list-code" data-label={HEALTH_UI.colCode}>{codeLabel(issue.code)}</td>
+                    <td class="health-list-detail" data-label={HEALTH_UI.colDetail}>{issue.detail}</td>
+                    <td class="health-list-fix" data-label={HEALTH_UI.colFix}>
+                      {issue.postId ? (
+                        <a class="category-list-edit" href={routes.adminPost(issue.postId)}>{HEALTH_UI.fixAction}</a>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        }
+        {
+          snapshot.pageCount > 1 && (
+            <nav class="post-pager" aria-label="Phân trang">
+              {snapshot.page > 1 && <a class="btn" href={pageHref(snapshot.page - 1)}>Trang trước</a>}
+              <span>Trang {snapshot.page}/{snapshot.pageCount}</span>
+              {snapshot.page < snapshot.pageCount && <a class="btn" href={pageHref(snapshot.page + 1)}>Trang sau</a>}
+            </nav>
+          )
+        }
+      </section>
     )
   }
   {
-    snapshot?.run && snapshot.issues.length > 0 && (
-      <table class="post-table health-table mt-4">
-        <thead>
-          <tr>
-            <th>Bài viết</th>
-            <th>Mức</th>
-            <th>Loại</th>
-            <th>Nguyên nhân</th>
-            <th>Sửa</th>
-          </tr>
-        </thead>
-        <tbody>
-          {snapshot.issues.map((issue) => (
-            <tr>
-              <td class="health-list-post" data-label="Bài viết">
-                {issue.postId ? <a class="font-semibold underline" href={routes.adminPost(issue.postId)}>{issue.postTitle}</a> : issue.postTitle}
-              </td>
-              <td class="health-list-level" data-label="Mức" data-kind={issue.severity}>{issue.severity === 'error' ? 'Lỗi' : 'Cảnh báo'}</td>
-              <td class="health-list-code" data-label="Loại">{codeLabel(issue.code)}</td>
-              <td class="health-list-detail" data-label="Nguyên nhân">{issue.detail}</td>
-              <td class="health-list-fix" data-label="Sửa">
-                {issue.postId ? <a class="category-list-edit" href={routes.adminPost(issue.postId)}>Sửa</a> : '—'}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    )
-  }
-  {
-    snapshot?.run && snapshot.pageCount > 1 && (
-      <nav class="post-pager" aria-label="Phân trang">
-        {snapshot.page > 1 && <a class="btn" href={pageHref(snapshot.page - 1)}>Trang trước</a>}
-        <span>Trang {snapshot.page}/{snapshot.pageCount}</span>
-        {snapshot.page < snapshot.pageCount && <a class="btn" href={pageHref(snapshot.page + 1)}>Trang sau</a>}
-      </nav>
+    snapshot?.run && (snapshot.uncheckedPosts.length > 0 || snapshot.stalePosts.length > 0) && (
+      <aside class="health-aside" aria-label="Trạng thái bài viết">
+        {
+          snapshot.uncheckedPosts.length > 0 && (
+            <section>
+              <h2 class="health-aside-title">{HEALTH_UI.uncheckedHeading}</h2>
+              <ul class="health-aside-list">
+                {snapshot.uncheckedPosts.map((post) => (
+                  <li><a href={routes.adminPost(post.id)}>{post.title}</a></li>
+                ))}
+              </ul>
+              {snapshot.unchecked > snapshot.uncheckedPosts.length && (
+                <p class="health-aside-more">{HEALTH_UI.morePosts(snapshot.unchecked - snapshot.uncheckedPosts.length)}</p>
+              )}
+            </section>
+          )
+        }
+        {
+          snapshot.stalePosts.length > 0 && (
+            <section>
+              <h2 class="health-aside-title">{HEALTH_UI.staleHeading}</h2>
+              <ul class="health-aside-list">
+                {snapshot.stalePosts.map((post) => (
+                  <li><a href={routes.adminPost(post.id)}>{post.title}</a></li>
+                ))}
+              </ul>
+              {snapshot.stale > snapshot.stalePosts.length && (
+                <p class="health-aside-more">{HEALTH_UI.morePosts(snapshot.stale - snapshot.stalePosts.length)}</p>
+              )}
+            </section>
+          )
+        }
+      </aside>
     )
   }
 </AdminLayout>

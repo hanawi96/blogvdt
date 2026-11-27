@@ -11,7 +11,7 @@ import { discountPercent } from '../../features/products/catalog';
 import { cordCardLabel } from '../../features/products/cord';
 import { CART_MAX_QUANTITY } from '../../features/cart/cart';
 import { productRequiresTagName, TAG_NAME_MAX } from '../../features/products/tag-name';
-import { requiresWeight, weightChips, weightExtras, weightOptionLabel } from '../../features/products/weight';
+import { requiresWeight, weightChips, weightExtras, weightFieldLabel, weightOptionLabel } from '../../features/products/weight';
 import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
 import FreeShipBadge from './FreeShipBadge.astro';
@@ -363,28 +363,32 @@ function pairBuyQty(collection: HomeCollectionPublic): number {
                               <input type="hidden" name="price" value={product.price} />
                               {needsWeight && (
                                 <fieldset class="mt-3" data-weight-field data-base-price={product.price}>
-                                  <legend class="text-sm font-semibold">Cân nặng của bé</legend>
-                                  <div class="weight-grid mt-2" role="radiogroup">
+                                  <legend class="text-sm font-semibold">{weightFieldLabel(product.weightScale)}</legend>
+                                  <div class="weight-grid mt-2" role="radiogroup" data-scale-group={product.weightScale}>
                                     {chips.map((weight, index) => (
                                       <label class="weight-chip">
                                         <input type="radio" name="weight" value={weight} required={index === 0} />
                                         <span>{weight}</span>
                                       </label>
                                     ))}
-                                    <button type="button" class="weight-chip weight-chip-more" data-weight-more aria-expanded="false" aria-label="Cân nặng khác">
-                                      <span aria-hidden="true">+</span>
-                                    </button>
+                                    {extras.length > 0 && (
+                                      <button type="button" class="weight-chip weight-chip-more" data-weight-more aria-expanded="false" aria-label="Cân nặng khác">
+                                        <span aria-hidden="true">+</span>
+                                      </button>
+                                    )}
                                   </div>
-                                  <div class="weight-extra mt-2" data-weight-extra hidden>
-                                    <select class="field" data-weight-extra-select aria-label="Chọn cân nặng lớn hơn">
-                                      <option value="">Chọn cân nặng (16kg – 70kg)</option>
-                                      {extras.map((weight) => (
-                                        <option value={weight}>{weightOptionLabel(weight, product.price)}</option>
-                                      ))}
-                                    </select>
-                                  </div>
+                                  {extras.length > 0 && (
+                                    <div class="weight-extra mt-2" data-weight-extra hidden>
+                                      <select class="field" data-weight-extra-select aria-label="Chọn cân nặng lớn hơn">
+                                        <option value="">Chọn cân nặng (16kg – 70kg)</option>
+                                        {extras.map((weight) => (
+                                          <option value={weight}>{weightOptionLabel(weight, product.price)}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  )}
                                   <p class="weight-surcharge-note" data-weight-note hidden></p>
-                                  <WeightFitHint />
+                                  <WeightFitHint scale={product.weightScale} />
                                 </fieldset>
                               )}
                               {!needsWeight && <input type="hidden" name="weight" value="" />}

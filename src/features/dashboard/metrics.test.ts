@@ -10,6 +10,7 @@ import {
   kpiTitle,
   describeDelta,
   fillDailySeries,
+  mergeLeastProducts,
   mergeTopProducts,
   overviewWindows,
   percentChange,
@@ -133,26 +134,33 @@ describe('chỉ số', () => {
 });
 
 describe('top sản phẩm', () => {
+  const parts = [
+    [
+      { productId: 1, sold: 2 },
+      { productId: 2, sold: 5 },
+      { productId: null, sold: 9 },
+    ],
+    [
+      { productId: 1, sold: 4 },
+      { productId: 3, sold: 6 },
+      { productId: 4, sold: 0 },
+      { productId: 5, sold: 1 },
+    ],
+  ] as const;
+
   it('gộp đơn một mẫu và nhiều mẫu, bỏ sản phẩm đã xóa, hòa thì id nhỏ trước', () => {
-    const top = mergeTopProducts(
-      [
-        [
-          { productId: 1, sold: 2 },
-          { productId: 2, sold: 5 },
-          { productId: null, sold: 9 },
-        ],
-        [
-          { productId: 1, sold: 4 },
-          { productId: 3, sold: 6 },
-          { productId: 4, sold: 0 },
-        ],
-      ],
-      3,
-    );
-    expect(top).toEqual([
+    expect(mergeTopProducts(parts, 3)).toEqual([
       { productId: 1, sold: 6 },
       { productId: 3, sold: 6 },
       { productId: 2, sold: 5 },
+    ]);
+  });
+
+  it('top bán ít nhất: sold > 0, tăng dần, hòa thì id nhỏ trước', () => {
+    expect(mergeLeastProducts(parts, 3)).toEqual([
+      { productId: 5, sold: 1 },
+      { productId: 2, sold: 5 },
+      { productId: 1, sold: 6 },
     ]);
   });
 });

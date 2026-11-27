@@ -12,6 +12,7 @@ import {
   isValidWeight,
   normalizeWeightForStorage,
   requiresWeight,
+  weightRequiredMessage,
   type WeightScale,
 } from '../products/weight';
 import { DEFAULT_PAYMENT_METHOD, isPaymentMethod, paymentLabel, type PaymentMethod } from './payment';
@@ -283,7 +284,7 @@ export function parseOrderSubmission(
   if (paymentRaw && !isPaymentMethod(paymentRaw)) errors.paymentMethod = 'Chọn hình thức thanh toán.';
   const paymentMethod = isPaymentMethod(paymentRaw) ? paymentRaw : DEFAULT_PAYMENT_METHOD;
   const weight = (input.weight ?? '').trim();
-  if (product && requiresWeight(product.weightScale) && !weight) errors.weight = 'Chọn cân nặng cho bé.';
+  if (product && requiresWeight(product.weightScale) && !weight) errors.weight = weightRequiredMessage(product.weightScale);
   else if (product && !isValidWeight(product.weightScale, weight)) errors.weight = 'Cân nặng không hợp lệ.';
   let lineNote: string | null = null;
   if (product && productRequiresTagName(product.name)) {
@@ -355,7 +356,7 @@ export function parseCartOrder(
     if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > ORDER_MAX_QUANTITY) {
       errors[`quantity${index}`] = `Số lượng là số nguyên từ 1 đến ${ORDER_MAX_QUANTITY}.`;
     }
-    if (requiresWeight(product.weightScale) && !line.weight) errors[`weight${index}`] = 'Chọn cân nặng cho bé.';
+    if (requiresWeight(product.weightScale) && !line.weight) errors[`weight${index}`] = weightRequiredMessage(product.weightScale);
     if (!isValidWeight(product.weightScale, line.weight)) errors[`weight${index}`] = 'Cân nặng không hợp lệ.';
     let lineNote: string | null = null;
     if (productRequiresTagName(product.name)) {

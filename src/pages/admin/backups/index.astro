@@ -591,7 +591,7 @@ const retentionChoices = RETENTION_OPTIONS.includes(settings.retentionCount)
         <p class="seo-hint" id="backup-tables-hint">Full: tất cả bảng được chọn. Partial: bỏ tick bảng không cần — chỉ tải về, không khôi phục.</p>
         <div class="backup-table-grid">
           {BACKUP_TABLE_WHITELIST.map((name) => (
-            <label class="backup-table-item">
+            <label class="admin-check backup-table-item">
               <input type="checkbox" name="tables" value={name} checked disabled />
               <span>{name}</span>
             </label>
@@ -674,13 +674,11 @@ const retentionChoices = RETENTION_OPTIONS.includes(settings.retentionCount)
       <input type="hidden" name="csrf" value={session.csrfToken} />
       <input type="hidden" name="intent" value="settings" />
 
-      <label class="flex items-start gap-2">
-        <input type="checkbox" name="scheduleEnabled" value="1" checked={settings.scheduleEnabled} class="mt-1" />
-        <span>
-          <span class="block font-semibold">Tự động backup full mỗi ngày</span>
-          <span class="seo-hint">Chạy một lần mỗi ngày theo giờ Việt Nam (UTC+7).</span>
-        </span>
+      <label class="admin-check">
+        <input type="checkbox" name="scheduleEnabled" value="1" checked={settings.scheduleEnabled} />
+        <span>Tự động backup full mỗi ngày</span>
       </label>
+      <p class="seo-hint">Chạy một lần mỗi ngày theo giờ Việt Nam (UTC+7).</p>
 
       <div class="mt-4">
         <span class="mb-1 block font-semibold" id="backup-hour-label">Giờ chạy (giờ Việt Nam)</span>
@@ -716,13 +714,11 @@ const retentionChoices = RETENTION_OPTIONS.includes(settings.retentionCount)
         </p>
       </div>
 
-      <label class="mt-5 flex items-start gap-2">
-        <input type="checkbox" name="driveEnabled" value="1" checked={settings.driveEnabled} class="mt-1" />
-        <span>
-          <span class="block font-semibold">Sao thêm lên Google Drive</span>
-          <span class="seo-hint">Cần cấu hình secrets Google. Thiếu cấu hình thì Drive lỗi nhưng bản R2 vẫn giữ.</span>
-        </span>
+      <label class="admin-check mt-5">
+        <input type="checkbox" name="driveEnabled" value="1" checked={settings.driveEnabled} />
+        <span>Sao thêm lên Google Drive</span>
       </label>
+      <p class="seo-hint">Cần cấu hình secrets Google. Thiếu cấu hình thì Drive lỗi nhưng bản R2 vẫn giữ.</p>
 
       <div class="settings-save">
         <button class="btn btn-primary" type="submit">Lưu cài đặt</button>

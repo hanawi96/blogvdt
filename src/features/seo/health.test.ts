@@ -28,12 +28,15 @@ function post(overrides: Partial<HealthPost> = {}): HealthPost {
     title: 'Cách chọn vòng dâu tằm cho bé',
     slug: 'cach-chon-vong-dau-tam',
     excerpt: '',
-    seoTitle: 'Cách chọn vòng dâu tằm',
-    metaDescription: 'Gợi ý chọn vòng dâu tằm thủ công theo kích thước cổ tay của bé.',
-    cover: { kind: 'none' },
+    // Độ dài nằm trong SEO_TITLE_RANGE / SEO_DESC_RANGE để fixture "sạch" không dính warning length.
+    seoTitle: 'Cách chọn vòng dâu tằm thủ công cho bé',
+    metaDescription: 'Gợi ý chọn vòng dâu tằm thủ công theo kích thước cổ tay và màu chỉ phù hợp với bé.',
+    cover: { kind: 'file', alt: 'Vòng dâu tằm', state: 'present', failed: false },
     images: [],
     imagesTruncated: false,
     readable: true,
+    wordCount: 200,
+    headings: [{ level: 2, text: 'Khi chọn vòng' }],
     filesReady: true,
     linkIssues: [],
     linkTruncated: false,
@@ -47,7 +50,48 @@ function post(overrides: Partial<HealthPost> = {}): HealthPost {
 describe('kiểm tra SEO một bài', () => {
   it('bài đủ tiêu đề, mô tả và slug hợp lệ không phát sinh lỗi', () => {
     expect(assessPost(post())).toEqual([]);
-    expect(assessPost(post({ seoTitle: null, title: 'Vòng' }))).toEqual([]);
+  });
+
+  it('title/mô tả ngoài khoảng độ dài là cảnh báo, dùng chung lengthNote với editor', () => {
+    const short = assessPost(post({ seoTitle: 'Vòng ngắn', metaDescription: 'Mô tả ngắn.' }));
+    expect(short.filter((issue) => issue.code === 'title')).toEqual([
+      expect.objectContaining({ severity: 'warning', detail: expect.stringMatching(/Hơi ngắn/) }),
+    ]);
+    expect(short.filter((issue) => issue.code === 'description')).toEqual([
+      expect.objectContaining({ severity: 'warning', detail: expect.stringMatching(/Hơi ngắn/) }),
+    ]);
+    const longTitle = 'T'.repeat(61);
+    const longDesc = 'D'.repeat(161);
+    const long = assessPost(post({ seoTitle: longTitle, metaDescription: longDesc }));
+    expect(long.find((issue) => issue.code === 'title')?.detail).toMatch(/Hơi dài/);
+    expect(long.find((issue) => issue.code === 'description')?.detail).toMatch(/Hơi dài/);
+  });
+
+  it('nội dung trống là lỗi, bài mỏng là cảnh báo theo MIN_CONTENT_WORDS', () => {
+    expect(assessPost(post({ wordCount: 0 })).find((issue) => issue.code === 'content')).toEqual(
+      expect.objectContaining({ severity: 'error', detail: expect.stringMatching(/chưa có nội dung/i) }),
+    );
+    expect(assessPost(post({ wordCount: 20 })).find((issue) => issue.code === 'content')).toEqual(
+      expect.objectContaining({ severity: 'warning', detail: expect.stringMatching(/hơi ngắn \(20 từ\)/i) }),
+    );
+    expect(assessPost(post({ wordCount: 150 })).find((issue) => issue.code === 'content')).toBeUndefined();
+  });
+
+  it('thiếu ảnh đại diện là cảnh báo, đồng bộ copy editor', () => {
+    expect(assessPost(post({ cover: { kind: 'none' } })).find((issue) => issue.code === 'cover')).toEqual(
+      expect.objectContaining({ severity: 'warning', detail: 'Nên thêm ảnh đại diện.' }),
+    );
+    expect(assessPost(post()).find((issue) => issue.code === 'cover')).toBeUndefined();
+  });
+
+  it('heading hierarchy dùng chung heading-audit với editor', () => {
+    const empty = assessPost(post({ headings: [{ level: 2, text: '  ' }] }));
+    expect(empty.find((issue) => issue.code === 'heading')?.detail).toMatch(/tiêu đề trống/i);
+    const jump = assessPost(post({ headings: [{ level: 3, text: 'Mục nhỏ' }] }));
+    expect(jump.find((issue) => issue.code === 'heading')?.detail).toMatch(/Tiêu đề 3/);
+    const long = assessPost(post({ wordCount: 300, headings: [] }));
+    expect(long.find((issue) => issue.code === 'heading')?.detail).toMatch(/Bài dài/);
+    expect(assessPost(post()).find((issue) => issue.code === 'heading')).toBeUndefined();
   });
 
   it('bắt tiêu đề trống, mô tả trống, trùng và slug hỏng', () => {
@@ -68,9 +112,12 @@ describe('kiểm tra SEO một bài', () => {
   });
 
   it('trùng tiêu đề hoặc mô tả lấy đúng câu của SEO assistant', () => {
-    const duplicated = assessPost(post({ corpus: { titles: ['Cách chọn vòng dâu tằm'], descriptions: [] } }));
+    const headline = 'Cách chọn vòng dâu tằm thủ công cho bé';
+    const duplicated = assessPost(post({ corpus: { titles: [headline], descriptions: [] } }));
     expect(duplicated.map((issue) => issue.detail).join(' ')).toMatch(/đã được dùng/);
-    const same = assessPost(post({ seoTitle: 'Cùng một câu', metaDescription: 'Cùng một câu' }));
+    // Câu trùng nằm trong khoảng title; description sẽ thêm warning độ dài — vẫn phải có duplicate.
+    const sameText = 'Cùng một câu đủ dài cho kiểm tra trùng';
+    const same = assessPost(post({ seoTitle: sameText, metaDescription: sameText }));
     expect(same.map((issue) => issue.detail).join(' ')).toMatch(/giống nhau/);
   });
 
@@ -129,10 +176,19 @@ describe('kiểm tra SEO một bài', () => {
       src: `/media/2026/10/anh-${index}.webp`,
       alt: index === 30 ? '' : 'Vòng dâu tằm',
     }));
-    const content = collectContentImages(JSON.stringify({ type: 'doc', content: images.map((image) => ({ type: 'image', attrs: image })) }));
+    const content = collectContentImages(
+      JSON.stringify({
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'một hai ba' }] },
+          ...images.map((image) => ({ type: 'image', attrs: image })),
+        ],
+      }),
+    );
     expect(content.truncated).toBe(true);
     expect(content.images).toHaveLength(30);
     expect(content.images.some((image) => image.src.endsWith('anh-30.webp'))).toBe(false);
+    expect(content.wordCount).toBe(3);
   });
 });
 
@@ -196,7 +252,7 @@ describe('phân trang, lô và mất kết nối', () => {
     ).toMatch(/phần đã xác minh/);
     expect(
       healthNote({ failed: false, phase: 'done', whenLabel: '15/10/2026 14:00', published: 4, verified: 3, unchecked: 1, stale: 1 }),
-    ).toMatch(/cần xác minh lại/);
+    ).toMatch(/nên xác minh lại/);
   });
 });
 

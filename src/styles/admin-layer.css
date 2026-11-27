@@ -6169,6 +6169,38 @@
   .dash-top-product:hover .dash-rank-name {
     color: var(--color-primary-strong);
   }
+  .dash-products-split {
+    display: grid;
+    gap: 1.25rem;
+  }
+  @media (min-width: 64rem) {
+    .dash-products-split {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1.5rem;
+      align-items: start;
+    }
+  }
+  .dash-products-col {
+    min-width: 0;
+  }
+  .dash-products-col-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.35rem 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+  .dash-products-col-head h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+  }
+  .dash-products-col-hint {
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
   .dash-bar {
     height: 0.4rem;
     border-radius: 999px;
@@ -6179,6 +6211,9 @@
     height: 100%;
     border-radius: inherit;
     background: var(--color-primary);
+  }
+  .dash-bar span.is-least {
+    background: color-mix(in oklab, var(--color-accent) 75%, var(--color-primary));
   }
   .trend-chart {
     display: grid;
@@ -9573,7 +9608,10 @@
     .seo-filter-toolbar {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 0.5rem;
+      gap: 0.65rem 0.5rem;
+    }
+    .seo-filter-field {
+      min-width: 0;
     }
     .seo-filter-toolbar .field,
     .seo-filter-toolbar select.field {
@@ -9582,8 +9620,7 @@
       min-width: 0;
       flex: none;
     }
-    .seo-filter-toolbar .field[name='post'],
-    .seo-filter-toolbar select[name='post'] {
+    .seo-filter-field-post {
       grid-column: 1 / -1;
     }
     .seo-filter-toolbar .btn {

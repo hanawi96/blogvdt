@@ -1,7 +1,16 @@
 ---
+import { weightFitHintText, type WeightScale } from '../../features/products/weight';
+
 /** Gợi ý chọn cân dưới lưới chip — dùng chung modal/form thêm giỏ & đặt hàng. */
+interface Props {
+  scale?: WeightScale;
+}
+
+const { scale = 'baby' } = Astro.props;
+const hint = weightFitHintText(scale);
 ---
+
 <p class="weight-fit-hint">
   <strong class="weight-fit-hint-label">Lưu ý:</strong>
-   Các mẹ chọn đúng cân nặng bé nha, vòng đã được làm trừ hao để bé đeo rộng rãi, lâu dài
+  <span data-weight-fit-text> {hint}</span>
 </p>

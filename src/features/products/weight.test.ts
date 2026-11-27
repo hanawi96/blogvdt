@@ -7,8 +7,11 @@ import {
   WEIGHT_UNBORN_STORED,
   weightChips,
   weightExtras,
+  weightFieldLabel,
+  weightFitHintText,
   weightOptionLabel,
   weightPriceFactor,
+  weightRequiredMessage,
   weightSurchargeLabel,
   weightSurchargePercent,
 } from './weight';
@@ -85,6 +88,22 @@ describe('phụ thu theo cân nặng', () => {
     expect(extras[extras.length - 1]).toBe('70kg');
     expect(extras.length).toBe(55);
     expect(weightExtras('none')).toEqual([]);
+  });
+
+  it('thang adult: mốc 5kg từ 40–45 đến 75–80, không extras/phụ thu', () => {
+    const chips = weightChips('adult');
+    expect(chips[0]).toBe('40kg - 45kg');
+    expect(chips[chips.length - 1]).toBe('75kg - 80kg');
+    expect(chips).toHaveLength(8);
+    expect(weightExtras('adult')).toEqual([]);
+    expect(isValidWeight('adult', '40kg - 45kg')).toBe(true);
+    expect(isValidWeight('adult', '75kg - 80kg')).toBe(true);
+    expect(isValidWeight('adult', '15kg')).toBe(false);
+    expect(isValidWeight('adult', '45kg')).toBe(false);
+    expect(applyWeightPrice(269000, '40kg - 45kg')).toBe(269000);
+    expect(weightFieldLabel('adult')).toBe('Cân nặng của bạn');
+    expect(weightRequiredMessage('adult')).toBe('Chọn cân nặng.');
+    expect(weightFitHintText('adult')).toContain('khoảng cân nặng');
   });
 
   it('«Chưa sinh» chuẩn hóa thành 3kg khi lưu', () => {

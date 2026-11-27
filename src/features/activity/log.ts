@@ -71,6 +71,7 @@ export const ACTIVITY_ACTIONS = [
   'home_collection.delete',
   'home_collection.enable',
   'home_collection.disable',
+  'home_collection.move',
 ] as const;
 
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];
@@ -138,6 +139,7 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'home_collection.delete': 'Xóa khối trang chủ',
   'home_collection.enable': 'Bật khối trang chủ',
   'home_collection.disable': 'Tắt khối trang chủ',
+  'home_collection.move': 'Đổi thứ tự khối trang chủ',
 };
 
 export type ActivityObject =

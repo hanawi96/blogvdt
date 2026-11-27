@@ -13,6 +13,7 @@ import {
   dayWindows,
   describeDelta,
   fillDailySeries,
+  mergeLeastProducts,
   mergeTopProducts,
   overviewWindows,
   percentChange,
@@ -119,20 +120,49 @@ async function loadPeriodKpi(db: AppDb, currentStart: number, previousStart: num
   };
 }
 
-/** Một query: số đơn + doanh thu theo ngày. */
+/** Một query: số đơn + doanh thu + lãi ròng theo ngày. */
 async function loadDailySeries(db: AppDb, previousStart: number) {
   return db
     .select({
       day: dayVn,
       orders: num(sql`sum(case when ${statsOk} then 1 else 0 end)`),
       revenue: num(sql`sum(case when ${statsOk} then ${orders.totalPrice} else 0 end)`),
+      profit: num(sql`sum(case when ${statsOk} and ${costed} then ${profitExpr} else 0 end)`),
     })
     .from(orders)
     .where(gte(orders.createdAt, previousStart))
     .groupBy(dayVn);
 }
 
-/** Số đơn + doanh thu theo giờ (VN) trong cửa sổ hôm qua → hôm nay. */
+/** Số SP đã bán theo ngày: order_items + đơn legacy (cùng công thức KPI sold). */
+async function loadDailySoldSeries(db: AppDb, previousStart: number): Promise<{ day: string; value: number }[]> {
+  const legacyOnly = sql`not exists (select 1 from order_items where order_items.order_id = ${orders.id})`;
+  const [legacyRows, lineRows] = await Promise.all([
+    db
+      .select({
+        day: dayVn,
+        sold: num(sql`sum(case when ${statsOk} then ${orders.quantity} else 0 end)`),
+      })
+      .from(orders)
+      .where(and(gte(orders.createdAt, previousStart), legacyOnly))
+      .groupBy(dayVn),
+    db
+      .select({
+        day: dayVn,
+        sold: num(sql`sum(case when ${statsOk} then ${orderItems.quantity} else 0 end)`),
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .where(gte(orders.createdAt, previousStart))
+      .groupBy(dayVn),
+  ]);
+  return mergeKeyedTotals(
+    legacyRows.map((row) => ({ key: row.day, value: row.sold })),
+    lineRows.map((row) => ({ key: row.day, value: row.sold })),
+  ).map((row) => ({ day: row.key, value: row.value }));
+}
+
+/** Số đơn + doanh thu + lãi theo giờ (VN) trong cửa sổ hôm qua → hôm nay. */
 async function loadHourlySeries(db: AppDb, previousStart: number) {
   return db
     .select({
@@ -140,19 +170,68 @@ async function loadHourlySeries(db: AppDb, previousStart: number) {
       hour: hourVn,
       orders: num(sql`sum(case when ${statsOk} then 1 else 0 end)`),
       revenue: num(sql`sum(case when ${statsOk} then ${orders.totalPrice} else 0 end)`),
+      profit: num(sql`sum(case when ${statsOk} and ${costed} then ${profitExpr} else 0 end)`),
     })
     .from(orders)
     .where(gte(orders.createdAt, previousStart))
     .groupBy(dayVn, hourVn);
 }
 
+/** Số SP đã bán theo giờ (VN). */
+async function loadHourlySoldSeries(
+  db: AppDb,
+  previousStart: number,
+): Promise<{ day: string; hour: string; value: number }[]> {
+  const legacyOnly = sql`not exists (select 1 from order_items where order_items.order_id = ${orders.id})`;
+  const [legacyRows, lineRows] = await Promise.all([
+    db
+      .select({
+        day: dayVn,
+        hour: hourVn,
+        sold: num(sql`sum(case when ${statsOk} then ${orders.quantity} else 0 end)`),
+      })
+      .from(orders)
+      .where(and(gte(orders.createdAt, previousStart), legacyOnly))
+      .groupBy(dayVn, hourVn),
+    db
+      .select({
+        day: dayVn,
+        hour: hourVn,
+        sold: num(sql`sum(case when ${statsOk} then ${orderItems.quantity} else 0 end)`),
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .where(gte(orders.createdAt, previousStart))
+      .groupBy(dayVn, hourVn),
+  ]);
+  return mergeKeyedTotals(
+    legacyRows.map((row) => ({ key: `${row.day}\0${row.hour}`, value: row.sold })),
+    lineRows.map((row) => ({ key: `${row.day}\0${row.hour}`, value: row.sold })),
+  ).map((row) => {
+    const [day = '', hour = ''] = row.key.split('\0');
+    return { day, hour, value: row.value };
+  });
+}
+
+function mergeKeyedTotals(
+  left: { key: string; value: number }[],
+  right: { key: string; value: number }[],
+): { key: string; value: number }[] {
+  const map = new Map<string, number>();
+  for (const row of left) map.set(row.key, (map.get(row.key) ?? 0) + row.value);
+  for (const row of right) map.set(row.key, (map.get(row.key) ?? 0) + row.value);
+  return [...map.entries()].map(([key, value]) => ({ key, value }));
+}
+
 function buildDayChart(
   range: Extract<ChartRange, '7' | '30'>,
   windows: ReturnType<typeof dayWindows>,
   seriesRows: Awaited<ReturnType<typeof loadDailySeries>>,
+  soldRows: { day: string; value: number }[],
 ): ChartSeries {
   const orderRows = seriesRows.map((row) => ({ day: row.day, value: row.orders }));
   const revenueRows = seriesRows.map((row) => ({ day: row.day, value: row.revenue }));
+  const profitRows = seriesRows.map((row) => ({ day: row.day, value: row.profit }));
   return {
     labels: dayChartLabels(windows.currentDays),
     orders: {
@@ -163,6 +242,14 @@ function buildDayChart(
       current: fillDailySeries(windows.currentDays, revenueRows),
       previous: fillDailySeries(windows.previousDays, revenueRows),
     },
+    profit: {
+      current: fillDailySeries(windows.currentDays, profitRows),
+      previous: fillDailySeries(windows.previousDays, profitRows),
+    },
+    sold: {
+      current: fillDailySeries(windows.currentDays, soldRows),
+      previous: fillDailySeries(windows.previousDays, soldRows),
+    },
     legend: chartLegend(range),
     grain: 'day',
   };
@@ -171,6 +258,7 @@ function buildDayChart(
 function buildTodayChart(
   windows: ReturnType<typeof todayHourWindows>,
   seriesRows: Awaited<ReturnType<typeof loadHourlySeries>>,
+  soldRows: { day: string; hour: string; value: number }[],
 ): ChartSeries {
   const currentOrders = seriesRows
     .filter((row) => row.day === windows.currentDay)
@@ -184,6 +272,18 @@ function buildTodayChart(
   const previousRevenue = seriesRows
     .filter((row) => row.day === windows.previousDay)
     .map((row) => ({ day: row.hour, value: row.revenue }));
+  const currentProfit = seriesRows
+    .filter((row) => row.day === windows.currentDay)
+    .map((row) => ({ day: row.hour, value: row.profit }));
+  const previousProfit = seriesRows
+    .filter((row) => row.day === windows.previousDay)
+    .map((row) => ({ day: row.hour, value: row.profit }));
+  const currentSold = soldRows
+    .filter((row) => row.day === windows.currentDay)
+    .map((row) => ({ day: row.hour, value: row.value }));
+  const previousSold = soldRows
+    .filter((row) => row.day === windows.previousDay)
+    .map((row) => ({ day: row.hour, value: row.value }));
   return {
     labels: windows.labels,
     orders: {
@@ -193,6 +293,14 @@ function buildTodayChart(
     revenue: {
       current: fillDailySeries(windows.hours, currentRevenue),
       previous: fillDailySeries(windows.hours, previousRevenue),
+    },
+    profit: {
+      current: fillDailySeries(windows.hours, currentProfit),
+      previous: fillDailySeries(windows.hours, previousProfit),
+    },
+    sold: {
+      current: fillDailySeries(windows.hours, currentSold),
+      previous: fillDailySeries(windows.hours, previousSold),
     },
     legend: chartLegend('today'),
     grain: 'hour',
@@ -242,10 +350,10 @@ async function loadBySource(db: AppDb, start: number): Promise<DashboardRankItem
     }));
 }
 
-async function loadTopProducts(db: AppDb, start: number): Promise<DashboardTopProduct[]> {
+async function loadSoldParts(db: AppDb, start: number) {
   const inRange = and(gte(orders.createdAt, start), eq(orders.compensation, 0), ne(orders.status, 'cancelled'));
   const legacyOnly = sql`not exists (select 1 from order_items where order_items.order_id = ${orders.id})`;
-  const [single, many] = await Promise.all([
+  return Promise.all([
     db
       .select({ productId: orders.productId, sold: num(sql`sum(${orders.quantity})`) })
       .from(orders)
@@ -258,8 +366,17 @@ async function loadTopProducts(db: AppDb, start: number): Promise<DashboardTopPr
       .where(and(inRange, isNotNull(orderItems.productId)))
       .groupBy(orderItems.productId),
   ]);
-  const top = mergeTopProducts([single, many], TOP_PRODUCTS);
-  if (top.length === 0) return [];
+}
+
+async function loadProductRanks(
+  db: AppDb,
+  start: number,
+): Promise<{ topProducts: DashboardTopProduct[]; leastProducts: DashboardTopProduct[] }> {
+  const parts = await loadSoldParts(db, start);
+  const best = mergeTopProducts(parts, TOP_PRODUCTS);
+  const least = mergeLeastProducts(parts, TOP_PRODUCTS);
+  const ids = [...new Set([...best, ...least].map((item) => item.productId))];
+  if (ids.length === 0) return { topProducts: [], leastProducts: [] };
   const details = await db
     .select({
       id: products.id,
@@ -271,31 +388,33 @@ async function loadTopProducts(db: AppDb, start: number): Promise<DashboardTopPr
     })
     .from(products)
     .leftJoin(media, eq(products.coverMediaId, media.id))
-    .where(inArray(products.id, top.map((item) => item.productId)));
+    .where(inArray(products.id, ids));
   const byId = new Map(details.map((row) => [row.id, row]));
-  return top.flatMap((item) => {
-    const row = byId.get(item.productId);
-    if (!row) return [];
-    const key = row.thumbKey || row.cardKey || row.coverKey || null;
-    return [
-      {
-        productId: item.productId,
-        name: row.name,
-        sold: item.sold,
-        imageUrl: key ? routes.media(key) : null,
-        imageAlt: row.coverAlt || row.name,
-      },
-    ];
-  });
+  const toView = (ranked: { productId: number; sold: number }[]): DashboardTopProduct[] =>
+    ranked.flatMap((item) => {
+      const row = byId.get(item.productId);
+      if (!row) return [];
+      const key = row.thumbKey || row.cardKey || row.coverKey || null;
+      return [
+        {
+          productId: item.productId,
+          name: row.name,
+          sold: item.sold,
+          imageUrl: key ? routes.media(key) : null,
+          imageAlt: row.coverAlt || row.name,
+        },
+      ];
+    });
+  return { topProducts: toView(best), leastProducts: toView(least) };
 }
 
 async function loadBreakdown(db: AppDb, start: number): Promise<DashboardBreakdown> {
-  const [provinces, sources, topProducts] = await Promise.all([
+  const [provinces, sources, productRanks] = await Promise.all([
     loadTopProvinces(db, start),
     loadBySource(db, start),
-    loadTopProducts(db, start),
+    loadProductRanks(db, start),
   ]);
-  return { provinces, sources, topProducts };
+  return { provinces, sources, topProducts: productRanks.topProducts, leastProducts: productRanks.leastProducts };
 }
 
 function buildKpi(raw: Awaited<ReturnType<typeof loadPeriodKpi>>): DashboardKpi {
@@ -333,7 +452,9 @@ export async function getDashboardOverview(db: AppDb, options: { admin: boolean;
     kpi7,
     kpi30,
     dailyRows,
+    dailySoldRows,
     hourlyRows,
+    hourlySoldRows,
     breakdownToday,
     breakdown7,
     breakdown30,
@@ -342,7 +463,9 @@ export async function getDashboardOverview(db: AppDb, options: { admin: boolean;
     loadPeriodKpi(db, windows.currentStart, windows.previousStart),
     loadPeriodKpi(db, win30.currentStart, win30.previousStart),
     loadDailySeries(db, win30.previousStart),
+    loadDailySoldSeries(db, win30.previousStart),
     loadHourlySeries(db, winToday.previousStart),
+    loadHourlySoldSeries(db, winToday.previousStart),
     loadBreakdown(db, winToday.currentStart),
     loadBreakdown(db, windows.currentStart),
     loadBreakdown(db, win30.currentStart),
@@ -357,9 +480,9 @@ export async function getDashboardOverview(db: AppDb, options: { admin: boolean;
       '30': buildKpi(kpi30),
     } satisfies Record<ChartRange, DashboardKpi>,
     charts: {
-      today: buildTodayChart(winToday, hourlyRows),
-      '7': buildDayChart('7', windows, dailyRows),
-      '30': buildDayChart('30', win30, dailyRows),
+      today: buildTodayChart(winToday, hourlyRows, hourlySoldRows),
+      '7': buildDayChart('7', windows, dailyRows, dailySoldRows),
+      '30': buildDayChart('30', win30, dailyRows, dailySoldRows),
     } satisfies Record<ChartRange, ChartSeries>,
     breakdowns: {
       today: breakdownToday,
