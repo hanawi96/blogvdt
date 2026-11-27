@@ -4,8 +4,17 @@
   import SlugField from './SlugField.svelte';
   import type { MediaItem } from '../../features/media/types';
 
-  type CategoryDraft = { id: number | null; name: string; slug: string; description: string; coverMediaId: string; weightScale: string };
-  type FieldErrors = { form?: string; name?: string; slug?: string; description?: string; cover?: string };
+  type CategoryDraft = {
+    id: number | null;
+    name: string;
+    slug: string;
+    description: string;
+    coverMediaId: string;
+    weightScale: string;
+    qtyMin: string;
+    qtyMax: string;
+  };
+  type FieldErrors = { form?: string; name?: string; slug?: string; description?: string; cover?: string; qty?: string };
 
   let {
     csrf,
@@ -84,6 +93,21 @@
         Không cần chọn cân nặng
       </label>
     </div>
+  </fieldset>
+  <fieldset class="mt-4">
+    <legend class="mb-1 font-semibold">Số lượng mua (min – max)</legend>
+    <div class="mt-2 flex flex-wrap items-end gap-3">
+      <label class="block text-sm">
+        <span class="mb-1 block font-semibold">Tối thiểu</span>
+        <input class="field w-24" name="qtyMin" type="number" inputmode="numeric" min="1" max="500" required value={current.qtyMin} />
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block font-semibold">Tối đa</span>
+        <input class="field w-24" name="qtyMax" type="number" inputmode="numeric" min="1" max="500" required value={current.qtyMax} />
+      </label>
+    </div>
+    <p class="seo-hint mt-1">Mặc định 1–20. Hạt bán theo số lượng lớn có thể đặt 10–500.</p>
+    {#if shownErrors.qty}<span class="error-text">{shownErrors.qty}</span>{/if}
   </fieldset>
   <fieldset class="mt-4">
     <legend class="mb-1 font-semibold">Ảnh danh mục</legend>

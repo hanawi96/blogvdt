@@ -2,13 +2,18 @@
 interface Props {
   id?: string;
   name?: string;
+  min?: number;
   max: number;
   value?: number;
+  hint?: string | null;
   class?: string;
 }
 
-const { id, name = 'quantity', max, value = 1, class: className } = Astro.props;
+const { id, name = 'quantity', min = 1, max, value, hint = null, class: className } = Astro.props;
 const labelId = id ? `${id}-label` : undefined;
+const safeMin = Number.isInteger(min) && min >= 1 ? min : 1;
+const safeMax = Number.isInteger(max) && max >= safeMin ? max : safeMin;
+const initial = value != null && Number.isInteger(value) ? Math.min(safeMax, Math.max(safeMin, value)) : safeMin;
 ---
 
 <div class:list={['qty-stepper', className]} data-qty-stepper>
@@ -21,13 +26,14 @@ const labelId = id ? `${id}-label` : undefined;
       name={name}
       type="number"
       inputmode="numeric"
-      min="1"
-      max={max}
-      value={value}
+      min={safeMin}
+      max={safeMax}
+      value={initial}
       required
       data-qty-input
       aria-label="Số lượng"
     />
     <button class="qty-stepper-btn" type="button" data-qty-inc aria-label="Tăng số lượng">+</button>
   </div>
+  {hint && <p class="qty-stepper-hint">{hint}</p>}
 </div>

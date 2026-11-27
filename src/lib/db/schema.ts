@@ -191,6 +191,9 @@ export const productCategories = sqliteTable(
     sortOrder: integer('sort_order').notNull().default(0),
     // Thang cân nặng của danh mục: 'none' (không cần chọn), 'baby', ... (xem features/products/weight.ts).
     weightScale: text('weight_scale').notNull().default('baby'),
+    // Khoảng SL mua theo danh mục (vd hạt: 10–500). Mặc định 1–20 như vòng thường.
+    qtyMin: integer('qty_min').notNull().default(1),
+    qtyMax: integer('qty_max').notNull().default(20),
     // active = hiện SP thuộc DM ra ngoài; inactive = tạm ẩn toàn bộ SP trong DM (không đổi status từng SP).
     status: text('status').notNull().default('active'),
     createdAt: integer('created_at').notNull(),

@@ -4,7 +4,39 @@ import { categoryListQuery, categoryMovePlan, productCategoryDeleteWarning, prod
 describe('danh mục sản phẩm', () => {
   it('chuẩn hóa tên và slug, giữ mô tả đã cắt khoảng trắng', () => {
     const parsed = readProductCategory({ name: '  Vòng charm  ', slug: '', description: '  Charm bạc  ', coverMediaId: ' 4 ', weightScale: 'baby' });
-    expect(parsed.ok && parsed.value).toEqual({ name: 'Vòng charm', slug: 'vong-charm', description: 'Charm bạc', coverMediaId: 4, weightScale: 'baby' });
+    expect(parsed.ok && parsed.value).toEqual({
+      name: 'Vòng charm',
+      slug: 'vong-charm',
+      description: 'Charm bạc',
+      coverMediaId: 4,
+      weightScale: 'baby',
+      qtyMin: 1,
+      qtyMax: 20,
+    });
+  });
+
+  it('nhận khoảng số lượng hợp lệ và từ chối min > max', () => {
+    const beads = readProductCategory({
+      name: 'Hạt',
+      slug: 'hat',
+      description: '',
+      coverMediaId: '',
+      weightScale: 'none',
+      qtyMin: '10',
+      qtyMax: '500',
+    });
+    expect(beads.ok && beads.value.qtyMin).toBe(10);
+    expect(beads.ok && beads.value.qtyMax).toBe(500);
+    const bad = readProductCategory({
+      name: 'Hạt',
+      slug: 'hat',
+      description: '',
+      coverMediaId: '',
+      weightScale: 'none',
+      qtyMin: '20',
+      qtyMax: '5',
+    });
+    expect(bad.ok).toBe(false);
   });
 
   it('cho phép danh mục không ảnh và từ chối id ảnh sai', () => {

@@ -1,8 +1,8 @@
 ---
-import { CART_MAX_QUANTITY } from '../../features/cart/cart';
 import { audienceCardLabel } from '../../features/products/audience';
 import { discountPercent } from '../../features/products/catalog';
 import { cordCardLabel } from '../../features/products/cord';
+import { needsQtyPicker, qtyBounds, qtyHint } from '../../features/products/qty';
 import { productRequiresTagName, TAG_NAME_MAX } from '../../features/products/tag-name';
 import { requiresWeight, weightChips, weightExtras, weightFieldLabel, weightOptionLabel, type WeightScale } from '../../features/products/weight';
 import type { ProductShipBadge } from '../../features/shipping/customer-fee';
@@ -24,6 +24,8 @@ interface Props {
     cordType?: string;
     audience?: string;
     weightScale: WeightScale;
+    qtyMin?: number;
+    qtyMax?: number;
     shipBadge?: ProductShipBadge;
     ratingLabel?: string | null;
     sold?: number;
@@ -33,16 +35,20 @@ interface Props {
     coverHeight: number | null;
   };
   eager?: boolean;
+  /** Badge Hot — chỉ bật ở khối sản phẩm hot trên trang chủ. */
+  showHotBadge?: boolean;
 }
 
-const { product, eager = false } = Astro.props;
+const { product, eager = false, showHotBadge = false } = Astro.props;
 const href = routes.product(product.slug);
 const orderHref = `${routes.checkout}?san-pham=${encodeURIComponent(product.slug)}`;
 const cordLabel = cordCardLabel(product.cordType);
 const audienceLabel = audienceCardLabel(product.audience);
+const bounds = qtyBounds(product);
 const needsWeight = requiresWeight(product.weightScale);
 const needsTag = productRequiresTagName(product.name);
-const needsDialog = needsWeight || needsTag;
+const needsQty = needsQtyPicker(bounds);
+const needsDialog = needsWeight || needsTag || needsQty;
 const chips = needsWeight ? weightChips(product.weightScale) : [];
 const extras = needsWeight ? weightExtras(product.weightScale) : [];
 const off = discountPercent(product.price, product.comparePrice);
@@ -54,6 +60,8 @@ const orderAttrs = {
   'data-name': product.name,
   'data-price': String(product.price),
   'data-scale': product.weightScale,
+  'data-qty-min': String(bounds.min),
+  'data-qty-max': String(bounds.max),
   'data-cover': product.coverUrl ?? '',
   'data-ship-badge': product.shipBadge ?? 'none',
 };
@@ -84,6 +92,7 @@ const orderAttrs = {
     <h3 class="home-shop-name">
       <a href={href}>
         {cordLabel && <span class="home-shop-cord">{cordLabel}</span>}
+        {showHotBadge && <span class="home-shop-hot">Hot</span>}
         <span class="home-shop-name-text">{product.name}</span>
       </a>
     </h3>
@@ -203,7 +212,7 @@ const orderAttrs = {
               </label>
             )
           }
-          <QtyStepper id={`home-qty-${product.id}`} max={CART_MAX_QUANTITY} />
+          <QtyStepper id={`home-qty-${product.id}`} min={bounds.min} max={bounds.max} value={bounds.min} hint={qtyHint(bounds)} />
           <p class="add-error error-text mt-2" role="alert" hidden></p>
           <button class="btn btn-primary mt-4 w-full" type="submit">Thêm giỏ</button>
         </form>

@@ -36,6 +36,8 @@ let slug = '';
 let description = '';
 let coverMediaId = '';
 let weightScale = 'baby';
+let qtyMin = '1';
+let qtyMax = '20';
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -73,8 +75,15 @@ if (Astro.request.method === 'POST') {
       description = String(form.get('description') ?? '');
       coverMediaId = String(form.get('coverMediaId') ?? '');
       weightScale = String(form.get('weightScale') ?? 'baby');
+      qtyMin = String(form.get('qtyMin') ?? '1');
+      qtyMax = String(form.get('qtyMax') ?? '20');
       editingId = id ? String(id) : '';
-      const saved = await saveProductCategory(db, { id, name, slug, description, coverMediaId, weightScale }, Date.now(), actor);
+      const saved = await saveProductCategory(
+        db,
+        { id, name, slug, description, coverMediaId, weightScale, qtyMin, qtyMax },
+        Date.now(),
+        actor,
+      );
       if (!saved.ok) {
         Astro.response.status = 422;
         formError = saved.error;
@@ -98,6 +107,8 @@ if (Astro.request.method !== 'POST' && editing) {
   description = editing.description;
   coverMediaId = editing.coverMediaId ? String(editing.coverMediaId) : '';
   weightScale = editing.weightScale;
+  qtyMin = String(editing.qtyMin);
+  qtyMax = String(editing.qtyMax);
 }
 const mediaItems = await listMediaByIds(db, [
   coverMediaId,
@@ -108,13 +119,15 @@ const slugError = formError.startsWith('Slug') ? formError : '';
 const nameError = formError.startsWith('Nhập tên') || formError.startsWith('Tên') ? formError : '';
 const descriptionError = formError.startsWith('Mô tả') ? formError : '';
 const coverError = formError.startsWith('Ảnh') ? formError : '';
-const bannerError = slugError || nameError || descriptionError || coverError ? '' : formError;
+const qtyError = formError.startsWith('Số lượng') ? formError : '';
+const bannerError = slugError || nameError || descriptionError || coverError || qtyError ? '' : formError;
 const fieldErrors = {
   form: dialogOpen ? bannerError : '',
   name: nameError,
   slug: slugError,
   description: descriptionError,
   cover: coverError,
+  qty: qtyError,
 };
 const drafts = categories.map((category) => ({
   id: category.id,
@@ -123,6 +136,8 @@ const drafts = categories.map((category) => ({
   description: category.description,
   coverMediaId: category.coverMediaId ? String(category.coverMediaId) : '',
   weightScale: category.weightScale,
+  qtyMin: String(category.qtyMin),
+  qtyMax: String(category.qtyMax),
 }));
 const noticeText =
   notice === 'saved'
@@ -314,7 +329,16 @@ function productCountLabel(count: number): string {
         client:load
         csrf={session.csrfToken}
         items={mediaItems}
-        initial={{ id: editingId ? Number(editingId) : null, name, slug, description, coverMediaId, weightScale }}
+        initial={{
+          id: editingId ? Number(editingId) : null,
+          name,
+          slug,
+          description,
+          coverMediaId,
+          weightScale,
+          qtyMin,
+          qtyMax,
+        }}
         errors={fieldErrors}
       />
     </form>
@@ -325,14 +349,25 @@ function productCountLabel(count: number): string {
   const dialog = document.querySelector('[data-category-dialog]');
   if (dialog instanceof HTMLDialogElement) {
     const modal = dialog;
-    type CategoryDraft = { id: number | null; name: string; slug: string; description: string; coverMediaId: string; weightScale: string };
+    type CategoryDraft = {
+      id: number | null;
+      name: string;
+      slug: string;
+      description: string;
+      coverMediaId: string;
+      weightScale: string;
+      qtyMin: string;
+      qtyMax: string;
+    };
     const drafts: CategoryDraft[] = JSON.parse(modal.dataset.categories ?? '[]');
     const open = (draft: CategoryDraft) => {
       window.dispatchEvent(new CustomEvent('product-category-form', { detail: draft }));
       modal.showModal();
     };
     for (const button of document.querySelectorAll('[data-category-new]')) {
-      button.addEventListener('click', () => open({ id: null, name: '', slug: '', description: '', coverMediaId: '', weightScale: 'baby' }));
+      button.addEventListener('click', () =>
+        open({ id: null, name: '', slug: '', description: '', coverMediaId: '', weightScale: 'baby', qtyMin: '1', qtyMax: '20' }),
+      );
     }
     document.addEventListener('click', (event) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

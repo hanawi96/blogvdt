@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { ORDER_MAX_QUANTITY } from '../orders/order';
-import { CART_MAX_LINES, CART_MAX_QUANTITY, addCartLine, cartSummary, parseCart, postedCartLines, serializeCart } from './cart';
+import { ORDER_HARD_MAX_QUANTITY, ORDER_MAX_QUANTITY } from '../orders/order';
+import {
+  CART_HARD_MAX_QUANTITY,
+  CART_MAX_LINES,
+  CART_MAX_QUANTITY,
+  addCartLine,
+  cartSummary,
+  parseCart,
+  postedCartLines,
+  serializeCart,
+} from './cart';
 
 describe('giỏ hàng', () => {
   it('gộp cùng mẫu và cùng cân nặng, chặn giỏ quá dài', () => {
     expect(CART_MAX_QUANTITY).toBe(ORDER_MAX_QUANTITY);
+    expect(CART_HARD_MAX_QUANTITY).toBe(ORDER_HARD_MAX_QUANTITY);
     const first = addCartLine([], { slug: 'vong-to-tam-tron', weight: '5kg', quantity: 2 });
     const second = first.ok ? addCartLine(first.lines, { slug: 'vong-to-tam-tron', weight: '5kg', quantity: 3 }) : first;
     expect(second.ok && second.lines).toEqual([{ slug: 'vong-to-tam-tron', weight: '5kg', quantity: 5, note: '' }]);
@@ -48,5 +58,11 @@ describe('giỏ hàng', () => {
   it('tóm tắt tên cho danh sách đơn', () => {
     expect(cartSummary(['Vòng A', 'Vòng B'])).toBe('Vòng A, Vòng B');
     expect(cartSummary(['Vòng A', 'Vòng B', 'Vòng C'])).toBe('Vòng A + 2 mẫu');
+  });
+
+  it('cho phép số lượng tới trần cứng 500 khi parse cookie', () => {
+    const raw = serializeCart([{ slug: 'hat-mai', quantity: 500, weight: '', note: '' }]);
+    expect(parseCart(raw)).toEqual([{ slug: 'hat-mai', quantity: 500, weight: '', note: '' }]);
+    expect(addCartLine([], { slug: 'hat-mai', quantity: 501, weight: '' }).ok).toBe(false);
   });
 });

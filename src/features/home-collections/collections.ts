@@ -506,6 +506,8 @@ async function loadCardsByIds(db: AppDb, ids: readonly number[]): Promise<Map<nu
       cordType: products.cordType,
       audience: products.audience,
       weightScale: productCategories.weightScale,
+      qtyMin: productCategories.qtyMin,
+      qtyMax: productCategories.qtyMax,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,
       cardKey: media.cardR2Key,

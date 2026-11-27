@@ -4,7 +4,7 @@ import DataError from '../components/public/DataError.astro';
 import DiscountCodeField from '../components/public/DiscountCodeField.astro';
 import PaymentField from '../components/public/PaymentField.astro';
 import AddonPicker from '../components/public/AddonPicker.astro';
-import { addCartLine, CART_COOKIE, CART_MAX_NOTE, CART_MAX_QUANTITY, cartCookieOptions, parseCart, postedCartLines, serializeCart, type CartLine } from '../features/cart/cart';
+import { addCartLine, CART_COOKIE, CART_MAX_NOTE, cartCookieOptions, parseCart, postedCartLines, serializeCart, type CartLine } from '../features/cart/cart';
 import { applyDiscount, type DiscountQuote } from '../features/discounts/quote';
 import { priceDiscount } from '../features/discounts/discounts';
 import { listOrderCosts } from '../features/costs/order-costs';
@@ -26,6 +26,7 @@ import {
 } from '../features/products/addons';
 import { listOrderCatalog } from '../features/products/public';
 import { productRequiresTagName, TAG_NAME_MAX } from '../features/products/tag-name';
+import { isValidQty, qtyBounds, qtyRequiredMessage } from '../features/products/qty';
 import { applyWeightPrice, isValidWeight, requiresWeight, weightRequiredMessage, weightSurchargeLabel } from '../features/products/weight';
 import { getPublicSite } from '../features/settings/settings';
 import { baseCustomerShippingFee, resolveCustomerShippingFee, shipGroupOf } from '../features/shipping/customer-fee';
@@ -87,8 +88,11 @@ if (Astro.request.method === 'POST') {
     const product = loaded.catalog.find((item) => item.slug === read('slug'));
     const addonRaws = strings(form, 'addonSlug');
     const pickedAddons = findAddonsInCatalog(addonRaws, loaded.catalog);
+    const requestedQty = Number(read('quantity') || '1');
+    const bounds = product ? qtyBounds(product) : qtyBounds(null);
     if (!added.ok) formError = added.error;
     else if (!product) formError = 'Sản phẩm không còn bán.';
+    else if (!isValidQty(bounds, requestedQty)) formError = qtyRequiredMessage(bounds);
     else if (requiresWeight(product.weightScale) && !read('weight').trim()) formError = weightRequiredMessage(product.weightScale);
     else if (!isValidWeight(product.weightScale, read('weight'))) formError = 'Cân nặng không hợp lệ.';
     else if (productRequiresTagName(product.name) && !tagName) formError = 'Nhập tên cần in lên thẻ.';
@@ -97,19 +101,26 @@ if (Astro.request.method === 'POST') {
       formError = 'Bó dâu bán kèm không còn bán.';
     } else {
       let next = added.lines;
-      let failed = '';
-      for (const addon of pickedAddons) {
-        const withAddon = addCartLine(next, { slug: addon.slug, quantity: 1, weight: '', note: '' });
-        if (!withAddon.ok) {
-          failed = withAddon.error;
-          break;
+      const merged = next.find(
+        (line) => line.slug === product.slug && line.weight === read('weight').trim() && line.note === tagName,
+      );
+      if (merged && !isValidQty(bounds, merged.quantity)) {
+        formError = qtyRequiredMessage(bounds);
+      } else {
+        let failed = '';
+        for (const addon of pickedAddons) {
+          const withAddon = addCartLine(next, { slug: addon.slug, quantity: 1, weight: '', note: '' });
+          if (!withAddon.ok) {
+            failed = withAddon.error;
+            break;
+          }
+          next = withAddon.lines;
         }
-        next = withAddon.lines;
-      }
-      if (failed) formError = failed;
-      else {
-        remember(next);
-        return Astro.redirect(routes.cart, 303);
+        if (failed) formError = failed;
+        else {
+          remember(next);
+          return Astro.redirect(routes.cart, 303);
+        }
       }
     }
   } else if (intent === 'add-addon' || intent.startsWith('add-addon:')) {
@@ -130,8 +141,12 @@ if (Astro.request.method === 'POST') {
     const posted = linesFrom(form, intent);
     if (!posted.ok) formError = posted.error;
     else {
-      remember(posted.lines.filter((line) => loaded.catalog.some((item) => item.slug === line.slug)));
-      return Astro.redirect(routes.cart, 303);
+      const qtyError = cartQtyError(posted.lines);
+      if (qtyError && !intent.startsWith('remove:')) formError = qtyError;
+      else {
+        remember(posted.lines.filter((line) => loaded.catalog.some((item) => item.slug === line.slug)));
+        return Astro.redirect(routes.cart, 303);
+      }
     }
   } else if (intent === 'apply') {
     const posted = linesFrom(form, intent);
@@ -142,8 +157,12 @@ if (Astro.request.method === 'POST') {
       else formError = error;
       return null;
     };
+    const qtyError = posted.ok ? cartQtyError(posted.lines) : null;
     if (!posted.ok) {
       const denied = fail(422, posted.error);
+      if (denied) return denied;
+    } else if (qtyError) {
+      const denied = fail(422, qtyError);
       if (denied) return denied;
     } else if (read('company').trim()) {
       const denied = fail(403, 'Không gửi được đơn.');
@@ -173,9 +192,13 @@ if (Astro.request.method === 'POST') {
     }
   } else if (intent === 'order') {
     const posted = linesFrom(form, intent);
+    const orderQtyError = posted.ok ? cartQtyError(posted.lines) : null;
     if (!posted.ok) {
       Astro.response.status = 422;
       formError = posted.error;
+    } else if (orderQtyError) {
+      Astro.response.status = 422;
+      formError = orderQtyError;
     } else {
       lines = posted.lines;
       const parsed = parseCartOrder(
@@ -237,6 +260,7 @@ const cartProductIds = new Set(
 const resolved = lines.flatMap((line) => {
   const product = loaded.catalog.find((item) => item.slug === line.slug);
   if (!product) return [];
+  const bounds = qtyBounds(product);
   // Đơn giá: giảm combo / bán kèm (nếu đủ điều kiện) rồi phụ thu cân nặng.
   const unitPrice = lineUnitPrice(
     product,
@@ -262,6 +286,8 @@ const resolved = lines.flatMap((line) => {
       ...line,
       name: product.name,
       needsTag: productRequiresTagName(product.name),
+      qtyMin: bounds.min,
+      qtyMax: bounds.max,
       price: unitPrice,
       catalogUnit,
       comparePrice: wasUnit,
@@ -321,6 +347,16 @@ function linesFrom(form: FormData, intent: string): { ok: true; lines: CartLine[
     weights,
     slugs.map((_, index) => notes[index] ?? ''),
   );
+}
+
+function cartQtyError(cartLines: CartLine[]): string | null {
+  for (const line of cartLines) {
+    const product = loaded.catalog.find((item) => item.slug === line.slug);
+    if (!product) continue;
+    const bounds = qtyBounds(product);
+    if (!isValidQty(bounds, line.quantity)) return qtyRequiredMessage(bounds);
+  }
+  return null;
 }
 
 function strings(form: FormData, name: string): string[] {
@@ -497,8 +533,8 @@ async function loadCart(): Promise<{
                             name="quantity"
                             type="number"
                             inputmode="numeric"
-                            min="1"
-                            max={CART_MAX_QUANTITY}
+                            min={line.qtyMin}
+                            max={line.qtyMax}
                             required
                             value={line.quantity}
                             aria-label={`Số lượng ${line.name}`}
@@ -778,9 +814,10 @@ async function loadCart(): Promise<{
       button.addEventListener('click', () => {
         const input = button.closest('.qty')?.querySelector('input[name="quantity"]');
         if (!(input instanceof HTMLInputElement)) return;
+        const min = Number(input.min) || 1;
         const max = Number(input.max) || 20;
-        const next = (Number.isInteger(Number(input.value)) ? Number(input.value) : 1) + Number(button.dataset.qtyStep);
-        input.value = String(Math.min(max, Math.max(1, next)));
+        const next = (Number.isInteger(Number(input.value)) ? Number(input.value) : min) + Number(button.dataset.qtyStep);
+        input.value = String(Math.min(max, Math.max(min, next)));
         recalc();
         markQuoteStale();
         persist();

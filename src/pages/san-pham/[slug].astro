@@ -11,7 +11,7 @@ import ProductProcess from '../../components/public/ProductProcess.astro';
 import ProductStory from '../../components/public/ProductStory.astro';
 import QtyStepper from '../../components/public/QtyStepper.astro';
 import WeightFitHint from '../../components/public/WeightFitHint.astro';
-import { CART_MAX_QUANTITY } from '../../features/cart/cart';
+import { needsQtyPicker, qtyBounds, qtyHint } from '../../features/products/qty';
 import { listOrderCosts } from '../../features/costs/order-costs';
 import { listPublicCommentThreads } from '../../features/product-comments/comments';
 import { listPublicComboPricing, type PublicComboPricing } from '../../features/home-collections/collections';
@@ -109,9 +109,11 @@ const commitments = [
   'Nhận hàng kiểm tra hàng thoải mái',
 ];
 
+const bounds = visible ? qtyBounds(visible) : qtyBounds(null);
 const needsWeight = visible ? requiresWeight(visible.weightScale) : false;
 const needsTag = visible ? productRequiresTagName(visible.name) : false;
-const needsAddDialog = needsWeight || needsTag;
+const needsQty = needsQtyPicker(bounds);
+const needsAddDialog = needsWeight || needsTag || needsQty;
 const addChips = needsWeight && visible ? weightChips(visible.weightScale) : [];
 const addExtras = needsWeight && visible ? weightExtras(visible.weightScale) : [];
 
@@ -338,7 +340,7 @@ async function loadProduct(): Promise<{
                   </label>
                 )
               }
-              <QtyStepper max={CART_MAX_QUANTITY} />
+              <QtyStepper min={bounds.min} max={bounds.max} value={bounds.min} hint={qtyHint(bounds)} />
               <p class="add-error error-text mt-2" role="alert" hidden></p>
               <button class="btn btn-primary mt-4 w-full" type="submit">Thêm vào giỏ</button>
             </form>

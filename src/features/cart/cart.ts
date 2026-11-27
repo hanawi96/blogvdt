@@ -1,7 +1,12 @@
+import { QTY_DEFAULT_MAX, QTY_HARD_MAX } from '../products/qty';
+
 export const CART_COOKIE = 'vdt_cart';
 export const CART_MAX_AGE = 60 * 60 * 24 * 14;
 export const CART_MAX_LINES = 8;
-export const CART_MAX_QUANTITY = 20;
+/** Trần mặc định vòng thường; SP hạt dùng qtyMax danh mục (tới CART_HARD_MAX_QUANTITY). */
+export const CART_MAX_QUANTITY = QTY_DEFAULT_MAX;
+/** Trần tuyệt đối trong cookie giỏ — khớp QTY_HARD_MAX. */
+export const CART_HARD_MAX_QUANTITY = QTY_HARD_MAX;
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -101,7 +106,9 @@ function cleanLine(slug: unknown, quantity: unknown, weight: unknown, note: unkn
   if (typeof weight !== 'string') return null;
   const weightLabel = weight.trim().slice(0, CART_MAX_WEIGHT);
   if (weight.trim().length > CART_MAX_WEIGHT) return null;
-  if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1 || quantity > CART_MAX_QUANTITY) return null;
+  if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1 || quantity > CART_HARD_MAX_QUANTITY) {
+    return null;
+  }
   const noteRaw = typeof note === 'string' ? note : '';
   const noteLabel = noteRaw.replace(/\s+/g, ' ').trim().slice(0, CART_MAX_NOTE);
   if (noteRaw.replace(/\s+/g, ' ').trim().length > CART_MAX_NOTE) return null;
@@ -115,6 +122,9 @@ function pushLine(lines: CartLine[], line: CartLine): boolean {
     lines.push(line);
     return true;
   }
-  lines[index] = { ...lines[index], quantity: Math.min(CART_MAX_QUANTITY, lines[index].quantity + line.quantity) };
+  lines[index] = {
+    ...lines[index],
+    quantity: Math.min(CART_HARD_MAX_QUANTITY, lines[index].quantity + line.quantity),
+  };
   return true;
 }

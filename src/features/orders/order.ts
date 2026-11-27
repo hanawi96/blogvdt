@@ -7,6 +7,7 @@ import {
 } from '../home-collections/collections';
 import { SLUG_PATTERN } from '../posts/slug';
 import { productRequiresTagName, readTagName, tagNameToLineNote } from '../products/tag-name';
+import { isValidQty, qtyBounds, qtyRequiredMessage, QTY_DEFAULT_MAX, QTY_HARD_MAX } from '../products/qty';
 import {
   applyWeightPrice,
   isValidWeight,
@@ -23,7 +24,10 @@ import { formatVnd } from '../../lib/money';
 export const ORDER_DUPLICATE_MS = 10 * 60 * 1000;
 export const ORDER_IP_LIMIT = 5;
 export const ORDER_IP_WINDOW_MS = 15 * 60 * 1000;
-export const ORDER_MAX_QUANTITY = 20;
+/** Trần mặc định vòng thường; SP hạt dùng qtyMax danh mục. */
+export const ORDER_MAX_QUANTITY = QTY_DEFAULT_MAX;
+/** Trần tuyệt đối (khớp QTY_HARD_MAX / cookie giỏ). */
+export const ORDER_HARD_MAX_QUANTITY = QTY_HARD_MAX;
 
 export type CatalogProduct = {
   id: number;
@@ -31,6 +35,8 @@ export type CatalogProduct = {
   name: string;
   price: number;
   weightScale: WeightScale;
+  qtyMin?: number;
+  qtyMax?: number;
   categorySlug?: string;
 };
 
@@ -275,10 +281,9 @@ export function parseOrderSubmission(
   const errors: FieldErrors = { ...customer.errors };
   const quantity = Number(input.quantity);
   const product = catalog.find((item) => item.slug === input.productSlug);
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > ORDER_MAX_QUANTITY) {
-    errors.quantity = `Số lượng là số nguyên từ 1 đến ${ORDER_MAX_QUANTITY}.`;
-  }
+  const bounds = product ? qtyBounds(product) : qtyBounds(null);
   if (!product) errors.productSlug = 'Chọn sản phẩm đang bán.';
+  else if (!isValidQty(bounds, quantity)) errors.quantity = qtyRequiredMessage(bounds);
   // Form không gửi hình thức thì mặc định thanh toán khi nhận hàng; giá trị lạ bị từ chối.
   const paymentRaw = (input.paymentMethod ?? '').trim();
   if (paymentRaw && !isPaymentMethod(paymentRaw)) errors.paymentMethod = 'Chọn hình thức thanh toán.';
@@ -353,9 +358,8 @@ export function parseCartOrder(
       errors.cart = 'Một mẫu trong giỏ không còn bán.';
       continue;
     }
-    if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > ORDER_MAX_QUANTITY) {
-      errors[`quantity${index}`] = `Số lượng là số nguyên từ 1 đến ${ORDER_MAX_QUANTITY}.`;
-    }
+    const bounds = qtyBounds(product);
+    if (!isValidQty(bounds, line.quantity)) errors[`quantity${index}`] = qtyRequiredMessage(bounds);
     if (requiresWeight(product.weightScale) && !line.weight) errors[`weight${index}`] = weightRequiredMessage(product.weightScale);
     if (!isValidWeight(product.weightScale, line.weight)) errors[`weight${index}`] = 'Cân nặng không hợp lệ.';
     let lineNote: string | null = null;

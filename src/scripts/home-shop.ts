@@ -1,7 +1,7 @@
 /** Filter danh mục/sort + Xem tiếp trên trang chủ — fetch JSON /api/catalog, không reload. */
-import { CART_MAX_QUANTITY } from '../features/cart/cart';
 import { audienceCardLabel } from '../features/products/audience';
 import { cordCardLabel } from '../features/products/cord';
+import { needsQtyPicker, qtyBounds, qtyHint } from '../features/products/qty';
 import { productRequiresTagName, TAG_NAME_MAX } from '../features/products/tag-name';
 import { WEIGHT_SCALES, weightFieldLabel, type WeightScale } from '../features/products/weight';
 import { INSPECT_GOODS_LABEL } from '../features/products/inspect-goods';
@@ -23,6 +23,8 @@ type ApiProduct = {
   cordType?: string;
   audience?: string;
   weightScale: string;
+  qtyMin?: number;
+  qtyMax?: number;
   shipBadge?: ProductShipBadge;
   ratingLabel?: string | null;
   sold?: number;
@@ -105,9 +107,12 @@ function boot() {
     const name = escapeHtml(product.name);
     const cordLabel = cordCardLabel(product.cordType);
     const audienceLabel = audienceCardLabel(product.audience);
+    const bounds = qtyBounds(product);
     const needsWeight = product.weightScale !== 'none';
     const needsTag = productRequiresTagName(product.name);
-    const needsDialog = needsWeight || needsTag;
+    const needsQty = needsQtyPicker(bounds);
+    const needsDialog = needsWeight || needsTag || needsQty;
+    const hint = qtyHint(bounds);
     const media = product.coverUrl
       ? `<img src="${escapeHtml(product.coverUrl)}" alt="" width="${product.coverWidth ?? 480}" height="${product.coverHeight ?? 480}" loading="${eager ? 'eager' : 'lazy'}" decoding="async" sizes="(min-width: 64rem) 16rem, (min-width: 40rem) 30vw, 46vw" />`
       : '<span class="home-shop-media-empty" aria-hidden="true"></span>';
@@ -189,9 +194,10 @@ function boot() {
               <p class="qty-stepper-label">Số lượng</p>
               <div class="qty-stepper-row" role="group" aria-label="Số lượng">
                 <button class="qty-stepper-btn" type="button" data-qty-dec aria-label="Giảm số lượng">−</button>
-                <input class="qty-stepper-input field" name="quantity" type="number" inputmode="numeric" min="1" max="${CART_MAX_QUANTITY}" value="1" required data-qty-input aria-label="Số lượng" />
+                <input class="qty-stepper-input field" name="quantity" type="number" inputmode="numeric" min="${bounds.min}" max="${bounds.max}" value="${bounds.min}" required data-qty-input aria-label="Số lượng" />
                 <button class="qty-stepper-btn" type="button" data-qty-inc aria-label="Tăng số lượng">+</button>
               </div>
+              ${hint ? `<p class="qty-stepper-hint">${escapeHtml(hint)}</p>` : ''}
             </div>
             <p class="add-error error-text mt-2" role="alert" hidden></p>
             <button class="btn btn-primary mt-4 w-full" type="submit">Thêm giỏ</button>
@@ -209,7 +215,7 @@ function boot() {
         ${inspectBadge}
         ${shipBadge}
         <div class="home-shop-actions">
-          <a class="btn btn-primary home-shop-buy" href="${orderHref}" data-order-open data-slug="${escapeHtml(product.slug)}" data-name="${name}" data-price="${product.price}" data-scale="${escapeHtml(product.weightScale)}" data-cover="${escapeHtml(product.coverUrl ?? '')}" data-ship-badge="${escapeHtml(product.shipBadge ?? 'none')}">${buyIcon} Mua ngay</a>
+          <a class="btn btn-primary home-shop-buy" href="${orderHref}" data-order-open data-slug="${escapeHtml(product.slug)}" data-name="${name}" data-price="${product.price}" data-scale="${escapeHtml(product.weightScale)}" data-qty-min="${bounds.min}" data-qty-max="${bounds.max}" data-cover="${escapeHtml(product.coverUrl ?? '')}" data-ship-badge="${escapeHtml(product.shipBadge ?? 'none')}">${buyIcon} Mua ngay</a>
           ${cart}
         </div>
       </div>

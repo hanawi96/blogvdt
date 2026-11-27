@@ -26,6 +26,8 @@ export const GET: APIRoute = async ({ url }) => {
           cordType: product.cordType,
           audience: product.audience,
           weightScale: product.weightScale,
+          qtyMin: product.qtyMin,
+          qtyMax: product.qtyMax,
           shipBadge: product.shipBadge,
           ratingLabel: product.ratingLabel,
           sold: product.sold,

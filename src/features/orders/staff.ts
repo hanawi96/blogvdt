@@ -3,7 +3,7 @@ import { vnTodayStartMs } from '../../lib/datetime';
 import { requiresWeight, weightRequiredMessage, type WeightScale } from '../products/weight';
 import type { FieldErrors } from '../../lib/validation/errors';
 import { DEFAULT_PAYMENT_METHOD, isPaymentMethod, paymentLabel, type PaymentMethod } from './payment';
-import { ORDER_MAX_QUANTITY, orderOptionLabel, readCustomer } from './order';
+import { ORDER_HARD_MAX_QUANTITY, orderOptionLabel, readCustomer } from './order';
 
 /** Lưu ý gắn từng dòng SP trong đơn (khác ghi chú khách/nội bộ cấp đơn). */
 export const LINE_NOTE_MAX = 160;
@@ -171,7 +171,7 @@ export function priceStaffLines(
   const lines: StaffPricedLine[] = [];
   for (const [index, input] of inputs.entries()) {
     const quantity = readQuantity(input.quantity);
-    if (quantity === null) return lineError(index, `Số lượng là số nguyên từ 1 đến ${ORDER_MAX_QUANTITY}.`);
+    if (quantity === null) return lineError(index, `Số lượng là số nguyên từ 1 đến ${ORDER_HARD_MAX_QUANTITY}.`);
     const productId = readProductId(input.productId);
     if (productId === 'bad') return lineError(index, 'Chọn sản phẩm đang bán.');
     const weight = input.weight.trim();
@@ -533,9 +533,9 @@ function texts(form: FormData, name: string): string[] {
 
 function readQuantity(value: string): number | null {
   const text = value.trim();
-  if (!/^\d{1,2}$/.test(text)) return null;
+  if (!/^\d{1,3}$/.test(text)) return null;
   const quantity = Number(text);
-  return quantity >= 1 && quantity <= ORDER_MAX_QUANTITY ? quantity : null;
+  return quantity >= 1 && quantity <= ORDER_HARD_MAX_QUANTITY ? quantity : null;
 }
 
 function readProductId(value: string): number | null | 'bad' {

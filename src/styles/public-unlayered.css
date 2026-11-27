@@ -3204,19 +3204,26 @@ body.site-nav-lock {
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
-.home-shop-cord {
+.home-shop-cord,
+.home-shop-hot {
   display: inline-block;
   vertical-align: middle;
   margin-right: 0.35rem;
   padding: 0.12rem 0.4rem;
   border-radius: 0.35rem;
-  background: color-mix(in oklab, var(--color-primary) 16%, var(--color-sand));
-  color: var(--color-primary-strong);
   font-size: 0.68rem;
   font-weight: 700;
   line-height: 1.25;
   letter-spacing: 0.01em;
   white-space: nowrap;
+}
+.home-shop-cord {
+  background: color-mix(in oklab, var(--color-primary) 16%, var(--color-sand));
+  color: var(--color-primary-strong);
+}
+.home-shop-hot {
+  background: color-mix(in oklab, var(--color-accent) 18%, var(--color-surface));
+  color: var(--color-accent-strong);
 }
 .home-shop-audience {
   margin: 0;

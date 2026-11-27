@@ -6,7 +6,7 @@ import {
   catalogUnitWithOfferList,
   type PublicComboPricing,
 } from '../../features/home-collections/combo-price';
-import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
+import { qtyBounds, qtyHint } from '../../features/products/qty';
 import {
   addonShipHint,
   type AddonShipHint,
@@ -23,7 +23,7 @@ import { routes } from '../../lib/routes';
 import type { FieldErrors } from '../../lib/validation/errors';
 
 interface Props {
-  product: { slug: string; name?: string; weightScale: WeightScale; price?: number };
+  product: { slug: string; name?: string; weightScale: WeightScale; price?: number; qtyMin?: number; qtyMax?: number };
   values?: {
     customerName: string;
     phone: string;
@@ -90,6 +90,8 @@ const showAddons = shipGroup === 'bracelet' && addons.length > 0;
 const chips = weightChips(product.weightScale);
 const extras = weightExtras(product.weightScale);
 const hasWeight = requiresWeight(product.weightScale);
+const bounds = qtyBounds(product);
+const qtyNote = qtyHint(bounds);
 const needsTag = productRequiresTagName(product.name ?? '');
 // Khi khách quay lại với cân nặng đã chọn nằm ngoài chip (16kg+), mở sẵn dropdown.
 const extraSelected = extras.includes(values.weight);
@@ -187,9 +189,22 @@ const pricingJson = JSON.stringify(comboPricing);
     <label class="mb-1 block font-semibold" for="quantity">Số lượng</label>
     <div class="qty-stepper-row" data-qty-stepper>
       <button class="qty-stepper-btn" type="button" data-qty-dec aria-label="Giảm số lượng">−</button>
-      <input id="quantity" class="qty-stepper-input" name="quantity" type="number" inputmode="numeric" min="1" max={ORDER_MAX_QUANTITY} required value={values.quantity} data-qty-input aria-label="Số lượng" />
+      <input
+        id="quantity"
+        class="qty-stepper-input"
+        name="quantity"
+        type="number"
+        inputmode="numeric"
+        min={bounds.min}
+        max={bounds.max}
+        required
+        value={values.quantity || String(bounds.min)}
+        data-qty-input
+        aria-label="Số lượng"
+      />
       <button class="qty-stepper-btn" type="button" data-qty-inc aria-label="Tăng số lượng">+</button>
     </div>
+    {qtyNote && <p class="qty-stepper-hint">{qtyNote}</p>}
     {errors.quantity && <span class="error-text">{errors.quantity}</span>}
   </div>
   {

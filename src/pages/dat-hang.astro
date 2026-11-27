@@ -11,7 +11,8 @@ import {
   listActiveComboOffersByProductId,
 } from '../features/home-collections/collections';
 import { toPublicComboPricing } from '../features/home-collections/combo-price';
-import { lineUnitPrice, ORDER_MAX_QUANTITY, parseCartOrder, parseOrderSubmission } from '../features/orders/order';
+import { lineUnitPrice, parseCartOrder, parseOrderSubmission } from '../features/orders/order';
+import { isValidQty, qtyBounds, qtyRequiredMessage } from '../features/products/qty';
 import { applyWeightPrice } from '../features/products/weight';
 import { placeCartOrder, placeOrder } from '../features/orders/orders';
 import {
@@ -79,9 +80,9 @@ const queryAddonSlugs = !posted
   : [];
 const activeAddonSlugs = posted ? postedAddonSlugs : queryAddonSlugs;
 const pickedAddons = findAddonsInCatalog(activeAddonSlugs, catalog);
+const selectedBounds = qtyBounds(selected);
 const queryQty = !posted ? Number(Astro.url.searchParams.get('so-luong') ?? '') : NaN;
-const defaultQty =
-  Number.isInteger(queryQty) && queryQty >= 1 && queryQty <= ORDER_MAX_QUANTITY ? String(queryQty) : '1';
+const defaultQty = isValidQty(selectedBounds, queryQty) ? String(queryQty) : String(selectedBounds.min);
 const values = {
   customerName: read('customerName'),
   phone: read('phone'),
@@ -106,8 +107,8 @@ let quote: DiscountQuote | null = null;
 function merchandiseWithAddon(): { ok: true; subtotal: number } | { ok: false; error: string } {
   if (!selected) return { ok: false, error: 'Chọn sản phẩm đang bán.' };
   const quantity = Number(values.quantity);
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > ORDER_MAX_QUANTITY) {
-    return { ok: false, error: `Số lượng là số nguyên từ 1 đến ${ORDER_MAX_QUANTITY}.` };
+  if (!isValidQty(selectedBounds, quantity)) {
+    return { ok: false, error: qtyRequiredMessage(selectedBounds) };
   }
   const uniquePosted = [...new Set(postedAddonSlugs)];
   if (uniquePosted.length > 0 && pickedAddons.length !== uniquePosted.length) {

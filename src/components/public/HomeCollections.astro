@@ -9,7 +9,7 @@ import {
 import { audienceCardLabel } from '../../features/products/audience';
 import { discountPercent } from '../../features/products/catalog';
 import { cordCardLabel } from '../../features/products/cord';
-import { CART_MAX_QUANTITY } from '../../features/cart/cart';
+import { needsQtyPicker, qtyBounds, qtyHint } from '../../features/products/qty';
 import { productRequiresTagName, TAG_NAME_MAX } from '../../features/products/tag-name';
 import { requiresWeight, weightChips, weightExtras, weightFieldLabel, weightOptionLabel } from '../../features/products/weight';
 import { formatVnd } from '../../lib/money';
@@ -242,11 +242,14 @@ function pairBuyQty(collection: HomeCollectionPublic): number {
                       ? Math.max(1, Math.round((1 - unitCombo / product.price) * 100))
                       : discountPercent(product.price, product.comparePrice);
                   const badge = collection.rule.badge?.trim() || `Combo mua ${qty}`;
+                  const bounds = qtyBounds(product);
                   const needsWeight = requiresWeight(product.weightScale);
                   const needsTag = productRequiresTagName(product.name);
-                  const needsDialog = needsWeight || needsTag;
+                  const needsQty = needsQtyPicker(bounds);
+                  const needsDialog = needsWeight || needsTag || needsQty;
                   const chips = needsWeight ? weightChips(product.weightScale) : [];
                   const extras = needsWeight ? weightExtras(product.weightScale) : [];
+                  const stepperQty = Math.min(bounds.max, Math.max(bounds.min, qty));
                   const addId = `home-pair-add-${collection.id}-${product.id}`;
                   const addTitleId = `home-pair-add-title-${collection.id}-${product.id}`;
                   return (
@@ -317,9 +320,11 @@ function pairBuyQty(collection: HomeCollectionPublic): number {
                               data-name={product.name}
                               data-price={String(product.price)}
                               data-scale={product.weightScale}
+                              data-qty-min={String(bounds.min)}
+                              data-qty-max={String(bounds.max)}
                               data-cover={product.coverUrl ?? ''}
                               data-ship-badge={product.shipBadge ?? 'none'}
-                              data-quantity={String(qty)}
+                              data-quantity={String(stepperQty)}
                             >
                               Mua combo {qty} chiếc
                             </a>
@@ -406,7 +411,13 @@ function pairBuyQty(collection: HomeCollectionPublic): number {
                                   />
                                 </label>
                               )}
-                              <QtyStepper id={`home-pair-qty-${collection.id}-${product.id}`} max={CART_MAX_QUANTITY} value={qty} />
+                              <QtyStepper
+                                id={`home-pair-qty-${collection.id}-${product.id}`}
+                                min={bounds.min}
+                                max={bounds.max}
+                                value={stepperQty}
+                                hint={qtyHint(bounds)}
+                              />
                               <p class="add-error error-text mt-2" role="alert" hidden></p>
                               <button class="btn btn-primary mt-4 w-full" type="submit">Thêm giỏ</button>
                             </form>
@@ -421,7 +432,7 @@ function pairBuyQty(collection: HomeCollectionPublic): number {
               <ul class="home-collection-rail">
                 {collection.products.map((product) => (
                   <li>
-                    <HomeProductCard product={product} eager={false} />
+                    <HomeProductCard product={product} eager={false} showHotBadge={collection.kind === 'products'} />
                   </li>
                 ))}
               </ul>

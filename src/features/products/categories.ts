@@ -5,6 +5,7 @@ import { media, productCategories, productCategoryLinks, products } from '../../
 import { routes } from '../../lib/routes';
 import { SLUG_PATTERN, slugify } from '../posts/slug';
 import { isProductStatus, PRODUCT_CATEGORY_STATUS_LABELS, type ProductStatus } from './status';
+import { qtyBounds, QTY_DEFAULT_MAX, QTY_DEFAULT_MIN, QTY_HARD_MAX } from './qty';
 import { isWeightScale, type WeightScale } from './weight';
 
 export type CategoryOrderRow = { id: number; sortOrder: number };
@@ -19,8 +20,21 @@ export function readProductCategory(input: {
   description: string;
   coverMediaId: string;
   weightScale: string;
+  qtyMin?: string;
+  qtyMax?: string;
 }):
-  | { ok: true; value: { name: string; slug: string; description: string; coverMediaId: number | null; weightScale: WeightScale } }
+  | {
+      ok: true;
+      value: {
+        name: string;
+        slug: string;
+        description: string;
+        coverMediaId: number | null;
+        weightScale: WeightScale;
+        qtyMin: number;
+        qtyMax: number;
+      };
+    }
   | { ok: false; error: string } {
   const name = input.name.trim();
   const slug = slugify(input.slug || name);
@@ -32,7 +46,28 @@ export function readProductCategory(input: {
   if (description.length > 300) return { ok: false, error: 'Mô tả quá dài.' };
   if (!cover.ok) return cover;
   if (!isWeightScale(input.weightScale)) return { ok: false, error: 'Thang cân nặng không hợp lệ.' };
-  return { ok: true, value: { name, slug, description, coverMediaId: cover.id, weightScale: input.weightScale } };
+  const qtyMinRaw = Number(String(input.qtyMin ?? QTY_DEFAULT_MIN).trim());
+  const qtyMaxRaw = Number(String(input.qtyMax ?? QTY_DEFAULT_MAX).trim());
+  if (!Number.isInteger(qtyMinRaw) || qtyMinRaw < 1 || qtyMinRaw > QTY_HARD_MAX) {
+    return { ok: false, error: `Số lượng tối thiểu từ 1 đến ${QTY_HARD_MAX}.` };
+  }
+  if (!Number.isInteger(qtyMaxRaw) || qtyMaxRaw < 1 || qtyMaxRaw > QTY_HARD_MAX) {
+    return { ok: false, error: `Số lượng tối đa từ 1 đến ${QTY_HARD_MAX}.` };
+  }
+  if (qtyMinRaw > qtyMaxRaw) return { ok: false, error: 'Số lượng tối thiểu không được lớn hơn tối đa.' };
+  const bounds = qtyBounds({ qtyMin: qtyMinRaw, qtyMax: qtyMaxRaw });
+  return {
+    ok: true,
+    value: {
+      name,
+      slug,
+      description,
+      coverMediaId: cover.id,
+      weightScale: input.weightScale,
+      qtyMin: bounds.min,
+      qtyMax: bounds.max,
+    },
+  };
 }
 
 function readCover(value: string): { ok: true; id: number | null } | { ok: false; error: string } {
@@ -79,6 +114,8 @@ export async function listProductCategories(db: AppDb, query = '') {
       coverAlt: media.altText,
       sortOrder: productCategories.sortOrder,
       weightScale: productCategories.weightScale,
+      qtyMin: productCategories.qtyMin,
+      qtyMax: productCategories.qtyMax,
       status: productCategories.status,
       productCount: count(products.id),
     })
@@ -97,6 +134,8 @@ export async function listProductCategories(db: AppDb, query = '') {
       media.altText,
       productCategories.sortOrder,
       productCategories.weightScale,
+      productCategories.qtyMin,
+      productCategories.qtyMax,
       productCategories.status,
     )
     .orderBy(asc(productCategories.sortOrder), asc(productCategories.name), asc(productCategories.id));
@@ -172,13 +211,22 @@ export async function listHomeCatalogCategories(db: AppDb) {
 
 export async function saveProductCategory(
   db: AppDb,
-  input: { id?: number; name: string; slug: string; description: string; coverMediaId: string; weightScale: string },
+  input: {
+    id?: number;
+    name: string;
+    slug: string;
+    description: string;
+    coverMediaId: string;
+    weightScale: string;
+    qtyMin?: string;
+    qtyMax?: string;
+  },
   now = Date.now(),
   actor?: ActivityActor,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const parsed = readProductCategory(input);
   if (!parsed.ok) return parsed;
-  const { name, slug, description, coverMediaId, weightScale } = parsed.value;
+  const { name, slug, description, coverMediaId, weightScale, qtyMin, qtyMax } = parsed.value;
   const taken = await db.select({ id: productCategories.id }).from(productCategories).where(eq(productCategories.slug, slug)).limit(1);
   if (taken[0] && taken[0].id !== input.id) return { ok: false, error: 'Slug đã được dùng.' };
   const missingCover = await coverAvailable(db, coverMediaId);
@@ -191,19 +239,29 @@ export async function saveProductCategory(
         description: productCategories.description,
         coverMediaId: productCategories.coverMediaId,
         weightScale: productCategories.weightScale,
+        qtyMin: productCategories.qtyMin,
+        qtyMax: productCategories.qtyMax,
       })
       .from(productCategories)
       .where(eq(productCategories.id, input.id))
       .limit(1);
     const row = current[0];
     if (!row) return { ok: false, error: 'Không tìm thấy danh mục.' };
-    if (row.name === name && row.slug === slug && row.description === description && row.coverMediaId === coverMediaId && row.weightScale === weightScale) {
+    if (
+      row.name === name &&
+      row.slug === slug &&
+      row.description === description &&
+      row.coverMediaId === coverMediaId &&
+      row.weightScale === weightScale &&
+      row.qtyMin === qtyMin &&
+      row.qtyMax === qtyMax
+    ) {
       return { ok: true };
     }
     await commitWrites(db, [
       db
         .update(productCategories)
-        .set({ name, slug, description, coverMediaId, weightScale, updatedAt: now })
+        .set({ name, slug, description, coverMediaId, weightScale, qtyMin, qtyMax, updatedAt: now })
         .where(eq(productCategories.id, input.id)),
       ...(actor ? [categoryLog(db, actor, 'product_category.update', input.id, name, now)] : []),
     ]);
@@ -212,7 +270,9 @@ export async function saveProductCategory(
   const highest = await db.select({ value: max(productCategories.sortOrder) }).from(productCategories);
   const sortOrder = (highest[0]?.value ?? -1) + 1;
   await commitWrites(db, [
-    db.insert(productCategories).values({ name, slug, description, coverMediaId, weightScale, sortOrder, createdAt: now, updatedAt: now }),
+    db
+      .insert(productCategories)
+      .values({ name, slug, description, coverMediaId, weightScale, qtyMin, qtyMax, sortOrder, createdAt: now, updatedAt: now }),
     ...(actor ? [categoryLog(db, actor, 'product_category.create', null, name, now, true)] : []),
   ]);
   return { ok: true };

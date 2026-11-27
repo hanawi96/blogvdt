@@ -1,6 +1,6 @@
 ---
 import type { PublicComboPricing } from '../../features/home-collections/combo-price';
-import { ORDER_MAX_QUANTITY } from '../../features/orders/order';
+import { ORDER_HARD_MAX_QUANTITY } from '../../features/orders/order';
 import { addonShipHint, type PublicAddon } from '../../features/products/addons';
 import { TAG_NAME_MAX } from '../../features/products/tag-name';
 import { WEIGHT_SCALES, weightExtras, weightFieldLabel } from '../../features/products/weight';
@@ -82,7 +82,7 @@ const pricingJson = JSON.stringify(comboPricing);
         <p class="weight-surcharge-note" data-weight-note hidden></p>
         <WeightFitHint scale="baby" />
       </fieldset>
-      <QtyStepper id="od-quantity" max={ORDER_MAX_QUANTITY} />
+      <QtyStepper id="od-quantity" max={ORDER_HARD_MAX_QUANTITY} />
       <label class="mt-3 block text-sm font-semibold" for="od-tag" data-od-tag-wrap hidden>
         Tên cần in lên thẻ
         <input id="od-tag" class="field mt-1" name="tagName" maxlength={TAG_NAME_MAX} autocomplete="off" placeholder="Ví dụ: Minh An" data-od-tag disabled />
@@ -206,6 +206,7 @@ const pricingJson = JSON.stringify(comboPricing);
     type PublicComboPricing,
   } from '../../features/home-collections/combo-price';
   import { addonShipHint, addonShipHintText } from '../../features/products/addon-hint';
+  import { qtyHint } from '../../features/products/qty';
   import { productRequiresTagName } from '../../features/products/tag-name';
   import { applyWeightPrice, weightFieldLabel, weightFitHintText, weightOptionLabel, weightSurchargeLabel } from '../../features/products/weight';
   import { resolveCustomerShippingFee, type ShipGroup } from '../../features/shipping/customer-fee';
@@ -469,11 +470,31 @@ const pricingJson = JSON.stringify(comboPricing);
         thumb.alt = trigger.dataset.name ?? '';
       }
       if (quantity instanceof HTMLInputElement) {
-        const max = Number(quantity.max) || 20;
+        const min = Math.max(1, Number(trigger.dataset.qtyMin) || 1);
+        const max = Math.max(min, Number(trigger.dataset.qtyMax) || Number(quantity.max) || 20);
+        quantity.min = String(min);
+        quantity.max = String(max);
         const wanted = Number(trigger.dataset.quantity);
         quantity.value = String(
-          Number.isInteger(wanted) && wanted >= 1 ? Math.min(max, wanted) : 1,
+          Number.isInteger(wanted) && wanted >= min ? Math.min(max, wanted) : min,
         );
+        const stepper = quantity.closest('[data-qty-stepper]');
+        let hintEl = stepper?.querySelector('.qty-stepper-hint');
+        const note = qtyHint({ min, max });
+        if (note) {
+          if (!(hintEl instanceof HTMLElement) && stepper) {
+            hintEl = document.createElement('p');
+            hintEl.className = 'qty-stepper-hint';
+            stepper.append(hintEl);
+          }
+          if (hintEl instanceof HTMLElement) {
+            hintEl.hidden = false;
+            hintEl.textContent = note;
+          }
+        } else if (hintEl instanceof HTMLElement) {
+          hintEl.hidden = true;
+          hintEl.textContent = '';
+        }
       }
       // Nhãn "(giá tăng X%)" phụ thuộc giá sản phẩm hiện tại nên cập nhật khi mở modal.
       if (extraSelect instanceof HTMLSelectElement) {

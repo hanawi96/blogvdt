@@ -5,6 +5,7 @@ import { routes } from '../../lib/routes';
 import { loadProductCosts } from '../materials/recipes';
 import { listingMediaKey } from '../media/files';
 import { listProductCategoryIdsByProductIds } from './product-category-links';
+import { qtyBounds } from './qty';
 import { activeProductWhere, isPubliclySellable, sellableProductWhere } from './status';
 import { readWeightScale } from './weight';
 
@@ -17,6 +18,8 @@ export async function getPublicProduct(db: AppDb, slug: string) {
       price: products.price,
       description: products.description,
       weightScale: productCategories.weightScale,
+      qtyMin: productCategories.qtyMin,
+      qtyMax: productCategories.qtyMax,
       status: products.status,
       stockQty: products.stockQty,
       seoTitle: products.seoTitle,
@@ -68,11 +71,14 @@ export async function getPublicProduct(db: AppDb, slug: string) {
       height: image.height,
     });
   }
+  const bounds = qtyBounds({ qtyMin: product.qtyMin, qtyMax: product.qtyMax });
   return {
     ...product,
     categorySlug: product.categorySlug ?? '',
     categoryStatus: product.categoryStatus ?? null,
     weightScale: readWeightScale(product.weightScale),
+    qtyMin: bounds.min,
+    qtyMax: bounds.max,
     images,
   };
 }
@@ -86,6 +92,8 @@ export async function listOrderCatalog(db: AppDb) {
       price: products.price,
       comparePrice: products.comparePrice,
       weightScale: productCategories.weightScale,
+      qtyMin: productCategories.qtyMin,
+      qtyMax: productCategories.qtyMax,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,
       cardKey: media.cardR2Key,
@@ -96,12 +104,15 @@ export async function listOrderCatalog(db: AppDb) {
     .leftJoin(media, eq(products.coverMediaId, media.id))
     .where(sellableProductWhere())
     .orderBy(asc(products.sortOrder), asc(products.id));
-  return rows.map(({ weightScale, coverKey, cardKey, coverAlt, categorySlug, comparePrice, ...row }) => {
+  return rows.map(({ weightScale, qtyMin, qtyMax, coverKey, cardKey, coverAlt, categorySlug, comparePrice, ...row }) => {
     const listKey = listingMediaKey(coverKey, cardKey);
+    const bounds = qtyBounds({ qtyMin, qtyMax });
     return {
       ...row,
       comparePrice: comparePrice != null && comparePrice > row.price ? comparePrice : null,
       weightScale: readWeightScale(weightScale),
+      qtyMin: bounds.min,
+      qtyMax: bounds.max,
       categorySlug: categorySlug ?? '',
       coverUrl: listKey ? routes.media(listKey) : null,
       coverAlt: coverAlt ?? '',

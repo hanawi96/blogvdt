@@ -166,6 +166,8 @@ async function selectProducts(db: AppDb, pattern: string, limit: number, offset:
       cordType: products.cordType,
       audience: products.audience,
       weightScale: productCategories.weightScale,
+      qtyMin: productCategories.qtyMin,
+      qtyMax: productCategories.qtyMax,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,
       cardKey: media.cardR2Key,

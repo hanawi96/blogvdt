@@ -7,6 +7,7 @@ import { readAudience } from './audience';
 import { ratingFormValue } from './form';
 import { productShipBadge, type ProductShipBadge } from '../shipping/customer-fee';
 import { sellableProductWhere } from './status';
+import { qtyBounds } from './qty';
 import { readWeightScale, type WeightScale } from './weight';
 
 export const CATALOG_PAGE_SIZE = 12;
@@ -102,6 +103,8 @@ export type CatalogCard = {
   /** Đối tượng đeo: `none` | `both` | `boy` | `girl`. */
   audience: string;
   weightScale: WeightScale;
+  qtyMin: number;
+  qtyMax: number;
   shipBadge: ProductShipBadge;
   /** Điểm hiển thị (vd 5.0); null nếu chưa có rating. */
   ratingLabel: string | null;
@@ -152,6 +155,8 @@ export async function listCatalogProducts(db: AppDb, query: CatalogQuery) {
       cordType: products.cordType,
       audience: products.audience,
       weightScale: productCategories.weightScale,
+      qtyMin: productCategories.qtyMin,
+      qtyMax: productCategories.qtyMax,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,
       cardKey: media.cardR2Key,
@@ -189,6 +194,8 @@ export async function listBestSellers(db: AppDb, limit = 5): Promise<CatalogCard
       cordType: products.cordType,
       audience: products.audience,
       weightScale: productCategories.weightScale,
+      qtyMin: productCategories.qtyMin,
+      qtyMax: productCategories.qtyMax,
       categorySlug: productCategories.slug,
       coverKey: media.r2Key,
       cardKey: media.cardR2Key,
@@ -261,6 +268,8 @@ export function toCatalogCard(row: {
   cordType: string | null;
   audience?: string | null;
   weightScale: string | null;
+  qtyMin?: number | null;
+  qtyMax?: number | null;
   categorySlug: string | null;
   coverKey: string | null;
   cardKey: string | null;
@@ -271,6 +280,7 @@ export function toCatalogCard(row: {
   const ratingLabel = ratingFormValue(row.rating);
   const listKey = listingMediaKey(row.coverKey, row.cardKey);
   const usingCard = Boolean(row.cardKey);
+  const bounds = qtyBounds({ qtyMin: row.qtyMin, qtyMax: row.qtyMax });
   return {
     id: row.id,
     name: row.name,
@@ -280,6 +290,8 @@ export function toCatalogCard(row: {
     cordType: row.cordType ?? '',
     audience: readAudience(row.audience),
     weightScale: readWeightScale(row.weightScale),
+    qtyMin: bounds.min,
+    qtyMax: bounds.max,
     shipBadge: productShipBadge(row.price, row.categorySlug),
     ratingLabel: ratingLabel || null,
     sold: Math.max(0, Number(row.sold) || 0),

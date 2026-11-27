@@ -1202,6 +1202,12 @@
     margin: 0;
     -webkit-appearance: none;
   }
+  .qty-stepper-hint {
+    margin: 0.4rem 0 0;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
   .add-head {
     display: flex;
     align-items: flex-start;
