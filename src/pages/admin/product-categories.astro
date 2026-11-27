@@ -212,12 +212,6 @@ function productCountLabel(count: number): string {
                       <a class="post-title" href={listHref(undefined, category.id)} data-category-edit={category.id}>{category.name}</a>
                       <p class="catalog-slug category-list-slug">
                         <span class="truncate">{category.slug}</span>
-                        <button type="button" class="catalog-copy" data-copy-slug={category.slug} aria-label={`Sao chép slug ${category.slug}`}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                            <rect x="9" y="9" width="13" height="13" rx="2"></rect>
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                          </svg>
-                        </button>
                       </p>
                     </div>
                   </div>
@@ -387,33 +381,4 @@ function productCountLabel(count: number): string {
     });
   }
 
-  for (const button of document.querySelectorAll('[data-copy-slug]')) {
-    if (!(button instanceof HTMLButtonElement)) continue;
-    button.addEventListener('click', async () => {
-      const slug = button.dataset.copySlug;
-      if (!slug || !(await copySlug(slug))) return;
-      button.dataset.copied = 'true';
-      window.setTimeout(() => delete button.dataset.copied, 1200);
-    });
-  }
-
-  async function copySlug(slug: string): Promise<boolean> {
-    try {
-      await navigator.clipboard.writeText(slug);
-      return true;
-    } catch {
-      const area = document.createElement('textarea');
-      area.value = slug;
-      area.setAttribute('readonly', '');
-      area.style.position = 'fixed';
-      area.style.left = '-999px';
-      document.body.appendChild(area);
-      area.select();
-      // Fallback khi Clipboard API không có (trình duyệt cũ / non-secure context).
-      const legacyCopy = document.execCommand.bind(document) as (command: string) => boolean;
-      const copied = legacyCopy('copy');
-      area.remove();
-      return copied;
-    }
-  }
 </script>

@@ -53,31 +53,69 @@ async function loadPosts(db: AppDb) {
   return { total: row?.total ?? 0, published: row?.published ?? 0, drafts: row?.drafts ?? 0 };
 }
 
-/** KPI 7 ngày + kỳ trước trong một query trên cửa sổ 14 ngày. */
+/**
+ * SL SP đã bán trong kỳ: cộng quantity từ order_items + đơn legacy (không có dòng items).
+ * Cùng phạm vi statsOk (không hủy, không gửi bù) — khớp top sản phẩm / soldQty catalog.
+ */
+async function loadPeriodSold(db: AppDb, currentStart: number, previousStart: number) {
+  const inCurrent = sql`${orders.createdAt} >= ${currentStart}`;
+  const inPrevious = sql`${orders.createdAt} < ${currentStart}`;
+  const legacyOnly = sql`not exists (select 1 from order_items where order_items.order_id = ${orders.id})`;
+  const [legacyRows, lineRows] = await Promise.all([
+    db
+      .select({
+        cur: num(sql`sum(case when ${inCurrent} and ${statsOk} then ${orders.quantity} else 0 end)`),
+        prev: num(sql`sum(case when ${inPrevious} and ${statsOk} then ${orders.quantity} else 0 end)`),
+      })
+      .from(orders)
+      .where(and(gte(orders.createdAt, previousStart), legacyOnly)),
+    db
+      .select({
+        cur: num(sql`sum(case when ${inCurrent} and ${statsOk} then ${orderItems.quantity} else 0 end)`),
+        prev: num(sql`sum(case when ${inPrevious} and ${statsOk} then ${orderItems.quantity} else 0 end)`),
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .where(gte(orders.createdAt, previousStart)),
+  ]);
+  const legacy = legacyRows[0];
+  const lines = lineRows[0];
+  return {
+    curSold: (legacy?.cur ?? 0) + (lines?.cur ?? 0),
+    prevSold: (legacy?.prev ?? 0) + (lines?.prev ?? 0),
+  };
+}
+
+/** KPI kỳ hiện tại + kỳ trước trong một query trên cửa sổ 2 kỳ. */
 async function loadPeriodKpi(db: AppDb, currentStart: number, previousStart: number) {
   const inCurrent = sql`${orders.createdAt} >= ${currentStart}`;
   const inPrevious = sql`${orders.createdAt} < ${currentStart}`;
-  const rows = await db
-    .select({
-      curOrders: num(sql`sum(case when ${inCurrent} and ${statsOk} then 1 else 0 end)`),
-      curRevenue: num(sql`sum(case when ${inCurrent} and ${statsOk} then ${orders.totalPrice} else 0 end)`),
-      curProfit: num(sql`sum(case when ${inCurrent} and ${statsOk} and ${costed} then ${profitExpr} else 0 end)`),
-      curCosted: num(sql`sum(case when ${inCurrent} and ${statsOk} and ${costed} then 1 else 0 end)`),
-      prevOrders: num(sql`sum(case when ${inPrevious} and ${statsOk} then 1 else 0 end)`),
-      prevRevenue: num(sql`sum(case when ${inPrevious} and ${statsOk} then ${orders.totalPrice} else 0 end)`),
-      prevProfit: num(sql`sum(case when ${inPrevious} and ${statsOk} and ${costed} then ${profitExpr} else 0 end)`),
-    })
-    .from(orders)
-    .where(gte(orders.createdAt, previousStart));
+  const [rows, sold] = await Promise.all([
+    db
+      .select({
+        curOrders: num(sql`sum(case when ${inCurrent} and ${statsOk} then 1 else 0 end)`),
+        curRevenue: num(sql`sum(case when ${inCurrent} and ${statsOk} then ${orders.totalPrice} else 0 end)`),
+        curProfit: num(sql`sum(case when ${inCurrent} and ${statsOk} and ${costed} then ${profitExpr} else 0 end)`),
+        curCosted: num(sql`sum(case when ${inCurrent} and ${statsOk} and ${costed} then 1 else 0 end)`),
+        prevOrders: num(sql`sum(case when ${inPrevious} and ${statsOk} then 1 else 0 end)`),
+        prevRevenue: num(sql`sum(case when ${inPrevious} and ${statsOk} then ${orders.totalPrice} else 0 end)`),
+        prevProfit: num(sql`sum(case when ${inPrevious} and ${statsOk} and ${costed} then ${profitExpr} else 0 end)`),
+      })
+      .from(orders)
+      .where(gte(orders.createdAt, previousStart)),
+    loadPeriodSold(db, currentStart, previousStart),
+  ]);
   const row = rows[0];
   return {
     curOrders: row?.curOrders ?? 0,
     curRevenue: row?.curRevenue ?? 0,
     curProfit: row?.curProfit ?? 0,
     curCosted: row?.curCosted ?? 0,
+    curSold: sold.curSold,
     prevOrders: row?.prevOrders ?? 0,
     prevRevenue: row?.prevRevenue ?? 0,
     prevProfit: row?.prevProfit ?? 0,
+    prevSold: sold.prevSold,
   };
 }
 
@@ -265,11 +303,13 @@ function buildKpi(raw: Awaited<ReturnType<typeof loadPeriodKpi>>): DashboardKpi 
     orders: raw.curOrders,
     revenue: raw.curRevenue,
     profit: raw.curProfit,
+    sold: raw.curSold,
     costedOrders: raw.curCosted,
     deltas: {
       orders: describeDelta(percentChange(raw.curOrders, raw.prevOrders)),
       revenue: describeDelta(percentChange(raw.curRevenue, raw.prevRevenue)),
       profit: describeDelta(percentChange(raw.curProfit, raw.prevProfit)),
+      sold: describeDelta(percentChange(raw.curSold, raw.prevSold)),
     },
   };
 }

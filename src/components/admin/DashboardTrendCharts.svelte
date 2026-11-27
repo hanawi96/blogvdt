@@ -65,7 +65,7 @@
         {/each}
       </div>
     </div>
-    <ul class="dash-kpis dash-kpis-3">
+    <ul class="dash-kpis dash-kpis-4">
       <li class="dash-card dash-kpi">
         <p class="dash-kpi-label">Số đơn</p>
         <p class="dash-kpi-value">{kpi.orders}</p>
@@ -80,6 +80,11 @@
         <p class="dash-kpi-label">Lãi ròng</p>
         <p class="dash-kpi-value">{formatVnd(kpi.profit)}</p>
         <p class="dash-delta" data-tone={kpi.deltas.profit.tone}>{profitDelta}</p>
+      </li>
+      <li class="dash-card dash-kpi">
+        <p class="dash-kpi-label">Số sản phẩm đã bán</p>
+        <p class="dash-kpi-value">{kpi.sold.toLocaleString('vi-VN')}</p>
+        <p class="dash-delta" data-tone={kpi.deltas.sold.tone}>{kpi.deltas.sold.text}</p>
       </li>
     </ul>
   </section>

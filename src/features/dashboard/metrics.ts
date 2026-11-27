@@ -141,11 +141,14 @@ export type DashboardKpi = {
   orders: number;
   revenue: number;
   profit: number;
+  /** Tổng số lượng SP đã bán (dòng đơn + đơn legacy), cùng phạm vi KPI. */
+  sold: number;
   costedOrders: number;
   deltas: {
     orders: { text: string; tone: DeltaTone };
     revenue: { text: string; tone: DeltaTone };
     profit: { text: string; tone: DeltaTone };
+    sold: { text: string; tone: DeltaTone };
   };
 };
 
