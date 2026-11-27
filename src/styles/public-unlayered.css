@@ -1440,7 +1440,7 @@ body.site-nav-lock {
   place-items: center;
   width: 2.25rem;
   height: 2.25rem;
-  border: 1px solid color-mix(in oklab, var(--color-accent) 40%, var(--color-line));
+  border: 0;
   border-radius: 999px;
   background: color-mix(in oklab, var(--color-surface) 70%, transparent);
   color: var(--color-accent-strong);
@@ -2457,52 +2457,90 @@ body.site-nav-lock {
   object-position: center top;
   background: var(--home-soft);
 }
+/* Cam kết: khối mềm, bo lệch kiểu ảnh trang chủ, không viền nét đứt cứng. */
 .home-promise {
   --home-promise-gutter: max(var(--home-pad), env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));
   position: relative;
+  isolation: isolate;
   box-sizing: border-box;
   width: min(40rem, calc(100% - (2 * var(--home-promise-gutter))));
   max-width: 40rem;
-  margin: 1.75rem auto 0;
-  padding: 1.55rem 1.25rem 1.35rem;
-  border: 1.5px dashed color-mix(in oklab, var(--color-primary) 55%, transparent);
-  border-radius: 1.15rem;
-  background: color-mix(in oklab, var(--color-primary) 10%, var(--color-surface));
-  box-shadow: 0 14px 28px -24px color-mix(in oklab, var(--color-primary-strong) 45%, transparent);
+  margin: 2rem auto 0;
+  padding: 1.55rem 1.35rem 1.5rem;
+  border: 0;
+  border-radius: 1.85rem 1.2rem 2.05rem 1.4rem;
+  background:
+    radial-gradient(ellipse 85% 65% at 50% -10%, color-mix(in oklab, var(--color-accent) 6%, transparent), transparent 72%),
+    linear-gradient(
+      160deg,
+      color-mix(in oklab, var(--color-sand) 28%, var(--color-surface)) 0%,
+      color-mix(in oklab, var(--color-primary) 3%, var(--color-surface)) 100%
+    );
+  box-shadow: none;
   text-align: center;
+  overflow: hidden;
 }
-.home-promise-seal {
+.home-promise::before,
+.home-promise::after {
+  content: '';
   position: absolute;
-  top: 0;
-  left: 50%;
-  display: grid;
-  place-items: center;
-  width: 2.15rem;
-  height: 2.15rem;
+  z-index: -1;
   border-radius: 999px;
-  background: color-mix(in oklab, var(--color-primary) 14%, var(--color-surface));
-  color: var(--color-primary-strong);
-  font-size: 0.95rem;
-  line-height: 1;
-  box-shadow:
-    0 0 0 6px color-mix(in oklab, var(--color-primary) 10%, transparent),
-    0 8px 16px -10px color-mix(in oklab, var(--color-primary-strong) 50%, transparent);
-  translate: -50% -55%;
+  pointer-events: none;
+}
+.home-promise::before {
+  width: 9.5rem;
+  height: 9.5rem;
+  top: -4.2rem;
+  left: -3.2rem;
+  background: radial-gradient(circle, color-mix(in oklab, var(--color-primary) 6%, transparent), transparent 68%);
+}
+.home-promise::after {
+  width: 8rem;
+  height: 8rem;
+  right: -2.8rem;
+  bottom: -3.4rem;
+  background: radial-gradient(circle, color-mix(in oklab, var(--color-accent) 7%, transparent), transparent 70%);
 }
 .home-promise-title {
-  margin: 0.15rem 0 0;
-  color: var(--color-primary-strong);
+  margin: 0;
+  color: var(--color-accent-strong);
   font-family: var(--font-serif);
-  font-size: clamp(1.2rem, 3.8vw, 1.45rem);
+  font-size: clamp(1.28rem, 4vw, 1.55rem);
   font-style: italic;
-  font-weight: 500;
-  line-height: 1.3;
+  font-weight: 600;
+  line-height: 1.28;
+  letter-spacing: 0.01em;
+}
+.home-promise-flourish {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  width: min(100%, 11rem);
+  margin: 0.75rem auto 0;
+  color: var(--color-accent);
+  font-size: 0.7rem;
+  line-height: 1;
+}
+.home-promise-flourish::before,
+.home-promise-flourish::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-accent) 45%, transparent),
+    transparent
+  );
 }
 .home-promise-text {
-  margin: 0.7rem 0 0;
-  color: color-mix(in oklab, var(--color-heading) 82%, var(--color-primary));
+  margin: 0.85rem 0 0;
+  color: color-mix(in oklab, var(--color-heading) 78%, var(--color-muted));
   font-size: 1rem;
-  line-height: 1.7;
+  line-height: 1.75;
   text-wrap: pretty;
 }
 .home-promise-text strong {
