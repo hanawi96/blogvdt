@@ -1484,6 +1484,12 @@
     font-size: 0.78rem;
     line-height: 1.5;
   }
+  .product-story {
+    line-height: 1.85;
+  }
+  .product-story p {
+    line-height: inherit;
+  }
   .story-quote {
     margin-inline: 0;
     padding: 0.5rem 0 0rem 1rem;
@@ -1491,9 +1497,10 @@
     color: var(--color-ink);
     font-size: 1.125rem;
     margin-bottom: 1rem;
+    line-height: 1.8;
   }
   .story-quote p + p {
-    margin-top: 0.75rem;
+    margin-top: 0.85rem;
   }
   .story-checks {
     display: grid;
@@ -2086,6 +2093,7 @@
   .product-sticky-order-btn:hover .product-sticky-order-title span {
     transform: translateY(2px);
   }
+  .product-sticky-order-note,
   .product-sticky-order-ship {
     font-size: 0.68rem;
     font-weight: 600;

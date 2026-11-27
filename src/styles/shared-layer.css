@@ -387,6 +387,7 @@
   @media (min-width: 640px) {
     .product-story {
       font-size: 1.125rem;
+      line-height: 1.9;
     }
     .product-story h2 {
       font-size: 1.65rem;
