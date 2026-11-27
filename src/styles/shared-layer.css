@@ -370,12 +370,27 @@
   .weight-surcharge-note[hidden] {
     display: none;
   }
+  .weight-fit-hint {
+    margin: 0.55rem 0 0;
+    padding: 0.45rem 0.65rem;
+    border: 1px solid color-mix(in oklab, var(--color-accent) 35%, var(--color-line));
+    border-radius: var(--radius-sm);
+    background: color-mix(in oklab, var(--color-accent) 6%, var(--color-surface));
+    color: var(--color-accent-strong);
+    font-size: 0.8125rem;
+    font-weight: 400;
+    line-height: 1.45;
+  }
+  .weight-fit-hint-label {
+    font-weight: 700;
+  }
   @media (min-width: 640px) {
     .product-story {
       font-size: 1.125rem;
     }
     .product-story h2 {
       font-size: 1.65rem;
+      margin-top: 20px;
     }
     .story-contact-links {
       grid-template-columns: repeat(2, minmax(0, 1fr));

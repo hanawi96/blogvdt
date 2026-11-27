@@ -172,6 +172,7 @@ export function blogPostingSchema(input: {
   publishedTime?: string;
   modifiedTime?: string;
   siteName: string;
+  origin?: string;
   authorUrl?: string | null;
   author?: { name?: string | null; url?: string | null; image?: string | null } | null;
   logo?: string | null;
@@ -183,6 +184,8 @@ export function blogPostingSchema(input: {
   const siteUrl = httpUrl(input.authorUrl);
   const author = authorNode(input.author, input.authorUrl, name);
   const publisher: Record<string, unknown> = { '@type': 'Organization', name };
+  const orgId = organizationId(input.origin ?? '');
+  if (orgId) publisher['@id'] = orgId;
   if (siteUrl) publisher.url = siteUrl;
   const logo = httpUrl(input.logo);
   if (logo) publisher.logo = { '@type': 'ImageObject', url: logo };
@@ -253,6 +256,141 @@ export function productSchema(input: {
   };
 }
 
+export type OrganizationSiteInput = {
+  siteName: string;
+  siteDescription?: string | null;
+  defaultSeoDescription?: string | null;
+  logoUrl?: string | null;
+  logoWidth?: number | null;
+  logoHeight?: number | null;
+  phone?: string | null;
+  contactEmail?: string | null;
+  contactInfo?: string | null;
+  addressLocality?: string | null;
+  addressRegion?: string | null;
+  postalCode?: string | null;
+  geoLatitude?: string | null;
+  geoLongitude?: string | null;
+  opensAt?: string | null;
+  closesAt?: string | null;
+  openDays?: string | null;
+  facebookUrl?: string | null;
+  zaloUrl?: string | null;
+  instagramUrl?: string | null;
+  tiktokUrl?: string | null;
+  youtubeUrl?: string | null;
+};
+
+/** Organization đủ trường thật từ cài đặt — không bịa email/geo/giờ nếu chưa có. */
+export function organizationSchema(input: {
+  origin: string;
+  siteName: string;
+  description?: string | null;
+  logoUrl?: string | null;
+  logoWidth?: number | null;
+  logoHeight?: number | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  addressLocality?: string | null;
+  addressRegion?: string | null;
+  postalCode?: string | null;
+  geoLatitude?: string | null;
+  geoLongitude?: string | null;
+  opensAt?: string | null;
+  closesAt?: string | null;
+  openDays?: readonly string[] | string | null;
+  sameAs?: readonly (string | null | undefined)[];
+}): Record<string, unknown> | null {
+  const name = plainMetaText(input.siteName);
+  const url = siteOrigin(input.origin);
+  if (!name || !url) return null;
+
+  const geo = schemaGeo(input.geoLatitude, input.geoLongitude);
+  const hours = schemaOpeningHours(input.openDays, input.opensAt, input.closesAt);
+  const localBusiness = Boolean(geo || hours);
+
+  const id = `${url}/#organization`;
+  const schema: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': localBusiness ? ['Organization', 'LocalBusiness'] : 'Organization',
+    '@id': id,
+    name,
+    url,
+  };
+
+  const description = plainMetaText(input.description);
+  if (description) schema.description = description;
+
+  const logoUrl = absoluteUrl(url, input.logoUrl);
+  const logo = logoUrl ? schemaImage({ url: logoUrl, width: input.logoWidth, height: input.logoHeight }) : null;
+  if (logo) {
+    schema.logo = logo;
+    schema.image = logo;
+  }
+
+  const telephone = schemaTelephone(input.phone);
+  const email = schemaEmail(input.email);
+  if (telephone) schema.telephone = telephone;
+  if (email) schema.email = email;
+  if (telephone || email) {
+    const contactPoint: Record<string, unknown> = {
+      '@type': 'ContactPoint',
+      contactType: 'customer service',
+      areaServed: 'VN',
+      availableLanguage: ['Vietnamese'],
+    };
+    if (telephone) contactPoint.telephone = telephone;
+    if (email) contactPoint.email = email;
+    schema.contactPoint = contactPoint;
+  }
+
+  const address = schemaPostalAddress({
+    street: input.address,
+    locality: input.addressLocality,
+    region: input.addressRegion,
+    postalCode: input.postalCode,
+  });
+  if (address) schema.address = address;
+  if (geo) schema.geo = geo;
+  if (hours) schema.openingHoursSpecification = hours;
+
+  const sameAs = [...new Set((input.sameAs ?? []).map((item) => httpUrl(item)).filter((item): item is string => Boolean(item)))];
+  if (sameAs.length > 0) schema.sameAs = sameAs;
+
+  return schema;
+}
+
+/** Map PublicSite / chrome → Organization JSON-LD. */
+export function organizationFromSite(origin: string, site: OrganizationSiteInput): Record<string, unknown> | null {
+  return organizationSchema({
+    origin,
+    siteName: site.siteName,
+    description: site.defaultSeoDescription || site.siteDescription,
+    logoUrl: site.logoUrl || null,
+    logoWidth: site.logoWidth,
+    logoHeight: site.logoHeight,
+    phone: site.phone,
+    email: site.contactEmail,
+    address: site.contactInfo,
+    addressLocality: site.addressLocality,
+    addressRegion: site.addressRegion,
+    postalCode: site.postalCode,
+    geoLatitude: site.geoLatitude,
+    geoLongitude: site.geoLongitude,
+    opensAt: site.opensAt,
+    closesAt: site.closesAt,
+    openDays: site.openDays,
+    sameAs: [site.facebookUrl, site.zaloUrl, site.instagramUrl, site.tiktokUrl, site.youtubeUrl],
+  });
+}
+
+/** @id ổn định để WebSite/BlogPosting tham chiếu Organization. */
+export function organizationId(origin: string): string {
+  const url = siteOrigin(origin);
+  return url ? `${url}/#organization` : '';
+}
+
 export function jsonLd(data: Record<string, unknown>): string {
   return JSON.stringify(data)
     .replace(/&/g, '\\u0026')
@@ -300,6 +438,81 @@ function isoDate(value: string | undefined): string | null {
   const time = Date.parse(value);
   if (Number.isNaN(time)) return null;
   return new Date(time).toISOString();
+}
+
+/** SĐT schema: ưu tiên E.164 (+84…) khi là số VN hợp lệ. */
+function schemaTelephone(value: string | null | undefined): string | null {
+  const raw = (value ?? '').trim();
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length < 8 || digits.length > 15) return null;
+  if (digits.startsWith('84')) return `+${digits}`;
+  if (digits.startsWith('0') && digits.length >= 9 && digits.length <= 11) return `+84${digits.slice(1)}`;
+  if (raw.startsWith('+')) return `+${digits}`;
+  return digits;
+}
+
+function schemaEmail(value: string | null | undefined): string | null {
+  const raw = (value ?? '').trim();
+  if (!raw || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw) || raw.length > 120) return null;
+  return raw;
+}
+
+function schemaPostalAddress(input: {
+  street?: string | null;
+  locality?: string | null;
+  region?: string | null;
+  postalCode?: string | null;
+}): Record<string, unknown> | null {
+  const streetAddress = plainMetaText(input.street);
+  const addressLocality = plainMetaText(input.locality);
+  const addressRegion = plainMetaText(input.region);
+  const postalCode = plainMetaText(input.postalCode);
+  if (!streetAddress && !addressLocality && !addressRegion && !postalCode) return null;
+  const address: Record<string, unknown> = { '@type': 'PostalAddress', addressCountry: 'VN' };
+  if (streetAddress) address.streetAddress = streetAddress;
+  if (addressLocality) address.addressLocality = addressLocality;
+  if (addressRegion) address.addressRegion = addressRegion;
+  if (postalCode) address.postalCode = postalCode;
+  return address;
+}
+
+function schemaGeo(latitude: string | null | undefined, longitude: string | null | undefined): Record<string, unknown> | null {
+  const latRaw = (latitude ?? '').trim();
+  const lngRaw = (longitude ?? '').trim();
+  if (!latRaw || !lngRaw) return null;
+  if (!/^-?\d+(\.\d+)?$/.test(latRaw) || !/^-?\d+(\.\d+)?$/.test(lngRaw)) return null;
+  const lat = Number(latRaw);
+  const lng = Number(lngRaw);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return {
+    '@type': 'GeoCoordinates',
+    latitude: lat,
+    longitude: lng,
+  };
+}
+
+const SCHEMA_DAYS = new Set(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']);
+
+function schemaOpeningHours(
+  daysRaw: readonly string[] | string | null | undefined,
+  opensAt: string | null | undefined,
+  closesAt: string | null | undefined,
+): Record<string, unknown>[] | null {
+  const opens = (opensAt ?? '').trim();
+  const closes = (closesAt ?? '').trim();
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(opens) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(closes) || opens >= closes) return null;
+  const parts = Array.isArray(daysRaw) ? daysRaw : String(daysRaw ?? '').split(/[,\s]+/);
+  const dayOfWeek = [...new Set(parts.map((day) => day.trim()).filter((day) => SCHEMA_DAYS.has(day)))];
+  if (dayOfWeek.length === 0) return null;
+  return [
+    {
+      '@type': 'OpeningHoursSpecification',
+      dayOfWeek,
+      opens,
+      closes,
+    },
+  ];
 }
 
 function httpUrl(value: string | null | undefined): string | null {

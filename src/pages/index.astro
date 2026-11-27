@@ -31,7 +31,7 @@ import { baseCustomerShippingFee } from '../features/shipping/customer-fee';
 import { createDb } from '../lib/db/client';
 import { getDbBinding, getSiteOrigin } from '../lib/cloudflare/env';
 import PublicLayout from '../layouts/PublicLayout.astro';
-import { buildMeta, homePageMeta, jsonLd, unavailableMeta } from '../lib/seo/meta';
+import { buildMeta, homePageMeta, jsonLd, organizationFromSite, organizationId, unavailableMeta } from '../lib/seo/meta';
 import { blogReadStatus, PRIVATE_PAGE_CACHE, PUBLIC_PAGE_CACHE } from '../lib/seo/cache';
 import { routes } from '../lib/routes';
 
@@ -142,16 +142,21 @@ const meta = buildMeta(origin, {
 
 const schemaEntries: string[] = [];
 if (site && meta.canonical) {
-  schemaEntries.push(
-    jsonLd({
-      '@context': 'https://schema.org',
-      '@type': 'WebSite',
-      name: site.siteName,
-      url: meta.canonical,
-      description: meta.description,
-      inLanguage: 'vi',
-    }),
-  );
+  const organization = organizationFromSite(origin, site);
+  if (organization) schemaEntries.push(jsonLd(organization));
+
+  const website: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    '@id': `${meta.canonical.replace(/\/$/, '')}/#website`,
+    name: site.siteName,
+    url: meta.canonical,
+    description: meta.description,
+    inLanguage: 'vi',
+  };
+  const orgId = organizationId(origin);
+  if (orgId) website.publisher = { '@id': orgId };
+  schemaEntries.push(jsonLd(website));
   schemaEntries.push(
     jsonLd({
       '@context': 'https://schema.org',
@@ -431,7 +436,7 @@ async function loadHome(query: CatalogQuery) {
             <div class="home-why-intro">
               <h2 id="vi-sao-title">
                 Tại sao nên chọn
-                <span class="home-script">{site.siteName}</span>
+                <span class="home-script">Vòng Dâu Tằm By Ánh</span>
               </h2>
               <p class="home-why-rule" aria-hidden="true"><span class="home-why-heart">♥</span></p>
               <p class="home-why-lead">Những lý do khiến hàng ngàn mẹ tin tưởng và lựa chọn vòng dâu tằm của em Ánh.</p>

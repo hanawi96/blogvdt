@@ -215,7 +215,7 @@ export async function listStaffPickerProducts(
       })
       .from(orderItems)
       .innerJoin(orders, eq(orderItems.orderId, orders.id))
-      .where(and(isNotNull(orderItems.productId), ne(orders.status, 'cancelled')))
+      .where(and(isNotNull(orderItems.productId), ne(orders.status, 'cancelled'), eq(orders.compensation, 0)))
       .groupBy(orderItems.productId),
     db
       .select({
@@ -227,6 +227,7 @@ export async function listStaffPickerProducts(
         and(
           isNotNull(orders.productId),
           ne(orders.status, 'cancelled'),
+          eq(orders.compensation, 0),
           notExists(db.select({ id: orderItems.id }).from(orderItems).where(eq(orderItems.orderId, orders.id))),
         ),
       )

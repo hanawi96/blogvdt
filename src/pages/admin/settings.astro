@@ -7,19 +7,37 @@ import { mutationError } from '../../features/auth/session';
 import { listMediaByIds } from '../../features/media/media';
 import { lengthNote, metaDuplicateNote, SEO_DESC_RANGE, SEO_TITLE_RANGE } from '../../features/posts/seo-check';
 import { listMetaCorpus } from '../../features/posts/posts';
-import { getSettings, parseSettingsForm, saveSettings, SETTING_KEYS, type SiteSettingValues } from '../../features/settings/settings';
+import { getSettings, OPEN_DAY_OPTIONS, parseOpenDays, parseSettingsForm, saveSettings, SETTING_KEYS, type SiteSettingValues } from '../../features/settings/settings';
 import { createDb } from '../../lib/db/client';
 import { getDbBinding } from '../../lib/cloudflare/env';
 import { mergeMetaCorpus, siteListCorpus } from '../../lib/seo/meta';
 import { routes } from '../../lib/routes';
 import type { FieldErrors } from '../../lib/validation/errors';
 
-const TABS = ['general', 'contact', 'brand', 'seo', 'tracking'] as const;
+const TABS = ['general', 'brand', 'seo', 'tracking'] as const;
 type SettingsTab = (typeof TABS)[number];
 
 const TAB_FIELDS: Record<SettingsTab, Array<keyof SiteSettingValues>> = {
-  general: ['site_name', 'site_description'],
-  contact: ['phone', 'contact_info', 'facebook_url', 'zalo_url'],
+  general: [
+    'site_name',
+    'site_description',
+    'phone',
+    'contact_email',
+    'contact_info',
+    'address_locality',
+    'address_region',
+    'postal_code',
+    'geo_latitude',
+    'geo_longitude',
+    'opens_at',
+    'closes_at',
+    'open_days',
+    'facebook_url',
+    'zalo_url',
+    'instagram_url',
+    'tiktok_url',
+    'youtube_url',
+  ],
   brand: ['logo_media_id', 'favicon_media_id'],
   seo: ['default_seo_title', 'default_seo_description', 'og_media_id'],
   tracking: ['meta_pixel_id', 'ga_measurement_id', 'google_ads_id', 'google_ads_label', 'tiktok_pixel_id', 'gtm_id'],
@@ -62,13 +80,14 @@ if (Astro.request.method === 'POST') {
 const saved = Astro.url.searchParams.get('saved');
 const requestedTab = Astro.url.searchParams.get('tab');
 const errorTab = (Object.entries(TAB_FIELDS).find(([, keys]) => keys.some((key) => errors[key]))?.[0] ?? '') as SettingsTab | '';
-const activeTab: SettingsTab = errorTab || (isTab(requestedTab) ? requestedTab : 'general');
+const activeTab: SettingsTab = errorTab || resolveTab(requestedTab);
 const media = await listMediaByIds(db, [values.logo_media_id, values.favicon_media_id, values.og_media_id]);
 const logo = media.find((item) => String(item.id) === values.logo_media_id);
 const previewTitle = values.default_seo_title || values.site_name || 'Tên website';
 const previewDescription = values.default_seo_description || values.site_description || 'Thêm mô tả để xem trước đoạn này.';
 const corpus = mergeMetaCorpus(await listMetaCorpus(db, null), siteListCorpus());
 const duplicateNote = metaDuplicateNote(values.default_seo_title || values.site_name, values.default_seo_description || values.site_description, corpus);
+const selectedOpenDays = new Set(parseOpenDays(values.open_days));
 
 function valuesFrom(form: FormData, current: SiteSettingValues): SiteSettingValues {
   const next = { ...current };
@@ -76,7 +95,18 @@ function valuesFrom(form: FormData, current: SiteSettingValues): SiteSettingValu
     const value = form.get(key);
     if (typeof value === 'string') next[key] = value;
   }
+  next.open_days = parseOpenDays(
+    [...form.getAll('open_day'), typeof form.get('open_days') === 'string' ? String(form.get('open_days')) : '']
+      .filter(Boolean)
+      .join(','),
+  ).join(',');
   return next;
+}
+
+/** `contact` là alias cũ → tab Cửa hàng (`general`). */
+function resolveTab(value: string | null): SettingsTab {
+  if (value === 'contact') return 'general';
+  return isTab(value) ? value : 'general';
 }
 
 function isTab(value: string | null): value is SettingsTab {
@@ -84,7 +114,8 @@ function isTab(value: string | null): value is SettingsTab {
 }
 
 function tabQuery(value: string | null): string {
-  return isTab(value) ? `&tab=${value}` : '';
+  const tab = resolveTab(value);
+  return tab === 'general' ? '' : `&tab=${tab}`;
 }
 ---
 
@@ -93,8 +124,7 @@ function tabQuery(value: string | null): string {
   <form method="post" data-busy data-settings data-active-tab={activeTab}>
     <input type="hidden" name="csrf" value={session.csrfToken} />
     <div class="settings-tabs" role="tablist" aria-label="Nhóm cài đặt">
-      <button type="button" role="tab" data-settings-tab="general" aria-selected={activeTab === 'general' ? 'true' : 'false'}>Thông tin chung</button>
-      <button type="button" role="tab" data-settings-tab="contact" aria-selected={activeTab === 'contact' ? 'true' : 'false'}>Liên hệ</button>
+      <button type="button" role="tab" data-settings-tab="general" aria-selected={activeTab === 'general' ? 'true' : 'false'}>Cửa hàng</button>
       <button type="button" role="tab" data-settings-tab="brand" aria-selected={activeTab === 'brand' ? 'true' : 'false'}>Nhận diện</button>
       <button type="button" role="tab" data-settings-tab="seo" aria-selected={activeTab === 'seo' ? 'true' : 'false'}>SEO & chia sẻ</button>
       <button type="button" role="tab" data-settings-tab="tracking" aria-selected={activeTab === 'tracking' ? 'true' : 'false'}>Theo dõi quảng cáo</button>
@@ -102,51 +132,140 @@ function tabQuery(value: string | null): string {
     {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
 
     <div class="settings-panel" data-settings-panel="general" hidden={activeTab !== 'general'}>
-      <label class="block">
-        <span class="mb-1 block font-semibold">Tên website</span>
-        <input class="field" name="site_name" required maxlength="120" value={values.site_name} />
-        {errors.site_name && <span class="error-text">{errors.site_name}</span>}
-      </label>
-      <label class="mt-4 block">
-        <span class="mb-1 block font-semibold">Mô tả</span>
-        <textarea class="field min-h-24" name="site_description" maxlength="300">{values.site_description}</textarea>
-        {errors.site_description && <span class="error-text">{errors.site_description}</span>}
-      </label>
-    </div>
 
-    <div class="settings-panel" data-settings-panel="contact" hidden={activeTab !== 'contact'}>
-      <label class="block">
-        <span class="mb-1 block font-semibold">Số điện thoại</span>
-        <input class="field" name="phone" type="tel" inputmode="tel" maxlength="30" autocomplete="tel" value={values.phone} />
-        <span class="seo-hint">Ví dụ 0901234567 hoặc +84901234567.</span>
-        {errors.phone && <span class="error-text">{errors.phone}</span>}
-      </label>
-      <label class="mt-4 block">
-        <span class="mb-1 block font-semibold">Địa chỉ</span>
-        <textarea class="field min-h-24" name="contact_info" maxlength="300">{values.contact_info}</textarea>
-        {errors.contact_info && <span class="error-text">{errors.contact_info}</span>}
-      </label>
-      <label class="mt-4 block">
-        <span class="mb-1 block font-semibold">Facebook</span>
-        <input class="field" name="facebook_url" type="url" maxlength="300" placeholder="https://" value={values.facebook_url} />
-        {errors.facebook_url && <span class="error-text">{errors.facebook_url}</span>}
-      </label>
-      <label class="mt-4 block">
-        <span class="mb-1 block font-semibold">Zalo</span>
-        <input class="field" name="zalo_url" type="url" maxlength="300" placeholder="https://" value={values.zalo_url} />
-        {errors.zalo_url && <span class="error-text">{errors.zalo_url}</span>}
-      </label>
+      <fieldset class="settings-section">
+        <legend class="settings-section-title">Tên & mô tả</legend>
+        <label class="block">
+          <span class="settings-field-label">Tên website</span>
+          <input class="field" name="site_name" required maxlength="120" value={values.site_name} />
+          {errors.site_name && <span class="error-text">{errors.site_name}</span>}
+        </label>
+        <label class="mt-4 block">
+          <span class="settings-field-label">Mô tả</span>
+          <textarea class="field min-h-24" name="site_description" maxlength="300">{values.site_description}</textarea>
+          {errors.site_description && <span class="error-text">{errors.site_description}</span>}
+        </label>
+      </fieldset>
+
+      <fieldset class="settings-section">
+        <legend class="settings-section-title">Liên hệ</legend>
+        <label class="block">
+          <span class="settings-field-label">Số điện thoại</span>
+          <input class="field" name="phone" type="tel" inputmode="tel" maxlength="30" autocomplete="tel" value={values.phone} />
+          <span class="seo-hint">Ví dụ 0901234567 hoặc +84901234567. Schema sẽ chuẩn hóa dạng +84…</span>
+          {errors.phone && <span class="error-text">{errors.phone}</span>}
+        </label>
+        <label class="mt-4 block">
+          <span class="settings-field-label">Email liên hệ</span>
+          <input class="field" name="contact_email" type="email" maxlength="120" autocomplete="email" value={values.contact_email} />
+          {errors.contact_email && <span class="error-text">{errors.contact_email}</span>}
+        </label>
+      </fieldset>
+
+      <fieldset class="settings-section">
+        <legend class="settings-section-title">Địa chỉ</legend>
+        <label class="block">
+          <span class="settings-field-label">Số nhà, đường, thôn/xóm</span>
+          <textarea class="field min-h-24" name="contact_info" maxlength="300">{values.contact_info}</textarea>
+          {errors.contact_info && <span class="error-text">{errors.contact_info}</span>}
+        </label>
+        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+          <label class="block">
+            <span class="settings-field-label">Phường/xã hoặc quận/huyện</span>
+            <input class="field" name="address_locality" maxlength="120" value={values.address_locality} />
+            {errors.address_locality && <span class="error-text">{errors.address_locality}</span>}
+          </label>
+          <label class="block">
+            <span class="settings-field-label">Tỉnh / thành phố</span>
+            <input class="field" name="address_region" maxlength="120" value={values.address_region} />
+            {errors.address_region && <span class="error-text">{errors.address_region}</span>}
+          </label>
+        </div>
+        <label class="mt-4 block">
+          <span class="settings-field-label">Mã bưu chính</span>
+          <input class="field" name="postal_code" maxlength="20" value={values.postal_code} />
+          <span class="seo-hint">Không bắt buộc.</span>
+          {errors.postal_code && <span class="error-text">{errors.postal_code}</span>}
+        </label>
+        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+          <label class="block">
+            <span class="settings-field-label">Vĩ độ (latitude)</span>
+            <input class="field" name="geo_latitude" inputmode="decimal" maxlength="20" placeholder="21.1608" value={values.geo_latitude} />
+            {errors.geo_latitude && <span class="error-text">{errors.geo_latitude}</span>}
+          </label>
+          <label class="block">
+            <span class="settings-field-label">Kinh độ (longitude)</span>
+            <input class="field" name="geo_longitude" inputmode="decimal" maxlength="20" placeholder="105.7351" value={values.geo_longitude} />
+            {errors.geo_longitude && <span class="error-text">{errors.geo_longitude}</span>}
+          </label>
+        </div>
+        <p class="seo-hint mt-1">Lấy từ Google Maps (chuột phải → tọa độ). Để trống nếu không muốn LocalBusiness / geo.</p>
+      </fieldset>
+
+      <fieldset class="settings-section">
+        <legend class="settings-section-title">Giờ mở cửa</legend>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="block">
+            <span class="settings-field-label">Mở lúc</span>
+            <input class="field" name="opens_at" type="time" value={values.opens_at} />
+            {errors.opens_at && <span class="error-text">{errors.opens_at}</span>}
+          </label>
+          <label class="block">
+            <span class="settings-field-label">Đóng lúc</span>
+            <input class="field" name="closes_at" type="time" value={values.closes_at} />
+            {errors.closes_at && <span class="error-text">{errors.closes_at}</span>}
+          </label>
+        </div>
+        <div class="mt-3 flex flex-wrap gap-x-4 gap-y-2">
+          {OPEN_DAY_OPTIONS.map((day) => (
+            <label class="admin-check">
+              <input type="checkbox" name="open_day" value={day.value} checked={selectedOpenDays.has(day.value)} />
+              <span>{day.label}</span>
+            </label>
+          ))}
+        </div>
+        <span class="seo-hint mt-2 block">Chọn ngày và giờ nếu xưởng / điểm nhận hàng có giờ cố định.</span>
+      </fieldset>
+
+      <fieldset class="settings-section">
+        <legend class="settings-section-title">Mạng xã hội</legend>
+        <label class="block">
+          <span class="settings-field-label">Facebook</span>
+          <input class="field" name="facebook_url" type="url" maxlength="300" placeholder="https://" value={values.facebook_url} />
+          {errors.facebook_url && <span class="error-text">{errors.facebook_url}</span>}
+        </label>
+        <label class="mt-4 block">
+          <span class="settings-field-label">Zalo</span>
+          <input class="field" name="zalo_url" type="url" maxlength="300" placeholder="https://" value={values.zalo_url} />
+          {errors.zalo_url && <span class="error-text">{errors.zalo_url}</span>}
+        </label>
+        <label class="mt-4 block">
+          <span class="settings-field-label">Instagram</span>
+          <input class="field" name="instagram_url" type="url" maxlength="300" placeholder="https://" value={values.instagram_url} />
+          {errors.instagram_url && <span class="error-text">{errors.instagram_url}</span>}
+        </label>
+        <label class="mt-4 block">
+          <span class="settings-field-label">TikTok</span>
+          <input class="field" name="tiktok_url" type="url" maxlength="300" placeholder="https://" value={values.tiktok_url} />
+          {errors.tiktok_url && <span class="error-text">{errors.tiktok_url}</span>}
+        </label>
+        <label class="mt-4 block">
+          <span class="settings-field-label">YouTube</span>
+          <input class="field" name="youtube_url" type="url" maxlength="300" placeholder="https://" value={values.youtube_url} />
+          {errors.youtube_url && <span class="error-text">{errors.youtube_url}</span>}
+        </label>
+      </fieldset>
     </div>
 
     <div class="settings-panel" data-settings-panel="brand" hidden={activeTab !== 'brand'}>
-      <fieldset>
-        <legend class="mb-1 font-semibold">Logo</legend>
+      <fieldset class="settings-section">
+        <legend class="settings-section-title">Logo</legend>
         <MediaPicker client:load csrf={session.csrfToken} items={media} name="logo_media_id" selected={values.logo_media_id ? [values.logo_media_id] : []} editAlt />
         <p class="seo-hint">Bỏ ảnh chỉ gỡ khỏi website, không xóa file trong thư viện.</p>
         {errors.logo_media_id && <span class="error-text">{errors.logo_media_id}</span>}
       </fieldset>
-      <fieldset class="mt-4">
-        <legend class="mb-1 font-semibold">Favicon</legend>
+      <fieldset class="settings-section">
+        <legend class="settings-section-title">Favicon</legend>
         <MediaPicker client:load csrf={session.csrfToken} items={media} name="favicon_media_id" selected={values.favicon_media_id ? [values.favicon_media_id] : []} editAlt />
         <p class="seo-hint">JPEG, PNG hoặc WebP. Chưa chọn thì trang dùng favicon.svg có sẵn.</p>
         {errors.favicon_media_id && <span class="error-text">{errors.favicon_media_id}</span>}
@@ -188,8 +307,8 @@ function tabQuery(value: string | null): string {
         <span class="seo-hint" data-seo-duplicate-note>{duplicateNote}</span>
         {errors.default_seo_description && <span class="error-text">{errors.default_seo_description}</span>}
       </label>
-      <fieldset class="mt-4">
-        <legend class="mb-1 font-semibold">Ảnh Open Graph mặc định</legend>
+      <fieldset class="settings-section mt-6">
+        <legend class="settings-section-title">Ảnh Open Graph mặc định</legend>
         <MediaPicker client:load csrf={session.csrfToken} items={media} name="og_media_id" selected={values.og_media_id ? [values.og_media_id] : []} editAlt />
         <p class="seo-hint">Dùng khi trang không có ảnh riêng. Bài viết và sản phẩm vẫn dùng ảnh của chúng.</p>
         {errors.og_media_id && <span class="error-text">{errors.og_media_id}</span>}

@@ -11,6 +11,7 @@ import AddressField from './AddressField.astro';
 import DiscountCodeField from './DiscountCodeField.astro';
 import PaymentField from './PaymentField.astro';
 import QtyStepper from './QtyStepper.astro';
+import WeightFitHint from './WeightFitHint.astro';
 
 // Modal đặt hàng dùng chung cho cả trang. Nút [data-order-open] truyền sản phẩm vào modal;
 // khi tắt JS, nút vẫn là link tới /dat-hang nên đặt hàng không bị chặn.
@@ -79,6 +80,7 @@ const pricingJson = JSON.stringify(comboPricing);
           </select>
         </div>
         <p class="weight-surcharge-note" data-weight-note hidden></p>
+        <WeightFitHint />
       </fieldset>
       <QtyStepper id="od-quantity" max={ORDER_MAX_QUANTITY} />
       <label class="mt-3 block text-sm font-semibold" for="od-tag" data-od-tag-wrap hidden>

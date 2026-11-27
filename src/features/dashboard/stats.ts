@@ -1,4 +1,5 @@
 import { and, count, eq, gte, inArray, isNotNull, ne, sql } from 'drizzle-orm';
+
 import type { AppDb } from '../../lib/db/client';
 import { routes } from '../../lib/routes';
 import { media, orderItems, orders, posts, products } from '../../lib/db/schema';
@@ -34,8 +35,8 @@ const dayVn = sql<string>`strftime('%Y-%m-%d', ${orders.createdAt} / 1000, 'unix
 /** Giờ 00–23 theo lịch VN. */
 const hourVn = sql<string>`strftime('%H', ${orders.createdAt} / 1000, 'unixepoch', '+7 hours')`;
 
-const live = sql`${orders.status} <> 'cancelled'`;
-const revenueOk = sql`${orders.status} <> 'cancelled' AND ${orders.compensation} = 0`;
+/** Không hủy, không gửi bù — mọi KPI/biểu đồ/top bán. */
+const statsOk = sql`${orders.status} <> 'cancelled' AND ${orders.compensation} = 0`;
 const costed = sql`${orders.costGoods} is not null and ${orders.costExtra} is not null`;
 const profitExpr = sql`${orders.totalPrice} - ${orders.costGoods} - ${orders.costExtra} - coalesce(${orders.shippingCost}, 0)`;
 
@@ -58,13 +59,13 @@ async function loadPeriodKpi(db: AppDb, currentStart: number, previousStart: num
   const inPrevious = sql`${orders.createdAt} < ${currentStart}`;
   const rows = await db
     .select({
-      curOrders: num(sql`sum(case when ${inCurrent} and ${live} then 1 else 0 end)`),
-      curRevenue: num(sql`sum(case when ${inCurrent} and ${revenueOk} then ${orders.totalPrice} else 0 end)`),
-      curProfit: num(sql`sum(case when ${inCurrent} and ${live} and ${costed} then ${profitExpr} else 0 end)`),
-      curCosted: num(sql`sum(case when ${inCurrent} and ${live} and ${costed} then 1 else 0 end)`),
-      prevOrders: num(sql`sum(case when ${inPrevious} and ${live} then 1 else 0 end)`),
-      prevRevenue: num(sql`sum(case when ${inPrevious} and ${revenueOk} then ${orders.totalPrice} else 0 end)`),
-      prevProfit: num(sql`sum(case when ${inPrevious} and ${live} and ${costed} then ${profitExpr} else 0 end)`),
+      curOrders: num(sql`sum(case when ${inCurrent} and ${statsOk} then 1 else 0 end)`),
+      curRevenue: num(sql`sum(case when ${inCurrent} and ${statsOk} then ${orders.totalPrice} else 0 end)`),
+      curProfit: num(sql`sum(case when ${inCurrent} and ${statsOk} and ${costed} then ${profitExpr} else 0 end)`),
+      curCosted: num(sql`sum(case when ${inCurrent} and ${statsOk} and ${costed} then 1 else 0 end)`),
+      prevOrders: num(sql`sum(case when ${inPrevious} and ${statsOk} then 1 else 0 end)`),
+      prevRevenue: num(sql`sum(case when ${inPrevious} and ${statsOk} then ${orders.totalPrice} else 0 end)`),
+      prevProfit: num(sql`sum(case when ${inPrevious} and ${statsOk} and ${costed} then ${profitExpr} else 0 end)`),
     })
     .from(orders)
     .where(gte(orders.createdAt, previousStart));
@@ -85,8 +86,8 @@ async function loadDailySeries(db: AppDb, previousStart: number) {
   return db
     .select({
       day: dayVn,
-      orders: num(sql`sum(case when ${live} then 1 else 0 end)`),
-      revenue: num(sql`sum(case when ${revenueOk} then ${orders.totalPrice} else 0 end)`),
+      orders: num(sql`sum(case when ${statsOk} then 1 else 0 end)`),
+      revenue: num(sql`sum(case when ${statsOk} then ${orders.totalPrice} else 0 end)`),
     })
     .from(orders)
     .where(gte(orders.createdAt, previousStart))
@@ -99,8 +100,8 @@ async function loadHourlySeries(db: AppDb, previousStart: number) {
     .select({
       day: dayVn,
       hour: hourVn,
-      orders: num(sql`sum(case when ${live} then 1 else 0 end)`),
-      revenue: num(sql`sum(case when ${revenueOk} then ${orders.totalPrice} else 0 end)`),
+      orders: num(sql`sum(case when ${statsOk} then 1 else 0 end)`),
+      revenue: num(sql`sum(case when ${statsOk} then ${orders.totalPrice} else 0 end)`),
     })
     .from(orders)
     .where(gte(orders.createdAt, previousStart))
@@ -164,13 +165,13 @@ async function loadTopProvinces(db: AppDb, start: number) {
   const rows = await db
     .select({
       provinceCode: orders.provinceCode,
-      ordersCount: num(sql`sum(case when ${live} then 1 else 0 end)`),
-      revenue: num(sql`sum(case when ${revenueOk} then ${orders.totalPrice} else 0 end)`),
+      ordersCount: num(sql`sum(case when ${statsOk} then 1 else 0 end)`),
+      revenue: num(sql`sum(case when ${statsOk} then ${orders.totalPrice} else 0 end)`),
     })
     .from(orders)
     .where(gte(orders.createdAt, start))
     .groupBy(orders.provinceCode)
-    .orderBy(sql`sum(case when ${live} then 1 else 0 end) desc`)
+    .orderBy(sql`sum(case when ${statsOk} then 1 else 0 end) desc`)
     .limit(TOP_PROVINCES);
   return rows
     .filter((row) => row.ordersCount > 0)
@@ -187,13 +188,13 @@ async function loadBySource(db: AppDb, start: number): Promise<DashboardRankItem
   const rows = await db
     .select({
       source: orders.source,
-      ordersCount: num(sql`sum(case when ${live} then 1 else 0 end)`),
-      revenue: num(sql`sum(case when ${revenueOk} then ${orders.totalPrice} else 0 end)`),
+      ordersCount: num(sql`sum(case when ${statsOk} then 1 else 0 end)`),
+      revenue: num(sql`sum(case when ${statsOk} then ${orders.totalPrice} else 0 end)`),
     })
     .from(orders)
     .where(gte(orders.createdAt, start))
     .groupBy(orders.source)
-    .orderBy(sql`sum(case when ${live} then 1 else 0 end) desc`);
+    .orderBy(sql`sum(case when ${statsOk} then 1 else 0 end) desc`);
   return rows
     .filter((row) => row.ordersCount > 0)
     .map((row) => ({
@@ -204,7 +205,7 @@ async function loadBySource(db: AppDb, start: number): Promise<DashboardRankItem
 }
 
 async function loadTopProducts(db: AppDb, start: number): Promise<DashboardTopProduct[]> {
-  const inRange = and(gte(orders.createdAt, start), ne(orders.status, 'cancelled'));
+  const inRange = and(gte(orders.createdAt, start), eq(orders.compensation, 0), ne(orders.status, 'cancelled'));
   const legacyOnly = sql`not exists (select 1 from order_items where order_items.order_id = ${orders.id})`;
   const [single, many] = await Promise.all([
     db

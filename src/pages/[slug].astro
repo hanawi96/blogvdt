@@ -21,7 +21,7 @@ import PublicLayout from '../layouts/PublicLayout.astro';
 import { createDb } from '../lib/db/client';
 import { getDbBinding, getSiteOrigin, optionalMediaBucket } from '../lib/cloudflare/env';
 import { formatDateTime } from '../lib/datetime';
-import { blogPostingSchema, breadcrumbSchema, buildMeta, canonicalUrl, jsonLd, notFoundMeta, postPageMeta, toAbsoluteUrl, unavailableMeta } from '../lib/seo/meta';
+import { blogPostingSchema, breadcrumbSchema, buildMeta, canonicalUrl, jsonLd, notFoundMeta, organizationFromSite, postPageMeta, toAbsoluteUrl, unavailableMeta } from '../lib/seo/meta';
 import { blogReadStatus, FRESH_PAGE_CACHE, PRIVATE_PAGE_CACHE } from '../lib/seo/cache';
 import { routes } from '../lib/routes';
 
@@ -71,6 +71,7 @@ const crumbs = loaded.post && loaded.site
     ]
   : [];
 const trail = loaded.post && loaded.site ? breadcrumbSchema(origin, crumbs) : null;
+const organization = loaded.site ? organizationFromSite(origin, loaded.site) : null;
 const posting = loaded.post && loaded.site
   ? blogPostingSchema({
       headline: loaded.post.title,
@@ -80,6 +81,7 @@ const posting = loaded.post && loaded.site
       publishedTime: published,
       modifiedTime: modified,
       siteName: loaded.site.siteName,
+      origin,
       authorUrl: canonicalUrl(origin, routes.home),
       author: loaded.author
         ? { name: loaded.author.name, url: loaded.author.moreUrl, image: toAbsoluteUrl(origin, loaded.author.avatarUrl) }
@@ -87,7 +89,7 @@ const posting = loaded.post && loaded.site
       logo: toAbsoluteUrl(origin, loaded.site.logoUrl),
     })
   : null;
-const jsonLdBlocks = [trail, posting].flatMap((entry) => (entry ? [jsonLd(entry)] : []));
+const jsonLdBlocks = [organization, trail, posting].flatMap((entry) => (entry ? [jsonLd(entry)] : []));
 
 async function loadPost() {
   try {

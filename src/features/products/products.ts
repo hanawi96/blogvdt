@@ -288,18 +288,18 @@ export async function listProducts(
   };
 }
 
-// Số lượng đã bán = sold_base + đơn một mẫu (không có order_items) + dòng order_items; bỏ đơn hủy.
+// Số lượng đã bán = sold_base + đơn một mẫu (không có order_items) + dòng order_items; bỏ hủy + gửi bù.
 const soldQty = sql<number>`(
   coalesce(${products.soldBase}, 0)
   + coalesce((
     select sum(o.quantity) from orders o
-    where o.product_id = ${products.id} and o.status <> 'cancelled'
+    where o.product_id = ${products.id} and o.status <> 'cancelled' and o.compensation = 0
       and not exists (select 1 from order_items i where i.order_id = o.id)
   ), 0)
   + coalesce((
     select sum(i.quantity) from order_items i
     join orders o2 on o2.id = i.order_id
-    where i.product_id = ${products.id} and o2.status <> 'cancelled'
+    where i.product_id = ${products.id} and o2.status <> 'cancelled' and o2.compensation = 0
   ), 0)
 )`;
 

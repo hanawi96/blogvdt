@@ -30,7 +30,7 @@ const emptyPeriod = usesDateFilter ? 'Chưa có đơn trong kỳ đã chọn' : 
         stats.revenueOrders === 0
           ? stats.orders === 0
             ? emptyPeriod
-            : 'Không có đơn tính doanh thu (gửi bù / hủy)'
+            : 'Không có đơn tính thống kê (gửi bù / hủy đã loại)'
           : `TB ${formatVnd(avgRevenue)}/đơn · ${stats.revenueOrders} đơn`
       }
     </p>

@@ -12,6 +12,7 @@ import FreeShipBadge from './FreeShipBadge.astro';
 import InspectGoodsBadge from './InspectGoodsBadge.astro';
 import ProductSalesBadge from './ProductSalesBadge.astro';
 import QtyStepper from './QtyStepper.astro';
+import WeightFitHint from './WeightFitHint.astro';
 
 interface Props {
   product: {
@@ -177,6 +178,7 @@ const orderAttrs = {
                   </select>
                 </div>
                 <p class="weight-surcharge-note" data-weight-note hidden></p>
+                <WeightFitHint />
               </fieldset>
             )
           }

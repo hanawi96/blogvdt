@@ -18,7 +18,7 @@ export const CUSTOMER_SORTS = [
 
 export type CustomerSort = (typeof CUSTOMER_SORTS)[number]['value'];
 
-/** Phân loại theo số đơn chưa hủy: 1 = mới, 2 = quen, ≥3 = VIP. */
+/** Phân loại theo số đơn tính thống kê (không hủy, không gửi bù): 1 = mới, 2 = quen, ≥3 = VIP. */
 export const CUSTOMER_TIERS = ['new', 'regular', 'vip'] as const;
 export type CustomerTier = (typeof CUSTOMER_TIERS)[number];
 export const CUSTOMER_TIER_LABELS: Record<CustomerTier, string> = {
@@ -252,9 +252,9 @@ export async function listCustomers(
       : undefined;
   const where = and(visibility, search);
   const page = Math.max(1, filters.page);
-  const orderCount = sql<number>`coalesce(sum(case when ${orders.status} <> 'cancelled' then 1 else 0 end), 0)`;
-  const lastOrderAt = sql<number | null>`max(${orders.createdAt})`;
-  const spent = sql<number>`coalesce(sum(case when ${orders.status} <> 'cancelled' then ${orders.totalPrice} else 0 end), 0)`;
+  const orderCount = sql<number>`coalesce(sum(case when ${orders.status} <> 'cancelled' and ${orders.compensation} = 0 then 1 else 0 end), 0)`;
+  const lastOrderAt = sql<number | null>`max(case when ${orders.status} <> 'cancelled' and ${orders.compensation} = 0 then ${orders.createdAt} end)`;
+  const spent = sql<number>`coalesce(sum(case when ${orders.status} <> 'cancelled' and ${orders.compensation} = 0 then ${orders.totalPrice} else 0 end), 0)`;
   const orderBy =
     filters.sort === 'orders'
       ? [desc(orderCount), desc(lastOrderAt), asc(customers.phone)]
@@ -455,8 +455,8 @@ export async function lookupCustomerByPhone(db: AppDb, rawPhone: string): Promis
   const recent = recentRows[0];
   if (!profile && !recent) return null;
   const countWhere = profile
-    ? and(eq(orders.customerId, profile.id), ne(orders.status, 'cancelled'))
-    : and(eq(orders.phone, phone), ne(orders.status, 'cancelled'));
+    ? and(eq(orders.customerId, profile.id), ne(orders.status, 'cancelled'), eq(orders.compensation, 0))
+    : and(eq(orders.phone, phone), ne(orders.status, 'cancelled'), eq(orders.compensation, 0));
   const countRows = await db.select({ value: sql<number>`count(*)` }).from(orders).where(countWhere);
   const customerName = profile?.name ?? recent?.customerName ?? '';
   const address = profile?.address ?? recent?.address ?? '';

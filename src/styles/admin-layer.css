@@ -5330,6 +5330,9 @@
   .order-icon-btn.is-view:hover {
     color: var(--color-primary-strong);
   }
+  .order-icon-btn.is-zalo:hover {
+    color: var(--color-primary-strong);
+  }
   .order-icon-btn.is-edit:hover {
     color: var(--color-accent);
   }
@@ -8237,6 +8240,41 @@
   }
   .settings-panel {
     max-width: 40rem;
+  }
+  .settings-section {
+    margin: 0;
+    min-inline-size: 0;
+    border: 0;
+    padding: 0;
+  }
+  .settings-section + .settings-section {
+    margin-top: 1.5rem;
+    border-top: 1px solid var(--color-line);
+    padding-top: 1.25rem;
+  }
+  .settings-section-title {
+    display: block;
+    float: left;
+    width: 100%;
+    margin: 0 0 0.9rem;
+    padding: 0;
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    line-height: 1.3;
+    text-transform: uppercase;
+  }
+  .settings-section-title + * {
+    clear: both;
+  }
+  .settings-field-label {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: var(--color-ink);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.35;
   }
   .settings-save {
     display: flex;

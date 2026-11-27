@@ -3507,16 +3507,16 @@ body.site-nav-lock {
 .product-process-video {
   display: grid;
   gap: 0.75rem;
-  justify-items: center;
+  justify-items: stretch;
   margin: 1.35rem 0 0;
 }
 .product-process-video-frame {
   position: relative;
-  width: min(100%, 22rem);
+  width: 100%;
   overflow: hidden;
   border-radius: 1.15rem;
   background: var(--color-ink);
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 16 / 9;
 }
 .product-process-video-frame iframe {
   display: block;
@@ -3552,10 +3552,11 @@ body.site-nav-lock {
   display: grid;
   justify-items: center;
   gap: 0.85rem;
+  width: 100%;
 }
 .product-process-video-note {
   margin: 0;
-  max-width: 22rem;
+  max-width: 36rem;
   color: var(--color-muted);
   font-size: 0.88rem;
   line-height: 1.5;

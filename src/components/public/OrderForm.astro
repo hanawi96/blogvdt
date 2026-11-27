@@ -16,6 +16,7 @@ import { productRequiresTagName, TAG_NAME_MAX } from '../../features/products/ta
 import { applyWeightPrice, requiresWeight, weightChips, weightExtras, weightOptionLabel, type WeightScale } from '../../features/products/weight';
 import DiscountCodeField from './DiscountCodeField.astro';
 import PaymentField from './PaymentField.astro';
+import WeightFitHint from './WeightFitHint.astro';
 import type { ShipGroup } from '../../features/shipping/customer-fee';
 import { formatVnd } from '../../lib/money';
 import { routes } from '../../lib/routes';
@@ -173,6 +174,7 @@ const pricingJson = JSON.stringify(comboPricing);
           </select>
         </div>
         <p class="weight-surcharge-note" data-weight-note hidden></p>
+        <WeightFitHint />
         {errors.weight && <span class="error-text">{errors.weight}</span>}
       </fieldset>
     )

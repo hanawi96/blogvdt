@@ -3,6 +3,7 @@ import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '..
 import { isUniqueViolation } from '../orders/order';
 import { slugify } from '../posts/slug';
 import { listingMediaKey } from '../media/files';
+import { categoryMovePlan } from '../products/categories';
 import { toCatalogCard, type CatalogCard } from '../products/catalog';
 import { sellableProductWhere } from '../products/status';
 import type { AppDb } from '../../lib/db/client';
@@ -354,8 +355,8 @@ const columns = {
 
 const soldCount = sql<number>`(
   coalesce(${products.soldBase}, 0)
-  + coalesce((select sum(o.quantity) from orders o where o.product_id = ${products.id} and o.status <> 'cancelled'), 0)
-  + coalesce((select sum(i.quantity) from order_items i join orders o2 on o2.id = i.order_id where i.product_id = ${products.id} and o2.status <> 'cancelled'), 0)
+  + coalesce((select sum(o.quantity) from orders o where o.product_id = ${products.id} and o.status <> 'cancelled' and o.compensation = 0), 0)
+  + coalesce((select sum(i.quantity) from order_items i join orders o2 on o2.id = i.order_id where i.product_id = ${products.id} and o2.status <> 'cancelled' and o2.compensation = 0), 0)
 )`;
 
 export async function listHomeCollections(db: AppDb): Promise<HomeCollection[]> {
@@ -997,4 +998,48 @@ export async function setHomeCollectionActive(
       : []),
   ]);
   return { ok: true };
+}
+
+export async function moveHomeCollection(
+  db: AppDb,
+  id: number,
+  direction: 'up' | 'down',
+  now = Date.now(),
+  actor?: ActivityActor,
+): Promise<{ ok: true; moved: boolean } | { ok: false; error: string }> {
+  const rows = await db
+    .select({ id: homeCollections.id, sortOrder: homeCollections.sortOrder, title: homeCollections.title })
+    .from(homeCollections)
+    .orderBy(asc(homeCollections.sortOrder), asc(homeCollections.id));
+  const current = rows.find((row) => row.id === id);
+  if (!current) return { ok: false, error: 'Không tìm thấy khối.' };
+  const plan = categoryMovePlan(
+    rows.map((row) => ({ id: row.id, sortOrder: row.sortOrder })),
+    id,
+    direction,
+  );
+  if (plan.length === 0) return { ok: true, moved: false };
+  await commitWrites(db, [
+    ...plan.map((item) =>
+      db.update(homeCollections).set({ sortOrder: item.sortOrder, updatedAt: now }).where(eq(homeCollections.id, item.id)),
+    ),
+    ...(actor
+      ? [
+          activityWrite(
+            db,
+            {
+              actorId: actor.id,
+              actorName: actor.name,
+              action: 'home_collection.move',
+              objectType: 'home_collection',
+              objectId: String(id),
+              summary: `Đã đổi thứ tự khối trang chủ “${quotedLabel(current.title, 'Không tên')}”.`,
+              createdAt: now,
+            },
+            true,
+          ),
+        ]
+      : []),
+  ]);
+  return { ok: true, moved: true };
 }

@@ -385,7 +385,7 @@ export const orders = sqliteTable(
     // Tiền khách đã cọc khi pay_state = deposit. Doanh thu vẫn là total_price; còn lại = total_price - deposit_amount.
     depositAmount: integer('deposit_amount').notNull().default(0),
     priority: integer('priority').notNull().default(0),
-    // Gửi bù: không thu tiền, không tính doanh thu. Giá vốn vẫn được giữ để thấy khoản lỗ.
+    // Gửi bù: không thu tiền; không tính thống kê (doanh thu, số đơn, lãi, SL bán).
     compensation: integer('compensation').notNull().default(0),
     // Ngày dự kiến gửi (mốc 00:00 giờ Việt Nam). Có giá trị và đơn chưa gửi thì là «Gửi sau».
     shipOn: integer('ship_on'),

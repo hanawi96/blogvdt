@@ -1,6 +1,7 @@
 ---
 import { orderProfit } from '../../features/costs/order-costs';
 import { CUSTOMER_TIER_LABELS, customerTierOf } from '../../features/orders/customers';
+import { normalizePhone } from '../../features/orders/order';
 import { collectionLabel, remainingAfterDeposit, shipLaterPill, sourceLabel } from '../../features/orders/staff';
 import {
   FULFILL_STATUSES,
@@ -19,6 +20,12 @@ import {
   type OrderDayBucket,
   type OrderTagNote,
 } from '../../features/orders/orders';
+
+function zaloChatHref(phone: string): string | null {
+  const normalized = normalizePhone(phone) ?? phone.replace(/\D/g, '');
+  if (!normalized) return null;
+  return `https://zalo.me/${normalized}`;
+}
 
 const listNow = Date.now();
 
@@ -258,6 +265,7 @@ const canToggleSort = status !== 'shipped';
             .filter(Boolean)
             .join(' · ');
           const createdAgo = orderShippedAgoLabel(order.createdAt, listNow);
+          const zaloHref = zaloChatHref(order.phone);
           const isTheTen = orderMatchesTheTenTag({
             productName: order.productName,
             note: order.note,
@@ -491,6 +499,20 @@ const canToggleSort = status !== 'shipped';
                     <circle cx="12" cy="12" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8" />
                   </svg>
                 </a>
+                {zaloHref && (
+                  <a
+                    class="order-icon-btn is-zalo"
+                    href={zaloHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Chat Zalo ${order.phone}`}
+                    title="Chat Zalo"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.068.157 2.148.279 3.238.364.466.037.893.281 1.153.671L12 21l2.652-3.978c.26-.39.687-.634 1.153-.67 1.09-.086 2.17-.208 3.238-.365 1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
+                    </svg>
+                  </a>
+                )}
                 {order.status !== 'completed' && order.status !== 'cancelled' && (
                   <a class="order-icon-btn is-edit" href={routes.adminOrderEdit(order.id)} aria-label={`Sửa đơn ${order.code}`} title="Sửa">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">

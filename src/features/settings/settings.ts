@@ -8,13 +8,39 @@ import { routes } from '../../lib/routes';
 import { fieldErrors, type FieldErrors } from '../../lib/validation/errors';
 import { cleanTracking, trackingErrors, type Tracking } from '../tracking/tracking';
 
+/** Ngày schema.org dùng trong open_days (comma-separated). */
+export const OPEN_DAY_VALUES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
+export type OpenDay = (typeof OPEN_DAY_VALUES)[number];
+
+export const OPEN_DAY_OPTIONS: ReadonlyArray<{ value: OpenDay; label: string }> = [
+  { value: 'Monday', label: 'Thứ 2' },
+  { value: 'Tuesday', label: 'Thứ 3' },
+  { value: 'Wednesday', label: 'Thứ 4' },
+  { value: 'Thursday', label: 'Thứ 5' },
+  { value: 'Friday', label: 'Thứ 6' },
+  { value: 'Saturday', label: 'Thứ 7' },
+  { value: 'Sunday', label: 'Chủ nhật' },
+];
+
 export const SETTING_KEYS = [
   'site_name',
   'site_description',
   'phone',
+  'contact_email',
   'contact_info',
+  'address_locality',
+  'address_region',
+  'postal_code',
+  'geo_latitude',
+  'geo_longitude',
+  'opens_at',
+  'closes_at',
+  'open_days',
   'facebook_url',
   'zalo_url',
+  'instagram_url',
+  'tiktok_url',
+  'youtube_url',
   'logo_media_id',
   'favicon_media_id',
   'og_media_id',
@@ -39,11 +65,25 @@ export type PublicSite = {
   siteName: string;
   siteDescription: string;
   phone: string;
+  contactEmail: string;
   contactInfo: string;
+  addressLocality: string;
+  addressRegion: string;
+  postalCode: string;
+  geoLatitude: string;
+  geoLongitude: string;
+  opensAt: string;
+  closesAt: string;
+  openDays: string;
   facebookUrl: string;
   zaloUrl: string;
+  instagramUrl: string;
+  tiktokUrl: string;
+  youtubeUrl: string;
   logoUrl: string;
   logoAlt: string;
+  logoWidth: number | null;
+  logoHeight: number | null;
   faviconUrl: string;
   ogImageUrl: string;
   ogImageAlt: string;
@@ -65,11 +105,25 @@ export async function getPublicSite(db: AppDb): Promise<PublicSite | null> {
     siteName: values.site_name,
     siteDescription: values.site_description,
     phone: values.phone,
+    contactEmail: values.contact_email,
     contactInfo: values.contact_info,
+    addressLocality: values.address_locality,
+    addressRegion: values.address_region,
+    postalCode: values.postal_code,
+    geoLatitude: values.geo_latitude,
+    geoLongitude: values.geo_longitude,
+    opensAt: values.opens_at,
+    closesAt: values.closes_at,
+    openDays: values.open_days,
     facebookUrl: isHttpUrl(values.facebook_url) ? values.facebook_url : '',
     zaloUrl: isHttpUrl(values.zalo_url) ? values.zalo_url : '',
+    instagramUrl: isHttpUrl(values.instagram_url) ? values.instagram_url : '',
+    tiktokUrl: isHttpUrl(values.tiktok_url) ? values.tiktok_url : '',
+    youtubeUrl: isHttpUrl(values.youtube_url) ? values.youtube_url : '',
     logoUrl: logo?.url ?? '',
     logoAlt: logo?.alt || values.site_name,
+    logoWidth: logo?.width ?? null,
+    logoHeight: logo?.height ?? null,
     faviconUrl: favicon?.url ?? '',
     ogImageUrl: ogImage?.url ?? '',
     ogImageAlt: ogImage?.alt ?? '',
@@ -118,13 +172,50 @@ const phoneField = z
     return /^[+()\d][\d\s().+-]*$/.test(value) && digits.length >= 8 && digits.length <= 15;
   }, 'Số điện thoại không hợp lệ.');
 
+const optionalEmail = z
+  .string()
+  .trim()
+  .max(120, 'Email quá dài.')
+  .refine((value) => value === '' || z.string().email().safeParse(value).success, 'Email không hợp lệ.');
+
+const optionalTime = z
+  .string()
+  .trim()
+  .max(5)
+  .refine((value) => value === '' || /^([01]\d|2[0-3]):[0-5]\d$/.test(value), 'Giờ cần dạng HH:MM (ví dụ 08:00).');
+
+const optionalCoord = (kind: 'latitude' | 'longitude') =>
+  z
+    .string()
+    .trim()
+    .max(20, 'Tọa độ quá dài.')
+    .refine((value) => {
+      if (!value) return true;
+      if (!/^-?\d+(\.\d+)?$/.test(value)) return false;
+      const num = Number(value);
+      if (kind === 'latitude') return num >= -90 && num <= 90;
+      return num >= -180 && num <= 180;
+    }, kind === 'latitude' ? 'Vĩ độ không hợp lệ (−90 đến 90).' : 'Kinh độ không hợp lệ (−180 đến 180).');
+
 const settingsFields = z.object({
   site_name: z.string().trim().min(1, 'Nhập tên website.').max(120, 'Tên website quá dài.'),
   site_description: z.string().trim().max(300, 'Mô tả quá dài.'),
   phone: phoneField,
+  contact_email: optionalEmail,
   contact_info: z.string().trim().max(300, 'Địa chỉ quá dài.'),
+  address_locality: z.string().trim().max(120, 'Phường/xã hoặc quận/huyện quá dài.'),
+  address_region: z.string().trim().max(120, 'Tỉnh/thành quá dài.'),
+  postal_code: z.string().trim().max(20, 'Mã bưu chính quá dài.'),
+  geo_latitude: optionalCoord('latitude'),
+  geo_longitude: optionalCoord('longitude'),
+  opens_at: optionalTime,
+  closes_at: optionalTime,
+  open_days: z.string().trim().max(120),
   facebook_url: optionalUrl,
   zalo_url: optionalUrl,
+  instagram_url: optionalUrl,
+  tiktok_url: optionalUrl,
+  youtube_url: optionalUrl,
   logo_media_id: z.string().trim().max(20),
   favicon_media_id: z.string().trim().max(20),
   og_media_id: z.string().trim().max(20),
@@ -137,7 +228,46 @@ const settingsFields = z.object({
   google_ads_label: z.string().trim().max(60),
   tiktok_pixel_id: z.string().trim().max(40),
   gtm_id: z.string().trim().max(40),
+}).superRefine((data, ctx) => {
+  const hasLat = Boolean(data.geo_latitude);
+  const hasLng = Boolean(data.geo_longitude);
+  if (hasLat !== hasLng) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [hasLat ? 'geo_longitude' : 'geo_latitude'],
+      message: 'Nhập đủ cả vĩ độ và kinh độ, hoặc để trống cả hai.',
+    });
+  }
+  const hasOpen = Boolean(data.opens_at);
+  const hasClose = Boolean(data.closes_at);
+  const hasDays = Boolean(data.open_days);
+  if ((hasOpen || hasClose || hasDays) && !(hasOpen && hasClose && hasDays)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['opens_at'],
+      message: 'Giờ mở cửa cần đủ giờ mở, giờ đóng và ít nhất một ngày.',
+    });
+  }
+  if (hasOpen && hasClose && data.opens_at >= data.closes_at) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['closes_at'],
+      message: 'Giờ đóng phải sau giờ mở.',
+    });
+  }
 });
+
+export function parseOpenDays(value: string): OpenDay[] {
+  const allowed = new Set<string>(OPEN_DAY_VALUES);
+  const seen = new Set<OpenDay>();
+  const days: OpenDay[] = [];
+  for (const part of value.split(/[,\s]+/)) {
+    if (!allowed.has(part) || seen.has(part as OpenDay)) continue;
+    seen.add(part as OpenDay);
+    days.push(part as OpenDay);
+  }
+  return days;
+}
 
 // Ánh xạ field tracking (snake_case trong settings) sang khóa Tracking (camelCase) để validate chung.
 const TRACKING_FIELD_MAP = {
@@ -150,7 +280,11 @@ const TRACKING_FIELD_MAP = {
 } as const;
 
 export function parseSettingsForm(form: FormData): { ok: true; values: SiteSettingValues } | { ok: false; errors: FieldErrors } {
-  const raw = Object.fromEntries(SETTING_KEYS.map((key) => [key, stringField(form, key)]));
+  const raw = Object.fromEntries(SETTING_KEYS.map((key) => [key, stringField(form, key)])) as SiteSettingValues;
+  // Checkbox ngày mở cửa → open_days chuẩn schema.org.
+  raw.open_days = parseOpenDays(
+    [...form.getAll('open_day'), stringField(form, 'open_days')].filter((item): item is string => typeof item === 'string').join(','),
+  ).join(',');
   const parsed = settingsFields.safeParse(raw);
   if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
   for (const key of ['logo_media_id', 'favicon_media_id', 'og_media_id'] as const) {

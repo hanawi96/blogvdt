@@ -1,8 +1,9 @@
-import { and, count, gte, lt, ne, sql, type SQL } from 'drizzle-orm';
+import { and, count, gte, lt, sql, type SQL } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { calendarRange, vnTodayRange } from '../../lib/datetime';
 import { orders } from '../../lib/db/schema';
 import { sourceLabel } from './staff';
+import { orderCountedInStats } from './stats-scope';
 
 export type TodaySourceStat = {
   /** `zalo` | `facebook` | `tiktok` | `web` | `other` */
@@ -13,11 +14,12 @@ export type TodaySourceStat = {
 };
 
 export type PosTodayStats = {
+  /** Số đơn tính thống kê (không hủy, không gửi bù). */
   orders: number;
   revenue: number;
-  /** Số đơn đóng góp doanh thu (không hủy, không gửi bù) — mẫu số TB doanh thu/đơn. */
+  /** Alias số đơn tính doanh thu — trùng `orders` sau khi loại gửi bù. */
   revenueOrders: number;
-  /** Lãi ròng trên đơn có đủ giá vốn (không hủy). Gửi bù vẫn trừ vốn để thấy lỗ. */
+  /** Lãi ròng trên đơn có đủ giá vốn (đã loại hủy + gửi bù). */
   profit: number;
   /** Số đơn trong kỳ đã có đủ costGoods + costExtra (nền tảng của profit / TB lãi). */
   costedOrders: number;
@@ -66,27 +68,25 @@ export function resolveOrderSummaryWindow(from: string, to: string, now = Date.n
   return { ok: true, window: defaultTodayStatsWindow(now), usesDateFilter: false };
 }
 
-function liveInWindow(window: OrderStatsWindow): SQL {
-  const parts: SQL[] = [ne(orders.status, 'cancelled')];
+function statsInWindow(window: OrderStatsWindow): SQL {
+  const parts: SQL[] = [];
   if (window.start !== null) parts.push(gte(orders.createdAt, window.start));
   if (window.end !== null) parts.push(lt(orders.createdAt, window.end));
-  return and(...parts)!;
+  return orderCountedInStats(...parts);
 }
 
 /**
- * Thống kê đơn trong cửa sổ thời gian: số đơn live + doanh thu + lãi + nguồn khách.
- * Chỉ theo `created_at` + không hủy — không phụ thuộc status/source/payment của list
- * (KPI kỳ độc lập với hàng đợi «Chưa gửi hàng»).
+ * Thống kê đơn trong cửa sổ thời gian: số đơn + doanh thu + lãi + nguồn khách.
+ * Chỉ theo `created_at`; loại hủy và gửi bù. Không phụ thuộc status/source/payment của list.
  */
 export async function loadOrderPeriodStats(db: AppDb, window: OrderStatsWindow): Promise<PosTodayStats> {
-  const where = liveInWindow(window);
+  const where = statsInWindow(window);
 
   const [totals, sourceRows] = await Promise.all([
     db
       .select({
         orders: count(),
-        revenue: sql<number>`coalesce(sum(case when ${orders.compensation} = 0 then ${orders.totalPrice} else 0 end), 0)`.mapWith(Number),
-        revenueOrders: sql<number>`coalesce(sum(case when ${orders.compensation} = 0 then 1 else 0 end), 0)`.mapWith(Number),
+        revenue: sql<number>`coalesce(sum(${orders.totalPrice}), 0)`.mapWith(Number),
         profit: sql<number>`coalesce(sum(case when ${costed} then ${profitExpr} else 0 end), 0)`.mapWith(Number),
         costedOrders: sql<number>`coalesce(sum(case when ${costed} then 1 else 0 end), 0)`.mapWith(Number),
       })
@@ -96,7 +96,7 @@ export async function loadOrderPeriodStats(db: AppDb, window: OrderStatsWindow):
       .select({
         source: orders.source,
         orders: count(),
-        revenue: sql<number>`coalesce(sum(case when ${orders.compensation} = 0 then ${orders.totalPrice} else 0 end), 0)`.mapWith(Number),
+        revenue: sql<number>`coalesce(sum(${orders.totalPrice}), 0)`.mapWith(Number),
       })
       .from(orders)
       .where(where)
@@ -117,10 +117,11 @@ export async function loadOrderPeriodStats(db: AppDb, window: OrderStatsWindow):
       };
     });
 
+  const orderTotal = Number(row?.orders ?? 0);
   return {
-    orders: Number(row?.orders ?? 0),
+    orders: orderTotal,
     revenue: Number(row?.revenue ?? 0),
-    revenueOrders: Number(row?.revenueOrders ?? 0),
+    revenueOrders: orderTotal,
     profit: Number(row?.profit ?? 0),
     costedOrders: Number(row?.costedOrders ?? 0),
     sources,

@@ -10,6 +10,7 @@ import ProductComments from '../../components/public/ProductComments.svelte';
 import ProductProcess from '../../components/public/ProductProcess.astro';
 import ProductStory from '../../components/public/ProductStory.astro';
 import QtyStepper from '../../components/public/QtyStepper.astro';
+import WeightFitHint from '../../components/public/WeightFitHint.astro';
 import { CART_MAX_QUANTITY } from '../../features/cart/cart';
 import { listOrderCosts } from '../../features/costs/order-costs';
 import { listPublicCommentThreads } from '../../features/product-comments/comments';
@@ -319,6 +320,7 @@ async function loadProduct(): Promise<{
                       </select>
                     </div>
                     <p class="weight-surcharge-note" data-weight-note hidden></p>
+                    <WeightFitHint />
                   </fieldset>
                 ) : (
                   <input type="hidden" name="weight" value="" />

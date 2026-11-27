@@ -278,7 +278,7 @@ export async function filterDoneInvoiceIds(db: AppDb, ids: number[]): Promise<nu
   const rows = await db
     .select({ id: orders.id })
     .from(orders)
-    .where(and(inArray(orders.id, unique), isNotNull(orders.invoiceExportedAt)));
+    .where(and(inArray(orders.id, unique), isNotNull(orders.invoiceExportedAt), eq(orders.compensation, 0)));
   const allowed = new Set(rows.map((row) => row.id));
   return unique.filter((id) => allowed.has(id));
 }

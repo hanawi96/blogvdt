@@ -18,6 +18,7 @@ import FreeShipBadge from './FreeShipBadge.astro';
 import HomeProductCard from './HomeProductCard.astro';
 import InspectGoodsBadge from './InspectGoodsBadge.astro';
 import QtyStepper from './QtyStepper.astro';
+import WeightFitHint from './WeightFitHint.astro';
 
 interface Props {
   collections: HomeCollectionPublic[];
@@ -383,6 +384,7 @@ function pairBuyQty(collection: HomeCollectionPublic): number {
                                     </select>
                                   </div>
                                   <p class="weight-surcharge-note" data-weight-note hidden></p>
+                                  <WeightFitHint />
                                 </fieldset>
                               )}
                               {!needsWeight && <input type="hidden" name="weight" value="" />}

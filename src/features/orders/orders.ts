@@ -536,7 +536,7 @@ export async function listOrders(
       : await db
           .select({ phone: orders.phone, value: count() })
           .from(orders)
-          .where(and(inArray(orders.phone, phones), ne(orders.status, 'cancelled')))
+          .where(and(inArray(orders.phone, phones), ne(orders.status, 'cancelled'), eq(orders.compensation, 0)))
           .groupBy(orders.phone);
   const ordersByPhone = new Map(phoneCountRows.map((row) => [row.phone, row.value]));
   return {
@@ -555,7 +555,7 @@ export async function listOrders(
   };
 }
 
-/** Doanh thu + số đơn khớp bộ lọc «Chưa gửi hàng» (ẩn gửi sau còn xa). Gửi bù không cộng doanh thu. */
+/** Doanh thu + số đơn khớp bộ lọc «Chưa gửi hàng» (ẩn gửi sau còn xa). Gửi bù không tính. */
 export async function pendingUnshippedSummary(db: AppDb): Promise<{ revenue: number; orderCount: number }> {
   const pending = orderListWhere({
     query: '',
@@ -567,8 +567,8 @@ export async function pendingUnshippedSummary(db: AppDb): Promise<{ revenue: num
   });
   const rows = await db
     .select({
-      orderCount: count(),
-      revenue: sql<number>`coalesce(sum(case when ${orders.compensation} = 0 then ${orders.totalPrice} else 0 end), 0)`,
+      orderCount: sql<number>`coalesce(sum(case when ${orders.compensation} = 0 then 1 else 0 end), 0)`.mapWith(Number),
+      revenue: sql<number>`coalesce(sum(case when ${orders.compensation} = 0 then ${orders.totalPrice} else 0 end), 0)`.mapWith(Number),
     })
     .from(orders)
     .where(pending);

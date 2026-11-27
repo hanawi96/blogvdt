@@ -205,11 +205,11 @@ export async function listBestSellers(db: AppDb, limit = 5): Promise<CatalogCard
   return rows.map(toCard);
 }
 
-// Lượt bán = sold_base (lịch sử) + đơn một mẫu + đơn nhiều mẫu, bỏ đơn đã hủy.
+// Lượt bán = sold_base (lịch sử) + đơn một mẫu + đơn nhiều mẫu; bỏ hủy + gửi bù.
 const soldCount = sql<number>`(
   coalesce(${products.soldBase}, 0)
-  + coalesce((select sum(o.quantity) from orders o where o.product_id = ${products.id} and o.status <> 'cancelled'), 0)
-  + coalesce((select sum(i.quantity) from order_items i join orders o2 on o2.id = i.order_id where i.product_id = ${products.id} and o2.status <> 'cancelled'), 0)
+  + coalesce((select sum(o.quantity) from orders o where o.product_id = ${products.id} and o.status <> 'cancelled' and o.compensation = 0), 0)
+  + coalesce((select sum(i.quantity) from order_items i join orders o2 on o2.id = i.order_id where i.product_id = ${products.id} and o2.status <> 'cancelled' and o2.compensation = 0), 0)
 )`;
 
 // % giảm = (giá gốc − giá bán) / giá gốc; mẫu không giảm xếp cuối.

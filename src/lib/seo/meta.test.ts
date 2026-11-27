@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blogPostingSchema, breadcrumbSchema, buildMeta, canonicalUrl, categoryPageMeta, documentTitle, homePageMeta, jsonLd, knowledgeListMeta, KNOWLEDGE_LIST_DESCRIPTION, plainMetaText, postPageMeta, productSchema, shareImageUrl, shareMetadata, shareOriginFrom, siteOrigin, tagPageMeta } from './meta';
+import { blogPostingSchema, breadcrumbSchema, buildMeta, canonicalUrl, categoryPageMeta, documentTitle, homePageMeta, jsonLd, knowledgeListMeta, KNOWLEDGE_LIST_DESCRIPTION, organizationId, organizationSchema, plainMetaText, postPageMeta, productSchema, shareImageUrl, shareMetadata, shareOriginFrom, siteOrigin, tagPageMeta } from './meta';
 
 describe('SEO', () => {
   it('ghép canonical từ origin và đường dẫn', () => {
@@ -107,6 +107,85 @@ describe('SEO', () => {
     expect(encoded).toContain('\\u0026');
     expect(encoded).not.toContain('<');
     expect(encoded).not.toContain('>');
+  });
+
+  it('Organization chỉ ghi trường có thật và chuẩn hóa SĐT VN', () => {
+    const schema = organizationSchema({
+      origin: 'https://vongdautambyanh.com',
+      siteName: 'Vòng dâu tằm by Ánh',
+      description: 'Vòng thủ công cho mẹ và bé.',
+      logoUrl: '/media/logo.webp',
+      logoWidth: 512,
+      logoHeight: 512,
+      phone: '0972483892',
+      email: 'hello@vongdautambyanh.com',
+      address: 'Xóm 4, thôn Đông Cao',
+      addressLocality: 'Mê Linh',
+      addressRegion: 'Hà Nội',
+      postalCode: '10000',
+      geoLatitude: '21.1608',
+      geoLongitude: '105.7351',
+      opensAt: '08:00',
+      closesAt: '20:00',
+      openDays: 'Monday,Tuesday,Saturday',
+      sameAs: ['https://www.facebook.com/vongdautambyvui', 'https://zalo.me/0972483892', 'javascript:alert(1)', ''],
+    });
+    expect(schema?.['@type']).toEqual(['Organization', 'LocalBusiness']);
+    expect(schema?.['@id']).toBe('https://vongdautambyanh.com/#organization');
+    expect(schema?.telephone).toBe('+84972483892');
+    expect(schema?.email).toBe('hello@vongdautambyanh.com');
+    expect(schema?.address).toEqual({
+      '@type': 'PostalAddress',
+      streetAddress: 'Xóm 4, thôn Đông Cao',
+      addressLocality: 'Mê Linh',
+      addressRegion: 'Hà Nội',
+      postalCode: '10000',
+      addressCountry: 'VN',
+    });
+    expect(schema?.geo).toEqual({ '@type': 'GeoCoordinates', latitude: 21.1608, longitude: 105.7351 });
+    expect(schema?.openingHoursSpecification).toEqual([
+      {
+        '@type': 'OpeningHoursSpecification',
+        dayOfWeek: ['Monday', 'Tuesday', 'Saturday'],
+        opens: '08:00',
+        closes: '20:00',
+      },
+    ]);
+    expect(schema?.sameAs).toEqual([
+      'https://www.facebook.com/vongdautambyvui',
+      'https://zalo.me/0972483892',
+    ]);
+    expect(schema?.contactPoint).toMatchObject({
+      '@type': 'ContactPoint',
+      telephone: '+84972483892',
+      email: 'hello@vongdautambyanh.com',
+      contactType: 'customer service',
+      areaServed: 'VN',
+    });
+    expect(schema?.logo).toEqual({
+      '@type': 'ImageObject',
+      url: 'https://vongdautambyanh.com/media/logo.webp',
+      width: 512,
+      height: 512,
+    });
+    expect(organizationId('https://vongdautambyanh.com')).toBe('https://vongdautambyanh.com/#organization');
+    expect(
+      organizationSchema({
+        origin: 'https://vongdautambyanh.com',
+        siteName: 'Shop',
+        phone: '12',
+        sameAs: ['not-a-url'],
+      }),
+    ).toMatchObject({ '@type': 'Organization', name: 'Shop' });
+    expect(
+      organizationSchema({
+        origin: 'https://vongdautambyanh.com',
+        siteName: 'Shop',
+        phone: '12',
+        sameAs: ['not-a-url'],
+      }),
+    ).not.toHaveProperty('telephone');
+    expect(organizationSchema({ origin: '', siteName: 'Shop' })).toBeNull();
   });
 
   it('schema sản phẩm chỉ ghi giá và ảnh có thật', () => {
