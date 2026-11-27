@@ -1,4 +1,4 @@
-import { and, asc, count, eq, like, max, or } from 'drizzle-orm';
+import { and, asc, count, eq, gt, like, max, or } from 'drizzle-orm';
 import { activityWrite, commitWrites, quotedLabel, type ActivityActor } from '../activity/log';
 import type { AppDb } from '../../lib/db/client';
 import { media, productCategories, productCategoryLinks, products } from '../../lib/db/schema';
@@ -114,7 +114,12 @@ export async function listSellableProductCategories(db: AppDb) {
     .innerJoin(productCategoryLinks, eq(productCategoryLinks.categoryId, productCategories.id))
     .innerJoin(
       products,
-      and(eq(products.id, productCategoryLinks.productId), eq(products.status, 'active'), eq(productCategories.status, 'active')),
+      and(
+        eq(products.id, productCategoryLinks.productId),
+        eq(products.status, 'active'),
+        gt(products.stockQty, 0),
+        eq(productCategories.status, 'active'),
+      ),
     )
     .groupBy(productCategories.id, productCategories.name, productCategories.slug, productCategories.sortOrder)
     .orderBy(asc(productCategories.sortOrder), asc(productCategories.name), asc(productCategories.id));
@@ -136,7 +141,12 @@ export async function listHomeCatalogCategories(db: AppDb) {
     .innerJoin(productCategoryLinks, eq(productCategoryLinks.categoryId, productCategories.id))
     .innerJoin(
       products,
-      and(eq(products.id, productCategoryLinks.productId), eq(products.status, 'active'), eq(productCategories.status, 'active')),
+      and(
+        eq(products.id, productCategoryLinks.productId),
+        eq(products.status, 'active'),
+        gt(products.stockQty, 0),
+        eq(productCategories.status, 'active'),
+      ),
     )
     .leftJoin(media, eq(productCategories.coverMediaId, media.id))
     .groupBy(

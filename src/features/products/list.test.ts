@@ -86,11 +86,13 @@ describe('danh sách sản phẩm', () => {
     expect(productAdminQuery({ bulk: 'error' })).toBe('/admin/products?error=bulk');
   });
 
-  it('ẩn sản phẩm khi danh mục tạm tắt', () => {
+  it('ẩn sản phẩm khi danh mục tạm tắt hoặc hết tồn', () => {
     expect(isPubliclySellable({ status: 'active', categoryStatus: null })).toBe(true);
     expect(isPubliclySellable({ status: 'active', categoryStatus: 'active' })).toBe(true);
     expect(isPubliclySellable({ status: 'active', categoryStatus: 'inactive' })).toBe(false);
     expect(isPubliclySellable({ status: 'inactive', categoryStatus: 'active' })).toBe(false);
+    expect(isPubliclySellable({ status: 'active', categoryStatus: 'active', stockQty: 2 })).toBe(true);
+    expect(isPubliclySellable({ status: 'active', categoryStatus: 'active', stockQty: 0 })).toBe(false);
   });
 
   it('hiển thị Hết hàng khi đang bán nhưng tồn ≤ 0', () => {

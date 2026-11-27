@@ -1,11 +1,11 @@
-import { and, asc, eq, gt, inArray, isNotNull, ne, notExists, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, ne, notExists, or, sql } from 'drizzle-orm';
 import type { AppDb } from '../../lib/db/client';
 import { media, orderItems, orders, productCategories, productMedia, products } from '../../lib/db/schema';
 import { routes } from '../../lib/routes';
 import { loadProductCosts } from '../materials/recipes';
 import { listingMediaKey } from '../media/files';
 import { listProductCategoryIdsByProductIds } from './product-category-links';
-import { isPubliclySellable, sellableProductWhere } from './status';
+import { activeProductWhere, isPubliclySellable, sellableProductWhere } from './status';
 import { readWeightScale } from './weight';
 
 export async function getPublicProduct(db: AppDb, slug: string) {
@@ -18,6 +18,7 @@ export async function getPublicProduct(db: AppDb, slug: string) {
       description: products.description,
       weightScale: productCategories.weightScale,
       status: products.status,
+      stockQty: products.stockQty,
       seoTitle: products.seoTitle,
       metaDescription: products.metaDescription,
       robots: products.robots,
@@ -108,7 +109,7 @@ export async function listOrderCatalog(db: AppDb) {
   });
 }
 
-// Sản phẩm cho form đơn của nhân viên: mẫu đang bán, cộng thêm mẫu đã có trên đơn dù đã ngừng bán.
+// Sản phẩm cho form đơn của nhân viên: mẫu đang bật (kể cả hết hàng), cộng thêm mẫu đã có trên đơn dù đã ngừng bán.
 export async function listStaffProductChoices(db: AppDb, extraIds: number[]) {
   const extras = [...new Set(extraIds.filter((id) => Number.isInteger(id) && id > 0))];
   const rows = await db
@@ -117,19 +118,20 @@ export async function listStaffProductChoices(db: AppDb, extraIds: number[]) {
       name: products.name,
       price: products.price,
       status: products.status,
+      stockQty: products.stockQty,
       categoryStatus: productCategories.status,
       weightScale: productCategories.weightScale,
     })
     .from(products)
     .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
-    .where(extras.length > 0 ? or(sellableProductWhere(), inArray(products.id, extras)) : sellableProductWhere())
+    .where(extras.length > 0 ? or(activeProductWhere(), inArray(products.id, extras)) : activeProductWhere())
     .orderBy(asc(products.status), asc(products.sortOrder), asc(products.id));
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
     price: row.price,
     weightScale: readWeightScale(row.weightScale),
-    active: isPubliclySellable({ status: row.status, categoryStatus: row.categoryStatus }),
+    active: isPubliclySellable({ status: row.status, categoryStatus: row.categoryStatus, stockQty: row.stockQty }),
   }));
 }
 
@@ -181,7 +183,7 @@ export type StaffPickerCategory = { id: number; name: string };
 
 /**
  * Danh sách mẫu tạo đơn.
- * `inStockOnly`: UI picker — ẩn SP hết hàng + DM trống/tắt; bỏ cờ khi định giá/sửa đơn (vẫn cần SP tồn 0).
+ * `inStockOnly`: UI picker — chỉ SP còn tồn; bỏ cờ khi định giá/sửa đơn (vẫn cần SP tồn 0).
  */
 export async function listStaffPickerProducts(
   db: AppDb,
@@ -207,7 +209,7 @@ export async function listStaffPickerProducts(
       .from(products)
       .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
       .leftJoin(media, eq(products.coverMediaId, media.id))
-      .where(inStockOnly ? and(sellableProductWhere(), gt(products.stockQty, 0)) : sellableProductWhere()),
+      .where(inStockOnly ? sellableProductWhere() : activeProductWhere()),
     db
       .select({
         productId: orderItems.productId,
