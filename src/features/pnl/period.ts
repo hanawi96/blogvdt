@@ -55,6 +55,33 @@ export function pnlQuickChipPresets(now = Date.now()): PnlQuickPreset[] {
   return pnlQuickPresets(now);
 }
 
+export type PnlMonthPreset = {
+  id: 'this_month' | 'last_month';
+  label: string;
+  from: string;
+  to: string;
+  monthKey: string;
+};
+
+/** Chip tháng lịch VN: tháng này (đến hôm nay) và tháng trước (cả tháng). */
+export function pnlMonthChipPresets(now = Date.now()): PnlMonthPreset[] {
+  const today = vnTodayParts(now);
+  const thisKey = monthKeyOf(today.year, today.month);
+  const thisSpan = vnMonthRange(today.year, today.month, now);
+  if (!thisSpan) return [];
+  const presets: PnlMonthPreset[] = [
+    { id: 'this_month', label: 'Tháng này', from: thisSpan.from, to: thisSpan.to, monthKey: thisKey },
+  ];
+  const lastKey = adjacentMonthKey(thisKey, -1, now);
+  if (!lastKey) return presets;
+  const parsed = parseMonthKey(lastKey);
+  if (!parsed) return presets;
+  const lastSpan = vnMonthRange(parsed.year, parsed.month, now);
+  if (!lastSpan) return presets;
+  presets.push({ id: 'last_month', label: 'Tháng trước', from: lastSpan.from, to: lastSpan.to, monthKey: lastKey });
+  return presets;
+}
+
 export function isPnlPresetActive(period: Pick<PnlPeriod, 'from' | 'to'>, preset: Pick<PnlQuickPreset, 'from' | 'to'>): boolean {
   return period.from === preset.from && period.to === preset.to;
 }

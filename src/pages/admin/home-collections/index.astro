@@ -1,4 +1,6 @@
 ---
+import AdminDeleteIcon from '../../../components/admin/AdminDeleteIcon.astro';
+import AdminEditIcon from '../../../components/admin/AdminEditIcon.astro';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import AdminPlusIcon from '../../../components/admin/AdminPlusIcon.astro';
 import { activityActor } from '../../../features/activity/log';
@@ -752,7 +754,9 @@ function countMeta(row: HomeCollection): { label: string; value: string } {
                         {row.subtitle && <p class="home-collection-item-sub">{row.subtitle}</p>}
                       </div>
                       <div class="home-collection-item-ops">
-                        <a class="btn btn-compact home-collection-op-edit" href={`${listHref}?edit=${row.id}`}>Sửa</a>
+                        <a class="category-list-edit home-collection-op-edit" href={`${listHref}?edit=${row.id}`} aria-label="Sửa" title="Sửa">
+                          <AdminEditIcon />
+                        </a>
                         <form method="post" data-busy>
                           <input type="hidden" name="csrf" value={session.csrfToken} />
                           <input type="hidden" name="intent" value="toggle" />
@@ -771,8 +775,8 @@ function countMeta(row: HomeCollection): { label: string; value: string } {
                           <input type="hidden" name="csrf" value={session.csrfToken} />
                           <input type="hidden" name="intent" value="delete" />
                           <input type="hidden" name="id" value={row.id} />
-                          <button class="btn btn-compact home-collection-op-delete" type="submit" data-keep-label="true">
-                            Xóa
+                          <button class="category-delete home-collection-op-delete" type="submit" data-keep-label="true" aria-label="Xóa" title="Xóa">
+                            <AdminDeleteIcon />
                           </button>
                         </form>
                       </div>

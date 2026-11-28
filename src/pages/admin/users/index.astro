@@ -1,5 +1,6 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import AdminEditIcon from '../../../components/admin/AdminEditIcon.astro';
 import AdminPlusIcon from '../../../components/admin/AdminPlusIcon.astro';
 import { activityActor } from '../../../features/activity/log';
 import { isAdminRole, isAdminStatus, ROLE_LABELS, STATUS_LABELS } from '../../../features/auth/access';
@@ -178,7 +179,9 @@ function pageHref(page: number): string {
                     </td>
                     <td class="user-list-login" data-label="Đăng nhập cuối">{user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'Chưa đăng nhập'}</td>
                     <td class="user-list-ops" data-label="Thao tác">
-                      <a class="category-list-edit" href={routes.adminUser(user.id)}>Sửa</a>
+                      <a class="category-list-edit" href={routes.adminUser(user.id)} aria-label="Sửa" title="Sửa">
+                        <AdminEditIcon />
+                      </a>
                     </td>
                   </tr>
                 ))}

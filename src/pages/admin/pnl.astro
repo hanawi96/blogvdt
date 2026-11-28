@@ -6,7 +6,9 @@ import { mutationError } from '../../features/auth/session';
 import { orderAdminHref, productAdminHref } from '../../features/pnl/breakdowns';
 import { PNL_DEFAULT_LABOR_BUDGET, saveLaborBudget } from '../../features/pnl/labor';
 import {
+  adjacentMonthKey,
   isPnlPresetActive,
+  pnlMonthChipPresets,
   pnlPeriodPath,
   pnlQuickChipPresets,
   pnlQuickPresets,
@@ -78,6 +80,17 @@ const vnToday = vnTodayParts();
 const todayMax = `${vnToday.year}-${String(vnToday.month).padStart(2, '0')}-${String(vnToday.day).padStart(2, '0')}`;
 const dateQuick = pnlQuickPresets();
 const chipQuick = pnlQuickChipPresets();
+const chipMonth = pnlMonthChipPresets();
+const chipDay = chipQuick.filter((item) => item.id === 'today' || item.id === 'yesterday');
+const chipRange = chipQuick.filter((item) => item.id === '7' || item.id === '30' || item.id === '60' || item.id === '90');
+const chipShortLabel: Record<(typeof chipQuick)[number]['id'], string> = {
+  today: 'Hôm nay',
+  yesterday: 'Hôm qua',
+  '7': '7 ngày',
+  '30': '30 ngày',
+  '60': '60 ngày',
+  '90': '90 ngày',
+};
 const monthQuick = Array.from({ length: vnToday.month }, (_, index) => {
   const month = index + 1;
   const span = vnMonthRange(vnToday.year, month)!;
@@ -86,6 +99,20 @@ const monthQuick = Array.from({ length: vnToday.month }, (_, index) => {
 const from = period.from;
 const to = period.to;
 const rangeCaption = pnlRangeCaption(from, to);
+const customRangeActive =
+  !period.monthKey && !chipQuick.some((item) => isPnlPresetActive(period, item));
+function monthPeriodHref(monthKey: string): string | null {
+  const [yearText, monthText] = monthKey.split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const span = vnMonthRange(year, month);
+  if (!span) return null;
+  return pnlPeriodPath(routes.adminPnl, { monthKey, from: span.from, to: span.to });
+}
+const prevMonthKey = period.monthKey ? adjacentMonthKey(period.monthKey, -1) : null;
+const nextMonthKey = period.monthKey ? adjacentMonthKey(period.monthKey, 1) : null;
+const prevMonthHref = prevMonthKey ? monthPeriodHref(prevMonthKey) : null;
+const nextMonthHref = nextMonthKey ? monthPeriodHref(nextMonthKey) : null;
 const laborFormValue = laborBudgetSet && w ? String(w.laborBudget) : '';
 const noticeText = notice === 'labor-saved' ? 'Đã lưu ngân sách tiền công (chỉ đối chiếu, không trừ lãi).' : '';
 
@@ -104,39 +131,90 @@ function moneyTone(value: number): 'good' | 'bad' | undefined {
   {loadError && <p class="error-text" role="alert">{loadError}</p>}
 
   <section class="pnl-filter" aria-label="Chọn kỳ báo cáo" data-pnl-filter data-pnl-base={routes.adminPnl}>
-    <div class="pnl-filter-top">
-      <div class="pnl-filter-main">
-        <p class="pnl-filter-label">Kỳ đang xem</p>
-        <p class="pnl-filter-value">
-          {period.label}
-          <span>· {rangeCaption} (giờ VN)</span>
-        </p>
+    <div class="pnl-filter-summary">
+      <p class="pnl-filter-label">Kỳ đang xem</p>
+      <div class="pnl-filter-headline">
+        {
+          prevMonthHref ? (
+            <a class="pnl-month-nav" href={prevMonthHref} aria-label="Tháng trước">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
+            </a>
+          ) : period.monthKey ? (
+            <span class="pnl-month-nav is-disabled" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" /></svg>
+            </span>
+          ) : null
+        }
+        <div class="pnl-filter-titles">
+          <p class="pnl-filter-value">{period.label}</p>
+          <p class="pnl-filter-range">{rangeCaption} · giờ VN</p>
+        </div>
+        {
+          nextMonthHref ? (
+            <a class="pnl-month-nav" href={nextMonthHref} aria-label="Tháng sau">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+            </a>
+          ) : period.monthKey ? (
+            <span class="pnl-month-nav is-disabled" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" /></svg>
+            </span>
+          ) : null
+        }
+      </div>
+    </div>
+
+    <div class="pnl-filter-controls">
+      <div class="pnl-seg pnl-seg--month" role="group" aria-label="Theo tháng">
+        {
+          chipMonth.map((item) => {
+            const active = isPnlPresetActive(period, item);
+            const href = pnlPeriodPath(routes.adminPnl, { monthKey: item.monthKey, from: item.from, to: item.to });
+            return (
+              <a class="pnl-seg-btn" href={href} aria-current={active ? 'page' : undefined} data-active={active ? 'true' : undefined}>
+                {item.label}
+              </a>
+            );
+          })
+        }
+      </div>
+      <div class="pnl-seg pnl-seg--day" role="group" aria-label="Theo ngày">
+        {
+          chipDay.map((item) => {
+            const active = isPnlPresetActive(period, item);
+            const href = pnlPeriodPath(routes.adminPnl, { monthKey: null, from: item.from, to: item.to });
+            return (
+              <a class="pnl-seg-btn" href={href} aria-current={active ? 'page' : undefined} data-active={active ? 'true' : undefined}>
+                {chipShortLabel[item.id]}
+              </a>
+            );
+          })
+        }
+      </div>
+      <div class="pnl-seg pnl-seg--range" role="group" aria-label="Khoảng gần đây">
+        {
+          chipRange.map((item) => {
+            const active = isPnlPresetActive(period, item);
+            const href = pnlPeriodPath(routes.adminPnl, { monthKey: null, from: item.from, to: item.to });
+            return (
+              <a class="pnl-seg-btn" href={href} aria-current={active ? 'page' : undefined} data-active={active ? 'true' : undefined}>
+                {chipShortLabel[item.id]}
+              </a>
+            );
+          })
+        }
       </div>
       <button
-        class="field order-date-trigger"
+        class="pnl-filter-custom"
         type="button"
         data-pnl-date-open
         aria-haspopup="dialog"
         aria-expanded="false"
         aria-controls="pnl-date-dialog"
-        data-active="true"
+        data-active={customRangeActive ? 'true' : undefined}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v2M17 3v2M4 8h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" /></svg>
-        <span>Chọn ngày</span>
+        <span>Tuỳ chỉnh</span>
       </button>
-    </div>
-    <div class="pnl-quick-chips" role="group" aria-label="Lọc nhanh">
-      {
-        chipQuick.map((item) => {
-          const active = isPnlPresetActive(period, item);
-          const href = pnlPeriodPath(routes.adminPnl, { monthKey: null, from: item.from, to: item.to });
-          return (
-            <a class="pnl-quick-chip" href={href} aria-current={active ? 'page' : undefined} data-active={active ? 'true' : undefined}>
-              {item.label}
-            </a>
-          );
-        })
-      }
     </div>
   </section>
 
@@ -274,43 +352,47 @@ function moneyTone(value: number): 'good' | 'bad' | undefined {
           <div class="dash-card-head">
             <h2 id="pnl-waterfall-title">Waterfall kỳ</h2>
           </div>
-          <PnlWaterfallChart waterfall={w} />
-          <table class="pnl-table">
-            <tbody>
-              <tr>
-                <th scope="row">Doanh thu (đơn hợp lệ)</th>
-                <td>{formatVnd(w.revenue)}</td>
-              </tr>
-              <tr>
-                <th scope="row">Doanh thu đã có vốn</th>
-                <td>{formatVnd(w.costedRevenue)}</td>
-              </tr>
-              <tr data-tone="cost">
-                <th scope="row">− Vốn hàng (gồm tiền công ước lượng)</th>
-                <td>−{formatVnd(w.costGoods)}</td>
-              </tr>
-              <tr data-tone="cost">
-                <th scope="row">− Chi phí đơn</th>
-                <td>−{formatVnd(w.costExtra)}</td>
-              </tr>
-              <tr data-tone="cost">
-                <th scope="row">− Vốn ship</th>
-                <td>−{formatVnd(w.shippingCost)}</td>
-              </tr>
-              <tr data-tone={moneyTone(w.grossProfit)}>
-                <th scope="row">= Lãi gộp</th>
-                <td>{formatVnd(w.grossProfit)}</td>
-              </tr>
-              <tr data-tone="cost">
-                <th scope="row">− Quảng cáo</th>
-                <td>−{formatVnd(w.adSpend)}</td>
-              </tr>
-              <tr data-tone={moneyTone(w.profitAfterAds)}>
-                <th scope="row">= Lãi sau quảng cáo</th>
-                <td>{formatVnd(w.profitAfterAds)}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="pnl-waterfall-split">
+            <div class="pnl-waterfall-chart-pane">
+              <PnlWaterfallChart waterfall={w} />
+            </div>
+            <div class="pnl-waterfall-table-pane">
+              <dl class="pnl-flow">
+                <div class="pnl-flow-row">
+                  <dt>Doanh thu (đơn hợp lệ)</dt>
+                  <dd>{formatVnd(w.revenue)}</dd>
+                </div>
+                <div class="pnl-flow-row">
+                  <dt>Doanh thu đã có vốn</dt>
+                  <dd>{formatVnd(w.costedRevenue)}</dd>
+                </div>
+                <div class="pnl-flow-row" data-tone="cost">
+                  <dt>− Vốn hàng <span class="pnl-flow-hint">(gồm tiền công ước lượng)</span></dt>
+                  <dd>−{formatVnd(w.costGoods)}</dd>
+                </div>
+                <div class="pnl-flow-row" data-tone="cost">
+                  <dt>− Chi phí đơn</dt>
+                  <dd>−{formatVnd(w.costExtra)}</dd>
+                </div>
+                <div class="pnl-flow-row" data-tone="cost">
+                  <dt>− Vốn ship</dt>
+                  <dd>−{formatVnd(w.shippingCost)}</dd>
+                </div>
+                <div class="pnl-flow-row" data-tone={moneyTone(w.grossProfit)}>
+                  <dt>= Lãi gộp</dt>
+                  <dd>{formatVnd(w.grossProfit)}</dd>
+                </div>
+                <div class="pnl-flow-row" data-tone="cost">
+                  <dt>− Quảng cáo</dt>
+                  <dd>−{formatVnd(w.adSpend)}</dd>
+                </div>
+                <div class="pnl-flow-row pnl-flow-result" data-tone={moneyTone(w.profitAfterAds)}>
+                  <dt>Lãi sau quảng cáo</dt>
+                  <dd>{formatVnd(w.profitAfterAds)}</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
           <p class="pnl-note">
             Biểu đồ bắt đầu từ doanh thu đã có vốn (khớp lãi gộp). Đơn hủy / gửi bù không tính. Ads theo ngày trong kỳ.
           </p>
@@ -399,29 +481,31 @@ function moneyTone(value: number): 'good' | 'bad' | undefined {
             sources.length === 0 ? (
               <p class="pnl-note pnl-note-tight">Chưa có đơn hợp lệ trong kỳ.</p>
             ) : (
-              <table class="pnl-table pnl-table-grid">
-                <thead>
-                  <tr>
-                    <th scope="col">Nguồn</th>
-                    <th scope="col">Đơn</th>
-                    <th scope="col">Doanh thu</th>
-                    <th scope="col">Lãi gộp</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sources.map((row) => (
+              <div class="pnl-table-scroll">
+                <table class="pnl-table pnl-table-grid pnl-table-sources">
+                  <thead>
                     <tr>
-                      <th scope="row">{row.label}</th>
-                      <td>
-                        {row.orders}
-                        {row.costedOrders < row.orders ? ` (${row.costedOrders} có vốn)` : ''}
-                      </td>
-                      <td>{formatVnd(row.revenue)}</td>
-                      <td data-tone={moneyTone(row.grossProfit)}>{formatVnd(row.grossProfit)}</td>
+                      <th scope="col">Nguồn</th>
+                      <th scope="col">Đơn</th>
+                      <th scope="col">Doanh thu</th>
+                      <th scope="col">Lãi gộp</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {sources.map((row) => (
+                      <tr>
+                        <th scope="row">{row.label}</th>
+                        <td>
+                          {row.orders}
+                          {row.costedOrders < row.orders ? ` (${row.costedOrders} có vốn)` : ''}
+                        </td>
+                        <td>{formatVnd(row.revenue)}</td>
+                        <td data-tone={moneyTone(row.grossProfit)}>{formatVnd(row.grossProfit)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )
           }
         </section>
@@ -437,30 +521,62 @@ function moneyTone(value: number): 'good' | 'bad' | undefined {
             topProducts.length === 0 ? (
               <p class="pnl-note">Chưa có sản phẩm đủ dữ liệu vốn trong kỳ.</p>
             ) : (
-              <table class="pnl-table pnl-table-grid">
-                <thead>
-                  <tr>
-                    <th scope="col">Sản phẩm</th>
-                    <th scope="col">SL</th>
-                    <th scope="col">Doanh thu dòng</th>
-                    <th scope="col">Vốn hàng</th>
-                    <th scope="col">Lãi sau vốn</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topProducts.map((row) => (
-                    <tr>
-                      <th scope="row">
-                        <a href={productAdminHref(row.productId)}>{row.name}</a>
-                      </th>
-                      <td>{row.sold}</td>
-                      <td>{formatVnd(row.revenue)}</td>
-                      <td>−{formatVnd(row.goodsCost)}</td>
-                      <td data-tone={moneyTone(row.contribution)}>{formatVnd(row.contribution)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <>
+                <ul class="pnl-product-cards">
+                  {
+                    topProducts.map((row) => (
+                      <li class="pnl-product-card">
+                        <div class="pnl-product-card-head">
+                          <a class="pnl-product-card-name" href={productAdminHref(row.productId)}>
+                            {row.name}
+                          </a>
+                          <p class="pnl-product-card-sold">{row.sold} đã bán</p>
+                        </div>
+                        <dl class="pnl-product-card-metrics">
+                          <div>
+                            <dt>Doanh thu</dt>
+                            <dd>{formatVnd(row.revenue)}</dd>
+                          </div>
+                          <div>
+                            <dt>Vốn hàng</dt>
+                            <dd>−{formatVnd(row.goodsCost)}</dd>
+                          </div>
+                          <div class="pnl-product-card-profit">
+                            <dt>Lãi sau vốn</dt>
+                            <dd data-tone={moneyTone(row.contribution)}>{formatVnd(row.contribution)}</dd>
+                          </div>
+                        </dl>
+                      </li>
+                    ))
+                  }
+                </ul>
+                <div class="pnl-table-scroll pnl-products-table">
+                  <table class="pnl-table pnl-table-grid pnl-table-products">
+                    <thead>
+                      <tr>
+                        <th scope="col">Sản phẩm</th>
+                        <th scope="col">SL</th>
+                        <th scope="col">Doanh thu dòng</th>
+                        <th scope="col">Vốn hàng</th>
+                        <th scope="col">Lãi sau vốn</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {topProducts.map((row) => (
+                        <tr>
+                          <th scope="row">
+                            <a href={productAdminHref(row.productId)}>{row.name}</a>
+                          </th>
+                          <td>{row.sold}</td>
+                          <td>{formatVnd(row.revenue)}</td>
+                          <td>−{formatVnd(row.goodsCost)}</td>
+                          <td data-tone={moneyTone(row.contribution)}>{formatVnd(row.contribution)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )
           }
         </section>
@@ -548,73 +664,501 @@ function moneyTone(value: number): 'good' | 'bad' | undefined {
 <style>
   .pnl-filter {
     display: grid;
-    gap: 0.75rem;
+    box-sizing: border-box;
+    gap: 0.85rem;
     margin: 0 0 1rem;
-    padding: 0.9rem 1rem;
-    border: 1px solid var(--admin-border, #d8d2c8);
-    border-radius: 0.55rem;
-    background: color-mix(in srgb, #fff 88%, var(--admin-border, #d8d2c8));
+    max-width: 100%;
+    min-width: 0;
+    padding: 1rem 1.1rem 1.05rem;
+    border: 1px solid color-mix(in srgb, var(--color-line, #d8d2c8) 88%, transparent);
+    border-radius: var(--radius-lg, 0.85rem);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, var(--color-sand, #f3ebe0) 42%, var(--color-surface, #fff)) 0%,
+        var(--color-surface, #fff) 100%
+      );
+    box-shadow: 0 1px 0 color-mix(in srgb, #fff 70%, transparent) inset;
   }
-  .pnl-filter-top {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem 1.25rem;
-    align-items: center;
-    justify-content: space-between;
+  .pnl-filter-summary {
+    display: grid;
+    gap: 0.35rem;
   }
   .pnl-filter-label {
     margin: 0;
-    font-size: 0.78rem;
-    color: color-mix(in srgb, #5c564c 90%, #999);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--color-muted, #7a746a);
   }
-  .pnl-filter-value {
-    margin: 0.15rem 0 0;
-    font-size: 1.05rem;
-    font-weight: 650;
+  .pnl-filter-headline {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
   }
-  .pnl-filter-value span {
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: color-mix(in srgb, #5c564c 90%, #999);
-  }
-  .pnl-filter .order-date-trigger {
-    min-width: 11rem;
-  }
-  .pnl-quick-chips {
+  .pnl-filter-titles {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem;
+    align-items: baseline;
+    gap: 0.2rem 0.65rem;
+    min-width: 0;
   }
-  .pnl-quick-chip {
+  .pnl-filter-value {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--color-ink, #2f2a24);
+    line-height: 1.2;
+  }
+  .pnl-filter-range {
+    margin: 0;
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: var(--color-muted, #7a746a);
+  }
+  .pnl-month-nav {
     display: inline-flex;
     align-items: center;
-    min-height: 2rem;
-    padding: 0.2rem 0.75rem;
-    border: 1px solid var(--admin-border, #d8d2c8);
+    justify-content: center;
+    flex: none;
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid transparent;
     border-radius: 999px;
-    background: #fff;
-    color: inherit;
-    font-size: 0.88rem;
+    color: var(--color-ink, #2f2a24);
     text-decoration: none;
+    transition: background 0.15s ease, border-color 0.15s ease;
   }
-  .pnl-quick-chip:hover {
-    border-color: color-mix(in srgb, #5c564c 35%, var(--admin-border, #d8d2c8));
+  .pnl-month-nav svg {
+    width: 1.05rem;
+    height: 1.05rem;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
-  .pnl-quick-chip[data-active='true'] {
-    border-color: color-mix(in srgb, #3f6b4a 55%, var(--admin-border, #d8d2c8));
-    background: color-mix(in srgb, #e7f0ea 75%, #fff);
-    font-weight: 650;
+  .pnl-month-nav:hover {
+    border-color: color-mix(in srgb, var(--color-primary, #3f6b4a) 28%, var(--color-line, #d8d2c8));
+    background: color-mix(in srgb, var(--color-primary, #3f6b4a) 8%, #fff);
+  }
+  .pnl-month-nav.is-disabled {
+    opacity: 0.28;
+    pointer-events: none;
+  }
+  .pnl-filter-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem;
+  }
+  .pnl-seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.2rem;
+    border: 1px solid color-mix(in srgb, var(--color-line, #d8d2c8) 90%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-surface, #fff) 78%, var(--color-sand, #f3ebe0));
+  }
+  .pnl-seg-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2rem;
+    padding: 0.25rem 0.8rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: color-mix(in srgb, var(--color-ink, #2f2a24) 88%, transparent);
+    font-size: 0.86rem;
+    font-weight: 550;
+    line-height: 1;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .pnl-seg-btn:hover {
+    background: color-mix(in srgb, #fff 70%, transparent);
+    color: var(--color-ink, #2f2a24);
+  }
+  .pnl-seg-btn[data-active='true'] {
+    background: color-mix(in oklab, var(--color-primary, #3f6b4a) 14%, #fff);
+    color: var(--color-primary-strong, #2f5238);
+    font-weight: 700;
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--color-ink, #2f2a24) 8%, transparent);
+  }
+  .pnl-filter-custom {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 2.4rem;
+    padding: 0.35rem 0.9rem;
+    border: 1px solid color-mix(in srgb, var(--color-line, #d8d2c8) 92%, transparent);
+    border-radius: 999px;
+    background: var(--color-surface, #fff);
+    color: var(--color-ink, #2f2a24);
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  }
+  .pnl-filter-custom svg {
+    width: 1rem;
+    height: 1rem;
+    flex: none;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .pnl-filter-custom:hover {
+    border-color: color-mix(in srgb, var(--color-primary, #3f6b4a) 35%, var(--color-line, #d8d2c8));
+    background: color-mix(in srgb, var(--color-primary, #3f6b4a) 6%, #fff);
+  }
+  .pnl-filter-custom[data-active='true'] {
+    border-color: color-mix(in srgb, var(--color-primary, #3f6b4a) 42%, var(--color-line, #d8d2c8));
+    background: color-mix(in oklab, var(--color-primary, #3f6b4a) 12%, #fff);
+    color: var(--color-primary-strong, #2f5238);
+  }
+  @media (max-width: 640px) {
+    .pnl-filter {
+      padding: 0.85rem 0.75rem 0.9rem;
+      gap: 0.75rem;
+    }
+    .pnl-filter-value {
+      font-size: 1.08rem;
+    }
+    .pnl-filter-range {
+      font-size: 0.82rem;
+    }
+    .pnl-filter-controls {
+      gap: 0.45rem;
+    }
+    .pnl-seg {
+      display: grid;
+      width: 100%;
+      gap: 0.15rem;
+      border-radius: 0.85rem;
+    }
+    .pnl-seg--month,
+    .pnl-seg--day {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .pnl-seg--range {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .pnl-seg-btn {
+      min-width: 0;
+      min-height: 2.15rem;
+      padding: 0.3rem 0.35rem;
+      font-size: 0.8rem;
+    }
+    .pnl-filter-custom {
+      width: 100%;
+      justify-content: center;
+      min-height: 2.5rem;
+    }
   }
   .pnl {
     display: grid;
     gap: 1rem;
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    /* Chặn chart/bảng rộng đẩy trang lệch sang phải trên điện thoại */
+    overflow-x: clip;
   }
   .pnl-waterfall,
   .pnl-labor,
   .pnl-quality,
   .pnl-sources,
   .pnl-products {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
     padding: 1rem 1.1rem 1.1rem;
+  }
+  .pnl-waterfall-split {
+    display: grid;
+    gap: 1rem 1.25rem;
+    align-items: stretch;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .pnl-waterfall-chart-pane,
+  .pnl-waterfall-table-pane {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .pnl :global(.dash-kpis),
+  .pnl :global(.dash-kpi) {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .pnl :global(.dash-kpi-value),
+  .pnl :global(.dash-delta) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .pnl-waterfall-table-pane {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+  }
+  .pnl-flow {
+    display: grid;
+    gap: 0.15rem;
+    margin: 0;
+    min-width: 0;
+  }
+  .pnl-flow-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.85rem 1rem;
+    padding: 0.48rem 0.15rem;
+  }
+  .pnl-flow-row dt {
+    margin: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 0.95rem;
+    font-weight: 500;
+    line-height: 1.35;
+    color: var(--color-ink, #2f2a24);
+  }
+  .pnl-flow-hint {
+    display: inline;
+    font-size: 0.8rem;
+    font-weight: 450;
+    color: var(--color-muted, #7a746a);
+  }
+  .pnl-flow-row dd {
+    margin: 0;
+    flex: 0 0 auto;
+    font-size: 0.98rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.3;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .pnl-flow-row[data-tone='cost'] dt,
+  .pnl-flow-row[data-tone='cost'] dd {
+    color: color-mix(in srgb, #8a4b2d 85%, #333);
+  }
+  .pnl-flow-row[data-tone='good'] dt,
+  .pnl-flow-row[data-tone='good'] dd {
+    color: #1f6b3a;
+  }
+  .pnl-flow-row[data-tone='bad'] dt,
+  .pnl-flow-row[data-tone='bad'] dd {
+    color: #a11d2b;
+  }
+  .pnl-flow-result {
+    margin-top: 0.35rem;
+    padding: 0.7rem 0.85rem;
+    border-radius: 0.65rem;
+    background: color-mix(in oklab, var(--color-primary, #3f6b4a) 7%, var(--color-surface, #fff));
+  }
+  .pnl-flow-result dt {
+    font-size: 0.98rem;
+    font-weight: 650;
+  }
+  .pnl-flow-result dd {
+    font-size: 1.08rem;
+    font-weight: 750;
+  }
+  .pnl-table-scroll {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+  .pnl-table-sources {
+    width: max(100%, 22rem);
+  }
+  .pnl-table-products {
+    width: max(100%, 30rem);
+  }
+  .pnl-table-grid th[scope='row'] {
+    max-width: 14rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .pnl-product-cards {
+    display: none;
+    list-style: none;
+    margin: 0.85rem 0 0;
+    padding: 0;
+    gap: 0.65rem;
+  }
+  .pnl-product-card {
+    display: grid;
+    gap: 0.65rem;
+    padding: 0.8rem 0.85rem;
+    border: 1px solid color-mix(in srgb, var(--color-line, #d8d2c8) 90%, transparent);
+    border-radius: var(--radius-md, 0.65rem);
+    background: color-mix(in srgb, var(--color-surface, #fff) 88%, var(--color-sand, #f3ebe0));
+  }
+  .pnl-product-card-head {
+    display: grid;
+    gap: 0.2rem;
+    min-width: 0;
+  }
+  .pnl-product-card-name {
+    font-size: 0.95rem;
+    font-weight: 650;
+    line-height: 1.35;
+    color: var(--color-ink, #2f2a24);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+  .pnl-product-card-name:hover {
+    color: var(--color-primary-strong, #2f5238);
+  }
+  .pnl-product-card-sold {
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--color-muted, #7a746a);
+  }
+  .pnl-product-card-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.55rem 0.75rem;
+    margin: 0;
+    padding-top: 0.55rem;
+    border-top: 1px solid color-mix(in srgb, var(--color-line, #d8d2c8) 85%, transparent);
+  }
+  .pnl-product-card-metrics dt {
+    margin: 0;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+    color: var(--color-muted, #7a746a);
+  }
+  .pnl-product-card-metrics dd {
+    margin: 0.15rem 0 0;
+    font-size: 0.92rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  .pnl-product-card-profit {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-top: 0.45rem;
+    border-top: 1px dashed color-mix(in srgb, var(--color-line, #d8d2c8) 80%, transparent);
+  }
+  .pnl-product-card-profit dt {
+    text-transform: none;
+    font-size: 0.82rem;
+    letter-spacing: 0;
+  }
+  .pnl-product-card-profit dd {
+    margin: 0;
+    font-size: 1.02rem;
+  }
+  .pnl-product-card-metrics dd[data-tone='good'] {
+    color: #1f6b3a;
+  }
+  .pnl-product-card-metrics dd[data-tone='bad'] {
+    color: #a11d2b;
+  }
+  @media (max-width: 720px) {
+    .pnl-product-cards {
+      display: grid;
+    }
+    .pnl-products-table {
+      display: none;
+    }
+  }
+  @media (max-width: 640px) {
+    .pnl {
+      gap: 0.85rem;
+    }
+    .pnl :global(.dash-kpi-value) {
+      font-size: 1.05rem;
+    }
+    .pnl-waterfall,
+    .pnl-labor,
+    .pnl-quality,
+    .pnl-sources,
+    .pnl-products {
+      padding: 0.85rem 0.85rem 0.95rem;
+    }
+    .pnl-waterfall-split {
+      gap: 0.85rem;
+    }
+    .pnl-flow-row {
+      padding: 0.45rem 0.1rem;
+    }
+    .pnl-flow-row dt {
+      font-size: 0.92rem;
+    }
+    .pnl-flow-row dd {
+      font-size: 0.95rem;
+    }
+    .pnl-flow-result {
+      padding: 0.65rem 0.75rem;
+    }
+    .pnl-flow-result dd {
+      font-size: 1.05rem;
+    }
+    .pnl-table th,
+    .pnl-table td {
+      font-size: 0.86rem;
+      padding-block: 0.42rem;
+    }
+    .pnl-labor-form {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .pnl-labor-form label {
+      width: 100%;
+    }
+    .pnl-labor-form input[name='amount'],
+    .pnl-labor-form .btn {
+      width: 100%;
+      min-width: 0;
+    }
+  }
+  @media (min-width: 960px) {
+    .pnl-waterfall-split {
+      grid-template-columns: minmax(0, 1.35fr) minmax(16rem, 0.9fr);
+      gap: 1rem 1.5rem;
+      align-items: center;
+    }
+    .pnl-waterfall-table-pane {
+      padding-left: 1.15rem;
+    }
+    .pnl-waterfall-chart-pane :global(.pnl-wf-chart) {
+      margin-bottom: 0;
+    }
+    .pnl-waterfall-chart-pane :global(.pnl-wf-chart svg) {
+      max-height: 280px;
+    }
+  }
+  @media (min-width: 1200px) {
+    .pnl-waterfall-split {
+      grid-template-columns: minmax(0, 1.45fr) minmax(17rem, 0.85fr);
+    }
   }
   .pnl-quality[data-tone='warn'] {
     border-color: color-mix(in srgb, #b45309 35%, var(--admin-border, #d8d2c8));
@@ -671,12 +1215,6 @@ function moneyTone(value: number): 'good' | 'bad' | undefined {
   .dash-kpi-value[data-tone='bad'],
   .pnl-labor-facts dd[data-tone='bad'] {
     color: #a11d2b;
-  }
-  .pnl-waterfall .pnl-table tr:last-child th,
-  .pnl-waterfall .pnl-table tr:last-child td {
-    border-bottom: 0;
-    font-weight: 650;
-    padding-top: 0.75rem;
   }
   .pnl-sample-list {
     list-style: none;

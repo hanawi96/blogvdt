@@ -1,4 +1,6 @@
 ---
+import AdminDeleteIcon from '../../components/admin/AdminDeleteIcon.astro';
+import AdminEditIcon from '../../components/admin/AdminEditIcon.astro';
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import AdminPlusIcon from '../../components/admin/AdminPlusIcon.astro';
 import { activityActor } from '../../features/activity/log';
@@ -235,7 +237,9 @@ const activeTab: Tab = adError || notice.startsWith('ad-') ? 'ads' : isTab(reque
                       <td class="cost-list-status" data-label="Trạng thái">{cost.active ? 'Đang tính' : <span class="material-off">Tạm tắt</span>}</td>
                       <td class="cost-list-ops" data-label="Thao tác">
                         <div class="post-actions">
-                          <button class="category-list-edit" type="button" data-cost-edit={cost.id}>Sửa</button>
+                          <button class="category-list-edit" type="button" data-cost-edit={cost.id} aria-label="Sửa" title="Sửa">
+                            <AdminEditIcon />
+                          </button>
                           <span class="post-actions-sep" aria-hidden="true">|</span>
                           <form
                             method="post"
@@ -249,7 +253,9 @@ const activeTab: Tab = adError || notice.startsWith('ad-') ? 'ads' : isTab(reque
                             <input type="hidden" name="csrf" value={session.csrfToken} />
                             <input type="hidden" name="intent" value="delete" />
                             <input type="hidden" name="id" value={cost.id} />
-                            <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                            <button class="category-delete" type="submit" data-keep-label="true" aria-label="Xóa" title="Xóa">
+                              <AdminDeleteIcon />
+                            </button>
                           </form>
                         </div>
                       </td>
@@ -267,29 +273,29 @@ const activeTab: Tab = adError || notice.startsWith('ad-') ? 'ads' : isTab(reque
       <section aria-labelledby="ad-title">
         <h2 id="ad-title" class="text-lg font-semibold">Quảng cáo mỗi ngày</h2>
         <p class="seo-hint">
-          Hôm nay: {formatVnd(todayAd)}. Mức chung áp dụng từ ngày bạn chọn cho đến khi đặt mức mới, nên đổi mức không làm sai các ngày cũ.
-          Số riêng của một ngày thì thay cho mức chung. Tổng quảng cáo của kỳ được trừ vào lợi nhuận ở trang Tổng quan.
+          Hôm nay: {formatVnd(todayAd)}. Bấm <strong>Sửa</strong> trên một dòng để đổi số tiền ngày đó, rồi Lưu — lãi lỗ cập nhật ngay khi mở lại trang Lãi lỗ.
+          「Mức mỗi ngày」áp từ ngày chọn đến khi có mức mới; 「Chỉ riêng ngày」chỉ đúng một ngày.
         </p>
         {adError && <p class="error-text mt-2" role="alert">{adError}</p>}
-        <form method="post" data-busy class="ads-spend-form mt-4 flex flex-wrap items-end gap-3">
+        <form method="post" data-busy class="ads-spend-form mt-4 flex flex-wrap items-end gap-3" data-ad-form>
           <input type="hidden" name="csrf" value={session.csrfToken} />
           <input type="hidden" name="intent" value="ad-save" />
           <label class="block">
             <span class="mb-1 block font-semibold">Áp dụng</span>
-            <select class="field" name="kind">
+            <select class="field" name="kind" data-ad-kind>
               <option value="rate" selected={adValues.kind === 'rate'}>Mức mỗi ngày, từ ngày</option>
               <option value="day" selected={adValues.kind === 'day'}>Chỉ riêng ngày</option>
             </select>
           </label>
           <label class="block">
             <span class="mb-1 block font-semibold">Ngày</span>
-            <input class="field" type="date" name="day" required value={adValues.day} />
+            <input class="field" type="date" name="day" required value={adValues.day} data-ad-day />
           </label>
           <label class="block">
             <span class="mb-1 block font-semibold">Số tiền (VND)</span>
-            <input class="field" name="amount" required inputmode="numeric" maxlength="12" value={adValues.amount} />
+            <input class="field" name="amount" required inputmode="numeric" maxlength="12" value={adValues.amount} data-ad-amount />
           </label>
-          <button class="btn btn-primary" type="submit">Lưu</button>
+          <button class="btn btn-primary" type="submit" data-ad-submit>Lưu</button>
         </form>
         {
           adRows.length === 0 ? (
@@ -311,19 +317,36 @@ const activeTab: Tab = adError || notice.startsWith('ad-') ? 'ads' : isTab(reque
                     <td class="ad-list-kind" data-label="Loại">{row.kind === 'rate' ? 'Mức mỗi ngày từ ngày này' : 'Chỉ riêng ngày này'}</td>
                     <td class="ad-list-amount" data-label="Số tiền"><span class="material-price">{formatVnd(row.amount)}</span></td>
                     <td class="ad-list-ops" data-label="Thao tác">
-                      <form
-                        method="post"
-                        data-busy
-                        data-confirm-title="Xóa mục quảng cáo này?"
-                        data-confirm="Các ngày liên quan sẽ tính theo mức còn lại."
-                        data-confirm-ok="Xóa"
-                        data-confirm-tone="danger"
-                      >
-                        <input type="hidden" name="csrf" value={session.csrfToken} />
-                        <input type="hidden" name="intent" value="ad-delete" />
-                        <input type="hidden" name="id" value={row.id} />
-                        <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
-                      </form>
+                      <div class="post-actions">
+                        <button
+                          class="category-list-edit"
+                          type="button"
+                          data-ad-edit
+                          data-kind={row.kind}
+                          data-day={row.day}
+                          data-amount={String(row.amount)}
+                          aria-label="Sửa"
+                          title="Sửa"
+                        >
+                          <AdminEditIcon />
+                        </button>
+                        <span class="post-actions-sep" aria-hidden="true">·</span>
+                        <form
+                          method="post"
+                          data-busy
+                          data-confirm-title="Xóa mục quảng cáo này?"
+                          data-confirm="Các ngày liên quan sẽ tính theo mức còn lại."
+                          data-confirm-ok="Xóa"
+                          data-confirm-tone="danger"
+                        >
+                          <input type="hidden" name="csrf" value={session.csrfToken} />
+                          <input type="hidden" name="intent" value="ad-delete" />
+                          <input type="hidden" name="id" value={row.id} />
+                          <button class="category-delete" type="submit" data-keep-label="true" aria-label="Xóa" title="Xóa">
+                            <AdminDeleteIcon />
+                          </button>
+                        </form>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -371,6 +394,8 @@ const activeTab: Tab = adError || notice.startsWith('ad-') ? 'ads' : isTab(reque
 </AdminLayout>
 
 <script>
+  import { ADMIN_DELETE_ICON_SVG, ADMIN_EDIT_ICON_SVG } from '../../components/admin/action-icons';
+
   type Draft = { id: number | null; name: string; kind: string; value: string; active: boolean };
   type CostPayload = {
     id: number;
@@ -421,6 +446,27 @@ const activeTab: Tab = adError || notice.startsWith('ad-') ? 'ads' : isTab(reque
       url.searchParams.delete('notice');
       url.searchParams.delete('error');
       history.replaceState(null, '', url);
+    }
+  }
+
+  {
+    const adForm = document.querySelector('[data-ad-form]');
+    if (adForm instanceof HTMLFormElement) {
+      const kindEl = adForm.querySelector('[data-ad-kind]');
+      const dayEl = adForm.querySelector('[data-ad-day]');
+      const amountEl = adForm.querySelector('[data-ad-amount]');
+      const submitEl = adForm.querySelector('[data-ad-submit]');
+      document.querySelectorAll('[data-ad-edit]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          if (!(btn instanceof HTMLButtonElement)) return;
+          if (kindEl instanceof HTMLSelectElement) kindEl.value = btn.dataset.kind ?? 'rate';
+          if (dayEl instanceof HTMLInputElement) dayEl.value = btn.dataset.day ?? '';
+          if (amountEl instanceof HTMLInputElement) amountEl.value = btn.dataset.amount ?? '';
+          if (submitEl instanceof HTMLButtonElement) submitEl.textContent = 'Cập nhật';
+          adForm.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          if (amountEl instanceof HTMLInputElement) amountEl.focus();
+        });
+      });
     }
   }
 
@@ -549,7 +595,9 @@ const activeTab: Tab = adError || notice.startsWith('ad-') ? 'ads' : isTab(reque
     editBtn.className = 'category-list-edit';
     editBtn.type = 'button';
     editBtn.dataset.costEdit = String(cost.id);
-    editBtn.textContent = 'Sửa';
+    editBtn.setAttribute('aria-label', 'Sửa');
+    editBtn.title = 'Sửa';
+    editBtn.innerHTML = ADMIN_EDIT_ICON_SVG;
     const sep = document.createElement('span');
     sep.className = 'post-actions-sep';
     sep.setAttribute('aria-hidden', 'true');
@@ -577,7 +625,9 @@ const activeTab: Tab = adError || notice.startsWith('ad-') ? 'ads' : isTab(reque
     del.className = 'category-delete';
     del.type = 'submit';
     del.dataset.keepLabel = 'true';
-    del.textContent = 'Xóa';
+    del.setAttribute('aria-label', 'Xóa');
+    del.title = 'Xóa';
+    del.innerHTML = ADMIN_DELETE_ICON_SVG;
     form.append(del);
     actions.append(editBtn, sep, form);
     actionsTd.append(actions);

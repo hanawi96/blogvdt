@@ -15,97 +15,144 @@ type Props = {
 const { waterfall } = Astro.props;
 const steps = visibleWaterfallSteps(buildPnlWaterfallSteps(waterfall));
 const domain = waterfallValueDomain(steps);
-
-const width = 720;
-const height = 300;
-const pad = { top: 40, right: 16, bottom: 56, left: 52 };
-const innerW = width - pad.left - pad.right;
-const innerH = height - pad.top - pad.bottom;
 const span = Math.max(1, domain.max - domain.min);
-const slot = innerW / Math.max(steps.length, 1);
-const barW = Math.min(48, Math.max(20, slot * 0.48));
-
-function yOf(value: number): number {
-  return pad.top + innerH - ((value - domain.min) / span) * innerH;
-}
-
-const zeroY = yOf(0);
-// Lưới phụ khi có biên âm. Đường 0 vẽ một lần (pnl-wf-zero) — không trùng trong gridValues.
-const gridValues =
-  domain.min < 0
-    ? [domain.min, Math.round((domain.max + domain.min) / 2)].filter(
-        (value, index, all) => value !== 0 && Number.isFinite(value) && all.indexOf(value) === index,
-      )
-    : [];
 
 function formatBarAmount(amount: number, cost: boolean): string {
-  // Cùng chữ số với bảng (vi-VN), không làm tròn kiểu 399k.
-  const body = new Intl.NumberFormat('vi-VN').format(amount);
+  const body = formatWaterfallAxis(amount).replace(/^[−-]/, '');
   return cost ? `−${body}` : body;
+}
+
+function stepTone(step: (typeof steps)[number]): 'cost' | 'bad' | 'total' | 'good' {
+  if (step.kind === 'cost') return 'cost';
+  if (step.amount < 0) return 'bad';
+  if (step.kind === 'total') return 'total';
+  return 'good';
 }
 
 function stepLevel(step: (typeof steps)[number]): number {
   return step.kind === 'cost' ? step.low : step.amount;
 }
 
-const connectors = steps.slice(0, -1).flatMap((step, index) => {
+/* —— Desktop: cột dọc (trục X = bước) —— */
+const hWidth = 720;
+const hHeight = 300;
+const hPad = { top: 40, right: 16, bottom: 56, left: 52 };
+const hInnerW = hWidth - hPad.left - hPad.right;
+const hInnerH = hHeight - hPad.top - hPad.bottom;
+const hSlot = hInnerW / Math.max(steps.length, 1);
+const hBarW = Math.min(48, Math.max(20, hSlot * 0.48));
+
+function hyOf(value: number): number {
+  return hPad.top + hInnerH - ((value - domain.min) / span) * hInnerH;
+}
+
+const hZeroY = hyOf(0);
+const hGridValues =
+  domain.min < 0
+    ? [domain.min, Math.round((domain.max + domain.min) / 2)].filter(
+        (value, index, all) => value !== 0 && Number.isFinite(value) && all.indexOf(value) === index,
+      )
+    : [];
+
+const hConnectors = steps.slice(0, -1).flatMap((step, index) => {
   const next = steps[index + 1]!;
   if (next.kind !== 'cost') return [];
   const level = stepLevel(step);
   if (level !== next.high) return [];
-  const x1 = pad.left + slot * index + slot / 2 + barW / 2 + 1;
-  const x2 = pad.left + slot * (index + 1) + slot / 2 - barW / 2 - 1;
+  const x1 = hPad.left + hSlot * index + hSlot / 2 + hBarW / 2 + 1;
+  const x2 = hPad.left + hSlot * (index + 1) + hSlot / 2 - hBarW / 2 - 1;
   if (x2 <= x1) return [];
-  return [{ x1, x2, y: yOf(level) }];
+  return [{ x1, x2, y: hyOf(level) }];
 });
 
-const cols = steps.map((step, index) => {
-  const cx = pad.left + slot * index + slot / 2;
-  const x = cx - barW / 2;
-  const top = yOf(step.high);
-  const bottom = yOf(step.low);
+const hCols = steps.map((step, index) => {
+  const cx = hPad.left + hSlot * index + hSlot / 2;
+  const x = cx - hBarW / 2;
+  const top = hyOf(step.high);
+  const bottom = hyOf(step.low);
   const h = Math.max(3, bottom - top);
-  const tone = step.kind === 'cost' ? 'cost' : step.amount < 0 ? 'bad' : step.kind === 'total' ? 'total' : 'good';
+  const tone = stepTone(step);
   const tip = step.kind === 'cost' ? `−${formatVnd(step.amount)}` : formatVnd(step.amount);
   const amountText = formatBarAmount(step.amount, step.kind === 'cost');
-  // Đẩy nhãn lên trên cột, luôn trong vùng pad.top.
   const amountY = Math.max(14, top - 10);
   return { step, cx, x, top, h, tone, tip, amountText, amountY };
+});
+
+/* —— Mobile: thanh ngang (trục Y = bước) —— */
+const vWidth = 360;
+const vPad = { top: 10, right: 58, bottom: 20, left: 88 };
+const vRowH = 40;
+const vBarH = 16;
+const vHeight = vPad.top + vPad.bottom + Math.max(steps.length, 1) * vRowH;
+const vInnerW = vWidth - vPad.left - vPad.right;
+
+function vxOf(value: number): number {
+  return vPad.left + ((value - domain.min) / span) * vInnerW;
+}
+
+const vZeroX = vxOf(0);
+// Trục 0 chỉ dài vừa các hàng dữ liệu (không kéo vào padding trên/dưới).
+const vZeroY1 = steps.length > 0 ? vPad.top + vRowH / 2 - vBarH / 2 : vPad.top;
+const vZeroY2 = steps.length > 0 ? vPad.top + vRowH * (steps.length - 1) + vRowH / 2 + vBarH / 2 : vPad.top;
+
+const vConnectors = steps.slice(0, -1).flatMap((step, index) => {
+  const next = steps[index + 1]!;
+  if (next.kind !== 'cost') return [];
+  const level = stepLevel(step);
+  if (level !== next.high) return [];
+  const x = vxOf(level);
+  const y1 = vPad.top + vRowH * index + vRowH / 2 + vBarH / 2 + 1;
+  const y2 = vPad.top + vRowH * (index + 1) + vRowH / 2 - vBarH / 2 - 1;
+  if (y2 <= y1) return [];
+  return [{ x, y1, y2 }];
+});
+
+const vRows = steps.map((step, index) => {
+  const cy = vPad.top + vRowH * index + vRowH / 2;
+  const x1 = vxOf(step.low);
+  const x2 = vxOf(step.high);
+  const left = Math.min(x1, x2);
+  const w = Math.max(3, Math.abs(x2 - x1));
+  const tone = stepTone(step);
+  const tip = step.kind === 'cost' ? `−${formatVnd(step.amount)}` : formatVnd(step.amount);
+  const amountText = formatBarAmount(step.amount, step.kind === 'cost');
+  const amountX = Math.min(vWidth - 6, Math.max(x1, x2) + 6);
+  return { step, cy, left, w, tone, tip, amountText, amountX };
 });
 ---
 
 <figure class="pnl-wf-chart">
-  <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Biểu đồ waterfall lãi lỗ kỳ">
+  <svg class="pnl-wf-svg-h" viewBox={`0 0 ${hWidth} ${hHeight}`} role="img" aria-label="Biểu đồ waterfall lãi lỗ kỳ">
     {
-      gridValues.map((value) => {
-        const y = yOf(value);
+      hGridValues.map((value) => {
+        const y = hyOf(value);
         return (
           <g>
-            <line class="pnl-wf-grid" x1={pad.left} x2={width - pad.right} y1={y} y2={y}></line>
-            <text class="pnl-wf-axis" x={pad.left - 8} y={y + 4} text-anchor="end">
+            <line class="pnl-wf-grid" x1={hPad.left} x2={hWidth - hPad.right} y1={y} y2={y}></line>
+            <text class="pnl-wf-axis" x={hPad.left - 8} y={y + 4} text-anchor="end">
               {formatWaterfallAxis(value)}
             </text>
           </g>
         );
       })
     }
-    <line class="pnl-wf-zero" x1={pad.left} x2={width - pad.right} y1={zeroY} y2={zeroY}></line>
+    <line class="pnl-wf-zero" x1={hPad.left} x2={hWidth - hPad.right} y1={hZeroY} y2={hZeroY}></line>
 
     {
-      connectors.map((line) => (
+      hConnectors.map((line) => (
         <line class="pnl-wf-link" x1={line.x1} x2={line.x2} y1={line.y} y2={line.y}></line>
       ))
     }
 
     {
-      cols.map((col) => (
+      hCols.map((col) => (
         <g class="pnl-wf-col">
-          <rect class:list={['pnl-wf-bar', `is-${col.tone}`]} x={col.x} y={col.top} width={barW} height={col.h} rx="4">
+          <rect class:list={['pnl-wf-bar', `is-${col.tone}`]} x={col.x} y={col.top} width={hBarW} height={col.h} rx="2">
             <title>
               {col.step.label}: {col.tip}
             </title>
           </rect>
-          <text class="pnl-wf-label" x={col.cx} y={height - 30} text-anchor="middle">
+          <text class="pnl-wf-label" x={col.cx} y={hHeight - 30} text-anchor="middle">
             {col.step.shortLabel}
           </text>
         </g>
@@ -113,14 +160,49 @@ const cols = steps.map((step, index) => {
     }
 
     {
-      /* Nhãn số vẽ sau cùng + stroke trắng để không bị đường kẻ cắt. */
-      cols.map((col) => (
+      hCols.map((col) => (
         <text class="pnl-wf-amount" x={col.cx} y={col.amountY} text-anchor="middle">
           {col.amountText}
         </text>
       ))
     }
   </svg>
+
+  <svg class="pnl-wf-svg-v" viewBox={`0 0 ${vWidth} ${vHeight}`} role="img" aria-label="Biểu đồ waterfall lãi lỗ kỳ (dọc)">
+    {steps.length > 0 && <line class="pnl-wf-zero" x1={vZeroX} x2={vZeroX} y1={vZeroY1} y2={vZeroY2}></line>}
+
+    {
+      vConnectors.map((line) => (
+        <line class="pnl-wf-link" x1={line.x} x2={line.x} y1={line.y1} y2={line.y2}></line>
+      ))
+    }
+
+    {
+      vRows.map((row) => (
+        <g class="pnl-wf-col">
+          <text class="pnl-wf-label pnl-wf-label-v" x={vPad.left - 8} y={row.cy + 4} text-anchor="end">
+            {row.step.shortLabel}
+          </text>
+          <rect
+            class:list={['pnl-wf-bar', `is-${row.tone}`]}
+            x={row.left}
+            y={row.cy - vBarH / 2}
+            width={row.w}
+            height={vBarH}
+            rx="2"
+          >
+            <title>
+              {row.step.label}: {row.tip}
+            </title>
+          </rect>
+          <text class="pnl-wf-amount" x={row.amountX} y={row.cy + 4} text-anchor="start">
+            {row.amountText}
+          </text>
+        </g>
+      ))
+    }
+  </svg>
+
   <figcaption class="pnl-wf-legend" aria-hidden="true">
     <span><i class="is-total"></i>Doanh thu / mốc</span>
     <span><i class="is-cost"></i>Chi phí trừ</span>
@@ -130,13 +212,24 @@ const cols = steps.map((step, index) => {
 
 <style>
   .pnl-wf-chart {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     margin: 0.35rem 0 0.85rem;
   }
-  .pnl-wf-chart svg {
+  .pnl-wf-svg-h,
+  .pnl-wf-svg-v {
     display: block;
     width: 100%;
     height: auto;
-    max-height: 320px;
+  }
+  .pnl-wf-svg-h {
+    max-height: 300px;
+  }
+  .pnl-wf-svg-v {
+    display: none;
+    max-height: none;
   }
   .pnl-wf-grid {
     stroke: color-mix(in srgb, var(--admin-border, #d8d2c8) 70%, transparent);
@@ -151,6 +244,10 @@ const cols = steps.map((step, index) => {
   .pnl-wf-label {
     fill: color-mix(in srgb, #5c564c 88%, #999);
     font-size: 11px;
+  }
+  .pnl-wf-label-v {
+    font-size: 13px;
+    font-weight: 600;
   }
   .pnl-wf-amount {
     fill: #3d3830;
@@ -205,5 +302,24 @@ const cols = steps.map((step, index) => {
   }
   .pnl-wf-legend i.is-good {
     background: color-mix(in srgb, #2f6b45 80%, #8fbf9e);
+  }
+  @media (max-width: 959px) {
+    .pnl-wf-chart {
+      margin: 0.1rem 0 0.45rem;
+      overflow: visible;
+    }
+    .pnl-wf-svg-h {
+      display: none;
+    }
+    .pnl-wf-svg-v {
+      display: block;
+    }
+    .pnl-wf-svg-v .pnl-wf-amount {
+      font-size: 12px;
+    }
+    .pnl-wf-legend {
+      gap: 0.5rem 0.85rem;
+      font-size: 0.75rem;
+    }
   }
 </style>

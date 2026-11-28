@@ -1,4 +1,6 @@
 ---
+import AdminDeleteIcon from '../../components/admin/AdminDeleteIcon.astro';
+import AdminEditIcon from '../../components/admin/AdminEditIcon.astro';
 import AdminPlusIcon from '../../components/admin/AdminPlusIcon.astro';
 import ProductCategoryFields from '../../components/admin/ProductCategoryFields.svelte';
 import { activityActor } from '../../features/activity/log';
@@ -285,10 +287,14 @@ function productCountLabel(count: number): string {
                       <button class="category-list-toggle" type="submit" data-keep-label="true">{active ? 'Tắt' : 'Bật'}</button>
                     </form>
                     <span class="post-actions-sep" aria-hidden="true">|</span>
-                    <a class="category-list-edit" href={listHref(undefined, category.id)} data-category-edit={category.id}>Sửa</a>
+                    <a class="category-list-edit" href={listHref(undefined, category.id)} data-category-edit={category.id} aria-label="Sửa" title="Sửa">
+                      <AdminEditIcon />
+                    </a>
                     <span class="post-actions-sep" aria-hidden="true">|</span>
                     {category.productCount > 0 ? (
-                      <button class="category-delete" type="button" disabled title="Danh mục đang có sản phẩm, chưa xóa được.">Xóa</button>
+                      <button class="category-delete" type="button" disabled title="Danh mục đang có sản phẩm, chưa xóa được." aria-label="Xóa">
+                        <AdminDeleteIcon />
+                      </button>
                     ) : (
                       <form
                         method="post"
@@ -301,7 +307,9 @@ function productCountLabel(count: number): string {
                         <input type="hidden" name="csrf" value={session.csrfToken} />
                         <input type="hidden" name="intent" value="delete" />
                         <input type="hidden" name="id" value={category.id} />
-                        <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                        <button class="category-delete" type="submit" data-keep-label="true" aria-label="Xóa" title="Xóa">
+                          <AdminDeleteIcon />
+                        </button>
                       </form>
                     )}
                   </div>

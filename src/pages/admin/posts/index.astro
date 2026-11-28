@@ -1,5 +1,6 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import AdminEditIcon from '../../../components/admin/AdminEditIcon.astro';
 import AdminPlusIcon from '../../../components/admin/AdminPlusIcon.astro';
 import { hasInboundPostLink, inspectPostLinks, listPostLinkCountsByIds, searchInternalLinks, suggestPosts } from '../../../features/posts/link-lookup';
 import { listPosts, searchPublishedPosts, slugIsTaken, type PostListSort } from '../../../features/posts/posts';
@@ -364,7 +365,9 @@ function pageHref(next: { page?: number; status?: string; sort?: PostListSort; q
                       <td class="post-list-updated">{formatDateTime(post.updatedAt)}</td>
                       <td class="post-list-ops">
                         <div class="post-actions">
-                          <a class="category-list-edit" href={routes.adminPost(post.id)}>Sửa</a>
+                          <a class="category-list-edit" href={routes.adminPost(post.id)} aria-label="Sửa" title="Sửa">
+                            <AdminEditIcon />
+                          </a>
                           <span class="post-actions-sep" aria-hidden="true">|</span>
                           {published ? (
                             <a class="post-list-view" href={routes.knowledge(post.slug)} target="_blank" rel="noopener">Xem bài</a>

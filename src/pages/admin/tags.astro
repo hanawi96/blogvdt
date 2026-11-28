@@ -1,4 +1,6 @@
 ---
+import AdminDeleteIcon from '../../components/admin/AdminDeleteIcon.astro';
+import AdminEditIcon from '../../components/admin/AdminEditIcon.astro';
 import AdminPlusIcon from '../../components/admin/AdminPlusIcon.astro';
 import SearchPreview from '../../components/admin/SearchPreview.astro';
 import SlugField from '../../components/admin/SlugField.svelte';
@@ -284,7 +286,9 @@ const bannerError = slugError || nameError ? '' : formError;
                       </td>
                       <td class="category-list-ops" data-label="Thao tác">
                         <div class="post-actions">
-                          <a class="category-list-edit" href={`${routes.adminTags}?edit=${tag.id}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}`}>Sửa</a>
+                          <a class="category-list-edit" href={`${routes.adminTags}?edit=${tag.id}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}`} aria-label="Sửa" title="Sửa">
+                            <AdminEditIcon />
+                          </a>
                           <span class="post-actions-sep" aria-hidden="true">|</span>
                           <form
                             method="post"
@@ -298,7 +302,9 @@ const bannerError = slugError || nameError ? '' : formError;
                             <input type="hidden" name="intent" value="delete" />
                             <input type="hidden" name="id" value={tag.id} />
                             {query.trim() && <input type="hidden" name="q" value={query} />}
-                            <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                            <button class="category-delete" type="submit" data-keep-label="true" aria-label="Xóa" title="Xóa">
+                              <AdminDeleteIcon />
+                            </button>
                           </form>
                         </div>
                       </td>

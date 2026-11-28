@@ -2677,13 +2677,43 @@
     border-radius: var(--radius-sm);
     background: var(--color-canvas);
   }
-  .category-delete {
-    border: 0;
-    background: transparent;
+  .admin-action-icon {
+    display: block;
+    width: 1.15rem;
+    height: 1.15rem;
+    flex: none;
+  }
+  .category-delete,
+  .category-list-edit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: 2.25rem;
+    height: 2.25rem;
+    min-width: 2.25rem;
+    min-height: 2.25rem;
     padding: 0;
-    color: var(--color-accent);
-    font-weight: 600;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    line-height: 1;
+    text-decoration: none;
     cursor: pointer;
+  }
+  .category-list-edit:hover {
+    border-color: var(--color-line);
+    background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+    color: var(--color-primary-strong);
+  }
+  .category-delete {
+    color: var(--color-accent);
+  }
+  .category-delete:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-line));
+    background: color-mix(in srgb, var(--color-accent) 8%, transparent);
   }
   .category-delete:disabled {
     color: var(--color-muted);
@@ -2701,9 +2731,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .category-list-edit {
-    font-weight: 600;
   }
   .category-list-toggle {
     border: 0;
@@ -6357,6 +6384,9 @@
     display: none;
   }
   .material-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
     margin: 0.75rem 0 1.25rem;
   }
   .material-group + .material-group {
@@ -7128,11 +7158,37 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.65rem;
-    margin-top: 0.5rem;
+    gap: 0.55rem 0.75rem;
+    margin-top: 0.65rem;
+  }
+  .quick-paste-bar .btn-primary {
+    min-height: 2.35rem;
+    padding: 0.4rem 1.05rem;
+    font-size: 0.9rem;
+    box-shadow: 0 1px 0 color-mix(in oklab, var(--color-primary-strong) 28%, transparent);
   }
   .quick-paste-status {
     margin: 0;
+    flex: 1 1 12rem;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--color-accent-strong);
+  }
+  .quick-paste-status[hidden] {
+    display: none;
+  }
+  .quick-paste-status.is-ok {
+    color: var(--color-primary-strong);
+  }
+  .quick-paste-status.is-warn,
+  .quick-paste-status.is-error,
+  .quick-paste-status.is-busy {
+    color: var(--color-accent-strong);
   }
   .pos-lookup {
     display: grid;
@@ -9475,7 +9531,7 @@
     .material-chips {
       display: flex;
       flex-wrap: nowrap;
-      gap: 0.35rem;
+      gap: 0.5rem;
       margin: 0.5rem 0 0.85rem;
       overflow-x: auto;
       padding-bottom: 0.15rem;
@@ -9645,24 +9701,19 @@
     }
     .costs-table .category-list-edit,
     .costs-table .category-delete,
+    .ads-table .category-list-edit,
     .ads-table .category-delete {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 2.25rem;
-      border: 1px solid var(--color-line);
-      border-radius: var(--radius-md);
+      border-color: var(--color-line);
       background: var(--color-surface);
-      padding: 0.3rem 0.7rem;
-      font-size: 0.8125rem;
-      font-weight: 650;
-      line-height: 1;
-      color: var(--color-ink);
-      cursor: pointer;
     }
-    .costs-table .category-delete,
-    .ads-table .category-delete {
-      color: var(--color-accent);
+    .ads-table .post-actions {
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .ads-table .post-actions-sep {
+      display: none;
     }
     .ads-table tr {
       display: grid;
@@ -10724,5 +10775,15 @@
     .order-bulk-btn {
       font-size: 0.75rem;
     }
+  }
+  /* Nút Sửa/Xóa icon: giữ ô vuông, ghi đè padding chữ của các media cũ */
+  .category-list-edit.category-list-edit,
+  .category-delete.category-delete {
+    box-sizing: border-box;
+    width: 2.25rem;
+    min-width: 2.25rem;
+    height: 2.25rem;
+    min-height: 2.25rem;
+    padding: 0;
   }
   }

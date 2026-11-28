@@ -42,6 +42,8 @@ interface Props {
   lookupUrl?: string;
   /** Ô dán nhanh SĐT + địa chỉ, chỉ trang thêm đơn. */
   quickPaste?: boolean;
+  /** Tìm nhanh / chọn tay địa chỉ 3 cấp cũ → map 2 cấp (POS hoặc trang thêm đơn). */
+  legacyAddress?: boolean;
 }
 
 const {
@@ -63,7 +65,10 @@ const {
   pos = false,
   lookupUrl = '',
   quickPaste = false,
+  legacyAddress = false,
 } = Astro.props;
+
+const showLegacy = pos || legacyAddress;
 
 ---
 
@@ -105,8 +110,8 @@ const {
             ></textarea>
           </label>
           <div class="quick-paste-bar">
-            <button class="btn" type="button" data-quick-paste-run>Phân tích</button>
-            <p class="quick-paste-status od-note" data-quick-paste-status role="status"></p>
+            <button class="btn btn-primary" type="button" data-quick-paste-run>Phân tích</button>
+            <p class="quick-paste-status" data-quick-paste-status role="status" hidden></p>
           </div>
         </div>
       )
@@ -128,7 +133,7 @@ const {
       </div>
     </div>
     {
-      pos && (
+      showLegacy && (
         <div class="pos-legacy" data-pos-legacy>
           <div class="pos-legacy-head">
             <div class="pos-legacy-title-row">
@@ -809,7 +814,7 @@ const {
 </script>
 
 {
-  pos && (
+  showLegacy && (
     <script>
       import {
         buildLegacySelectTree,
@@ -820,108 +825,23 @@ const {
       } from '../../features/address/legacy';
       import { foldAddressText, type AddressSelectRow } from '../../features/address/parse';
 
-      const form = document.querySelector('form.staff-order-pos');
-      if (form instanceof HTMLFormElement) {
-        const lookupUrl = form.dataset.lookupUrl ?? '';
-        const phoneInput = form.querySelector('[data-lookup-phone]');
-        const run = form.querySelector('[data-lookup-run]');
-        const result = form.querySelector('[data-lookup-result]');
-        const customerName = form.querySelector('[data-customer-name]');
-        const customerPhone = form.querySelector('[data-customer-phone]');
+      const legacyRoot = document.querySelector('[data-pos-legacy]');
+      const form = legacyRoot instanceof HTMLElement ? legacyRoot.closest('form.staff-order') : null;
+      if (
+        legacyRoot instanceof HTMLElement &&
+        form instanceof HTMLFormElement
+      ) {
         const addressRoot = form.querySelector('[data-address]');
-        const legacyRoot = form.querySelector('[data-pos-legacy]');
-        const legacyInput = form.querySelector('[data-pos-legacy-input]');
-        const legacyHint = form.querySelector('[data-pos-legacy-hint]');
-        const legacyList = form.querySelector('[data-pos-legacy-list]');
-        const legacyToggle = form.querySelector('[data-pos-legacy-toggle]');
-        const legacyManual = form.querySelector('[data-pos-legacy-manual]');
-        const legacyProvinceCombo = form.querySelector('[data-pos-legacy-combo="province"]');
-        const legacyDistrictCombo = form.querySelector('[data-pos-legacy-combo="district"]');
-        const legacyWardCombo = form.querySelector('[data-pos-legacy-combo="ward"]');
-
-        function money(amount: number) {
-          return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(amount);
-        }
-
-        function dayLabel(timestamp: number) {
-          return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(timestamp));
-        }
-
-        async function lookup() {
-          if (!(phoneInput instanceof HTMLInputElement) || !(result instanceof HTMLElement)) return;
-          const phone = phoneInput.value.trim();
-          if (!phone) {
-            result.hidden = false;
-            result.textContent = 'Dán hoặc nhập số điện thoại để tra.';
-            return;
-          }
-          result.hidden = false;
-          result.textContent = 'Đang tra…';
-          try {
-            const response = await fetch(`${lookupUrl}?phone=${encodeURIComponent(phone)}`, {
-              headers: { accept: 'application/json' },
-              credentials: 'same-origin',
-            });
-            const data = (await response.json()) as {
-              ok: boolean;
-              found?: boolean;
-              error?: string;
-              customer?: {
-                phone: string;
-                customerName: string;
-                address: string;
-                orderCount: number;
-                recent: {
-                  code: string;
-                  fulfillLabel: string;
-                  statusLabel: string;
-                  totalPrice: number;
-                  quantity: number;
-                  weightLabel: string;
-                  productName: string;
-                  createdAt: number;
-                } | null;
-              };
-            };
-            if (!response.ok || !data.ok) {
-              result.textContent = data.error || 'Không tra được khách.';
-              return;
-            }
-            if (!data.found || !data.customer) {
-              result.textContent = 'Chưa có đơn với số này.';
-              if (customerPhone instanceof HTMLInputElement) customerPhone.value = phone.replace(/\D/g, '') || phone;
-              return;
-            }
-            const customer = data.customer;
-            // Giữ nick chat nếu đã có; chỉ lấy tên DB khi ô họ tên đang trống.
-            if (customerName instanceof HTMLInputElement && !customerName.value.trim()) {
-              customerName.value = customer.customerName;
-            }
-            if (customerPhone instanceof HTMLInputElement) customerPhone.value = customer.phone;
-            if (addressRoot instanceof HTMLElement) {
-              addressRoot.dispatchEvent(new CustomEvent('pos-set-address', { detail: { address: customer.address } }));
-            }
-            const recent = customer.recent;
-            result.textContent = recent
-              ? `${recent.fulfillLabel || recent.statusLabel} · ${recent.code} · ${dayLabel(recent.createdAt)} · ${money(recent.totalPrice)} · ×${recent.quantity}${recent.weightLabel ? ` · ${recent.weightLabel}` : ''} · ${customer.orderCount} đơn · ${recent.productName}`
-              : `Đã điền từ ${customer.orderCount} đơn trước.`;
-          } catch {
-            result.textContent = 'Không tra được khách.';
-          }
-        }
-
-        if (run instanceof HTMLButtonElement) run.addEventListener('click', () => void lookup());
-        if (phoneInput instanceof HTMLInputElement) {
-          phoneInput.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              void lookup();
-            }
-          });
-        }
+        const legacyInput = legacyRoot.querySelector('[data-pos-legacy-input]');
+        const legacyHint = legacyRoot.querySelector('[data-pos-legacy-hint]');
+        const legacyList = legacyRoot.querySelector('[data-pos-legacy-list]');
+        const legacyToggle = legacyRoot.querySelector('[data-pos-legacy-toggle]');
+        const legacyManual = legacyRoot.querySelector('[data-pos-legacy-manual]');
+        const legacyProvinceCombo = legacyRoot.querySelector('[data-pos-legacy-combo="province"]');
+        const legacyDistrictCombo = legacyRoot.querySelector('[data-pos-legacy-combo="district"]');
+        const legacyWardCombo = legacyRoot.querySelector('[data-pos-legacy-combo="ward"]');
 
         if (
-          legacyRoot instanceof HTMLElement &&
           legacyInput instanceof HTMLInputElement &&
           legacyHint instanceof HTMLElement &&
           legacyList instanceof HTMLElement &&
@@ -1340,6 +1260,104 @@ const {
   )
 }
 
+{
+  pos && (
+    <script>
+      const form = document.querySelector('form.staff-order-pos');
+      if (form instanceof HTMLFormElement) {
+        const lookupUrl = form.dataset.lookupUrl ?? '';
+        const phoneInput = form.querySelector('[data-lookup-phone]');
+        const run = form.querySelector('[data-lookup-run]');
+        const result = form.querySelector('[data-lookup-result]');
+        const customerName = form.querySelector('[data-customer-name]');
+        const customerPhone = form.querySelector('[data-customer-phone]');
+        const addressRoot = form.querySelector('[data-address]');
+
+        function money(amount: number) {
+          return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(amount);
+        }
+
+        function dayLabel(timestamp: number) {
+          return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(timestamp));
+        }
+
+        async function lookup() {
+          if (!(phoneInput instanceof HTMLInputElement) || !(result instanceof HTMLElement)) return;
+          const phone = phoneInput.value.trim();
+          if (!phone) {
+            result.hidden = false;
+            result.textContent = 'Dán hoặc nhập số điện thoại để tra.';
+            return;
+          }
+          result.hidden = false;
+          result.textContent = 'Đang tra…';
+          try {
+            const response = await fetch(`${lookupUrl}?phone=${encodeURIComponent(phone)}`, {
+              headers: { accept: 'application/json' },
+              credentials: 'same-origin',
+            });
+            const data = (await response.json()) as {
+              ok: boolean;
+              found?: boolean;
+              error?: string;
+              customer?: {
+                phone: string;
+                customerName: string;
+                address: string;
+                orderCount: number;
+                recent: {
+                  code: string;
+                  fulfillLabel: string;
+                  statusLabel: string;
+                  totalPrice: number;
+                  quantity: number;
+                  weightLabel: string;
+                  productName: string;
+                  createdAt: number;
+                } | null;
+              };
+            };
+            if (!response.ok || !data.ok) {
+              result.textContent = data.error || 'Không tra được khách.';
+              return;
+            }
+            if (!data.found || !data.customer) {
+              result.textContent = 'Chưa có đơn với số này.';
+              if (customerPhone instanceof HTMLInputElement) customerPhone.value = phone.replace(/\D/g, '') || phone;
+              return;
+            }
+            const customer = data.customer;
+            // Giữ nick chat nếu đã có; chỉ lấy tên DB khi ô họ tên đang trống.
+            if (customerName instanceof HTMLInputElement && !customerName.value.trim()) {
+              customerName.value = customer.customerName;
+            }
+            if (customerPhone instanceof HTMLInputElement) customerPhone.value = customer.phone;
+            if (addressRoot instanceof HTMLElement) {
+              addressRoot.dispatchEvent(new CustomEvent('pos-set-address', { detail: { address: customer.address } }));
+            }
+            const recent = customer.recent;
+            result.textContent = recent
+              ? `${recent.fulfillLabel || recent.statusLabel} · ${recent.code} · ${dayLabel(recent.createdAt)} · ${money(recent.totalPrice)} · ×${recent.quantity}${recent.weightLabel ? ` · ${recent.weightLabel}` : ''} · ${customer.orderCount} đơn · ${recent.productName}`
+              : `Đã điền từ ${customer.orderCount} đơn trước.`;
+          } catch {
+            result.textContent = 'Không tra được khách.';
+          }
+        }
+
+        if (run instanceof HTMLButtonElement) run.addEventListener('click', () => void lookup());
+        if (phoneInput instanceof HTMLInputElement) {
+          phoneInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              void lookup();
+            }
+          });
+        }
+      }
+    </script>
+  )
+}
+
 <script>
   import { parseQuickRecipient, type AddressSelectRow } from '../../features/address/parse';
 
@@ -1371,19 +1389,22 @@ const {
         return rowsPromise;
       }
 
-      function showStatus(message: string) {
+      function showStatus(message: string, tone: 'ok' | 'warn' | 'error' | 'busy' = 'ok') {
+        status.hidden = !message;
         status.textContent = message;
+        status.classList.remove('is-ok', 'is-warn', 'is-error', 'is-busy');
+        if (message) status.classList.add(`is-${tone}`);
       }
 
       async function analyze() {
         const raw = input.value.trim();
         if (!raw) {
-          showStatus('Hãy dán số điện thoại và địa chỉ trước.');
+          showStatus('Hãy dán số điện thoại và địa chỉ trước.', 'warn');
           input.focus();
           return;
         }
         run.disabled = true;
-        showStatus('Đang phân tích...');
+        showStatus('Đang phân tích…', 'busy');
         try {
           const rows = await loadRows();
           const parsed = parseQuickRecipient(rows, raw);
@@ -1410,18 +1431,24 @@ const {
             match?.confidence === 'high' ? 'tỉnh, phường và số nhà' : '',
             match?.confidence === 'medium' ? 'tỉnh' : '',
           ].filter(Boolean);
-          if (match?.confidence === 'high' && filled.length) showStatus(`Đã điền ${filled.join(', ')}.`);
-          else if (match?.confidence === 'medium') showStatus(`Đã điền ${filled.join(', ')}. Chưa khớp phường/xã, hãy chọn thêm.`);
-          else if (parsed.phone) showStatus('Đã điền số điện thoại. Chưa nhận ra tỉnh/phường — hãy viết rõ hơn, có dấu phẩy.');
-          else showStatus('Chưa tách được số điện thoại hay địa chỉ. Hãy kiểm tra lại đoạn vừa dán.');
+          if (match?.confidence === 'high' && filled.length) showStatus(`Đã điền ${filled.join(', ')}.`, 'ok');
+          else if (match?.confidence === 'medium') showStatus(`Đã điền ${filled.join(', ')}. Chưa khớp phường/xã, hãy chọn thêm.`, 'warn');
+          else if (parsed.phone) showStatus('Đã điền số điện thoại. Chưa nhận ra tỉnh/phường — hãy viết rõ hơn, có dấu phẩy.', 'warn');
+          else showStatus('Chưa tách được số điện thoại hay địa chỉ. Hãy kiểm tra lại đoạn vừa dán.', 'error');
         } catch {
-          showStatus('Không tải được danh sách địa chỉ. Tải lại trang.');
+          showStatus('Không tải được danh sách địa chỉ. Tải lại trang.', 'error');
         } finally {
           run.disabled = false;
         }
       }
 
     run.addEventListener('click', () => void analyze());
+    // Dán vào ô → tự phân tích (vẫn giữ nút Phân tích).
+    input.addEventListener('paste', () => {
+      window.setTimeout(() => {
+        if (input.value.trim()) void analyze();
+      }, 0);
+    });
     }
   }
 </script>

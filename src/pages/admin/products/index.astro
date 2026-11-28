@@ -1,5 +1,7 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import AdminDeleteIcon from '../../../components/admin/AdminDeleteIcon.astro';
+import AdminEditIcon from '../../../components/admin/AdminEditIcon.astro';
 import AdminPlusIcon from '../../../components/admin/AdminPlusIcon.astro';
 import { listTopSellingProducts, searchActiveProducts } from '../../../features/posts/product-cards';
 import { productMarginAttr, profitOf } from '../../../features/materials/costing';
@@ -437,7 +439,9 @@ function listHref(nextView: 'list' | 'cards'): string {
                                 </span>
                               </div>
                               <div class="product-admin-card-actions">
-                                <a class="category-list-edit" href={routes.adminProduct(product.id)}>Sửa</a>
+                                <a class="category-list-edit" href={routes.adminProduct(product.id)} aria-label="Sửa" title="Sửa">
+                                  <AdminEditIcon />
+                                </a>
                                 <form
                                   method="post"
                                   action={routes.adminProductDelete(product.id)}
@@ -455,7 +459,9 @@ function listHref(nextView: 'list' | 'cards'): string {
                                   <input type="hidden" name="sort" value={sort} />
                                   {marginFilter && <input type="hidden" name="margin" value={marginFilter} />}
                                   <input type="hidden" name="page" value={String(result.page)} />
-                                  <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                                  <button class="category-delete" type="submit" data-keep-label="true" aria-label="Xóa" title="Xóa">
+                                    <AdminDeleteIcon />
+                                  </button>
                                 </form>
                                 <a class="product-list-view" href={routes.product(product.slug)} target="_blank" rel="noopener">Xem</a>
                               </div>
@@ -569,7 +575,9 @@ function listHref(nextView: 'list' | 'cards'): string {
                             <td class="product-list-updated" data-label="Cập nhật">{formatDateTime(product.updatedAt)}</td>
                             <td class="product-list-ops" data-label="Thao tác">
                               <div class="post-actions product-row-actions">
-                                <a class="category-list-edit" href={routes.adminProduct(product.id)}>Sửa</a>
+                                <a class="category-list-edit" href={routes.adminProduct(product.id)} aria-label="Sửa" title="Sửa">
+                                  <AdminEditIcon />
+                                </a>
                                 <span class="post-actions-sep" aria-hidden="true">|</span>
                                 <form
                                   method="post"
@@ -589,7 +597,9 @@ function listHref(nextView: 'list' | 'cards'): string {
                                   <input type="hidden" name="view" value="list" />
                                   {marginFilter && <input type="hidden" name="margin" value={marginFilter} />}
                                   <input type="hidden" name="page" value={String(result.page)} />
-                                  <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                                  <button class="category-delete" type="submit" data-keep-label="true" aria-label="Xóa" title="Xóa">
+                                    <AdminDeleteIcon />
+                                  </button>
                                 </form>
                                 <span class="post-actions-sep" aria-hidden="true">|</span>
                                 <a class="product-list-view" href={routes.product(product.slug)} target="_blank" rel="noopener">Xem</a>

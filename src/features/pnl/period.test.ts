@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adjacentMonthKey, isPnlPresetActive, periodDayKeys, pnlPeriodPath, pnlQuickChipPresets, pnlQuickPresets, pnlRangeCaption, readPnlPeriod } from './period';
+import { adjacentMonthKey, isPnlPresetActive, periodDayKeys, pnlMonthChipPresets, pnlPeriodPath, pnlQuickChipPresets, pnlQuickPresets, pnlRangeCaption, readPnlPeriod } from './period';
 
 describe('readPnlPeriod', () => {
   const now = Date.parse('2026-11-28T10:00:00+07:00');
@@ -57,6 +57,16 @@ describe('pnlQuickChipPresets', () => {
       to: '2026-11-28',
     });
     expect(chips.find((item) => item.id === '30')).toMatchObject({ from: '2026-10-30', to: '2026-11-28' });
+  });
+});
+
+describe('pnlMonthChipPresets', () => {
+  it('tháng này đến hôm nay và tháng trước cả tháng', () => {
+    const chips = pnlMonthChipPresets(Date.parse('2026-11-28T10:00:00+07:00'));
+    expect(chips).toEqual([
+      { id: 'this_month', label: 'Tháng này', from: '2026-11-01', to: '2026-11-28', monthKey: '2026-11' },
+      { id: 'last_month', label: 'Tháng trước', from: '2026-10-01', to: '2026-10-31', monthKey: '2026-10' },
+    ]);
   });
 });
 

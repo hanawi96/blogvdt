@@ -1,4 +1,6 @@
 ---
+import AdminDeleteIcon from '../../components/admin/AdminDeleteIcon.astro';
+import AdminEditIcon from '../../components/admin/AdminEditIcon.astro';
 import AdminPlusIcon from '../../components/admin/AdminPlusIcon.astro';
 import PublishedPostPicker from '../../components/admin/PublishedPostPicker.astro';
 import AdminLayout from '../../layouts/AdminLayout.astro';
@@ -196,7 +198,9 @@ function codeLabel(code: number): string {
                     </td>
                     <td class="redirect-list-ops" data-label="Thao tác">
                       <div class="post-actions redirect-list-actions">
-                        <a class="category-list-edit" href={`${routes.adminRedirects}?edit=${row.id}${query ? `&q=${encodeURIComponent(query)}` : ''}`}>Sửa</a>
+                        <a class="category-list-edit" href={`${routes.adminRedirects}?edit=${row.id}${query ? `&q=${encodeURIComponent(query)}` : ''}`} aria-label="Sửa" title="Sửa">
+                          <AdminEditIcon />
+                        </a>
                         <form method="post" data-busy>
                           <input type="hidden" name="csrf" value={session.csrfToken} />
                           <input type="hidden" name="intent" value="toggle" />
@@ -215,7 +219,9 @@ function codeLabel(code: number): string {
                           <input type="hidden" name="csrf" value={session.csrfToken} />
                           <input type="hidden" name="intent" value="delete" />
                           <input type="hidden" name="id" value={row.id} />
-                          <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                          <button class="category-delete" type="submit" data-keep-label="true" aria-label="Xóa" title="Xóa">
+                            <AdminDeleteIcon />
+                          </button>
                         </form>
                       </div>
                     </td>

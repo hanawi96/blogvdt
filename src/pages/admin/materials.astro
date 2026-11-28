@@ -1,4 +1,6 @@
 ---
+import AdminDeleteIcon from '../../components/admin/AdminDeleteIcon.astro';
+import AdminEditIcon from '../../components/admin/AdminEditIcon.astro';
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import AdminPlusIcon from '../../components/admin/AdminPlusIcon.astro';
 import { activityActor } from '../../features/activity/log';
@@ -435,10 +437,14 @@ function pageHref(next: number): string {
                         <td class="material-list-updated" data-label="Cập nhật">{formatDateTime(row.updatedAt)}</td>
                         <td class="material-list-ops" data-label="Thao tác">
                           <div class="post-actions">
-                            <a class="category-list-edit" href={`${routes.adminMaterials}?edit=${row.id}`} data-material-edit={row.id}>Sửa</a>
+                            <a class="category-list-edit" href={`${routes.adminMaterials}?edit=${row.id}`} data-material-edit={row.id} aria-label="Sửa" title="Sửa">
+                              <AdminEditIcon />
+                            </a>
                             <span class="post-actions-sep" aria-hidden="true">|</span>
                             {row.usedBy > 0 ? (
-                              <button class="category-delete" type="button" disabled title="Đang có sản phẩm dùng, chưa xóa được.">Xóa</button>
+                              <button class="category-delete" type="button" disabled title="Đang có sản phẩm dùng, chưa xóa được." aria-label="Xóa">
+                                <AdminDeleteIcon />
+                              </button>
                             ) : (
                               <form
                                 method="post"
@@ -451,7 +457,9 @@ function pageHref(next: number): string {
                                 <input type="hidden" name="csrf" value={session.csrfToken} />
                                 <input type="hidden" name="intent" value="delete" />
                                 <input type="hidden" name="id" value={row.id} />
-                                <button class="category-delete" type="submit" data-keep-label="true">Xóa</button>
+                                <button class="category-delete" type="submit" data-keep-label="true" aria-label="Xóa" title="Xóa">
+                                  <AdminDeleteIcon />
+                                </button>
                               </form>
                             )}
                           </div>
@@ -720,6 +728,7 @@ function pageHref(next: number): string {
 </AdminLayout>
 
 <script>
+  import { ADMIN_DELETE_ICON_SVG, ADMIN_EDIT_ICON_SVG } from '../../components/admin/action-icons';
   import { LOW_MARGIN_PERCENT, impactOfUnitCostChange, parseMaterialPrice, type ImpactRow } from '../../features/materials/costing';
 
   type Draft = { id: number | null; name: string; code: string; groupId: string; unitCost: string; active: boolean; usedBy: number };
@@ -964,7 +973,9 @@ function pageHref(next: number): string {
       edit.className = 'category-list-edit';
       edit.href = `${location.pathname}?edit=${material.id}`;
       edit.dataset.materialEdit = String(material.id);
-      edit.textContent = 'Sửa';
+      edit.setAttribute('aria-label', 'Sửa');
+      edit.title = 'Sửa';
+      edit.innerHTML = ADMIN_EDIT_ICON_SVG;
       const sep = document.createElement('span');
       sep.className = 'post-actions-sep';
       sep.setAttribute('aria-hidden', 'true');
@@ -976,7 +987,8 @@ function pageHref(next: number): string {
         disabled.type = 'button';
         disabled.disabled = true;
         disabled.title = 'Đang có sản phẩm dùng, chưa xóa được.';
-        disabled.textContent = 'Xóa';
+        disabled.setAttribute('aria-label', 'Xóa');
+        disabled.innerHTML = ADMIN_DELETE_ICON_SVG;
         actions.append(disabled);
       } else {
         const form = document.createElement('form');
@@ -1001,7 +1013,9 @@ function pageHref(next: number): string {
         del.className = 'category-delete';
         del.type = 'submit';
         del.dataset.keepLabel = 'true';
-        del.textContent = 'Xóa';
+        del.setAttribute('aria-label', 'Xóa');
+        del.title = 'Xóa';
+        del.innerHTML = ADMIN_DELETE_ICON_SVG;
         form.append(del);
         actions.append(form);
       }
