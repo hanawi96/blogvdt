@@ -1,0 +1,209 @@
+---
+import {
+  buildPnlWaterfallSteps,
+  formatWaterfallAxis,
+  visibleWaterfallSteps,
+  waterfallValueDomain,
+  type PnlWaterfall,
+} from '../../features/pnl/waterfall';
+import { formatVnd } from '../../lib/money';
+
+type Props = {
+  waterfall: PnlWaterfall;
+};
+
+const { waterfall } = Astro.props;
+const steps = visibleWaterfallSteps(buildPnlWaterfallSteps(waterfall));
+const domain = waterfallValueDomain(steps);
+
+const width = 720;
+const height = 300;
+const pad = { top: 40, right: 16, bottom: 56, left: 52 };
+const innerW = width - pad.left - pad.right;
+const innerH = height - pad.top - pad.bottom;
+const span = Math.max(1, domain.max - domain.min);
+const slot = innerW / Math.max(steps.length, 1);
+const barW = Math.min(48, Math.max(20, slot * 0.48));
+
+function yOf(value: number): number {
+  return pad.top + innerH - ((value - domain.min) / span) * innerH;
+}
+
+const zeroY = yOf(0);
+// Lưới phụ khi có biên âm. Đường 0 vẽ một lần (pnl-wf-zero) — không trùng trong gridValues.
+const gridValues =
+  domain.min < 0
+    ? [domain.min, Math.round((domain.max + domain.min) / 2)].filter(
+        (value, index, all) => value !== 0 && Number.isFinite(value) && all.indexOf(value) === index,
+      )
+    : [];
+
+function formatBarAmount(amount: number, cost: boolean): string {
+  // Cùng chữ số với bảng (vi-VN), không làm tròn kiểu 399k.
+  const body = new Intl.NumberFormat('vi-VN').format(amount);
+  return cost ? `−${body}` : body;
+}
+
+function stepLevel(step: (typeof steps)[number]): number {
+  return step.kind === 'cost' ? step.low : step.amount;
+}
+
+const connectors = steps.slice(0, -1).flatMap((step, index) => {
+  const next = steps[index + 1]!;
+  if (next.kind !== 'cost') return [];
+  const level = stepLevel(step);
+  if (level !== next.high) return [];
+  const x1 = pad.left + slot * index + slot / 2 + barW / 2 + 1;
+  const x2 = pad.left + slot * (index + 1) + slot / 2 - barW / 2 - 1;
+  if (x2 <= x1) return [];
+  return [{ x1, x2, y: yOf(level) }];
+});
+
+const cols = steps.map((step, index) => {
+  const cx = pad.left + slot * index + slot / 2;
+  const x = cx - barW / 2;
+  const top = yOf(step.high);
+  const bottom = yOf(step.low);
+  const h = Math.max(3, bottom - top);
+  const tone = step.kind === 'cost' ? 'cost' : step.amount < 0 ? 'bad' : step.kind === 'total' ? 'total' : 'good';
+  const tip = step.kind === 'cost' ? `−${formatVnd(step.amount)}` : formatVnd(step.amount);
+  const amountText = formatBarAmount(step.amount, step.kind === 'cost');
+  // Đẩy nhãn lên trên cột, luôn trong vùng pad.top.
+  const amountY = Math.max(14, top - 10);
+  return { step, cx, x, top, h, tone, tip, amountText, amountY };
+});
+---
+
+<figure class="pnl-wf-chart">
+  <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Biểu đồ waterfall lãi lỗ kỳ">
+    {
+      gridValues.map((value) => {
+        const y = yOf(value);
+        return (
+          <g>
+            <line class="pnl-wf-grid" x1={pad.left} x2={width - pad.right} y1={y} y2={y}></line>
+            <text class="pnl-wf-axis" x={pad.left - 8} y={y + 4} text-anchor="end">
+              {formatWaterfallAxis(value)}
+            </text>
+          </g>
+        );
+      })
+    }
+    <line class="pnl-wf-zero" x1={pad.left} x2={width - pad.right} y1={zeroY} y2={zeroY}></line>
+
+    {
+      connectors.map((line) => (
+        <line class="pnl-wf-link" x1={line.x1} x2={line.x2} y1={line.y} y2={line.y}></line>
+      ))
+    }
+
+    {
+      cols.map((col) => (
+        <g class="pnl-wf-col">
+          <rect class:list={['pnl-wf-bar', `is-${col.tone}`]} x={col.x} y={col.top} width={barW} height={col.h} rx="4">
+            <title>
+              {col.step.label}: {col.tip}
+            </title>
+          </rect>
+          <text class="pnl-wf-label" x={col.cx} y={height - 30} text-anchor="middle">
+            {col.step.shortLabel}
+          </text>
+        </g>
+      ))
+    }
+
+    {
+      /* Nhãn số vẽ sau cùng + stroke trắng để không bị đường kẻ cắt. */
+      cols.map((col) => (
+        <text class="pnl-wf-amount" x={col.cx} y={col.amountY} text-anchor="middle">
+          {col.amountText}
+        </text>
+      ))
+    }
+  </svg>
+  <figcaption class="pnl-wf-legend" aria-hidden="true">
+    <span><i class="is-total"></i>Doanh thu / mốc</span>
+    <span><i class="is-cost"></i>Chi phí trừ</span>
+    <span><i class="is-good"></i>Lãi</span>
+  </figcaption>
+</figure>
+
+<style>
+  .pnl-wf-chart {
+    margin: 0.35rem 0 0.85rem;
+  }
+  .pnl-wf-chart svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 320px;
+  }
+  .pnl-wf-grid {
+    stroke: color-mix(in srgb, var(--admin-border, #d8d2c8) 70%, transparent);
+    stroke-width: 1;
+  }
+  .pnl-wf-zero {
+    stroke: color-mix(in srgb, #5c564c 28%, var(--admin-border, #d8d2c8));
+    stroke-width: 1;
+    stroke-dasharray: 4 4;
+  }
+  .pnl-wf-axis,
+  .pnl-wf-label {
+    fill: color-mix(in srgb, #5c564c 88%, #999);
+    font-size: 11px;
+  }
+  .pnl-wf-amount {
+    fill: #3d3830;
+    font-size: 11px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    stroke: #fff;
+    stroke-width: 4px;
+    paint-order: stroke fill;
+  }
+  .pnl-wf-link {
+    stroke: color-mix(in srgb, #5c564c 22%, var(--admin-border, #d8d2c8));
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+  }
+  .pnl-wf-bar.is-total {
+    fill: color-mix(in srgb, #4b6b8a 78%, #9db4c8);
+  }
+  .pnl-wf-bar.is-cost {
+    fill: color-mix(in srgb, #a86a45 82%, #d4b39a);
+  }
+  .pnl-wf-bar.is-good {
+    fill: color-mix(in srgb, #2f6b45 80%, #8fbf9e);
+  }
+  .pnl-wf-bar.is-bad {
+    fill: color-mix(in srgb, #a11d2b 78%, #d98992);
+  }
+  .pnl-wf-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.1rem;
+    margin: 0.35rem 0 0;
+    font-size: 0.8rem;
+    color: color-mix(in srgb, #5c564c 90%, #999);
+  }
+  .pnl-wf-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .pnl-wf-legend i {
+    width: 0.7rem;
+    height: 0.7rem;
+    border-radius: 0.15rem;
+    display: inline-block;
+  }
+  .pnl-wf-legend i.is-total {
+    background: color-mix(in srgb, #4b6b8a 78%, #9db4c8);
+  }
+  .pnl-wf-legend i.is-cost {
+    background: color-mix(in srgb, #a86a45 82%, #d4b39a);
+  }
+  .pnl-wf-legend i.is-good {
+    background: color-mix(in srgb, #2f6b45 80%, #8fbf9e);
+  }
+</style>

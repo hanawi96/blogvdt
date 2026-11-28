@@ -32,7 +32,7 @@ describe('shouldEnqueueDailySchedule', () => {
     ).toBe(false);
   });
 
-  it('đúng/sau giờ VN chưa chạy → true', () => {
+  it('đúng giờ VN chưa chạy → true', () => {
     expect(
       shouldEnqueueDailySchedule({
         scheduleEnabled: true,
@@ -42,7 +42,6 @@ describe('shouldEnqueueDailySchedule', () => {
         now: dueAt,
       }),
     ).toBe(true);
-    // +30 phút vẫn cùng ngày VN (22:00); +3 giờ sẽ sang ngày mới.
     expect(
       shouldEnqueueDailySchedule({
         scheduleEnabled: true,
@@ -52,6 +51,18 @@ describe('shouldEnqueueDailySchedule', () => {
         now: dueAt + 30 * 60 * 1000,
       }),
     ).toBe(true);
+  });
+
+  it('qua giờ VN trong ngày không catch-up → false', () => {
+    expect(
+      shouldEnqueueDailySchedule({
+        scheduleEnabled: true,
+        scheduleHourUtc,
+        lastScheduleDay: '',
+        hasActiveJob: false,
+        now: dueAt + 3 * 60 * 60 * 1000,
+      }),
+    ).toBe(false);
   });
 
   it('đã mark ngày VN → false', () => {
@@ -66,7 +77,7 @@ describe('shouldEnqueueDailySchedule', () => {
     ).toBe(false);
   });
 
-  it('đang active → false (không mark; catch-up sau)', () => {
+  it('đang active → false (không mark; tick sau trong cùng giờ thử lại)', () => {
     expect(
       shouldEnqueueDailySchedule({
         scheduleEnabled: true,
@@ -94,5 +105,20 @@ describe('describeDailySchedule', () => {
     expect(info.ranToday).toBe(true);
     expect(info.hourVn).toBe(22);
     expect(info.nextAt).toBe(vnDateTimeToUtcMs('2026-11-23', 22, 0));
+  });
+
+  it('đã qua giờ chưa chạy → nextAt ngày sau', () => {
+    const hourVn = 0;
+    const scheduleHourUtc = vnHourToUtcHour(hourVn);
+    const dayVn = '2026-11-28';
+    const dueAt = vnDateTimeToUtcMs(dayVn, hourVn, 0)!;
+    const info = describeDailySchedule({
+      scheduleEnabled: true,
+      scheduleHourUtc,
+      lastScheduleDay: '',
+      now: dueAt + 10 * 60 * 60 * 1000,
+    });
+    expect(info.ranToday).toBe(false);
+    expect(info.nextAt).toBe(vnDateTimeToUtcMs('2026-11-29', 0, 0));
   });
 });

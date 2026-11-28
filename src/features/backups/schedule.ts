@@ -1,4 +1,4 @@
-import { utcHourToVnHour, vnDateTimeToUtcMs, vnDayKey } from './time';
+import { formatVnHourMinute, utcHourToVnHour, vnDateTimeToUtcMs, vnDayKey } from './time';
 
 export type DailyScheduleDecisionInput = {
   scheduleEnabled: boolean;
@@ -12,8 +12,8 @@ export type DailyScheduleDecisionInput = {
 
 /**
  * Có nên tạo job Full lịch hôm nay (giờ VN) không.
- * Catch-up: sau mốc giờ VN, nếu chưa mark ngày VN và không bận → true.
- * Đang active → false (không mark ngày; tick giờ sau thử lại).
+ * Chỉ đúng giờ VN đã chọn (cron mỗi giờ) — không catch-up cả ngày.
+ * Đang active → false (không mark ngày; tick giờ sau trong cùng giờ sẽ thử lại nếu còn).
  */
 export function shouldEnqueueDailySchedule(input: DailyScheduleDecisionInput): boolean {
   if (!input.scheduleEnabled) return false;
@@ -27,7 +27,9 @@ export function shouldEnqueueDailySchedule(input: DailyScheduleDecisionInput): b
   const hourVn = utcHourToVnHour(input.scheduleHourUtc);
   const dueAt = vnDateTimeToUtcMs(dayVn, hourVn, 0);
   if (dueAt == null) return false;
-  return now >= dueAt;
+  if (now < dueAt) return false;
+  // Chỉ trong đúng giờ VN cấu hình — tránh backup «bù» giữa ngày khi mới bật lịch.
+  return formatVnHourMinute(now).hour === hourVn;
 }
 
 export type ScheduleStatusInfo = {
@@ -54,12 +56,13 @@ export function describeDailySchedule(input: {
 
   let nextAt: number | null = null;
   if (dueAtToday != null) {
+    const inWindow = formatVnHourMinute(now).hour === hourVn;
     if (!ranToday && now < dueAtToday) {
       nextAt = dueAtToday;
-    } else if (!ranToday && now >= dueAtToday) {
-      nextAt = dueAtToday; // đến hạn / đang chờ catch-up
+    } else if (!ranToday && inWindow) {
+      nextAt = dueAtToday; // đang trong giờ chạy / chờ cron
     } else {
-      // Đã chạy hôm nay → mốc cùng giờ ngày VN kế.
+      // Đã chạy, hoặc đã qua giờ hôm nay → mốc cùng giờ ngày VN kế.
       const tomorrowMs = dueAtToday + 24 * 60 * 60 * 1000;
       const tomorrowVn = vnDayKey(tomorrowMs);
       nextAt = vnDateTimeToUtcMs(tomorrowVn, hourVn, 0);

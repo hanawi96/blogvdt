@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { utcHourToVnHour, vnDateTimeToUtcMs, vnDayKey, vnHourToUtcHour } from './time';
+import {
+  formatVnDateTime,
+  utcHourToVnHour,
+  vnDateTimeToUtcMs,
+  vnDayKey,
+  vnHourToUtcHour,
+  vnYearMonth,
+} from './time';
 
 describe('backup time VN', () => {
   it('đổi giờ VN ↔ UTC', () => {
@@ -18,5 +25,12 @@ describe('backup time VN', () => {
   it('vnDayKey theo UTC+7', () => {
     // 2026-11-21 17:00 UTC = 2026-11-22 00:00 VN
     expect(vnDayKey(Date.UTC(2026, 10, 21, 17, 0, 0, 0))).toBe('2026-11-22');
+  });
+
+  it('formatVnDateTime và vnYearMonth theo giờ VN', () => {
+    // 2026-11-27 17:00:35 UTC = 00:00:35 28/11/2026 VN
+    const ms = Date.UTC(2026, 10, 27, 17, 0, 35);
+    expect(formatVnDateTime(ms)).toBe('00:00 28/11/2026');
+    expect(vnYearMonth(ms)).toEqual({ year: '2026', month: '11' });
   });
 });

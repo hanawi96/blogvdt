@@ -1,0 +1,735 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import PnlWaterfallChart from '../../components/admin/PnlWaterfallChart.astro';
+import { activityActor } from '../../features/activity/log';
+import { mutationError } from '../../features/auth/session';
+import { orderAdminHref, productAdminHref } from '../../features/pnl/breakdowns';
+import { PNL_DEFAULT_LABOR_BUDGET, saveLaborBudget } from '../../features/pnl/labor';
+import {
+  isPnlPresetActive,
+  pnlPeriodPath,
+  pnlQuickChipPresets,
+  pnlQuickPresets,
+  pnlRangeCaption,
+  readPnlPeriod,
+} from '../../features/pnl/period';
+import { loadPnlOverview } from '../../features/pnl/stats';
+import { createDb } from '../../lib/db/client';
+import { getDbBinding } from '../../lib/cloudflare/env';
+import { vnMonthRange, vnTodayParts } from '../../lib/datetime';
+import { formatVnd } from '../../lib/money';
+import { routes } from '../../lib/routes';
+
+const session = Astro.locals.adminSession;
+if (!session) return Astro.redirect(routes.adminLogin);
+if (session.role !== 'admin') {
+  return new Response('Bạn không có quyền vào trang này.', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+}
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+
+const db = createDb(getDbBinding());
+let formError = '';
+const notice = Astro.url.searchParams.get('notice') ?? '';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const read = (name: string) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value : '';
+  };
+  const blocked = mutationError(Astro.request, session, form);
+  const intent = read('intent');
+  const monthKey = read('monthKey');
+  if (blocked) {
+    Astro.response.status = 403;
+    formError = blocked;
+  } else if (intent === 'labor-save') {
+    const saved = await saveLaborBudget(
+      db,
+      { monthKey, amount: read('amount') },
+      Date.now(),
+      await activityActor(db, session.userId),
+    );
+    if (saved.ok) {
+      const back = readPnlPeriod(new URLSearchParams(`month=${encodeURIComponent(monthKey)}`));
+      return Astro.redirect(`${pnlPeriodPath(routes.adminPnl, back)}&notice=labor-saved`, 303);
+    }
+    Astro.response.status = 422;
+    formError = saved.error;
+  }
+}
+
+const period = readPnlPeriod(Astro.url.searchParams);
+let loadError = '';
+let overview: Awaited<ReturnType<typeof loadPnlOverview>> | null = null;
+try {
+  overview = await loadPnlOverview(db, period);
+} catch (error) {
+  console.error(JSON.stringify({ event: 'pnl_failed', name: error instanceof Error ? error.name : 'unknown' }));
+  loadError = 'Không tải được số liệu lãi lỗ.';
+}
+
+const w = overview?.waterfall;
+const laborBudgetSet = overview?.laborBudgetSet ?? false;
+const quality = overview?.breakdowns.quality;
+const sources = overview?.breakdowns.sources ?? [];
+const topProducts = overview?.breakdowns.topProducts ?? [];
+const vnToday = vnTodayParts();
+const todayMax = `${vnToday.year}-${String(vnToday.month).padStart(2, '0')}-${String(vnToday.day).padStart(2, '0')}`;
+const dateQuick = pnlQuickPresets();
+const chipQuick = pnlQuickChipPresets();
+const monthQuick = Array.from({ length: vnToday.month }, (_, index) => {
+  const month = index + 1;
+  const span = vnMonthRange(vnToday.year, month)!;
+  return { month, from: span.from, to: span.to };
+});
+const from = period.from;
+const to = period.to;
+const rangeCaption = pnlRangeCaption(from, to);
+const laborFormValue = laborBudgetSet && w ? String(w.laborBudget) : '';
+const noticeText = notice === 'labor-saved' ? 'Đã lưu ngân sách tiền công (chỉ đối chiếu, không trừ lãi).' : '';
+
+function moneyTone(value: number): 'good' | 'bad' | undefined {
+  if (value > 0) return 'good';
+  if (value < 0) return 'bad';
+  return undefined;
+}
+---
+
+<AdminLayout title="Lãi lỗ">
+  <p slot="lead">Vốn đơn đã gồm tiền công ước lượng — ngân sách công chỉ để đối chiếu, không trừ thêm vào lãi.</p>
+
+  {noticeText && <p class="mb-4 text-primary-strong" role="status" data-admin-flash>{noticeText}</p>}
+  {formError && <p class="error-text" role="alert">{formError}</p>}
+  {loadError && <p class="error-text" role="alert">{loadError}</p>}
+
+  <section class="pnl-filter" aria-label="Chọn kỳ báo cáo" data-pnl-filter data-pnl-base={routes.adminPnl}>
+    <div class="pnl-filter-top">
+      <div class="pnl-filter-main">
+        <p class="pnl-filter-label">Kỳ đang xem</p>
+        <p class="pnl-filter-value">
+          {period.label}
+          <span>· {rangeCaption} (giờ VN)</span>
+        </p>
+      </div>
+      <button
+        class="field order-date-trigger"
+        type="button"
+        data-pnl-date-open
+        aria-haspopup="dialog"
+        aria-expanded="false"
+        aria-controls="pnl-date-dialog"
+        data-active="true"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v2M17 3v2M4 8h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" /></svg>
+        <span>Chọn ngày</span>
+      </button>
+    </div>
+    <div class="pnl-quick-chips" role="group" aria-label="Lọc nhanh">
+      {
+        chipQuick.map((item) => {
+          const active = isPnlPresetActive(period, item);
+          const href = pnlPeriodPath(routes.adminPnl, { monthKey: null, from: item.from, to: item.to });
+          return (
+            <a class="pnl-quick-chip" href={href} aria-current={active ? 'page' : undefined} data-active={active ? 'true' : undefined}>
+              {item.label}
+            </a>
+          );
+        })
+      }
+    </div>
+  </section>
+
+  <dialog id="pnl-date-dialog" class="order-date-dialog" aria-labelledby="pnl-date-dialog-title" data-pnl-date-dialog>
+    <div class="order-date-dialog-card">
+      <header class="order-date-dialog-head">
+        <h2 id="pnl-date-dialog-title">Chọn thời gian</h2>
+        <button class="order-date-dialog-close" type="button" data-pnl-date-close aria-label="Đóng">×</button>
+      </header>
+      <div class="order-date-dialog-body">
+        <section class="order-date-section" aria-labelledby="pnl-date-quick-title">
+          <h3 id="pnl-date-quick-title">Chọn nhanh</h3>
+          <div class="order-date-months order-date-quicks">
+            {
+              dateQuick.map((item) => (
+                <button
+                  class="order-date-month"
+                  type="button"
+                  data-pnl-date-preset
+                  data-from={item.from}
+                  data-to={item.to}
+                  aria-pressed={isPnlPresetActive(period, item) ? 'true' : 'false'}
+                >
+                  {item.label}
+                </button>
+              ))
+            }
+          </div>
+        </section>
+        <section class="order-date-section" aria-labelledby="pnl-date-months-title">
+          <h3 id="pnl-date-months-title">Chọn nhanh tháng {vnToday.year}</h3>
+          <div class="order-date-months">
+            {
+              monthQuick.map((item) => (
+                <button
+                  class="order-date-month"
+                  type="button"
+                  data-pnl-date-preset
+                  data-from={item.from}
+                  data-to={item.to}
+                  aria-pressed={from === item.from && to === item.to ? 'true' : 'false'}
+                >
+                  Tháng {item.month}
+                </button>
+              ))
+            }
+          </div>
+        </section>
+        <section class="order-date-section" aria-labelledby="pnl-date-day-title">
+          <h3 id="pnl-date-day-title">Một ngày</h3>
+          <div class="order-date-row">
+            <label class="sr-only" for="pnl-date-day">Ngày</label>
+            <input
+              id="pnl-date-day"
+              class="field"
+              type="date"
+              data-pnl-date-day
+              value={from && from === to ? from : ''}
+              max={todayMax}
+            />
+            <button class="btn btn-primary" type="button" data-pnl-date-apply-day>Áp dụng</button>
+          </div>
+        </section>
+        <section class="order-date-section" aria-labelledby="pnl-date-range-title">
+          <h3 id="pnl-date-range-title">Khoảng ngày</h3>
+          <div class="order-date-row order-date-range">
+            <label class="sr-only" for="pnl-date-from">Từ ngày</label>
+            <input
+              id="pnl-date-from"
+              class="field"
+              type="date"
+              data-pnl-date-range-from
+              value={from && to && from !== to ? from : ''}
+              max={todayMax}
+            />
+            <span class="order-date-range-sep" aria-hidden="true">→</span>
+            <label class="sr-only" for="pnl-date-to">Đến ngày</label>
+            <input
+              id="pnl-date-to"
+              class="field"
+              type="date"
+              data-pnl-date-range-to
+              value={from && to && from !== to ? to : ''}
+              max={todayMax}
+            />
+            <button class="btn btn-primary" type="button" data-pnl-date-apply-range>Áp dụng</button>
+          </div>
+          <p class="order-date-error" data-pnl-date-error hidden>Khoảng ngày không hợp lệ.</p>
+        </section>
+      </div>
+      <footer class="order-date-dialog-foot">
+        <button class="btn" type="button" data-pnl-date-clear>Về tháng này</button>
+        <button class="btn" type="button" data-pnl-date-close>Đóng</button>
+      </footer>
+    </div>
+  </dialog>
+
+  {
+    w && (
+      <div class="pnl">
+        <section class="dash-kpis dash-kpis-4" aria-label="Tóm tắt kỳ">
+          <article class="dash-kpi">
+            <p class="dash-kpi-label">Doanh thu</p>
+            <p class="dash-kpi-value">{formatVnd(w.revenue)}</p>
+            <p class="dash-delta">
+              {w.orders} đơn
+              {w.aov !== null ? ` · TB ${formatVnd(w.aov)}` : ''}
+            </p>
+          </article>
+          <article class="dash-kpi">
+            <p class="dash-kpi-label">Lãi gộp</p>
+            <p class="dash-kpi-value" data-tone={moneyTone(w.grossProfit)}>{formatVnd(w.grossProfit)}</p>
+            <p class="dash-delta">
+              {w.costedOrders}/{w.orders} đơn có vốn
+              {w.grossMarginPercent !== null ? ` · biên ${w.grossMarginPercent}%` : ''}
+            </p>
+          </article>
+          <article class="dash-kpi">
+            <p class="dash-kpi-label">Sau quảng cáo</p>
+            <p class="dash-kpi-value" data-tone={moneyTone(w.profitAfterAds)}>{formatVnd(w.profitAfterAds)}</p>
+            <p class="dash-delta">
+              {w.adSpend > 0 ? `Ads −${formatVnd(w.adSpend)}` : 'Ads kỳ = 0'}
+              {' · '}
+              <a href={`${routes.adminCosts}?tab=ads`}>Chi phí ads</a>
+            </p>
+          </article>
+          <article class="dash-kpi">
+            <p class="dash-kpi-label">Giảm giá đã cho</p>
+            <p class="dash-kpi-value">{formatVnd(w.discountAmount)}</p>
+            <p class="dash-delta">Đã nằm trong doanh thu</p>
+          </article>
+        </section>
+
+        <section class="dash-card pnl-waterfall" aria-labelledby="pnl-waterfall-title">
+          <div class="dash-card-head">
+            <h2 id="pnl-waterfall-title">Waterfall kỳ</h2>
+          </div>
+          <PnlWaterfallChart waterfall={w} />
+          <table class="pnl-table">
+            <tbody>
+              <tr>
+                <th scope="row">Doanh thu (đơn hợp lệ)</th>
+                <td>{formatVnd(w.revenue)}</td>
+              </tr>
+              <tr>
+                <th scope="row">Doanh thu đã có vốn</th>
+                <td>{formatVnd(w.costedRevenue)}</td>
+              </tr>
+              <tr data-tone="cost">
+                <th scope="row">− Vốn hàng (gồm tiền công ước lượng)</th>
+                <td>−{formatVnd(w.costGoods)}</td>
+              </tr>
+              <tr data-tone="cost">
+                <th scope="row">− Chi phí đơn</th>
+                <td>−{formatVnd(w.costExtra)}</td>
+              </tr>
+              <tr data-tone="cost">
+                <th scope="row">− Vốn ship</th>
+                <td>−{formatVnd(w.shippingCost)}</td>
+              </tr>
+              <tr data-tone={moneyTone(w.grossProfit)}>
+                <th scope="row">= Lãi gộp</th>
+                <td>{formatVnd(w.grossProfit)}</td>
+              </tr>
+              <tr data-tone="cost">
+                <th scope="row">− Quảng cáo</th>
+                <td>−{formatVnd(w.adSpend)}</td>
+              </tr>
+              <tr data-tone={moneyTone(w.profitAfterAds)}>
+                <th scope="row">= Lãi sau quảng cáo</th>
+                <td>{formatVnd(w.profitAfterAds)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="pnl-note">
+            Biểu đồ bắt đầu từ doanh thu đã có vốn (khớp lãi gộp). Đơn hủy / gửi bù không tính. Ads theo ngày trong kỳ.
+          </p>
+        </section>
+
+        {
+          quality && quality.uncostedOrders > 0 && (
+            <section class="dash-card pnl-quality" aria-labelledby="pnl-quality-title" data-tone="warn">
+              <div class="dash-card-head">
+                <h2 id="pnl-quality-title">Thiếu giá vốn</h2>
+              </div>
+              <p class="pnl-note pnl-note-tight">
+                {quality.uncostedOrders} đơn ({formatVnd(quality.uncostedRevenue)}) chưa có đủ chi phí — không tính vào lãi
+                gộp. Lãi trên trang này chỉ dựa trên đơn đã có vốn.
+              </p>
+              {
+                quality.samples.length > 0 && (
+                  <ul class="pnl-sample-list">
+                    {quality.samples.map((sample) => (
+                      <li>
+                        <a href={orderAdminHref(sample.id)}>{sample.code}</a>
+                        <span>{formatVnd(sample.totalPrice)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              }
+              <p class="pnl-note">
+                <a href={quality.ordersListHref}>Xem đơn trong kỳ</a>
+                {' · '}
+                Mở từng đơn để kiểm tra / cập nhật vốn nếu cần.
+              </p>
+            </section>
+          )
+        }
+
+        <section class="dash-card pnl-labor" aria-labelledby="pnl-labor-title">
+          <div class="dash-card-head">
+            <h2 id="pnl-labor-title">Đối chiếu tiền công</h2>
+          </div>
+          {
+            period.monthKey ? (
+              <>
+                <p class="pnl-note pnl-note-tight">
+                  Không trừ vào lãi sau ads — tiền công ước lượng đã nằm trong vốn hàng. Ô này chỉ để so với ngân sách
+                  tháng (vd. {formatVnd(PNL_DEFAULT_LABOR_BUDGET)}).
+                </p>
+                <dl class="pnl-labor-facts">
+                  <div>
+                    <dt>Ngân sách đã lưu</dt>
+                    <dd>{laborBudgetSet ? formatVnd(w.laborBudget) : 'Chưa đặt'}</dd>
+                  </div>
+                  <div>
+                    <dt>Lãi sau ads (tham chiếu)</dt>
+                    <dd data-tone={moneyTone(w.profitAfterAds)}>{formatVnd(w.profitAfterAds)}</dd>
+                  </div>
+                </dl>
+                <form method="post" class="pnl-labor-form">
+                  <input type="hidden" name="csrf" value={session.csrfToken} />
+                  <input type="hidden" name="intent" value="labor-save" />
+                  <input type="hidden" name="monthKey" value={period.monthKey} />
+                  <label for="pnl-labor-amount">Ngân sách tháng {period.monthKey}</label>
+                  <input
+                    id="pnl-labor-amount"
+                    name="amount"
+                    inputmode="numeric"
+                    autocomplete="off"
+                    placeholder={String(PNL_DEFAULT_LABOR_BUDGET)}
+                    value={laborFormValue}
+                    required
+                  />
+                  <button class="btn btn-primary" type="submit">Lưu đối chiếu</button>
+                </form>
+              </>
+            ) : (
+              <p class="pnl-note">Chọn xem theo tháng để đặt ngân sách tiền công đối chiếu.</p>
+            )
+          }
+        </section>
+
+        <section class="dash-card pnl-sources" aria-labelledby="pnl-sources-title">
+          <div class="dash-card-head">
+            <h2 id="pnl-sources-title">Theo nguồn khách</h2>
+          </div>
+          {
+            sources.length === 0 ? (
+              <p class="pnl-note pnl-note-tight">Chưa có đơn hợp lệ trong kỳ.</p>
+            ) : (
+              <table class="pnl-table pnl-table-grid">
+                <thead>
+                  <tr>
+                    <th scope="col">Nguồn</th>
+                    <th scope="col">Đơn</th>
+                    <th scope="col">Doanh thu</th>
+                    <th scope="col">Lãi gộp</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sources.map((row) => (
+                    <tr>
+                      <th scope="row">{row.label}</th>
+                      <td>
+                        {row.orders}
+                        {row.costedOrders < row.orders ? ` (${row.costedOrders} có vốn)` : ''}
+                      </td>
+                      <td>{formatVnd(row.revenue)}</td>
+                      <td data-tone={moneyTone(row.grossProfit)}>{formatVnd(row.grossProfit)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+          }
+        </section>
+
+        <section class="dash-card pnl-products" aria-labelledby="pnl-products-title">
+          <div class="dash-card-head">
+            <h2 id="pnl-products-title">Top sản phẩm theo lãi sau vốn hàng</h2>
+          </div>
+          <p class="pnl-note pnl-note-tight">
+            Vốn hàng phân bổ theo tỷ lệ giá trị dòng trong đơn đã có chi phí. Chưa trừ phí đơn / ship / ads.
+          </p>
+          {
+            topProducts.length === 0 ? (
+              <p class="pnl-note">Chưa có sản phẩm đủ dữ liệu vốn trong kỳ.</p>
+            ) : (
+              <table class="pnl-table pnl-table-grid">
+                <thead>
+                  <tr>
+                    <th scope="col">Sản phẩm</th>
+                    <th scope="col">SL</th>
+                    <th scope="col">Doanh thu dòng</th>
+                    <th scope="col">Vốn hàng</th>
+                    <th scope="col">Lãi sau vốn</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topProducts.map((row) => (
+                    <tr>
+                      <th scope="row">
+                        <a href={productAdminHref(row.productId)}>{row.name}</a>
+                      </th>
+                      <td>{row.sold}</td>
+                      <td>{formatVnd(row.revenue)}</td>
+                      <td>−{formatVnd(row.goodsCost)}</td>
+                      <td data-tone={moneyTone(row.contribution)}>{formatVnd(row.contribution)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+          }
+        </section>
+      </div>
+    )
+  }
+
+  <script>
+    const filter = document.querySelector('[data-pnl-filter]');
+    const dialog = document.querySelector('[data-pnl-date-dialog]');
+    const openBtn = document.querySelector('[data-pnl-date-open]');
+    if (filter instanceof HTMLElement && dialog instanceof HTMLDialogElement) {
+      const base = filter.dataset.pnlBase || '/admin/pnl';
+      const dayInput = dialog.querySelector('[data-pnl-date-day]');
+      const rangeFrom = dialog.querySelector('[data-pnl-date-range-from]');
+      const rangeTo = dialog.querySelector('[data-pnl-date-range-to]');
+      const errorEl = dialog.querySelector('[data-pnl-date-error]');
+      const ymd = /^\d{4}-\d{2}-\d{2}$/;
+
+      const setExpanded = (open) => {
+        if (openBtn instanceof HTMLButtonElement) openBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      };
+      const showError = (on) => {
+        if (errorEl instanceof HTMLElement) errorEl.hidden = !on;
+      };
+      const go = (nextFrom, nextTo) => {
+        const query = new URLSearchParams();
+        if (nextFrom && nextTo) {
+          query.set('from', nextFrom);
+          query.set('to', nextTo);
+        }
+        const text = query.toString();
+        window.location.assign(text ? `${base}?${text}` : base);
+      };
+
+      openBtn?.addEventListener('click', () => {
+        showError(false);
+        dialog.showModal();
+        setExpanded(true);
+      });
+      for (const close of dialog.querySelectorAll('[data-pnl-date-close]')) {
+        close.addEventListener('click', () => dialog.close());
+      }
+      dialog.addEventListener('click', (event) => {
+        if (event.target !== dialog) return;
+        const box = dialog.getBoundingClientRect();
+        const inside =
+          event.clientX >= box.left &&
+          event.clientX <= box.right &&
+          event.clientY >= box.top &&
+          event.clientY <= box.bottom;
+        if (!inside) dialog.close();
+      });
+      dialog.addEventListener('close', () => setExpanded(false));
+      dialog.addEventListener('click', (event) => {
+        const preset = event.target instanceof Element ? event.target.closest('[data-pnl-date-preset]') : null;
+        if (!(preset instanceof HTMLButtonElement)) return;
+        const nextFrom = preset.dataset.from ?? '';
+        const nextTo = preset.dataset.to ?? '';
+        if (!ymd.test(nextFrom) || !ymd.test(nextTo)) return;
+        go(nextFrom, nextTo);
+      });
+      dialog.querySelector('[data-pnl-date-apply-day]')?.addEventListener('click', () => {
+        const day = dayInput instanceof HTMLInputElement ? dayInput.value : '';
+        if (!ymd.test(day)) {
+          showError(true);
+          return;
+        }
+        go(day, day);
+      });
+      dialog.querySelector('[data-pnl-date-apply-range]')?.addEventListener('click', () => {
+        const start = rangeFrom instanceof HTMLInputElement ? rangeFrom.value : '';
+        const end = rangeTo instanceof HTMLInputElement ? rangeTo.value : '';
+        if (!ymd.test(start) || !ymd.test(end) || end < start) {
+          showError(true);
+          return;
+        }
+        go(start, end);
+      });
+      dialog.querySelector('[data-pnl-date-clear]')?.addEventListener('click', () => go('', ''));
+    }
+  </script>
+</AdminLayout>
+
+<style>
+  .pnl-filter {
+    display: grid;
+    gap: 0.75rem;
+    margin: 0 0 1rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--admin-border, #d8d2c8);
+    border-radius: 0.55rem;
+    background: color-mix(in srgb, #fff 88%, var(--admin-border, #d8d2c8));
+  }
+  .pnl-filter-top {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .pnl-filter-label {
+    margin: 0;
+    font-size: 0.78rem;
+    color: color-mix(in srgb, #5c564c 90%, #999);
+  }
+  .pnl-filter-value {
+    margin: 0.15rem 0 0;
+    font-size: 1.05rem;
+    font-weight: 650;
+  }
+  .pnl-filter-value span {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: color-mix(in srgb, #5c564c 90%, #999);
+  }
+  .pnl-filter .order-date-trigger {
+    min-width: 11rem;
+  }
+  .pnl-quick-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .pnl-quick-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2rem;
+    padding: 0.2rem 0.75rem;
+    border: 1px solid var(--admin-border, #d8d2c8);
+    border-radius: 999px;
+    background: #fff;
+    color: inherit;
+    font-size: 0.88rem;
+    text-decoration: none;
+  }
+  .pnl-quick-chip:hover {
+    border-color: color-mix(in srgb, #5c564c 35%, var(--admin-border, #d8d2c8));
+  }
+  .pnl-quick-chip[data-active='true'] {
+    border-color: color-mix(in srgb, #3f6b4a 55%, var(--admin-border, #d8d2c8));
+    background: color-mix(in srgb, #e7f0ea 75%, #fff);
+    font-weight: 650;
+  }
+  .pnl {
+    display: grid;
+    gap: 1rem;
+  }
+  .pnl-waterfall,
+  .pnl-labor,
+  .pnl-quality,
+  .pnl-sources,
+  .pnl-products {
+    padding: 1rem 1.1rem 1.1rem;
+  }
+  .pnl-quality[data-tone='warn'] {
+    border-color: color-mix(in srgb, #b45309 35%, var(--admin-border, #d8d2c8));
+    background: color-mix(in srgb, #fff7ed 70%, #fff);
+  }
+  .pnl-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .pnl-table th,
+  .pnl-table td {
+    padding: 0.55rem 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--admin-border, #d8d2c8) 80%, transparent);
+    font-size: 0.95rem;
+  }
+  .pnl-table th {
+    font-weight: 500;
+    text-align: left;
+  }
+  .pnl-table td {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .pnl-table-grid thead th {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: color-mix(in srgb, #5c564c 90%, #999);
+    text-align: right;
+  }
+  .pnl-table-grid thead th:first-child {
+    text-align: left;
+  }
+  .pnl-table-grid td[data-tone='good'],
+  .pnl-table td[data-tone='good'] {
+    color: #1f6b3a;
+  }
+  .pnl-table-grid td[data-tone='bad'],
+  .pnl-table td[data-tone='bad'] {
+    color: #a11d2b;
+  }
+  .pnl-table tr[data-tone='cost'] td,
+  .pnl-table tr[data-tone='cost'] th {
+    color: color-mix(in srgb, #8a4b2d 85%, #333);
+  }
+  .pnl-table tr[data-tone='good'] th,
+  .pnl-table tr[data-tone='good'] td,
+  .dash-kpi-value[data-tone='good'],
+  .pnl-labor-facts dd[data-tone='good'] {
+    color: #1f6b3a;
+  }
+  .pnl-table tr[data-tone='bad'] th,
+  .pnl-table tr[data-tone='bad'] td,
+  .dash-kpi-value[data-tone='bad'],
+  .pnl-labor-facts dd[data-tone='bad'] {
+    color: #a11d2b;
+  }
+  .pnl-waterfall .pnl-table tr:last-child th,
+  .pnl-waterfall .pnl-table tr:last-child td {
+    border-bottom: 0;
+    font-weight: 650;
+    padding-top: 0.75rem;
+  }
+  .pnl-sample-list {
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    display: grid;
+    gap: 0.35rem;
+  }
+  .pnl-sample-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.92rem;
+  }
+  .pnl-note {
+    margin: 0.85rem 0 0;
+    font-size: 0.85rem;
+    color: color-mix(in srgb, #5c564c 90%, #999);
+    line-height: 1.45;
+  }
+  .pnl-note-tight {
+    margin-top: 0;
+  }
+  .pnl-labor-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 0.75rem 1.25rem;
+    margin: 0.85rem 0 1rem;
+  }
+  .pnl-labor-facts dt {
+    font-size: 0.8rem;
+    color: color-mix(in srgb, #5c564c 90%, #999);
+  }
+  .pnl-labor-facts dd {
+    margin: 0.15rem 0 0;
+    font-size: 1.05rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  .pnl-labor-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .pnl-labor-form input[name='amount'] {
+    min-height: 2.25rem;
+    min-width: 10rem;
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--admin-border, #d8d2c8);
+    border-radius: 0.4rem;
+    background: #fff;
+    font-variant-numeric: tabular-nums;
+  }
+</style>

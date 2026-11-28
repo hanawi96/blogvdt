@@ -30,6 +30,7 @@ export const routes = {
   adminCustomers: '/admin/customers',
   adminMaterials: '/admin/materials',
   adminCosts: '/admin/costs',
+  adminPnl: '/admin/pnl',
   adminDiscounts: '/admin/discounts',
   adminHomeCollections: '/admin/home-collections',
   adminHomeCollectionPicks: '/admin/home-collections/picks',

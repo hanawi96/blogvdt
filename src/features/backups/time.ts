@@ -56,3 +56,20 @@ export function formatVnHourMinute(ms = Date.now()): { hour: number; minute: num
   const shifted = new Date(ms + VN_OFFSET_HOURS * 60 * 60 * 1000);
   return { hour: shifted.getUTCHours(), minute: shifted.getUTCMinutes() };
 }
+
+/** `HH:mm dd/MM/yyyy` theo giờ VN — không phụ thuộc timezone runtime (Workers = UTC). */
+export function formatVnDateTime(ms: number): string {
+  const shifted = new Date(ms + VN_OFFSET_HOURS * 60 * 60 * 1000);
+  const hh = String(shifted.getUTCHours()).padStart(2, '0');
+  const mm = String(shifted.getUTCMinutes()).padStart(2, '0');
+  const dd = String(shifted.getUTCDate()).padStart(2, '0');
+  const mo = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  const yyyy = String(shifted.getUTCFullYear());
+  return `${hh}:${mm} ${dd}/${mo}/${yyyy}`;
+}
+
+/** Năm/tháng VN cho đường dẫn R2 (tránh lệch ngày gần nửa đêm). */
+export function vnYearMonth(ms: number): { year: string; month: string } {
+  const day = formatVnDateInput(ms);
+  return { year: day.slice(0, 4), month: day.slice(5, 7) };
+}

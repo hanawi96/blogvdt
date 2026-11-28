@@ -72,6 +72,7 @@ export const ACTIVITY_ACTIONS = [
   'home_collection.enable',
   'home_collection.disable',
   'home_collection.move',
+  'pnl.labor_budget.save',
 ] as const;
 
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];
@@ -140,6 +141,7 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   'home_collection.enable': 'Bật khối trang chủ',
   'home_collection.disable': 'Tắt khối trang chủ',
   'home_collection.move': 'Đổi thứ tự khối trang chủ',
+  'pnl.labor_budget.save': 'Lưu ngân sách tiền công P&L',
 };
 
 export type ActivityObject =
@@ -160,7 +162,8 @@ export type ActivityObject =
   | 'discount'
   | 'customer'
   | 'backup'
-  | 'home_collection';
+  | 'home_collection'
+  | 'pnl_labor_budget';
 
 export type ActivityActor = { id: number; name: string };
 

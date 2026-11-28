@@ -4696,6 +4696,456 @@
     background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
     color: var(--color-primary-strong);
   }
+
+  /* Chi tiết đơn + form staff dùng chung od-card / od-label / od-note. */
+  .od-page,
+  .od-columns,
+  .od-col {
+    display: grid;
+    gap: 0.9rem;
+  }
+  .od-card {
+    padding: 1rem 1.05rem;
+    border: 1px solid color-mix(in oklab, var(--color-line) 88%, transparent);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    box-shadow: 0 1px 0 color-mix(in oklab, var(--color-ink) 3%, transparent);
+  }
+  .od-section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.35rem 0.75rem;
+    margin-bottom: 0.85rem;
+  }
+  .od-section-head h2,
+  .od-card > h2 {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 650;
+    color: var(--color-heading);
+  }
+  .od-card > h2 {
+    margin-bottom: 0.75rem;
+  }
+  .od-section-head h2 {
+    margin-bottom: 0;
+  }
+  .od-section-meta {
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+  }
+  .od-hero {
+    display: grid;
+    gap: 1rem;
+    padding: 1.1rem 1.15rem;
+    background:
+      linear-gradient(
+        155deg,
+        color-mix(in oklab, var(--color-primary) 7%, var(--color-surface)),
+        var(--color-surface) 52%
+      );
+  }
+  .od-hero-main {
+    min-width: 0;
+  }
+  .od-hero-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem 0.65rem;
+  }
+  .od-code {
+    margin: 0;
+    font-size: clamp(1.15rem, 2.6vw, 1.4rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    color: var(--color-heading);
+  }
+  .od-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.85rem;
+    margin: 0.45rem 0 0;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+  }
+  .od-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.7rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .od-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.18rem 0.7rem;
+    border: 1px solid var(--color-line);
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--color-surface) 80%, var(--color-canvas));
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .od-chip-accent {
+    border-color: color-mix(in srgb, var(--color-accent) 40%, var(--color-line));
+    background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
+    color: var(--color-accent-strong);
+  }
+  .od-hero-total {
+    display: grid;
+    gap: 0.15rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid color-mix(in oklab, var(--color-line) 90%, transparent);
+  }
+  .od-hero-total-label {
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+  }
+  .od-hero-total-value {
+    color: var(--color-primary-strong);
+    font-size: clamp(1.45rem, 4vw, 1.75rem);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.15;
+  }
+  .od-hero-total-note {
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+  }
+  .od-customer-body {
+    display: grid;
+    gap: 0.35rem;
+  }
+  .od-customer-name {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--color-heading);
+    overflow-wrap: anywhere;
+  }
+  .od-phone {
+    width: fit-content;
+    max-width: 100%;
+    color: var(--color-primary-strong);
+    font-size: 1.05rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+    text-decoration: none;
+  }
+  .od-phone:hover {
+    text-decoration: underline;
+  }
+  .od-address {
+    margin: 0.25rem 0 0;
+    color: var(--color-ink);
+    font-size: 0.9375rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+  .od-callout {
+    margin: 0.55rem 0 0;
+    padding: 0.6rem 0.75rem;
+    border-radius: calc(var(--radius-sm) + 0.1rem);
+    background: color-mix(in oklab, var(--color-accent) 9%, var(--color-canvas));
+    color: var(--color-ink);
+    font-size: 0.875rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+  .od-lines {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .od-lines li {
+    display: grid;
+    grid-template-columns: 3.75rem minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0.75rem;
+    padding: 0.8rem 0;
+    border-top: 1px solid color-mix(in oklab, var(--color-line) 85%, transparent);
+  }
+  .od-lines li:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+  .od-line-media {
+    width: 3.75rem;
+    height: 3.75rem;
+    border: 1px solid color-mix(in oklab, var(--color-line) 80%, transparent);
+    border-radius: 0.55rem;
+    overflow: hidden;
+    background: var(--color-canvas);
+  }
+  .od-line-media img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .od-line-ph {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--color-line) 55%, transparent),
+      transparent 60%
+    );
+  }
+  .od-line-main {
+    min-width: 0;
+  }
+  .od-line-name {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 650;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+  .od-line-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.55rem;
+    margin: 0.3rem 0 0;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+  }
+  .od-line-meta a {
+    font-weight: 600;
+  }
+  .od-qty {
+    font-variant-numeric: tabular-nums;
+  }
+  .od-line-note {
+    margin: 0.35rem 0 0;
+    color: var(--color-ink);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+  .od-tag {
+    padding: 0.08rem 0.55rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--color-primary) 12%, var(--color-surface));
+    color: var(--color-primary-strong);
+    font-weight: 600;
+  }
+  .od-line-total {
+    padding-top: 0.1rem;
+    font-size: 0.9375rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .od-money {
+    display: grid;
+    gap: 0.4rem;
+    margin: 0.85rem 0 0;
+    padding: 0.8rem 0.85rem 0.75rem;
+    border-radius: calc(var(--radius-sm) + 0.1rem);
+    background: color-mix(in oklab, var(--color-canvas) 88%, var(--color-surface));
+  }
+  .od-money > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    font-size: 0.875rem;
+  }
+  .od-money dt {
+    color: var(--color-muted);
+  }
+  .od-money dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .od-money-total {
+    margin-top: 0.15rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid color-mix(in oklab, var(--color-line) 80%, transparent);
+    font-size: 0.9375rem;
+    font-weight: 700;
+  }
+  .od-money-total dd {
+    color: var(--color-primary-strong);
+    font-size: 1.1rem;
+  }
+  .od-fulfill-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+  }
+  .od-fulfill-presets > form {
+    flex: 1 1 calc(50% - 0.45rem);
+    min-width: 7rem;
+  }
+  .od-fulfill-btn {
+    width: 100%;
+    min-height: 2.6rem;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-ink);
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25;
+    cursor: pointer;
+    transition:
+      border-color 0.15s ease,
+      background-color 0.15s ease,
+      color 0.15s ease;
+  }
+  .od-fulfill-btn:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-line));
+    background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  }
+  .od-fulfill-btn.is-current,
+  .od-fulfill-btn:disabled {
+    border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-line));
+    background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+    color: var(--color-primary-strong);
+    cursor: default;
+  }
+  .od-fulfill-btn[data-fulfill='shipped'].is-current {
+    border-color: color-mix(in srgb, #16a34a 40%, var(--color-line));
+    background: color-mix(in srgb, #16a34a 12%, var(--color-surface));
+    color: #15803d;
+  }
+  .od-fulfill-btn[data-fulfill='reship'].is-current {
+    border-color: color-mix(in srgb, #d97706 40%, var(--color-line));
+    background: color-mix(in srgb, #d97706 12%, var(--color-surface));
+    color: #b45309;
+  }
+  .od-complete-form {
+    margin-top: 0.75rem;
+  }
+  .od-total {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--color-line);
+    font-weight: 600;
+  }
+  .od-total strong {
+    color: var(--color-primary-strong);
+    font-size: 1.25rem;
+  }
+  .od-note {
+    margin-top: 0.75rem;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+  .od-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 600;
+  }
+  .od-facts {
+    display: grid;
+    gap: 0.8rem;
+    margin: 0;
+  }
+  .od-facts dt {
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+  }
+  .od-facts dd {
+    margin: 0.1rem 0 0;
+    overflow-wrap: anywhere;
+  }
+
+  @media (min-width: 640px) {
+    .od-hero {
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 1.25rem;
+    }
+    .od-hero-total {
+      min-width: 9.5rem;
+      padding: 0.15rem 0 0.15rem 1.25rem;
+      border-top: 0;
+      border-left: 1px solid color-mix(in oklab, var(--color-line) 90%, transparent);
+      text-align: right;
+      justify-items: end;
+    }
+    .od-lines li {
+      grid-template-columns: 4.25rem minmax(0, 1fr) auto;
+      gap: 0.9rem;
+    }
+    .od-line-media {
+      width: 4.25rem;
+      height: 4.25rem;
+      border-radius: 0.6rem;
+    }
+  }
+
+  @media (min-width: 900px) {
+    .od-page {
+      gap: 1rem;
+    }
+    .od-columns {
+      grid-template-columns: minmax(0, 1.55fr) minmax(16.5rem, 0.85fr);
+      gap: 1rem;
+      align-items: start;
+    }
+    .od-aside {
+      position: sticky;
+      top: 1rem;
+    }
+    .od-fulfill-presets > form {
+      flex: 1 1 0;
+      min-width: 6.5rem;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .od-card {
+      padding: 0.9rem;
+    }
+    .od-hero {
+      padding: 0.95rem;
+      gap: 0.85rem;
+    }
+    .od-lines li {
+      grid-template-columns: 3.35rem minmax(0, 1fr);
+      gap: 0.65rem;
+      padding: 0.7rem 0;
+    }
+    .od-line-media {
+      width: 3.35rem;
+      height: 3.35rem;
+      border-radius: 0.5rem;
+    }
+    .od-line-total {
+      grid-column: 2;
+      justify-self: start;
+      padding-top: 0;
+      font-size: 0.875rem;
+    }
+    .od-fulfill-presets > form {
+      flex: 1 1 100%;
+      min-width: 0;
+    }
+    .od-money {
+      padding: 0.7rem 0.75rem;
+    }
+  }
+
   .order-products {
     display: grid;
     gap: 0.4rem;
@@ -7438,27 +7888,30 @@
   }
   .order-handoff {
     display: grid;
-    gap: 0.2rem;
+    gap: 0.35rem;
     margin: 0;
     overflow: auto;
-    border-radius: var(--radius-sm);
-    background: var(--color-canvas);
-    padding: 0.75rem;
+    border: 1px solid color-mix(in oklab, var(--color-line) 85%, transparent);
+    border-radius: calc(var(--radius-sm) + 0.1rem);
+    background: color-mix(in oklab, var(--color-canvas) 92%, var(--color-surface));
+    padding: 0.8rem 0.85rem;
     list-style: none;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
+    line-height: 1.45;
   }
   .order-handoff li {
     display: flex;
-    gap: 0.45rem;
+    gap: 0.5rem;
     align-items: flex-start;
+    overflow-wrap: anywhere;
   }
   .handoff-dot {
     flex: none;
-    width: 0.38rem;
-    height: 0.38rem;
-    margin-top: 0.42rem;
+    width: 0.35rem;
+    height: 0.35rem;
+    margin-top: 0.45rem;
     border-radius: 999px;
-    background: var(--color-muted);
+    background: color-mix(in oklab, var(--color-primary) 55%, var(--color-muted));
   }
   .post-controls {
     display: flex;
@@ -8232,10 +8685,13 @@
     bottom: calc(4.85rem + env(safe-area-inset-bottom, 0px));
   }
   @media (width >= 48rem) {
-    .admin-shell:not(.is-nav-collapsed) .admin-pager {
+    /* Căn giữa vùng nội dung (bỏ sidebar), giống phân trang. */
+    .admin-shell:not(.is-nav-collapsed) .admin-pager,
+    .admin-shell:not(.is-nav-collapsed) .bulk-bar {
       left: calc(15rem + (100% - 15rem) / 2);
     }
-    .admin-shell.is-nav-collapsed .admin-pager {
+    .admin-shell.is-nav-collapsed .admin-pager,
+    .admin-shell.is-nav-collapsed .bulk-bar {
       left: calc(4.25rem + (100% - 4.25rem) / 2);
     }
   }

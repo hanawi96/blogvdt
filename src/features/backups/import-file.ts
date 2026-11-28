@@ -1,3 +1,5 @@
+import { formatVnDateInput } from './time';
+
 /** Giới hạn file import SQL từ admin (DB hiện nhỏ; chừa dư). */
 export const IMPORT_SQL_MAX_BYTES = 25 * 1024 * 1024;
 
@@ -45,6 +47,6 @@ export async function looksLikeSqlDump(bytes: ArrayBuffer): Promise<boolean> {
 
 export function importObjectKey(): string {
   const id = crypto.randomUUID().replace(/-/g, '');
-  const day = new Date().toISOString().slice(0, 10);
+  const day = formatVnDateInput();
   return `backups/imports/${day}/${id}.sql`;
 }

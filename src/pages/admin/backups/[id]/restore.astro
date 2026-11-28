@@ -4,6 +4,7 @@ import { activityActor, activityWrite, commitWrites } from '../../../../features
 import { mutationError } from '../../../../features/auth/session';
 import { getBackupJob } from '../../../../features/backups/jobs';
 import { releaseRestoreLock, tryAcquireRestoreLock } from '../../../../features/backups/restore-lock';
+import { formatVnDateTime } from '../../../../features/backups/time';
 import { createDb } from '../../../../lib/db/client';
 import { getDbBinding } from '../../../../lib/cloudflare/env';
 import { routes } from '../../../../lib/routes';
@@ -83,7 +84,7 @@ if (Astro.request.method === 'POST') {
   <form method="post" class="settings-panel" data-busy>
     <input type="hidden" name="csrf" value={session.csrfToken} />
     <p class="seo-hint mb-4">
-      Backup #{job.id} · {new Date(job.createdAt).toLocaleString('vi-VN')}
+      Backup #{job.id} · {formatVnDateTime(job.createdAt)}
       {(job.bytes ?? 0) > 0 ? ` · ${Math.round((job.bytes ?? 0) / 1024)} KB` : ''}
     </p>
     <label class="block">

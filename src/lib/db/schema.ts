@@ -861,6 +861,23 @@ export const backupSettings = sqliteTable('backup_settings', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+/**
+ * Ngân sách tiền công theo tháng (YYYY-MM, lịch VN) — chỉ để đối chiếu trên P&L.
+ * Không trừ vào lãi ròng vì tiền công ước lượng đã nằm trong cost_goods đơn.
+ */
+export const pnlLaborBudgets = sqliteTable(
+  'pnl_labor_budgets',
+  {
+    monthKey: text('month_key').primaryKey(),
+    amount: integer('amount').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    check('pnl_labor_budgets_month_check', sql`${table.monthKey} glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]'`),
+    check('pnl_labor_budgets_amount_check', sql`${table.amount} >= 0`),
+  ],
+);
+
 /** Khối merchandising trang chủ (hot / combo). Tối đa vài khối, ghim SP thủ công. */
 export const homeCollections = sqliteTable(
   'home_collections',

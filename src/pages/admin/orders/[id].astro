@@ -115,6 +115,11 @@ const fulfillLabel =
 const canComplete = isOrderStatus(order.status) && canTransitionOrder(order.status, 'completed');
 const subtotal = order.subtotal ?? order.totalPrice + order.discountAmount;
 const listNow = Date.now();
+const payLabel = collectionLabel(order.payState, order.paymentMethod);
+const depositLeft =
+  order.payState === 'deposit' && order.depositAmount > 0
+    ? remainingAfterDeposit(order.totalPrice, order.depositAmount)
+    : null;
 ---
 
 <AdminLayout title={`Đơn ${order.code}`}>
@@ -134,10 +139,10 @@ const listNow = Date.now();
   {formError && <p class="error-text mb-4" role="alert">{formError}</p>}
 
   <div class="od-page">
-    <section class="od-card od-head" aria-label="Tóm tắt đơn">
-      <div class="od-head-main">
-        <div class="od-head-line">
-          <span class="od-code">{order.code}</span>
+    <section class="od-card od-hero" aria-label="Tóm tắt đơn">
+      <div class="od-hero-main">
+        <div class="od-hero-top">
+          <p class="od-code">{order.code}</p>
           {fulfill != null ? (
             <span class="order-shipped-pill" data-fulfill={fulfill}>{fulfillLabel}</span>
           ) : (
@@ -149,52 +154,50 @@ const listNow = Date.now();
           {order.shippedAt != null && <span>Gửi {formatDateTime(order.shippedAt)}</span>}
           <span>{lines.length} mẫu · {pieces} chiếc</span>
         </p>
-        <p class="od-chip-row">
-          <span class="od-chip">{collectionLabel(order.payState, order.paymentMethod)}</span>
-          {order.source && <span class="od-chip">{sourceLabel(order.source)}</span>}
-          {order.priority === 1 && <span class="od-chip">Ưu tiên</span>}
-          {order.compensation === 1 && <span class="od-chip">Gửi bù</span>}
-          {laterPill && <span class="order-ship-later-pill" data-tone={laterPill.tone}>{laterPill.label}</span>}
-        </p>
+        <ul class="od-chip-row" aria-label="Thông tin nhanh">
+          <li><span class="od-chip">{payLabel}</span></li>
+          {order.source && <li><span class="od-chip">{sourceLabel(order.source)}</span></li>}
+          {order.priority === 1 && <li><span class="od-chip od-chip-accent">Ưu tiên</span></li>}
+          {order.compensation === 1 && <li><span class="od-chip">Gửi bù</span></li>}
+          {laterPill && (
+            <li><span class="order-ship-later-pill" data-tone={laterPill.tone}>{laterPill.label}</span></li>
+          )}
+        </ul>
       </div>
-      <div class="od-head-total">
-        <span>Khách trả</span>
-        <strong>{formatVnd(order.totalPrice)}</strong>
-        {order.discountAmount > 0 && (
-          <span class="od-note">Đã giảm{order.discountCode ? ` ${order.discountCode}` : ''} {formatVnd(order.discountAmount)}</span>
+      <div class="od-hero-total">
+        <span class="od-hero-total-label">Khách trả</span>
+        <strong class="od-hero-total-value">{formatVnd(order.totalPrice)}</strong>
+        {depositLeft != null && (
+          <span class="od-hero-total-note">Còn thu {formatVnd(depositLeft)}</span>
         )}
-        {order.compensation === 1 && <span class="od-note">Không thu tiền</span>}
+        {order.discountAmount > 0 && (
+          <span class="od-hero-total-note">
+            Đã giảm{order.discountCode ? ` ${order.discountCode}` : ''} {formatVnd(order.discountAmount)}
+          </span>
+        )}
+        {order.compensation === 1 && <span class="od-hero-total-note">Không thu tiền</span>}
       </div>
     </section>
 
     <div class="od-columns">
       <div class="od-col">
-        <section class="od-card">
-          <h2>Khách hàng</h2>
-          <dl class="od-facts od-facts-customer">
-            <div>
-              <dt>Họ tên</dt>
-              <dd>{order.customerName}</dd>
-            </div>
-            <div>
-              <dt>Số điện thoại</dt>
-              <dd><a class="od-phone" href={`tel:${order.phone}`}>{order.phone}</a></dd>
-            </div>
-            <div class="od-fact-wide">
-              <dt>Địa chỉ</dt>
-              <dd>{order.address}</dd>
-            </div>
-            {order.note ? (
-              <div class="od-fact-wide">
-                <dt>Ghi chú khách</dt>
-                <dd class="od-callout">{order.note}</dd>
-              </div>
-            ) : null}
-          </dl>
+        <section class="od-card od-customer">
+          <div class="od-section-head">
+            <h2>Khách hàng</h2>
+          </div>
+          <div class="od-customer-body">
+            <p class="od-customer-name">{order.customerName}</p>
+            <a class="od-phone" href={`tel:${order.phone}`}>{order.phone}</a>
+            <p class="od-address">{order.address}</p>
+            {order.note ? <p class="od-callout">{order.note}</p> : null}
+          </div>
         </section>
 
         <section class="od-card">
-          <h2>Sản phẩm</h2>
+          <div class="od-section-head">
+            <h2>Sản phẩm</h2>
+            <span class="od-section-meta">{lines.length} mẫu · {pieces} chiếc</span>
+          </div>
           <ul class="od-lines">
             {lines.map((line) => {
               const cover = line.productId ? covers.get(line.productId) : undefined;
@@ -202,7 +205,7 @@ const listNow = Date.now();
                 <li>
                   <div class="od-line-media" aria-hidden={!cover}>
                     {cover ? (
-                      <img src={cover.url} alt={cover.alt} width="64" height="64" loading="lazy" />
+                      <img src={cover.url} alt={cover.alt} width="72" height="72" loading="lazy" />
                     ) : (
                       <span class="od-line-ph"></span>
                     )}
@@ -211,7 +214,7 @@ const listNow = Date.now();
                     <p class="od-line-name">{line.productName}</p>
                     <p class="od-line-meta">
                       {line.optionLabel && <span class="od-tag">{line.optionLabel}</span>}
-                      <span>
+                      <span class="od-qty">
                         {line.quantity} × {formatVnd(line.unitPrice)}
                       </span>
                       {line.productId ? <a href={routes.adminProduct(line.productId)}>Xem SP</a> : null}
@@ -243,7 +246,8 @@ const listNow = Date.now();
               <div>
                 <dt>Đã cọc</dt>
                 <dd>
-                  {formatVnd(order.depositAmount)} · còn {formatVnd(remainingAfterDeposit(order.totalPrice, order.depositAmount))}
+                  {formatVnd(order.depositAmount)}
+                  {depositLeft != null ? ` · còn ${formatVnd(depositLeft)}` : ''}
                 </dd>
               </div>
             )}
@@ -255,7 +259,9 @@ const listNow = Date.now();
         </section>
 
         <section class="od-card">
-          <h2>Ghi chú nội bộ</h2>
+          <div class="od-section-head">
+            <h2>Ghi chú nội bộ</h2>
+          </div>
           <form method="post" action={routes.adminOrder(id)} data-busy>
             <input type="hidden" name="csrf" value={session.csrfToken} />
             <input type="hidden" name="intent" value="note" />
@@ -275,8 +281,10 @@ const listNow = Date.now();
       </div>
 
       <aside class="od-col od-aside">
-        <section class="od-card">
-          <h2>Xử lý đơn</h2>
+        <section class="od-card od-actions">
+          <div class="od-section-head">
+            <h2>Xử lý đơn</h2>
+          </div>
           {fulfill != null && editable ? (
             <div class="od-fulfill-presets" role="group" aria-label="Trạng thái giao hàng">
               {FULFILL_STATUSES.map((item) => {
@@ -326,11 +334,13 @@ const listNow = Date.now();
               <button class="btn w-full" type="submit">Hoàn thành</button>
             </form>
           ) : null}
-          <p class="od-note">Thanh toán: {collectionLabel(order.payState, order.paymentMethod)}. Phí ship vốn {formatVnd(order.shippingCost)}.</p>
+          <p class="od-note">Thanh toán: {payLabel}. Phí ship vốn {formatVnd(order.shippingCost)}.</p>
         </section>
 
         <section class="od-card">
-          <h2>Giao hàng</h2>
+          <div class="od-section-head">
+            <h2>Giao hàng</h2>
+          </div>
           <ul class="order-handoff">
             {handoff.split('\n').map((line) => (
               <li>
@@ -342,7 +352,6 @@ const listNow = Date.now();
           <button class="btn mt-3 w-full" type="button" data-copy-order>Sao chép thông tin giao hàng</button>
           <p class="mt-2 text-primary-strong" data-copy-status role="status" hidden></p>
         </section>
-
       </aside>
     </div>
   </div>

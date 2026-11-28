@@ -1,3 +1,5 @@
+import { vnYearMonth } from './time';
+
 type EnvLike = {
   CF_ACCOUNT_ID?: string;
   D1_DATABASE_ID?: string;
@@ -176,8 +178,6 @@ export async function md5Hex(bytes: ArrayBuffer): Promise<string> {
 }
 
 export function backupObjectKey(jobId: number, createdAt: number): string {
-  const d = new Date(createdAt);
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  return `backups/${y}/${m}/${jobId}.sql`;
+  const { year, month } = vnYearMonth(createdAt);
+  return `backups/${year}/${month}/${jobId}.sql`;
 }

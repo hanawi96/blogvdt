@@ -5,6 +5,7 @@ import { clampRetentionKeep, getBackupJob, markJobFailed, markJobSuccess } from 
 import { applyBackupRetention } from '../features/backups/retention';
 import { getBackupSettings } from '../features/backups/settings';
 import { tablesForD1Export } from '../features/backups/tables';
+import { vnDayKey } from '../features/backups/time';
 import { createDb } from '../lib/db/client';
 
 export type BackupParams = { jobId: number };
@@ -80,7 +81,7 @@ export class BackupWorkflow extends WorkflowEntrypoint<BackupEnv, BackupParams> 
             const obj = await this.env.BACKUPS.get(stored.key);
             if (!obj) throw new Error('Thiếu object R2 để đẩy Drive.');
             const bytes = await obj.arrayBuffer();
-            const day = new Date(job.createdAt).toISOString().slice(0, 10);
+            const day = vnDayKey(job.createdAt);
             const id = await uploadBackupToDrive(this.env, {
               name: `vongdautambyanh-${day}-${job.id}.sql`,
               bytes,

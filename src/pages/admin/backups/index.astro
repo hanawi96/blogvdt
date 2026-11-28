@@ -24,10 +24,12 @@ import { describeDailySchedule } from '../../../features/backups/schedule';
 import { enqueueBackup } from '../../../features/backups/service';
 import {
   formatVnDateInput,
+  formatVnDateTime,
   HOUR_OPTIONS_VN,
   MINUTE_OPTIONS,
   utcHourToVnHour,
   vnDateTimeToUtcMs,
+  vnDayKey,
   vnHourToUtcHour,
 } from '../../../features/backups/time';
 import { createDb } from '../../../lib/db/client';
@@ -239,7 +241,7 @@ if (Astro.request.method === 'POST') {
             formError = 'Không tìm thấy file trên R2.';
           } else {
             const bytes = await obj.arrayBuffer();
-            const day = new Date(job.createdAt).toISOString().slice(0, 10);
+            const day = vnDayKey(job.createdAt);
             const fileId = await uploadBackupToDrive(env as Parameters<typeof uploadBackupToDrive>[0], {
               name: `vongdautambyanh-${day}-${job.id}.sql`,
               bytes,
@@ -336,13 +338,7 @@ function formatBytes(n: number | null): string {
 }
 
 function formatJobTime(ms: number): string {
-  return new Date(ms).toLocaleString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatVnDateTime(ms);
 }
 
 function shortError(message: string | null): string {
@@ -361,17 +357,19 @@ const scheduleStatus = describeDailySchedule({
 const scheduleStatusText = (() => {
   if (!settings.scheduleEnabled) return 'Lịch đang tắt.';
   const hh = String(scheduleStatus.hourVn).padStart(2, '0');
+  const nextLabel = scheduleStatus.nextAt ? formatVnDateTime(scheduleStatus.nextAt) : '—';
   if (scheduleStatus.ranToday) {
-    return `Hôm nay (${scheduleStatus.todayVn}) đã xếp chạy lúc ${hh}:00 (giờ VN). Lần kế: ${
-      scheduleStatus.nextAt ? new Date(scheduleStatus.nextAt).toLocaleString('vi-VN') : '—'
-    }.`;
+    return `Hôm nay (${scheduleStatus.todayVn}) đã xếp chạy lúc ${hh}:00 (giờ VN). Lần kế: ${nextLabel}.`;
   }
-  if (scheduleStatus.dueAtToday != null && Date.now() >= scheduleStatus.dueAtToday) {
-    return `Đến hạn hôm nay ${hh}:00 (giờ VN) — sẽ chạy khi cron rảnh (mỗi giờ).`;
+  const now = Date.now();
+  if (
+    scheduleStatus.dueAtToday != null &&
+    now >= scheduleStatus.dueAtToday &&
+    scheduleStatus.nextAt === scheduleStatus.dueAtToday
+  ) {
+    return `Đến giờ ${hh}:00 hôm nay (giờ VN) — cron sẽ chạy trong khung giờ này.`;
   }
-  return `Lần chạy tiếp theo: ${
-    scheduleStatus.nextAt ? new Date(scheduleStatus.nextAt).toLocaleString('vi-VN') : `${hh}:00 hôm nay`
-  } (giờ VN).`;
+  return `Lần chạy tiếp theo: ${nextLabel} (giờ VN).`;
 })();
 const RETENTION_OPTIONS = [7, 14, 30, 60, 90];
 const retentionChoices = RETENTION_OPTIONS.includes(settings.retentionCount)
@@ -678,7 +676,7 @@ const retentionChoices = RETENTION_OPTIONS.includes(settings.retentionCount)
         <input type="checkbox" name="scheduleEnabled" value="1" checked={settings.scheduleEnabled} />
         <span>Tự động backup full mỗi ngày</span>
       </label>
-      <p class="seo-hint">Chạy một lần mỗi ngày theo giờ Việt Nam (UTC+7).</p>
+      <p class="seo-hint">Chạy đúng một lần mỗi ngày vào giờ đã chọn (giờ Việt Nam UTC+7). Bật lịch giữa ngày không tạo bản bù — chờ tới giờ hôm sau.</p>
 
       <div class="mt-4">
         <span class="mb-1 block font-semibold" id="backup-hour-label">Giờ chạy (giờ Việt Nam)</span>

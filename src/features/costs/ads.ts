@@ -70,6 +70,13 @@ export async function adTotals(db: AppDb, now: number, days: number): Promise<{ 
   return { current: adSpendFor(recentDayKeys(now, days), rows), previous: adSpendFor(recentDayKeys(now, days, days), rows) };
 }
 
+/** Tổng ads theo danh sách ngày lịch VN (YYYY-MM-DD). */
+export async function adSpendForDays(db: AppDb, days: readonly string[]): Promise<number> {
+  if (days.length === 0) return 0;
+  const rows = await loadAllRows(db);
+  return adSpendFor(days, rows);
+}
+
 export async function listAdSpend(db: AppDb): Promise<AdRow[]> {
   const rows = await db
     .select({ id: adSpend.id, kind: adSpend.kind, day: adSpend.day, amount: adSpend.amount })
